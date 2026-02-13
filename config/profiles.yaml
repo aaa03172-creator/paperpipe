@@ -1,0 +1,24 @@
+profiles:
+  - id: mechanism
+    title: Mechanism of Action (Neuro)
+    enabled: true
+    schedule: daily
+    limits:
+      max_results_per_run: 20
+      date_window_days: 365
+    query:
+      must:
+        - microglia
+        - neuroinflammation
+      should:
+        - ASM
+        - acid sphingomyelinase
+        - sphingolipid
+        - ceramide
+        - autophagy
+        - lysosome
+      must_not:
+        - cancer
+        - carcinoma
+    notes: "Main research interest: ASM/Microglia interaction"
+defaults: {}
