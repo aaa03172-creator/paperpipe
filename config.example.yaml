@@ -1,0 +1,51 @@
+system:
+  backfill_limit_days: 3
+  log_level: "INFO"
+
+paths:
+  # [USER MUST UPDATE THESE PATHS]
+  zotero_base_dir: "/path/to/Zotero/Papers"
+  obsidian_vault: "/path/to/Obsidian/MyVault"
+  index_all: "00_Index/paper_collection.csv"
+  index_clinical: "00_Index/mct_mci_trials.csv"
+  upload_dir: "/path/to/NotebookLM_Upload"
+  export_dir: "export"
+
+search:
+  constraints:
+    min_pubmed: 2
+    max_preprint: 1
+
+  slots:
+    mechanism:
+      query: '(ASM OR "acid sphingomyelinase" OR sphingolipid OR ceramide OR autophagy OR lysosome) AND (microglia OR HMGB1 OR neuroinflammation)'
+      source: "pubmed"
+    clinical:
+      query: '(MCI OR "Mild Cognitive Impairment") AND (MCT OR "Medium-chain triglyceride" OR ketone OR "ketogenic diet")'
+      source: "pubmed"
+    methods:
+      query: '"Cre-ER" OR "Cre-loxP" OR tamoxifen OR genotyping OR "recombination efficiency"'
+      source: "pubmed"
+
+llm:
+  provider: "openai"
+  # API Key should be set in environment variable OPENAI_API_KEY
+  api_key: "" 
+  
+  default_model: "gpt-4o-mini"
+  
+  features:
+    trial_extraction:
+      enabled: true
+      model: "gpt-4o-mini"
+    
+    slot_classification:
+      enabled: true
+      model: "gpt-4o-mini"
+      
+    one_liner:
+      enabled: true
+      model: "gpt-4o-mini"
+      
+  timeout_seconds: 120
+  max_retries: 2

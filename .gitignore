@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+.installed.cfg
+*.egg
+*.egg-info/
+.toast
+
+# Virtual Env
+venv/
+env/
+ENV/
+.env
+
+# MacOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# PaperPipe Specifics
+config.yaml
+state.db
+logs/
+*.log
+export/
+Inbox/
+NotebookLM_Upload/
+tests/temp_vault/
+tests/mock_downloads/
+tests/mock_notebooklm_upload/
+
+# User Data
+brain/
+.gemini/
