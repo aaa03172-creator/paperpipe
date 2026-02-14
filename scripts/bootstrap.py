@@ -69,7 +69,7 @@ async def run_student_job(paper_id: str) -> Dict[str, Any]:
 
     # Poll for completion (Simple polling for bootstrapping script)
     # in production we might use SSE, but here polling status/artifacts is easier
-    max_retries = 60
+    max_retries = 300  # Increased to 10 minutes (was 60/2min)
     for i in range(max_retries):
         await asyncio.sleep(2)
         # Check if artifacts exist

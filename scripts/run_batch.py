@@ -58,6 +58,37 @@ async def run_batch():
     
     logger.info(f"📚 Found {len(papers_to_process)} unique papers in Zotero export.")
 
+    # 1.5 Prepare Library (Symlink PDFs)
+    logger.info("🔗 Symlinking PDFs from Zotero storage...")
+    linked_count = 0
+    library_dir = Path("Library")
+    library_dir.mkdir(exist_ok=True)
+    
+    for item in items:
+        pid = item.get("citationKey")
+        if not pid: continue
+        
+        # Find PDF attachment
+        pdf_source = None
+        for att in item.get("attachments", []):
+            if att.get("path") and att["path"].lower().endswith(".pdf"):
+                pdf_source = Path(att["path"])
+                break
+                
+        if pdf_source and pdf_source.exists():
+            target_link = library_dir / f"{pid}.pdf"
+            try:
+                if target_link.exists() or target_link.is_symlink():
+                    target_link.unlink()
+                target_link.symlink_to(pdf_source)
+                linked_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to symlink {pdf_source}: {e}")
+        elif pdf_source:
+             logger.warning(f"Source PDF not found on disk: {pdf_source}")
+
+    logger.info(f"✅ Linked {linked_count} PDFs to {library_dir}")
+
     # 2. Filter Processed
     feedback_path = Path("storage/feedback.jsonl")
     processed_ids = set()

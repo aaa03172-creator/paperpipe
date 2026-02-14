@@ -41,6 +41,15 @@ state.db
 logs/
 *.log
 export/
+storage/artifacts/
+storage/rag/
+storage/sandbox/
+storage/*.json
+storage/*.jsonl
+storage/*.db
+Library/
+*.zip
+
 Inbox/
 NotebookLM_Upload/
 tests/temp_vault/
