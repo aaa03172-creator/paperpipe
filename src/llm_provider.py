@@ -58,6 +58,47 @@ class LLMProvider:
     def get_embedding(self, text: str) -> Optional[List[float]]:
         raise NotImplementedError
 
+    def _extract_json(self, response_content: str) -> Optional[Dict[str, Any]]:
+        """
+        Robustly extract JSON from LLM response.
+        Handles Markdown code blocks and conversational filler.
+        """
+        if not response_content:
+            return None
+
+        try:
+            # 1. Try straightforward parse
+            return json.loads(response_content)
+        except json.JSONDecodeError:
+            pass
+
+        # 2. Extract from Markdown code blocks
+        clean_content = response_content
+        if "```json" in response_content:
+            try:
+                clean_content = response_content.split("```json")[1].split("```")[0].strip()
+                return json.loads(clean_content)
+            except (IndexError, json.JSONDecodeError):
+                pass
+        elif "```" in response_content:
+             try:
+                clean_content = response_content.split("```")[1].split("```")[0].strip()
+                return json.loads(clean_content)
+             except (IndexError, json.JSONDecodeError):
+                pass
+        
+        # 3. Regex Fallback (Find outermost {})
+        # This matches { ... } including newlines/nested structures if possible
+        json_match = re.search(r'(\{.*\})', response_content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+        logger.warning(f"Failed to extract JSON from content: {response_content[:100]}...")
+        return None
+
     def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[TrialExtraction]:
         """임상시험 논문에서 Pydantic 모델을 사용하여 구조화된 데이터를 추출하고 검증합니다."""
         
@@ -103,8 +144,11 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
                 return None
 
             try:
-                # [Modified] Parse JSON first, inject metadata, then validate
-                data = json.loads(response_content)
+                # [Modified] Parse using robust extractor
+                data = self._extract_json(response_content)
+                if not data:
+                    logger.warning(f"Attempt {i+1}: Failed to extract JSON from response.")
+                    continue
                 
                 # Ensure metadata (Robustness)
                 if not data.get('paper_id'):
@@ -124,12 +168,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
                 validated_data = TrialExtraction(**data)
                 logger.info("Successfully parsed and validated trial extraction data.")
                 return validated_data
-            except json.JSONDecodeError:
-                logger.warning(f"Attempt {i+1}: Failed to parse JSON. Retrying with a corrective prompt.")
-                # For Ollama, we might not need to retry with a corrective prompt if schema was passed.
-                # For OpenAI, a corrective prompt might help if it ignored response_format.
-                # For now, just log and retry.
-            except ValidationError as e:
+            except Exception as e:
                 logger.error(f"Schema validation failed for LLM response: {e}")
                 # 유효성 검사 실패 시 재시도 없이 종료 (프롬프트 자체의 문제일 수 있음)
                 return None
@@ -235,12 +274,13 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         if response_content:
             try:
-                data = json.loads(response_content)
-                predicted = data.get("predicted_slot")
-                if predicted in ["Mechanism", "Clinical", "Methods"]:
-                    logger.info(f"   🤖 Slot Verified: {current_slot} -> {predicted}")
-                    return predicted
-            except json.JSONDecodeError:
+                data = self._extract_json(response_content)
+                if data:
+                    predicted = data.get("predicted_slot")
+                    if predicted in ["Mechanism", "Clinical", "Methods"]:
+                        logger.info(f"   🤖 Slot Verified: {current_slot} -> {predicted}")
+                        return predicted
+            except Exception:
                 pass
         
         logger.warning("   ⚠️ Classification verification failed. Keeping original slot.")
@@ -325,21 +365,16 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         if response_content:
             try:
-                # Manual Cleanup for Markdown Fences
-                clean_content = response_content.strip()
-                if "```json" in clean_content:
-                    clean_content = clean_content.split("```json")[1].split("```")[0].strip()
-                elif "```" in clean_content:
-                    clean_content = clean_content.split("```")[1].split("```")[0].strip()
-                
-                data = json.loads(clean_content)
-                # Validation
-                tagging_result = PaperTagging(**data)
-                return tagging_result.model_dump()
+                data = self._extract_json(response_content)
+                if data:
+                     # Validation
+                    tagging_result = PaperTagging(**data)
+                    return tagging_result.model_dump()
+                else: 
+                     logger.warning("Extracted JSON was None/Empty")
             except Exception as e:
-                logger.error(f"Error parsing tagging result: {e}. Content: {clean_content[:100]}...")
+                logger.error(f"Error parsing tagging result: {e}. Content: {response_content[:100]}...")
                 return None
-                logger.error(f"Error parsing tagging result: {e}")
         
         return None
 
@@ -373,13 +408,14 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         if response_content:
             try:
-                data = json.loads(response_content)
-                return {
-                    "approved": data.get("approved", False),
-                    "new_confidence": data.get("new_confidence", 0.0),
-                    "reason": data.get("reason", "No reason provided")
-                }
-            except json.JSONDecodeError:
+                data = self._extract_json(response_content)
+                if data:
+                    return {
+                        "approved": data.get("approved", False),
+                        "new_confidence": data.get("new_confidence", 0.0),
+                        "reason": data.get("reason", "No reason provided")
+                    }
+            except Exception:
                 logger.warning("Failed to parse Escalation Judge response.")
         
         return {"approved": False, "reason": "Judge Error"}
@@ -414,13 +450,14 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         if response_content:
             try:
-                data = json.loads(response_content)
-                return {
-                    "gap": data.get("gap", "N/A"),
-                    "insight": data.get("insight", "N/A"),
-                    "limitation": data.get("limitation", "N/A")
-                }
-            except json.JSONDecodeError:
+                data = self._extract_json(response_content)
+                if data:
+                    return {
+                        "gap": data.get("gap", "N/A"),
+                        "insight": data.get("insight", "N/A"),
+                        "limitation": data.get("limitation", "N/A")
+                    }
+            except Exception:
                 logger.warning("Failed to parse Relevance Analysis response.")
         
         return None
