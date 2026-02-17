@@ -264,20 +264,117 @@ class PaperProcessor:
         pid = row['paper_id']
         logger.info(f"   [Step 4: Finalize] {pid}")
         
-        # Placeholder for Embeddings / Vector DB
-        
-        # Also create Obsidian Note?
-        feedback_json = row['feedback_json']
-        if feedback_json:
+        # Parse feedback_json
+        feedback_str = row.get('feedback_json')
+        analysis_data = {}
+        if feedback_str:
             try:
-                data = json.loads(feedback_json)
-                # Construct result_dict for Obsidian (Mock)
-                logger.info("      -> Prepared for Obsidian (Mock)")
+                analysis_data = json.loads(feedback_str)
             except Exception as e:
-                logger.warning(f"      -> Failed to parse feedback_json for Obsidian: {e}")
+                logger.warning(f"Failed to parse feedback_json for {pid}: {e}")
+        
+        # Construct Paper dict for Obsidian Exporter
+        paper_obj = {
+            "paper_id": pid,
+            "title": row.get('title', 'Unknown'),
+            "summary": row.get('summary', ''),
+            "pdf_path": row.get('pdf_path'),
+            "processing_status": row.get('status'),
+            
+            # Fields that might be missing in DB but needed by Exporter
+            # We map defaults or try to extract from analysis if possible
+            "link": row.get('url', ''), 
+            "doi": row.get('doi', pid),
+            "source": row.get('source', 'PaperPipe'),
+            
+            # Analysis Data
+            "tags": analysis_data.get("soft_tags", []),
+            "slot": analysis_data.get("predicted_slot", "Paper"), # Default to 'Paper'
+            "ai_one_liner": analysis_data.get("one_liner"),
+            "ai_summary": analysis_data.get("deep_read"),
+            "ai_mode": "deep_read" if analysis_data.get("deep_read") else "simple",
+            "hybrid_tags": analysis_data,
+            "relevance_analysis": analysis_data.get("relevance_analysis"),
+            "trial_data": analysis_data.get("trial_data"),
+        }
+        
+        try:
+            save_paper_to_obsidian(paper_obj, self.config)
+            
+            # Update Status
+            update_paper_status(pid, STATE_INDEXED)
+            logger.info(f"      -> Indexed to Obsidian.")
+        except Exception as e:
+             logger.error(f"Failed to save to Obsidian: {e}")
+             raise e
 
-        update_paper_status(pid, STATE_INDEXED)
-        logger.info("      -> Status: INDEXED")
+
+    def process_single_paper(self, paper_id: str, on_progress: Optional[Any] = None) -> bool:
+        """
+        Process a single paper through the full lifecycle (Fetch -> Analyze -> Gate -> Index).
+        Used by the Worker for individual jobs.
+        Returns True if successful, False otherwise.
+        """
+        logger.info(f"🔄 Processing Single Paper: {paper_id}")
+        
+        try:
+            # 1. Fetch Paper Data
+            from src.db_utils import get_db_connection
+            conn_db = get_db_connection()
+            row = conn_db.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+            conn_db.close()
+            
+            if not row:
+                raise ValueError(f"Paper {paper_id} not found in DB")
+            
+            paper_data = dict(row)
+            
+            # --- Stage 1: Fetch ---
+            if on_progress: on_progress(10, "Fetching PDF")
+            self._step_fetch(paper_data)
+            
+            # Refresh data
+            conn_db = get_db_connection()
+            paper_data = dict(conn_db.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone())
+            conn_db.close()
+
+            if paper_data['status'] == STATE_PDF_MISSING:
+                 raise RuntimeError("PDF Missing - Cannot proceed")
+
+            # --- Stage 2: Analyze ---
+            if on_progress: on_progress(30, "Analyzing Content")
+            self._step_analyze(paper_data)
+            
+            # Refresh data
+            conn_db = get_db_connection()
+            paper_data = dict(conn_db.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone())
+            conn_db.close()
+
+            # --- Stage 3: Gate ---
+            if on_progress: on_progress(70, "Gating Decision")
+            self._step_gate(paper_data)
+            
+            # Refresh data
+            conn_db = get_db_connection()
+            paper_data = dict(conn_db.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone())
+            conn_db.close()
+
+            # --- Stage 4: Finalize ---
+            if paper_data['status'] == STATE_APPROVED:
+                if on_progress: on_progress(90, "Finalizing / Indexing")
+                self._step_finalize(paper_data)
+            
+            if on_progress: on_progress(100, "Done")
+            return True
+
+        except InterruptedError:
+            logger.info(f"🛑 Processing interrupted for paper {paper_id}")
+            raise
+
+        except Exception as e:
+            logger.error(f"❌ Failed to process paper {paper_id}: {e}", exc_info=True)
+            update_paper_status(paper_id, STATE_FAILED, {"feedback_json": json.dumps({"error": str(e)})})
+            raise e
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaperPipe Processor")

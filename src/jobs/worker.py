@@ -10,10 +10,23 @@ from src.jobs.queue import JobQueue
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("Worker")
 
+
+def _default_processor_factory():
+    # Lazy import to keep worker unit tests decoupled from heavy runtime deps.
+    from src.processor import PaperProcessor
+
+    return PaperProcessor()
+
+
 class Worker:
-    def __init__(self):
-        self.queue = JobQueue()
+    def __init__(self, queue: JobQueue | None = None, processor=None, processor_factory=None):
+        self.queue = queue or JobQueue()
         self.running = True
+        if processor is not None:
+            self.processor = processor
+        else:
+            factory = processor_factory or _default_processor_factory
+            self.processor = factory()
         
     def start(self):
         logger.info("👷 Worker started. Polling for jobs...")
@@ -39,42 +52,48 @@ class Worker:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{job.job_id}.jsonl"
         
-        # Placeholder processing logic for MVP verification
-        try:
-            # Update log path
-            self.queue.update_job(job.job_id, {"log_path": str(log_file)})
-            
-            # Simulate steps
-            steps = ["Initializing", "Parsing PDF", "Generating Summary", "Gatekeeper Check", "Finalizing"]
-            total_steps = len(steps)
-            
-            for i, step in enumerate(steps):
-                # Check for cancellation
-                current_job_state = self.queue.get_job(job.job_id)
-                if current_job_state.status == 'cancelled':
-                    logger.info(f"🛑 Job {job.job_id} cancelled.")
-                    return
+        # Update log path tracking
+        self.queue.update_job(job.job_id, {"log_path": str(log_file)})
 
-                # Log step
-                msg = f"Step {i+1}/{total_steps}: {step}"
-                logger.info(msg)
-                with open(log_file, "a") as f:
-                    f.write(json.dumps({"ts": time.time(), "level": "INFO", "msg": msg}) + "\n")
+        def on_progress(p: int, stage: str):
+            """Callback from Processor to update Job UI"""
+            # Check cancellation first
+            current_job = self.queue.get_job(job.job_id)
+            if current_job and current_job.status == 'cancelled':
+                raise InterruptedError("Job Cancelled")
                 
-                # Update progress
-                progress = int(((i + 1) / total_steps) * 100)
-                self.queue.update_job(job.job_id, {"progress": progress, "stage": step})
-                
-                time.sleep(1) # Simulate work
-                
-            # Finish
+            # Log
+            msg = f"[{p}%] {stage}"
+            logger.info(f"Job {job.job_id}: {msg}")
+            with open(log_file, "a") as f:
+                f.write(json.dumps({"ts": time.time(), "level": "INFO", "msg": msg}) + "\n")
+            
+            # Update DB
+            self.queue.update_job(job.job_id, {"progress": p, "stage": stage})
+
+        try:
+            self.queue.update_job(job.job_id, {"status": "running", "started_at": datetime.now(timezone.utc).isoformat()})
+            
+            # --- CORE LOGIC EXECUTION ---
+            success = self.processor.process_single_paper(job.paper_id, on_progress=on_progress)
+            
+            if success:
+                self.queue.update_job(job.job_id, {
+                    "status": "completed", 
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "progress": 100,
+                    "stage": "Done"
+                })
+                logger.info(f"✅ Job {job.job_id} completed successfully.")
+            else:
+                 raise RuntimeError("Processor returned False")
+
+        except InterruptedError:
+            logger.info(f"🛑 Job {job.job_id} cancelled during processing.")
             self.queue.update_job(job.job_id, {
-                "status": "completed", 
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "progress": 100,
-                "stage": "Done"
+                "status": "cancelled",
+                "finished_at": datetime.now(timezone.utc).isoformat()
             })
-            logger.info(f"✅ Job {job.job_id} completed.")
             
         except Exception as e:
             logger.error(f"Job failed: {e}")
