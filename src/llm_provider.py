@@ -3,7 +3,6 @@ from typing import Dict, Any, Optional, List
 from openai import OpenAI, APITimeoutError, RateLimitError, APIStatusError
 import json
 import time
-import re
 import numpy as np
 import ollama
 
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 
 from src.config import LLMConfig, LocalLLMConfig, CloudLLMConfig
 from src.schemas import TrialExtraction, PaperTagging
+from src.json_repair import repair_and_parse_json
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -60,43 +60,15 @@ class LLMProvider:
 
     def _extract_json(self, response_content: str) -> Optional[Dict[str, Any]]:
         """
-        Robustly extract JSON from LLM response.
-        Handles Markdown code blocks and conversational filler.
+        Robustly extract/repair JSON from LLM response.
         """
         if not response_content:
             return None
 
         try:
-            # 1. Try straightforward parse
-            return json.loads(response_content)
-        except json.JSONDecodeError:
-            pass
-
-        # 2. Extract from Markdown code blocks
-        clean_content = response_content
-        if "```json" in response_content:
-            try:
-                clean_content = response_content.split("```json")[1].split("```")[0].strip()
-                return json.loads(clean_content)
-            except (IndexError, json.JSONDecodeError):
-                pass
-        elif "```" in response_content:
-             try:
-                clean_content = response_content.split("```")[1].split("```")[0].strip()
-                return json.loads(clean_content)
-             except (IndexError, json.JSONDecodeError):
-                pass
-        
-        # 3. Regex Fallback (Find outermost {})
-        # This matches { ... } including newlines/nested structures if possible
-        json_match = re.search(r'(\{.*\})', response_content, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass
-        
-        logger.warning(f"Failed to extract JSON from content: {response_content[:100]}...")
+            return repair_and_parse_json(response_content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to extract JSON from content: {response_content[:100]}... ({e})")
         return None
 
     def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[TrialExtraction]:
@@ -359,6 +331,12 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         - Title: {paper.get('title', 'N/A')}
         - Abstract: {paper.get('summary', 'N/A')}
         """
+        
+        # [NEW] Append Full Text Snippet if available
+        full_text = paper.get('full_text')
+        if full_text:
+            snippet = full_text[:20000] # Limit to 20k chars context window
+            user_prompt += f"\n- Full Text Content (First 20k chars):\n{snippet}\n"
         
         # Use System Prompt + User Prompt. Disable JSON mode.
         response_content = self._make_request("tagging", user_prompt, is_json=False, schema=None, system_prompt=system_prompt)
