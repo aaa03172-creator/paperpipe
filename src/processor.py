@@ -7,20 +7,28 @@ import json
 import argparse
 
 from src.config import load_config, AppConfig
-from src.llm_provider import get_llm_provider, LLMProvider
 from src.gates import GateEngine
 from src.schemas.gates import GateDecision
 from src.db_utils import (
     sync_zotero_to_db, 
     get_papers_by_status, 
     update_paper_status,
+    get_db_connection,
     DB_PATH
 )
 from src.schemas import Paper, PaperStatus, PaperTagging
+from src.exporter import export_to_ris
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
 
+
 logger = logging.getLogger(__name__)
+
+
+def _get_llm_provider(config: AppConfig):
+    from src.llm_provider import get_llm_provider
+
+    return get_llm_provider(config.llm, config.entity_aliases)
 
 # --- State Constants ---
 STATE_NEW = "NEW"
@@ -42,7 +50,8 @@ def last_consecutive_failures(current_streak, success_count, failure_count):
 class PaperProcessor:
     def __init__(self):
         self.config = load_config()
-        self.llm_provider = get_llm_provider(self.config.llm, self.config.entity_aliases)
+        # Lazy provider hook (mock-friendly in tests).
+        self.llm_provider = _get_llm_provider(self.config)
         self.gate_engine = GateEngine(
             high_threshold=self.config.confidence_thresholds.high,
             low_threshold=self.config.confidence_thresholds.low,
@@ -301,6 +310,10 @@ class PaperProcessor:
         try:
             save_paper_to_obsidian(paper_obj, self.config)
             
+            # [NEW] Export to Zotero RIS
+            if self.config.paths.export_dir:
+                export_to_ris(paper_obj, self.config.paths.export_dir)
+            
             # Update Status
             update_paper_status(pid, STATE_INDEXED)
             logger.info(f"      -> Indexed to Obsidian.")
@@ -384,3 +397,45 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     processor = PaperProcessor()
     processor.run(batch_size=args.batch_size)
+
+def process_local_pdf(pdf_path: Path):
+    """
+    Standalone entry point for Watcher/CLI to process a local PDF.
+    Wraps PaperProcessor.process_single_paper for backward compatibility.
+    """
+    logger.info(f"📄 Processing Local PDF: {pdf_path}")
+    
+    if not pdf_path.exists():
+        logger.error(f"❌ File not found: {pdf_path}")
+        return
+
+    # 1. Extract Metadata using utils
+    from src.utils import create_paper_from_pdf
+    paper = create_paper_from_pdf(pdf_path)
+    
+    # 2. Insert into DB (State: NEW -> FETCHED directly since we have the PDF)
+    from src.db_utils import get_db_connection
+    conn = get_db_connection()
+    try:
+        # Check if exists
+        exists = conn.execute("SELECT 1 FROM papers WHERE paper_id = ?", (paper.id,)).fetchone()
+        if not exists:
+            conn.execute("""
+                INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (paper.id, paper.title, paper.summary, STATE_FETCHED, str(pdf_path)))
+            conn.commit()
+            logger.info(f"   -> Inserted new paper: {paper.id}")
+        else:
+             logger.info(f"   -> Paper {paper.id} already exists. Re-processing.")
+             
+    except Exception as e:
+        logger.error(f"Failed to insert local PDF: {e}")
+        conn.close()
+        return
+    finally:
+        conn.close()
+        
+    # 3. Trigger Processing
+    processor = PaperProcessor()
+    processor.process_single_paper(paper.id)
