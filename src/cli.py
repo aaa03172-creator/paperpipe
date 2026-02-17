@@ -282,6 +282,41 @@ def clear_logs():
     open("logs/paperpipe.log", "w").close()
     console.print("✅ Logs cleared.")
 
+
+@app.command()
+def reconcile(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Apply updates. Default is dry-run (no DB writes).",
+    )
+):
+    """
+    Reconcile paper statuses from approved decisions.
+    """
+    from src.db_utils import reconcile_approved_decisions
+
+    dry_run = not apply
+    result = reconcile_approved_decisions(dry_run=dry_run)
+
+    mode = "DRY-RUN" if dry_run else "APPLY"
+    console.print(f"[bold cyan]🔧 Reconcile Mode: {mode}[/bold cyan]")
+    console.print(f"   - Candidates: {result['candidate_count']}")
+    console.print(f"   - Updated: {result['updated_count']}")
+
+    if not result["candidates"]:
+        console.print("[green]✅ No reconciliation needed.[/green]")
+        return
+
+    for item in result["candidates"]:
+        console.print(
+            f" - {item['paper_id']}: {item['old_status']} -> APPROVED "
+            f"(source={item['source']})"
+        )
+
+    if dry_run:
+        console.print("[yellow]ℹ️ Re-run with --apply to persist changes.[/yellow]")
+
 @app.command()
 def reset():
     """[DANGER] Reset DB, Logs, and Obsidian Data."""
@@ -773,6 +808,26 @@ ANSWER:
         console.print(f"[bold red]❌ Error: {e}[/bold red]")
         import traceback
         traceback.print_exc()
+
+# 7. Export Manager (Phase 2)
+@app.command()
+def export(
+    overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing files in Obsidian"),
+):
+    """
+    [Phase 2] Export APPROVED/INDEXED papers to Obsidian Vault.
+    Generates Markdown files with Frontmatter and Analysis.
+    """
+    from src.exporter import run_export
+    
+    console.print(f"[bold cyan]📤 Starting Export to Obsidian...[/bold cyan]")
+    if overwrite:
+        console.print("[yellow]⚠️  Overwrite Mode: ON[/yellow]")
+        
+    run_export(overwrite=overwrite)
+    
+    console.print("[bold green]✅ Export Complete.[/bold green]")
+
 
 # 8. Profile Management (Milestone 4)
 @app.command(name="profiles")

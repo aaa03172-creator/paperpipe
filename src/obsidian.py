@@ -22,7 +22,7 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
         return "\n> [!danger] Low Confidence - Quarantined\n> This paper has been flagged for low confidence and isolated.\n"
     elif status_str == PaperStatus.PENDING_REVIEW:
         return "\n> [!warning] Requires Human Review\n> Confidence score is in the intermediate range.\n"
-    elif status_str == PaperStatus.AUTO_APPROVED:
+    elif status_str == PaperStatus.APPROVED:
         # [NEW] Escalation indicator
         if paper.get('is_escalated'):
             reason = paper.get('escalation_reason', 'Judge Approved')
