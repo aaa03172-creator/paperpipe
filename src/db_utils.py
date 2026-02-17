@@ -9,7 +9,55 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = Path("storage/state.db")
 
+def init_db():
+    """Initialize database tables."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Papers Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS papers (
+            paper_id TEXT PRIMARY KEY,
+            title TEXT,
+            summary TEXT,
+            status TEXT DEFAULT 'NEW',
+            pdf_path TEXT,
+            gate_decision TEXT,
+            gate_reason TEXT,
+            feedback_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Jobs Table (Phase 3)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY,
+            run_id TEXT,
+            paper_id TEXT,
+            status TEXT DEFAULT 'queued',
+            progress INTEGER DEFAULT 0,
+            stage TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            artifact_dir TEXT,
+            log_path TEXT,
+            error_code TEXT,
+            error_message TEXT
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+
 def get_db_connection():
+    # Helper to ensure tables exist on first connect (lightweight check)
+    if not DB_PATH.exists():
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        init_db()
+        
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
