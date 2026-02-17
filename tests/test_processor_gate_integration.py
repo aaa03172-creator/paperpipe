@@ -1,4 +1,18 @@
+import sys
+import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# Ensure `src` package is importable in direct pytest runs.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Keep this test independent from optional runtime deps (e.g., numpy/openai).
+stub_llm_provider = types.ModuleType("src.llm_provider")
+stub_llm_provider.get_llm_provider = lambda *args, **kwargs: None
+stub_llm_provider.LLMProvider = object
+sys.modules.setdefault("src.llm_provider", stub_llm_provider)
 
 from src.processor import (
     PaperProcessor,
