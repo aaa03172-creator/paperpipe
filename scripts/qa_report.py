@@ -38,7 +38,7 @@ def run_qa_check():
     missing_feedback = stats[2]
     
     print(f"[DB] Total Active Papers (APPROVED/INDEXED): {total}")
-    print(f"     (Definition: status='INDEXED' OR gate_decision='APPROVED')")
+    print(f"     (Definition: status IN ('APPROVED', 'INDEXED'))")
     print(f"[DB] Missing Summary: {missing_summary}")
     print(f"[DB] Missing Feedback JSON: {missing_feedback}")
     
@@ -50,7 +50,7 @@ def run_qa_check():
     print("-" * 30)
     
     # 1.5 FAILED Papers Report
-    cursor.execute("SELECT paper_id, title, gate_reason FROM papers WHERE status='FAILED' OR gate_decision='FAILED'")
+    cursor.execute("SELECT paper_id, title, gate_reason FROM papers WHERE status='FAILED'")
     failed_papers = cursor.fetchall()
     
     print(f"[DB] FAILED Papers (Excluded from Export): {len(failed_papers)}")
