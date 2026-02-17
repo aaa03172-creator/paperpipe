@@ -235,3 +235,45 @@ def run_export(overwrite: bool = True):
             count += 1
             
     logger.info(f"✅ Exported {count} papers to {vault_path}/Inbox/PaperPipe")
+
+def export_to_ris(paper: Dict[str, Any], export_dir: Path) -> Path:
+    """
+    Generate a simple .ris file for Zotero import (to avoid DB write).
+    """
+    if not export_dir.exists():
+        export_dir.mkdir(parents=True, exist_ok=True)
+        
+    pid = paper['paper_id']
+    title = paper.get('title', 'Unknown Title')
+    summary = paper.get('summary', '') or paper.get('abstract', '') 
+    pdf_path_str = paper.get("pdf_path")
+    
+    # Safe filename
+    safe_def = "".join([c for c in pid if c.isalnum() or c in (' ', '-', '_')]).strip()
+    if not safe_def: safe_def = "paper_export"
+    
+    ris_file = export_dir / f"{safe_def}.ris"
+    
+    lines = ["TY  - JOUR"]
+    lines.append(f"TI  - {title}")
+    
+    if summary:
+        # Collapse newlines to avoid RIS parsing issues
+        clean_summ = summary.replace("\n", " ").strip()
+        lines.append(f"AB  - {clean_summ}")
+        
+    if pdf_path_str:
+        p = Path(pdf_path_str).absolute()
+        lines.append(f"L1  - file://{p}")
+        
+    lines.append("ER  -")
+    lines.append("") # Final newline
+    
+    try:
+        with open(ris_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        logger.info(f"   -> Created RIS export: {ris_file.name}")
+        return ris_file
+    except Exception as e:
+        logger.error(f"Failed to create RIS for {pid}: {e}")
+        return None
