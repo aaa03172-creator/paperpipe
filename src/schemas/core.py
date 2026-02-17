@@ -12,14 +12,15 @@ from enum import Enum
 
 class PaperStatus(str, Enum):
     """
-    Confidence Action Gates status.
-    - AUTO_APPROVED: Confidence >= High threshold (Green)
-    - PENDING_REVIEW: Low <= Confidence < High (Amber)
-    - QUARANTINED: Confidence < Low (Red)
+    Canonical status terms shared across gate decisions and DB status.
     """
-    AUTO_APPROVED = "Auto-Approved"
-    PENDING_REVIEW = "Pending Review"
-    QUARANTINED = "Quarantined"
+    APPROVED = "APPROVED"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    QUARANTINED = "QUARANTINED"
+    FAILED = "FAILED"
+    INDEXED = "INDEXED"
+    # Backward-compatible alias used in legacy code/tests.
+    AUTO_APPROVED = "APPROVED"
 
 class ReadingStatus(str, Enum):
     """
@@ -66,6 +67,28 @@ class Paper(BaseModel):
     pdf_link: Optional[str] = Field(default=None, description="Direct PDF URL")
     full_text: Optional[str] = None
     local_pdf_path: Optional[Path] = None
+
+    @field_validator("processing_status", mode="before")
+    @classmethod
+    def normalize_processing_status(cls, v):
+        """Accept legacy labels and normalize to canonical enum values."""
+        if isinstance(v, PaperStatus):
+            return v
+        if isinstance(v, str):
+            key = v.strip().upper().replace("-", "_").replace(" ", "_")
+            legacy_map = {
+                "AUTO_APPROVED": "APPROVED",
+                "AUTOAPPROVED": "APPROVED",
+                "APPROVED": "APPROVED",
+                "PENDING_REVIEW": "PENDING_REVIEW",
+                "PENDING": "PENDING_REVIEW",
+                "QUARANTINED": "QUARANTINED",
+                "FAILED": "FAILED",
+                "INDEXED": "INDEXED",
+            }
+            if key in legacy_map:
+                return PaperStatus(legacy_map[key])
+        return v
 
 # --- Nested Models ---
 
