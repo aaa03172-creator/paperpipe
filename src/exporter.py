@@ -77,10 +77,13 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
         
     # Soft Tags
     for tag in soft_tags:
-        if tag.startswith("#"):
-            obsidian_tags.append(tag[1:]) # Remove # for Frontmatter list
+        if not tag or isinstance(tag, (dict, list)): 
+            continue
+        tag_str = str(tag)
+        if tag_str.startswith("#"):
+            obsidian_tags.append(tag_str[1:]) # Remove # for Frontmatter list
         else:
-            obsidian_tags.append(tag)
+            obsidian_tags.append(tag_str)
             
     # Verdict text
     verdict = "❓ Unknown"
