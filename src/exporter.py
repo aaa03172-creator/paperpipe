@@ -10,6 +10,38 @@ from src.db_utils import get_db_connection
 
 logger = logging.getLogger(__name__)
 
+def _build_zotero_links(paper: Dict[str, Any]) -> List[str]:
+    links: List[str] = []
+    zotero_key = (paper.get("zotero_key") or "").strip()
+    if not zotero_key:
+        return links
+
+    links.append(f"[Zotero Item](zotero://select/library/items/{zotero_key})")
+
+    page = paper.get("page")
+    if page is not None:
+        links.append(f"[Zotero PDF](zotero://open-pdf/library/items/{zotero_key}?page={page})")
+
+    return links
+
+def _build_pdf_links(paper: Dict[str, Any], vault_path: Path) -> List[str]:
+    links: List[str] = []
+    pdf_path_str = paper.get("pdf_path")
+    if not pdf_path_str:
+        return links
+
+    pdf_path = Path(pdf_path_str).expanduser()
+    if pdf_path.exists():
+        try:
+            rel = pdf_path.relative_to(vault_path)
+            links.append(f"[[{rel.as_posix()}]]")
+        except ValueError:
+            links.append(f"[Open PDF](file://{pdf_path.absolute()})")
+    else:
+        links.append(f"[Open PDF](file://{pdf_path.absolute()})")
+
+    return links
+
 def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite: bool = False) -> bool:
     """
     Exports a single paper to an Obsidian Markdown file.
@@ -82,19 +114,10 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
     else:
         findings_list = "* *No granular findings extracted.*"
 
-    # Links
-    # Local PDF
-    pdf_path_str = paper.get('pdf_path')
-    local_pdf_link = "No PDF"
-    if pdf_path_str:
-        p = Path(pdf_path_str)
-        # Obsidian accepts absolute paths or relative. 
-        # Usually file:///... for absolute.
-        local_pdf_link = f"[Open PDF](file://{p.absolute()})"
-        
-    # Zotero Link (Mocked or simple ID search)
-    # zotero://select/items/@{pid}
-    zotero_link = f"[Zotero Item](zotero://select/items/@{pid})"
+    links: List[str] = []
+    links.extend(_build_zotero_links(paper))
+    links.extend(_build_pdf_links(paper, vault_path))
+    references_block = "\n".join([f"* {link}" for link in links]) if links else "*No external links available.*"
 
     # Date
     today = datetime.now().strftime("%Y-%m-%d")
@@ -123,8 +146,7 @@ status: {paper['status']}
 {findings_list}
 
 ## 🔗 References
-* {local_pdf_link}
-* {zotero_link}
+{references_block}
 """
 
     # --- 3. Save File ---
@@ -140,9 +162,42 @@ status: {paper['status']}
     
     target_file = inbox_dir / f"{safe_filename}.md"
     
-    if target_file.exists() and not overwrite:
-        return False
-        
+    # [Smart Overwrite Logic]
+    # If overwrite=True, we always write.
+    # If overwrite=False, we check if DB is newer than File.
+    should_write = False
+    
+    if overwrite:
+        should_write = True
+    elif not target_file.exists():
+        should_write = True
+    else:
+        # File exists, check timestamps
+            # File exists, check timestamps
+        try:
+            file_mtime = target_file.stat().st_mtime
+            db_updated_str = paper.get('updated_at')
+            
+            if db_updated_str:
+                # DB format: YYYY-MM-DD HH:MM:SS.ssssss
+                # Simplified parsing: string comparison works for ISO-like if timezone matches (local).
+                # But let's be safe: convert to timestamp if possible or just use strict overwrite policy.
+                
+                # Option A: If DB string > File timestamp string? No, encoding differs.
+                # Option B: Parse DB string.
+                dt_db = datetime.fromisoformat(db_updated_str)
+                ts_db = dt_db.timestamp()
+                
+                if ts_db > file_mtime:
+                    should_write = True
+                    # logger.info(f"  -> Updating {pid} (DB newer)")
+        except Exception:
+            # If parsing fails, fall back to safe "don't overwrite unless flag set"
+            pass
+            
+    if not should_write and not overwrite:
+         return False
+
     with open(target_file, "w", encoding="utf-8") as f:
         f.write(content)
         
