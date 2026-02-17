@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class JobQueue:
     def __init__(self):
-        # Keep queue stateless; each method manages its own DB connection lifecycle.
+        # Database connection is handled per-method to avoid thread safety issues
         pass
 
     def enqueue(self, paper_id: str, clean_reindex: bool = False) -> str:

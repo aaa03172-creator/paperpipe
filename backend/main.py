@@ -10,6 +10,9 @@ from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus
 from .routers import obsidian, feedback
 
+# Ensure DB jobs table exists on startup
+init_db()
+
 app = FastAPI(title="PaperPipe API", version="3.1.0")
 
 app.add_middleware(
