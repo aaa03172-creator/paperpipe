@@ -1,0 +1,30 @@
+[FOR ANTIGRAVITY — PHASE 3.1 PARALLEL EXECUTION]
+
+Codex has prepared worker-wrapper groundwork.
+Please proceed with backend integration track in parallel.
+Reference: /Users/jangseongjin/paperpipe/docs/Phase31_Codex_Parallel_Plan.md
+
+Immediate implementation scope (your side):
+1) Persistent job queue (SQLite)
+- Add jobs table + job_events table
+- API: create/read/update job states
+
+2) `/jobs` API hardening
+- POST /jobs/deepread returns stable job payload (job_id/status/created_at)
+- GET /jobs/{id} returns persisted status/progress/error
+
+3) SSE with persistence
+- `/jobs/{id}/events` should stream from persisted events (not in-memory only)
+- Keep in-memory queue optional as short-lived optimization only
+
+4) Integrate Codex worker wrapper
+- Use `src.worker_runtime.run_processor_batch()` as processor execution boundary
+- Keep existing CLI behavior untouched
+
+Required checks before PR:
+- Existing tests pass
+- Add tests for job create/status/event retrieval paths
+- Demonstrate process restart tolerance for queued/running jobs (at minimum documented handling)
+
+After PR creation:
+- Request Codex review focusing on failure paths, idempotency, and event ordering.
