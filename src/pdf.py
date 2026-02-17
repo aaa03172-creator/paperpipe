@@ -13,6 +13,11 @@ def extract_text_from_pdf(pdf_path: Path, max_pages: int = 5) -> str:
         logger.warning(f"PDF not found at {pdf_path}")
         return ""
         
+    if pdf_path.stat().st_size == 0:
+        logger.warning(f"PDF is empty (0 bytes): {pdf_path}")
+        return ""
+
+        
     try:
         reader = pypdf.PdfReader(str(pdf_path))
         text = ""
