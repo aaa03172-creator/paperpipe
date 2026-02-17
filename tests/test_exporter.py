@@ -73,3 +73,23 @@ def test_exporter_omits_link_sections_when_values_missing(tmp_path):
     assert "zotero://select/library/items/" not in content
     assert "zotero://open-pdf/library/items/" not in content
     assert "file://" not in content
+
+
+def test_exporter_handles_malformed_tags(tmp_path):
+    paper = _sample_paper()
+    # Malformed soft_tags: dict, None, number, valid tag
+    paper["feedback_json"] = '{"hard_tags":{}, "soft_tags":[{"bad":1}, null, 123, "#Valid"]}'
+    
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
+    assert ok is True
+    
+    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    content = target.read_text(encoding="utf-8")
+    
+    # Should include "Valid"
+    assert "  - Valid" in content
+    # Should include "123" (converted to string)
+    assert "  - 123" in content
+    # Should NOT include dict or none
+    assert "bad" not in content
+    assert "None" not in content
