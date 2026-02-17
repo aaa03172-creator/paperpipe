@@ -33,7 +33,7 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         status = p.get('processing_status')
         
         # Status Counts
-        if status == PaperStatus.AUTO_APPROVED:
+        if status == PaperStatus.APPROVED:
             stats['auto_approved'] += 1
         elif status == PaperStatus.PENDING_REVIEW:
             stats['pending'] += 1
