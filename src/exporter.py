@@ -140,7 +140,30 @@ status: {paper['status']}
     
     target_file = inbox_dir / f"{safe_filename}.md"
     
-    if target_file.exists() and not overwrite:
+    should_write = False
+    if overwrite:
+        should_write = True
+    elif not target_file.exists():
+        should_write = True
+    else:
+        # Smart Overwrite: Check timestamps
+        try:
+            file_mtime = target_file.stat().st_mtime
+            db_updated_str = paper.get('updated_at')
+            
+            if db_updated_str:
+                dt_db = datetime.fromisoformat(db_updated_str)
+                ts_db = dt_db.timestamp()
+                
+                # DEBUG PRINT for test
+                # print(f"DEBUG: Paper ID={pid}, File mtime={file_mtime}, DB ts={ts_db}, Difference={ts_db - file_mtime}")
+                
+                if ts_db > file_mtime:
+                    should_write = True
+        except Exception:
+            pass
+
+    if not should_write:
         return False
         
     with open(target_file, "w", encoding="utf-8") as f:
@@ -176,7 +199,8 @@ def run_export(overwrite: bool = True):
     
     count = 0
     for p in papers:
-        if export_paper_to_markdown(p, vault_path, overwrite):
+        # Pass overwrite=overwrite to let function decide based on flag OR timestamp
+        if export_paper_to_markdown(p, vault_path, overwrite=overwrite):
             count += 1
             
     logger.info(f"✅ Exported {count} papers to {vault_path}/Inbox/PaperPipe")

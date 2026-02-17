@@ -803,13 +803,12 @@ ANSWER:
             result = adapter.generate(prompt)
             
         console.print(f"\n[bold]🤖 Answer:[/bold]\n{result.text}\n")
-        
     except Exception as e:
         console.print(f"[bold red]❌ Error: {e}[/bold red]")
         import traceback
         traceback.print_exc()
 
-# 7. Export Manager (Phase 2)
+# 7. Export Manager
 @app.command()
 def export(
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing files in Obsidian"),

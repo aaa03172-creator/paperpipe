@@ -29,13 +29,7 @@ def run_backfill(limit: int = 50):
     query = """
         SELECT * FROM papers 
         WHERE status IN ('APPROVED', 'INDEXED') 
-          AND (
-            feedback_json IS NULL 
-            OR feedback_json NOT LIKE '%soft_tags%'
-            OR summary IS NULL 
-            OR summary = ''
-            OR summary = 'Abstract not available.'
-          )
+        -- PROCESSING ALL to improve quality with new 25k context
         LIMIT ?
     """
     cursor.execute(query, (limit,))

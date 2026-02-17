@@ -15,6 +15,7 @@
       "autoExportPathReplaceSpace": " ",
       "automaticTags": true,
       "autoPinDelay": 0,
+      "autoPinOverwrite": false,
       "auxImport": false,
       "baseAttachmentPath": "",
       "biblatexExtendedDateFormat": true,
@@ -61,7 +62,6 @@
       "itemObserverDelay": 5,
       "jabrefFormat": 0,
       "japanese": false,
-      "keyConflictPolicy": "keep",
       "keyScope": "library",
       "language": "langid",
       "mapMath": "",
@@ -108,7 +108,7 @@
   },
   "version": {
     "zotero": "8.0.1",
-    "bbt": "7.0.76"
+    "bbt": "8.0.13"
   },
   "collections": {},
   "items": [
@@ -125,11 +125,12 @@
     },
     {
       "key": "UAZ6YDCW",
-      "version": 92,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Neuromodulation of Thought: Flexibilities and Vulnerabilities in Prefrontal Cortical Network Synapses",
       "date": "10/2012",
       "DOI": "10.1016/j.neuron.2012.08.038",
+      "citationKey": "arnstenNeuromodulationThoughtFlexibilities2012",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0896627312008045",
       "accessDate": "2026-02-12T16:22:31Z",
       "shortTitle": "Neuromodulation of Thought",
@@ -162,7 +163,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:31Z",
-      "dateModified": "2026-02-12T16:22:31Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/UAZ6YDCW",
       "itemID": 80,
       "attachments": [
@@ -179,18 +180,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "arnstenNeuromodulationThoughtFlexibilities2012",
       "itemKey": "UAZ6YDCW",
       "libraryID": 1,
       "select": "zotero://select/library/items/UAZ6YDCW"
     },
     {
       "key": "N82F28X9",
-      "version": 91,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Efficiency, capacity, compensation, maintenance, plasticity: emerging concepts in cognitive reserve",
       "date": "10/2013",
       "DOI": "10.1016/j.tics.2013.08.012",
+      "citationKey": "barulliEfficiencyCapacityCompensation2013",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1364661313002039",
       "accessDate": "2026-02-12T16:22:26Z",
       "shortTitle": "Efficiency, capacity, compensation, maintenance, plasticity",
@@ -217,7 +218,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:26Z",
-      "dateModified": "2026-02-12T16:22:26Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/N82F28X9",
       "itemID": 78,
       "attachments": [
@@ -234,18 +235,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "barulliEfficiencyCapacityCompensation2013",
       "itemKey": "N82F28X9",
       "libraryID": 1,
       "select": "zotero://select/library/items/N82F28X9"
     },
     {
       "key": "NG4HI8EV",
-      "version": 90,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Cognitive impairment in multiple sclerosis: clinical management, MRI, and therapeutic avenues",
       "date": "10/2020",
       "DOI": "10.1016/S1474-4422(20)30277-5",
+      "citationKey": "benedictCognitiveImpairmentMultiple2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442220302775",
       "accessDate": "2026-02-12T16:22:01Z",
       "shortTitle": "Cognitive impairment in multiple sclerosis",
@@ -282,7 +283,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:01Z",
-      "dateModified": "2026-02-12T16:22:01Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/NG4HI8EV",
       "itemID": 69,
       "attachments": [
@@ -299,18 +300,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "benedictCognitiveImpairmentMultiple2020",
       "itemKey": "NG4HI8EV",
       "libraryID": 1,
       "select": "zotero://select/library/items/NG4HI8EV"
     },
     {
       "key": "3I884QKZ",
-      "version": 91,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Bilingualism: consequences for mind and brain",
       "date": "4/2012",
       "DOI": "10.1016/j.tics.2012.03.001",
+      "citationKey": "bialystokBilingualismConsequencesMind2012",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1364661312000563",
       "accessDate": "2026-02-12T16:22:20Z",
       "shortTitle": "Bilingualism",
@@ -343,7 +344,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:20Z",
-      "dateModified": "2026-02-12T16:22:20Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/3I884QKZ",
       "itemID": 76,
       "attachments": [
@@ -360,19 +361,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "bialystokBilingualismConsequencesMind2012",
       "itemKey": "3I884QKZ",
       "libraryID": 1,
       "select": "zotero://select/library/items/3I884QKZ"
     },
     {
       "key": "Y35D2997",
-      "version": 85,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "The gut microbiome in Alzheimer’s disease: what we know and what remains to be explored",
       "abstractNote": "Abstract\n            Alzheimer’s disease (AD), the most common cause of dementia, results in a sustained decline in cognition. There are currently few effective disease modifying therapies for AD, but insights into the mechanisms that mediate the onset and progression of disease may lead to new, effective therapeutic strategies. Amyloid beta oligomers and plaques, tau aggregates, and neuroinflammation play a critical role in neurodegeneration and impact clinical AD progression. The upstream modulators of these pathological features have not been fully clarified, but recent evidence indicates that the gut microbiome (GMB) may have an influence on these features and therefore may influence AD progression in human patients. In this review, we summarize studies that have identified alterations in the GMB that correlate with pathophysiology in AD patients and AD mouse models. Additionally, we discuss findings with GMB manipulations in AD models and potential GMB-targeted therapeutics for AD. Lastly, we discuss diet, sleep, and exercise as potential modifiers of the relationship between the GMB and AD and conclude with future directions and recommendations for further studies of this topic.",
       "date": "2023-02-01",
       "DOI": "10.1186/s13024-023-00595-7",
+      "citationKey": "chandraGutMicrobiomeAlzheimers2023",
       "url": "https://molecularneurodegeneration.biomedcentral.com/articles/10.1186/s13024-023-00595-7",
       "accessDate": "2026-02-12T16:21:38Z",
       "shortTitle": "The gut microbiome in Alzheimer’s disease",
@@ -404,7 +405,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:38Z",
-      "dateModified": "2026-02-12T16:21:38Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/Y35D2997",
       "itemID": 60,
       "attachments": [
@@ -421,16 +422,16 @@
         }
       ],
       "notes": [],
-      "citationKey": "chandraGutMicrobiomeAlzheimers2023",
       "itemKey": "Y35D2997",
       "libraryID": 1,
       "select": "zotero://select/library/items/Y35D2997"
     },
     {
       "key": "G4A4TL42",
-      "version": 89,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Cognitive impairment in multiple sclerosis",
+      "citationKey": "chiaravallotiCognitiveImpairmentMultiple",
       "language": "en",
       "libraryCatalog": "Zotero",
       "creators": [
@@ -448,7 +449,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:51Z",
-      "dateModified": "2026-02-12T16:21:51Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/G4A4TL42",
       "itemID": 65,
       "attachments": [
@@ -465,19 +466,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "chiaravallotiCognitiveImpairmentMultiple",
       "itemKey": "G4A4TL42",
       "libraryID": 1,
       "select": "zotero://select/library/items/G4A4TL42"
     },
     {
       "key": "LM86DF7J",
-      "version": 75,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Microbiota-derived short chain fatty acids modulate microglia and promote Aβ plaque deposition",
       "abstractNote": "Previous studies have identified a crucial role of the gut microbiome in modifying Alzheimer’s disease (AD) progression. However, the mechanisms of microbiome–brain interaction in AD were so far unknown. Here, we identify microbiota-derived short chain fatty acids (SCFA) as microbial metabolites which promote Aβ deposition. Germ-free (GF) AD mice exhibit a substantially reduced Aβ plaque load and markedly reduced SCFA plasma concentrations; conversely, SCFA supplementation to GF AD mice increased the Aβ plaque load to levels of conventionally colonized (specific pathogen-free [SPF]) animals and SCFA supplementation to SPF mice even further exacerbated plaque load. This was accompanied by the pronounced alterations in microglial transcriptomic profile, including upregulation of ApoE. Despite increased microglial recruitment to Aβ plaques upon SCFA supplementation, microglia contained less intracellular Aβ. Taken together, our results demonstrate that microbiota-derived SCFA are critical mediators along the gut-brain axis which promote Aβ deposition likely via modulation of the microglial phenotype.",
       "date": "2021-04-13",
       "DOI": "10.7554/eLife.59826",
+      "citationKey": "colomboMicrobiotaderivedShortChain2021",
       "url": "https://elifesciences.org/articles/59826",
       "accessDate": "2026-02-12T16:21:27Z",
       "language": "en",
@@ -601,7 +602,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:27Z",
-      "dateModified": "2026-02-12T16:21:27Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/LM86DF7J",
       "itemID": 56,
       "attachments": [
@@ -618,18 +619,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "colomboMicrobiotaderivedShortChain2021",
       "itemKey": "LM86DF7J",
       "libraryID": 1,
       "select": "zotero://select/library/items/LM86DF7J"
     },
     {
       "key": "UHJ93BID",
-      "version": 100,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Targeting Prodromal Alzheimer Disease With Avagacestat: A Randomized Clinical Trial",
       "date": "2015-11-01",
       "DOI": "10.1001/jamaneurol.2015.0607",
+      "citationKey": "coricTargetingProdromalAlzheimer2015",
       "url": "http://archneur.jamanetwork.com/article.aspx?doi=10.1001/jamaneurol.2015.0607",
       "accessDate": "2026-02-12T16:23:08Z",
       "shortTitle": "Targeting Prodromal Alzheimer Disease With Avagacestat",
@@ -786,7 +787,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:08Z",
-      "dateModified": "2026-02-12T16:23:08Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/UHJ93BID",
       "itemID": 93,
       "attachments": [
@@ -803,18 +804,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "coricTargetingProdromalAlzheimer2015",
       "itemKey": "UHJ93BID",
       "libraryID": 1,
       "select": "zotero://select/library/items/UHJ93BID"
     },
     {
       "key": "8MWN9547",
-      "version": 99,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Safety, Efficacy, and Feasibility of Intranasal Insulin for the Treatment of Mild Cognitive Impairment and Alzheimer Disease Dementia: A Randomized Clinical Trial",
       "date": "2020-09-01",
       "DOI": "10.1001/jamaneurol.2020.1840",
+      "citationKey": "craftSafetyEfficacyFeasibility2020",
       "url": "https://jamanetwork.com/journals/jamaneurology/fullarticle/2767376",
       "accessDate": "2026-02-12T16:23:05Z",
       "shortTitle": "Safety, Efficacy, and Feasibility of Intranasal Insulin for the Treatment of Mild Cognitive Impairment and Alzheimer Disease Dementia",
@@ -891,7 +892,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:05Z",
-      "dateModified": "2026-02-12T16:23:05Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/8MWN9547",
       "itemID": 92,
       "attachments": [
@@ -908,18 +909,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "craftSafetyEfficacyFeasibility2020",
       "itemKey": "8MWN9547",
       "libraryID": 1,
       "select": "zotero://select/library/items/8MWN9547"
     },
     {
       "key": "L3YF4GXH",
-      "version": 103,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Mild cognitive impairment: prevalence, prognosis, aetiology, and treatment",
       "date": "01/2003",
       "DOI": "10.1016/S1474-4422(03)00262-X",
+      "citationKey": "decarliMildCognitiveImpairment2003",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S147444220300262X",
       "accessDate": "2026-02-12T16:23:30Z",
       "shortTitle": "Mild cognitive impairment",
@@ -942,7 +943,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:30Z",
-      "dateModified": "2026-02-12T16:23:30Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/L3YF4GXH",
       "itemID": 101,
       "attachments": [
@@ -959,19 +960,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "decarliMildCognitiveImpairment2003",
       "itemKey": "L3YF4GXH",
       "libraryID": 1,
       "select": "zotero://select/library/items/L3YF4GXH"
     },
     {
       "key": "7UNRCIZJ",
-      "version": 98,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Alzheimer Disease as a Clinical-Biological Construct—An International Working Group Recommendation",
       "abstractNote": "Importance\n              Since 2018, a movement has emerged to define Alzheimer disease (AD) as a purely biological entity based on biomarker findings. The recent revision of the Alzheimer’s Association (AA) criteria for AD furthers this direction. However, concerns about a purely biological definition of AD being applied clinically, the understanding of AD by society at large, and the translation of blood-based biomarkers into clinical practice prompt these International Working Group (IWG) updated recommendations.\n            \n            \n              Objective\n              To consider the revised AA criteria and to offer an alternative definitional view of AD as a clinical-biological construct for clinical use. The recommendations of the 2021 IWG diagnostic criteria are updated for further elaborating at-risk and presymptomatic states.\n            \n            \n              Evidence Review\n              PubMed was searched for articles published between July 1, 2020, and March 1, 2024, using the terms “biomarker” OR “amyloid” OR “tau” OR “neurodegeneration” OR “preclinical” OR “CSF” OR “PET” OR “plasma” AND “Alzheimer’s disease.” The references of relevant articles were also searched.\n            \n            \n              Findings\n              In the new AA diagnostic criteria, AD can be defined clinically as encompassing cognitively normal people having a core 1 AD biomarker. However, recent literature shows that the majority of biomarker-positive cognitively normal individuals will not become symptomatic along a proximate timeline. In the clinical setting, disclosing a diagnosis of AD to cognitively normal people with only core 1 AD biomarkers represents the most problematic implication of a purely biological definition of the disease.\n            \n            \n              Conclusions and Relevance\n              The ultimate aim of the field was to foster effective AD treatments, including preventing symptoms and dementia. The approach of diagnosing AD without a clinical and biological construct would be unwarranted and potentially concerning without a clear knowledge of when or whether symptoms will ever develop. It is recommended that those who are amyloid-positive only and, more generally, most biomarker-positive cognitively normal individuals, should not be labeled as having AD. Rather, they should be considered as being at risk for AD. The expansion of presymptomatic AD is viewed as a better diagnostic construct for those with a specific pattern of biomarkers, indicating that they are proximate to the expression of symptoms in the near future.",
       "date": "2024-12-01",
       "DOI": "10.1001/jamaneurol.2024.3770",
+      "citationKey": "duboisAlzheimerDiseaseClinicalBiological2024",
       "url": "https://jamanetwork.com/journals/jamaneurology/fullarticle/2825806",
       "accessDate": "2026-02-12T16:23:02Z",
       "language": "en",
@@ -1212,7 +1213,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:02Z",
-      "dateModified": "2026-02-12T16:23:02Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/7UNRCIZJ",
       "itemID": 91,
       "attachments": [
@@ -1229,18 +1230,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "duboisAlzheimerDiseaseClinicalBiological2024",
       "itemKey": "7UNRCIZJ",
       "libraryID": 1,
       "select": "zotero://select/library/items/7UNRCIZJ"
     },
     {
       "key": "U5RF4IJF",
-      "version": 90,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Amnestic MCI or prodromal Alzheimer's disease?",
       "date": "04/2004",
       "DOI": "10.1016/S1474-4422(04)00710-0",
+      "citationKey": "duboisAmnesticMCIProdromal2004",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442204007100",
       "accessDate": "2026-02-12T16:22:03Z",
       "language": "en",
@@ -1267,7 +1268,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:03Z",
-      "dateModified": "2026-02-12T16:22:03Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/U5RF4IJF",
       "itemID": 70,
       "attachments": [
@@ -1284,18 +1285,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "duboisAmnesticMCIProdromal2004",
       "itemKey": "U5RF4IJF",
       "libraryID": 1,
       "select": "zotero://select/library/items/U5RF4IJF"
     },
     {
       "key": "S5F9BA6B",
-      "version": 89,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Clinical diagnosis of Alzheimer's disease: recommendations of the International Working Group",
       "date": "06/2021",
       "DOI": "10.1016/S1474-4422(21)00066-1",
+      "citationKey": "duboisClinicalDiagnosisAlzheimers2021",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442221000661",
       "accessDate": "2026-02-12T16:21:55Z",
       "shortTitle": "Clinical diagnosis of Alzheimer's disease",
@@ -1412,7 +1413,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:55Z",
-      "dateModified": "2026-02-12T16:21:55Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/S5F9BA6B",
       "itemID": 67,
       "attachments": [
@@ -1429,19 +1430,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "duboisClinicalDiagnosisAlzheimers2021",
       "itemKey": "S5F9BA6B",
       "libraryID": 1,
       "select": "zotero://select/library/items/S5F9BA6B"
     },
     {
       "key": "EN6ZXUSV",
-      "version": 97,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Advances in Biomaterials for Drug Delivery",
       "abstractNote": "Abstract\n            Advances in biomaterials for drug delivery are enabling significant progress in biology and medicine. Multidisciplinary collaborations between physical scientists, engineers, biologists, and clinicians generate innovative strategies and materials to treat a range of diseases. Specifically, recent advances include major breakthroughs in materials for cancer immunotherapy, autoimmune diseases, and genome editing. Here, strategies for the design and implementation of biomaterials for drug delivery are reviewed. A brief history of the biomaterials field is first established, and then commentary on RNA delivery, responsive materials development, and immunomodulation are provided. Current challenges associated with these areas as well as opportunities to address long‐standing problems in biology and medicine are discussed throughout.",
       "date": "07/2018",
       "DOI": "10.1002/adma.201705328",
+      "citationKey": "fentonAdvancesBiomaterialsDrug2018",
       "url": "https://advanced.onlinelibrary.wiley.com/doi/10.1002/adma.201705328",
       "accessDate": "2026-02-12T16:22:48Z",
       "language": "en",
@@ -1482,7 +1483,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:48Z",
-      "dateModified": "2026-02-12T16:22:48Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/EN6ZXUSV",
       "itemID": 86,
       "attachments": [
@@ -1499,18 +1500,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "fentonAdvancesBiomaterialsDrug2018",
       "itemKey": "EN6ZXUSV",
       "libraryID": 1,
       "select": "zotero://select/library/items/EN6ZXUSV"
     },
     {
       "key": "GCT9WF23",
-      "version": 100,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "A Single Administration of CRISPR/Cas9 Lipid Nanoparticles Achieves Robust and Persistent In Vivo Genome Editing",
       "date": "02/2018",
       "DOI": "10.1016/j.celrep.2018.02.014",
+      "citationKey": "finnSingleAdministrationCRISPR2018",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S2211124718301827",
       "accessDate": "2026-02-12T16:23:18Z",
       "language": "en",
@@ -1641,7 +1642,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:18Z",
-      "dateModified": "2026-02-12T16:23:18Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/GCT9WF23",
       "itemID": 97,
       "attachments": [
@@ -1658,19 +1659,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "finnSingleAdministrationCRISPR2018",
       "itemKey": "GCT9WF23",
       "libraryID": 1,
       "select": "zotero://select/library/items/GCT9WF23"
     },
     {
       "key": "2QI46P8T",
-      "version": 101,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Tau filaments are tethered within brain extracellular vesicles in Alzheimer’s disease",
       "abstractNote": "Abstract\n            The abnormal assembly of tau protein in neurons is a pathological hallmark of multiple neurodegenerative diseases, including Alzheimer’s disease (AD). Assembled tau associates with extracellular vesicles (EVs) in the central nervous system of individuals with AD, which is linked to its clearance and prion-like propagation. However, the identities of the assembled tau species and EVs, as well as how they associate, are not known. Here, we combined quantitative mass spectrometry, cryo-electron tomography and single-particle cryo-electron microscopy to study brain EVs from individuals with AD. We found tau filaments composed mainly of truncated tau that were enclosed within EVs enriched in endo-lysosomal proteins. We observed multiple filament interactions, including with molecules that tethered filaments to the EV limiting membrane, suggesting selective packaging. Our findings will guide studies into the molecular mechanisms of EV-mediated secretion of assembled tau and inform the targeting of EV-associated tau as potential therapeutic and biomarker strategies for AD.",
       "date": "01/2025",
       "DOI": "10.1038/s41593-024-01801-5",
+      "citationKey": "fowlerTauFilamentsAre2025",
       "url": "https://www.nature.com/articles/s41593-024-01801-5",
       "accessDate": "2026-02-12T16:23:23Z",
       "language": "en",
@@ -1791,7 +1792,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:23Z",
-      "dateModified": "2026-02-12T16:23:23Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/2QI46P8T",
       "itemID": 99,
       "attachments": [
@@ -1808,19 +1809,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "fowlerTauFilamentsAre2025",
       "itemKey": "2QI46P8T",
       "libraryID": 1,
       "select": "zotero://select/library/items/2QI46P8T"
     },
     {
       "key": "5WFU7QDY",
-      "version": 98,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Overcoming the Blood–Brain Barrier: The Role of Nanomaterials in Treating Neurological Diseases",
       "abstractNote": "Abstract\n            Therapies directed toward the central nervous system remain difficult to translate into improved clinical outcomes. This is largely due to the blood–brain barrier (BBB), arguably the most tightly regulated interface in the human body, which routinely excludes most therapeutics. Advances in the engineering of nanomaterials and their application in biomedicine (i.e., nanomedicine) are enabling new strategies that have the potential to help improve our understanding and treatment of neurological diseases. Herein, the various mechanisms by which therapeutics can be delivered to the brain are examined and key challenges facing translation of this research from benchtop to bedside are highlighted. Following a contextual overview of the BBB anatomy and physiology in both healthy and diseased states, relevant therapeutic strategies for bypassing and crossing the BBB are discussed. The focus here is especially on nanomaterial‐based drug delivery systems and the potential of these to overcome the biological challenges imposed by the BBB. Finally, disease‐targeting strategies and clearance mechanisms are explored. The objective is to provide the diverse range of researchers active in the field (e.g., material scientists, chemists, engineers, neuroscientists, and clinicians) with an easily accessible guide to the key opportunities and challenges currently facing the nanomaterial‐mediated treatment of neurological diseases.",
       "date": "11/2018",
       "DOI": "10.1002/adma.201801362",
+      "citationKey": "furtadoOvercomingBloodBrain2018",
       "url": "https://advanced.onlinelibrary.wiley.com/doi/10.1002/adma.201801362",
       "accessDate": "2026-02-12T16:22:51Z",
       "shortTitle": "Overcoming the Blood–Brain Barrier",
@@ -1867,7 +1868,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:51Z",
-      "dateModified": "2026-02-12T16:22:51Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/5WFU7QDY",
       "itemID": 87,
       "attachments": [
@@ -1884,19 +1885,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "furtadoOvercomingBloodBrain2018",
       "itemKey": "5WFU7QDY",
       "libraryID": 1,
       "select": "zotero://select/library/items/5WFU7QDY"
     },
     {
       "key": "QYLL9V3S",
-      "version": 104,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Blood-based biomarkers of Alzheimer’s disease and incident dementia in the community",
       "abstractNote": "Abstract\n            Evidence regarding the clinical validity of blood biomarkers of Alzheimer’s disease (AD) in the general population is limited. We estimated the hazard and predictive performance of six AD blood biomarkers for incident all-cause and AD dementia—the ratio of amyloid-β 42 to amyloid-β 40 and levels of tau phosphorylated at T217 (p-tau217), tau phosphorylated at T181 (p-tau181), total tau, neurofilament light chain (NfL), and glial fibrillary acidic protein (GFAP)—in a cohort of 2,148 dementia-free older adults from Sweden, who were followed for up to 16 years. In multi-adjusted Cox regression models, elevated baseline levels of p-tau181, p-tau217, NfL, and GFAP were associated with a significantly increased hazard for all-cause and AD dementia, displaying a non-linear dose–response relationship. Elevated concentrations of p-tau181, p-tau217, NfL, and GFAP demonstrated strong predictive performance (area under the curve ranging from 70.9% to 82.6%) for 10-year all-cause and AD dementia, with negative predictive values exceeding 90% but low positive predictive values (PPVs). Combining p-tau217 with NfL or GFAP further improved prediction, with PPVs reaching 43%. Our findings suggest that these biomarkers have the potential to rule out impending dementia in community settings, but they might need to be combined with other biological or clinical markers to be used as screening tools.",
       "date": "06/2025",
       "DOI": "10.1038/s41591-025-03605-x",
+      "citationKey": "grandeBloodbasedBiomarkersAlzheimers2025",
       "url": "https://www.nature.com/articles/s41591-025-03605-x",
       "accessDate": "2026-02-12T16:23:34Z",
       "language": "en",
@@ -1977,7 +1978,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:34Z",
-      "dateModified": "2026-02-12T16:23:34Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/QYLL9V3S",
       "itemID": 102,
       "attachments": [
@@ -1994,19 +1995,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "grandeBloodbasedBiomarkersAlzheimers2025",
       "itemKey": "QYLL9V3S",
       "libraryID": 1,
       "select": "zotero://select/library/items/QYLL9V3S"
     },
     {
       "key": "LKRVM653",
-      "version": 91,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "The Alzheimer's Association appropriate use recommendations for blood biomarkers in Alzheimer's disease",
       "abstractNote": "Abstract\n            Blood‐based markers (BBMs) have recently shown promise to revolutionize the diagnostic and prognostic work‐up of Alzheimer's disease (AD), as well as to improve the design of interventional trials. Here we discuss in detail further research needed to be performed before widespread use of BBMs. We already now recommend use of BBMs as (pre‐)screeners to identify individuals likely to have AD pathological changes for inclusion in trials evaluating disease‐modifying therapies, provided the AD status is confirmed with positron emission tomography (PET) or cerebrospinal fluid (CSF) testing. We also encourage studying longitudinal BBM changes in ongoing as well as future interventional trials. However, BBMs should not yet be used as primary endpoints in pivotal trials. Further, we recommend to cautiously start using BBMs in specialized memory clinics as part of the diagnostic work‐up of patients with cognitive symptoms and the results should be confirmed whenever possible with CSF or PET. Additional data are needed before use of BBMs as stand‐alone diagnostic AD markers, or before considering use in primary care.",
       "date": "12/2022",
       "DOI": "10.1002/alz.12756",
+      "citationKey": "hanssonAlzheimersAssociationAppropriate2022",
       "url": "https://alz-journals.onlinelibrary.wiley.com/doi/10.1002/alz.12756",
       "accessDate": "2026-02-12T16:22:17Z",
       "language": "en",
@@ -2072,7 +2073,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:17Z",
-      "dateModified": "2026-02-12T16:22:17Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/LKRVM653",
       "itemID": 75,
       "attachments": [
@@ -2089,18 +2090,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "hanssonAlzheimersAssociationAppropriate2022",
       "itemKey": "LKRVM653",
       "libraryID": 1,
       "select": "zotero://select/library/items/LKRVM653"
     },
     {
       "key": "XNEX29IK",
-      "version": 105,
+      "version": 111,
       "itemType": "journalArticle",
       "title": "Blood biomarkers for Alzheimer’s disease in clinical practice and trials",
       "date": "2023-05-18",
       "DOI": "10.1038/s43587-023-00403-3",
+      "citationKey": "hanssonBloodBiomarkersAlzheimers2023",
       "url": "https://www.nature.com/articles/s43587-023-00403-3",
       "accessDate": "2026-02-12T16:23:43Z",
       "language": "en",
@@ -2136,7 +2137,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:43Z",
-      "dateModified": "2026-02-12T16:23:43Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/XNEX29IK",
       "itemID": 105,
       "attachments": [
@@ -2153,19 +2154,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "hanssonBloodBiomarkersAlzheimers2023",
       "itemKey": "XNEX29IK",
       "libraryID": 1,
       "select": "zotero://select/library/items/XNEX29IK"
     },
     {
       "key": "RCZJ9TX8",
-      "version": 90,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "CSF biomarkers of Alzheimer's disease concord with amyloid‐β PET and predict clinical progression: A study of fully automated immunoassays in BioFINDER and ADNI cohorts",
       "abstractNote": "Abstract\n            \n              Introduction\n              We studied whether fully automated Elecsys cerebrospinal fluid (CSF) immunoassay results were concordant with positron emission tomography (PET) and predicted clinical progression, even with cutoffs established in an independent cohort.\n            \n            \n              Methods\n              \n                Cutoffs for Elecsys amyloid‐β\n                1–42\n                (Aβ), total tau/Aβ(1–42), and phosphorylated tau/Aβ(1–42) were defined against [\n                18\n                F]flutemetamol PET in Swedish BioFINDER (n = 277) and validated against [\n                18\n                F]florbetapir PET in Alzheimer's Disease Neuroimaging Initiative (n = 646). Clinical progression in patients with mild cognitive impairment (n = 619) was studied.\n              \n            \n            \n              Results\n              CSF total tau/Aβ(1–42) and phosphorylated tau/Aβ(1–42) ratios were highly concordant with PET classification in BioFINDER (overall percent agreement: 90%; area under the curve: 94%). The CSF biomarker statuses established by predefined cutoffs were highly concordant with PET classification in Alzheimer's Disease Neuroimaging Initiative (overall percent agreement: 89%–90%; area under the curves: 96%) and predicted greater 2‐year clinical decline in patients with mild cognitive impairment. Strikingly, tau/Aβ ratios were as accurate as semiquantitative PET image assessment in predicting visual read–based outcomes.\n            \n            \n              Discussion\n              Elecsys CSF biomarker assays may provide reliable alternatives to PET in Alzheimer's disease diagnosis.",
       "date": "11/2018",
       "DOI": "10.1016/j.jalz.2018.01.010",
+      "citationKey": "hanssonCSFBiomarkersAlzheimers2018",
       "url": "https://alz-journals.onlinelibrary.wiley.com/doi/10.1016/j.jalz.2018.01.010",
       "accessDate": "2026-02-12T16:22:08Z",
       "shortTitle": "CSF biomarkers of Alzheimer's disease concord with amyloid‐β PET and predict clinical progression",
@@ -2265,7 +2266,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:08Z",
-      "dateModified": "2026-02-12T16:22:09Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/RCZJ9TX8",
       "itemID": 72,
       "attachments": [
@@ -2282,19 +2283,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "hanssonCSFBiomarkersAlzheimers2018",
       "itemKey": "RCZJ9TX8",
       "libraryID": 1,
       "select": "zotero://select/library/items/RCZJ9TX8"
     },
     {
       "key": "KTWWCU9C",
-      "version": 93,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Poly(Lactic Acid): Recent Stereochemical Advances and New Materials Engineering",
       "abstractNote": "Abstract\n            Poly(lactic acid) (PLA) is a representative biobased and biodegradable aliphatic polyester and a front‐runner among sustainable materials. As a semicrystalline thermoplastic, PLA exhibits excellent mechanical and physical properties, attracting considerable attention in commodity and medical fields. Stereochemistry is a key factor affecting PLA's properties, and to this end, the engineering of PLA's microstructure for tailored material properties has been an active area of research over the decade. This Review first covers the basic structural variety of PLA. A perspective on the current states of stereocontrolled synthesis as well as the relationships between the structures and properties of PLA stereosequences are included, with an emphasis on record regularity and properties. At last, state‐of‐the‐art examples of high‐performance PLA‐based materials within an array of applications are given, including packaging, fibers, and textiles, healthcare and electronic devices. Among various stereo‐regular sequences of PLA, poly(L‐lactic acid) (PLLA) is the most prominent category and has myriad unique properties and applications. In this regard, cutting‐edge applications of PLLA are mainly overviewed in this review. At the same time, new materials developed based on other PLA stereosequences are highlighted, which holds the potential to a wide variety of PLA‐based sustainable materials.",
       "date": "06/2025",
       "DOI": "10.1002/adma.202412185",
+      "citationKey": "huPolyLacticAcidRecent2025",
       "url": "https://advanced.onlinelibrary.wiley.com/doi/10.1002/adma.202412185",
       "accessDate": "2026-02-12T16:22:40Z",
       "shortTitle": "Poly(Lactic Acid)",
@@ -2331,7 +2332,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:40Z",
-      "dateModified": "2026-02-12T16:22:40Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/KTWWCU9C",
       "itemID": 83,
       "attachments": [
@@ -2348,18 +2349,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "huPolyLacticAcidRecent2025",
       "itemKey": "KTWWCU9C",
       "libraryID": 1,
       "select": "zotero://select/library/items/KTWWCU9C"
     },
     {
       "key": "SNSUYUSX",
-      "version": 89,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "The characterisation of subjective cognitive decline",
       "date": "03/2020",
       "DOI": "10.1016/S1474-4422(19)30368-0",
+      "citationKey": "jessenCharacterisationSubjectiveCognitive2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442219303680",
       "accessDate": "2026-02-12T16:21:58Z",
       "language": "en",
@@ -2445,7 +2446,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:58Z",
-      "dateModified": "2026-02-12T16:21:58Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/SNSUYUSX",
       "itemID": 68,
       "attachments": [
@@ -2462,19 +2463,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "jessenCharacterisationSubjectiveCognitive2020",
       "itemKey": "SNSUYUSX",
       "libraryID": 1,
       "select": "zotero://select/library/items/SNSUYUSX"
     },
     {
       "key": "J3KCIKVH",
-      "version": 102,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Large-scale deep multi-layer analysis of Alzheimer’s disease brain reveals strong proteomic disease-related changes not observed at the RNA level",
       "abstractNote": "Abstract\n            \n              The biological processes that are disrupted in the Alzheimer’s disease (AD) brain remain incompletely understood. In this study, we analyzed the proteomes of more than 1,000 brain tissues to reveal new AD-related protein co-expression modules that were highly preserved across cohorts and brain regions. Nearly half of the protein co-expression modules, including modules significantly altered in AD, were not observed in RNA networks from the same cohorts and brain regions, highlighting the proteopathic nature of AD. Two such AD-associated modules unique to the proteomic network included a module related to MAPK signaling and metabolism and a module related to the matrisome. The matrisome module was influenced by the\n              APOE ε4\n              allele but was not related to the rate of cognitive decline after adjustment for neuropathology. By contrast, the MAPK/metabolism module was strongly associated with the rate of cognitive decline. Disease-associated modules unique to the proteome are sources of promising therapeutic targets and biomarkers for AD.",
       "date": "02/2022",
       "DOI": "10.1038/s41593-021-00999-y",
+      "citationKey": "johnsonLargescaleDeepMultilayer2022",
       "url": "https://www.nature.com/articles/s41593-021-00999-y",
       "accessDate": "2026-02-12T16:23:28Z",
       "language": "en",
@@ -2610,7 +2611,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:28Z",
-      "dateModified": "2026-02-12T16:23:28Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/J3KCIKVH",
       "itemID": 100,
       "attachments": [
@@ -2627,18 +2628,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "johnsonLargescaleDeepMultilayer2022",
       "itemKey": "J3KCIKVH",
       "libraryID": 1,
       "select": "zotero://select/library/items/J3KCIKVH"
     },
     {
       "key": "W34KUPS2",
-      "version": 89,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Blood phosphorylated tau 181 as a biomarker for Alzheimer's disease: a diagnostic performance and prediction modelling study using data from four prospective cohorts",
       "date": "05/2020",
       "DOI": "10.1016/S1474-4422(20)30071-5",
+      "citationKey": "karikariBloodPhosphorylatedTau2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442220300715",
       "accessDate": "2026-02-12T16:21:53Z",
       "shortTitle": "Blood phosphorylated tau 181 as a biomarker for Alzheimer's disease",
@@ -2770,7 +2771,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:54Z",
-      "dateModified": "2026-02-12T16:21:54Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/W34KUPS2",
       "itemID": 66,
       "attachments": [
@@ -2787,18 +2788,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "karikariBloodPhosphorylatedTau2020",
       "itemKey": "W34KUPS2",
       "libraryID": 1,
       "select": "zotero://select/library/items/W34KUPS2"
     },
     {
       "key": "ENTRE82K",
-      "version": 98,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Vascularized human brain organoids: current possibilities and prospects",
       "date": "06/2025",
       "DOI": "10.1016/j.tibtech.2024.11.021",
+      "citationKey": "kistemakerVascularizedHumanBrain2025",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0167779924003573",
       "accessDate": "2026-02-12T16:22:56Z",
       "shortTitle": "Vascularized human brain organoids",
@@ -2835,7 +2836,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:56Z",
-      "dateModified": "2026-02-12T16:22:56Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/ENTRE82K",
       "itemID": 89,
       "attachments": [
@@ -2852,18 +2853,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "kistemakerVascularizedHumanBrain2025",
       "itemKey": "ENTRE82K",
       "libraryID": 1,
       "select": "zotero://select/library/items/ENTRE82K"
     },
     {
       "key": "94M42W5M",
-      "version": 86,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Brain-Gut-Microbiota Axis in Alzheimer’s Disease",
       "date": "2019-01-30",
       "DOI": "10.5056/jnm18087",
+      "citationKey": "kowalskiBrainGutMicrobiotaAxisAlzheimers2019",
       "url": "http://www.jnmjournal.org/journal/view.html?doi=10.5056/jnm18087",
       "accessDate": "2026-02-12T16:21:41Z",
       "language": "en",
@@ -2889,7 +2890,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:41Z",
-      "dateModified": "2026-02-12T16:21:41Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/94M42W5M",
       "itemID": 61,
       "attachments": [
@@ -2906,18 +2907,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "kowalskiBrainGutMicrobiotaAxisAlzheimers2019",
       "itemKey": "94M42W5M",
       "libraryID": 1,
       "select": "zotero://select/library/items/94M42W5M"
     },
     {
       "key": "WIJYWM95",
-      "version": 104,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Deep learning-based brain age prediction in normal aging and dementia",
       "date": "2022-05-09",
       "DOI": "10.1038/s43587-022-00219-7",
+      "citationKey": "leeDeepLearningbasedBrain2022",
       "url": "https://www.nature.com/articles/s43587-022-00219-7",
       "accessDate": "2026-02-12T16:23:40Z",
       "language": "en",
@@ -3018,7 +3019,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:40Z",
-      "dateModified": "2026-02-12T16:23:40Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/WIJYWM95",
       "itemID": 104,
       "attachments": [
@@ -3035,19 +3036,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "leeDeepLearningbasedBrain2022",
       "itemKey": "WIJYWM95",
       "libraryID": 1,
       "select": "zotero://select/library/items/WIJYWM95"
     },
     {
       "key": "BDKY8B32",
-      "version": 84,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Gut Microbiota and Dysbiosis in Alzheimer’s Disease: Implications for Pathogenesis and Treatment",
       "abstractNote": "Abstract\n            Understanding how gut flora influences gut-brain communications has been the subject of significant research over the past decade. The broadening of the term “microbiota-gut-brain axis” from “gut-brain axis” underscores a bidirectional communication system between the gut and the brain. The microbiota-gut-brain axis involves metabolic, endocrine, neural, and immune pathways which are crucial for the maintenance of brain homeostasis. Alterations in the composition of gut microbiota are associated with multiple neuropsychiatric disorders. Although a causal relationship between gut dysbiosis and neural dysfunction remains elusive, emerging evidence indicates that gut dysbiosis may promote amyloid-beta aggregation, neuroinflammation, oxidative stress, and insulin resistance in the pathogenesis of Alzheimer’s disease (AD). Illustration of the mechanisms underlying the regulation by gut microbiota may pave the way for developing novel therapeutic strategies for AD. In this narrative review, we provide an overview of gut microbiota and their dysregulation in the pathogenesis of AD. Novel insights into the modification of gut microbiota composition as a preventive or therapeutic approach for AD are highlighted.",
       "date": "12/2020",
       "DOI": "10.1007/s12035-020-02073-3",
+      "citationKey": "liuGutMicrobiotaDysbiosis2020",
       "url": "https://link.springer.com/10.1007/s12035-020-02073-3",
       "accessDate": "2026-02-12T16:21:31Z",
       "shortTitle": "Gut Microbiota and Dysbiosis in Alzheimer’s Disease",
@@ -3089,7 +3090,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:31Z",
-      "dateModified": "2026-02-12T16:21:32Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/BDKY8B32",
       "itemID": 58,
       "attachments": [
@@ -3106,18 +3107,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "liuGutMicrobiotaDysbiosis2020",
       "itemKey": "BDKY8B32",
       "libraryID": 1,
       "select": "zotero://select/library/items/BDKY8B32"
     },
     {
       "key": "6ITMNBDX",
-      "version": 89,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Landmark-based deep multi-instance learning for brain disease diagnosis",
       "date": "01/2018",
       "DOI": "10.1016/j.media.2017.10.005",
+      "citationKey": "liuLandmarkbasedDeepMultiinstance2018",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1361841517301524",
       "accessDate": "2026-02-12T16:21:49Z",
       "language": "en",
@@ -3152,7 +3153,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:49Z",
-      "dateModified": "2026-02-12T16:21:49Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/6ITMNBDX",
       "itemID": 64,
       "attachments": [
@@ -3169,18 +3170,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "liuLandmarkbasedDeepMultiinstance2018",
       "itemKey": "6ITMNBDX",
       "libraryID": 1,
       "select": "zotero://select/library/items/6ITMNBDX"
     },
     {
       "key": "ETRXEF7S",
-      "version": 88,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "The reliability of a deep learning model in clinical out-of-distribution MRI data: A multicohort study",
       "date": "12/2020",
       "DOI": "10.1016/j.media.2020.101714",
+      "citationKey": "martenssonReliabilityDeepLearning2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1361841520300785",
       "accessDate": "2026-02-12T16:21:46Z",
       "shortTitle": "The reliability of a deep learning model in clinical out-of-distribution MRI data",
@@ -3321,7 +3322,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:46Z",
-      "dateModified": "2026-02-12T16:21:46Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/ETRXEF7S",
       "itemID": 63,
       "attachments": [
@@ -3338,18 +3339,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "martenssonReliabilityDeepLearning2020",
       "itemKey": "ETRXEF7S",
       "libraryID": 1,
       "select": "zotero://select/library/items/ETRXEF7S"
     },
     {
       "key": "WV92MXG2",
-      "version": 92,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Conscious Processing and the Global Neuronal Workspace Hypothesis",
       "date": "03/2020",
       "DOI": "10.1016/j.neuron.2020.01.026",
+      "citationKey": "mashourConsciousProcessingGlobal2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0896627320300520",
       "accessDate": "2026-02-12T16:22:28Z",
       "language": "en",
@@ -3385,7 +3386,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:28Z",
-      "dateModified": "2026-02-12T16:22:28Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/WV92MXG2",
       "itemID": 79,
       "attachments": [
@@ -3402,19 +3403,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "mashourConsciousProcessingGlobal2020",
       "itemKey": "WV92MXG2",
       "libraryID": 1,
       "select": "zotero://select/library/items/WV92MXG2"
     },
     {
       "key": "HKX9Z4IG",
-      "version": 98,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Prediction of Longitudinal Cognitive Decline in Preclinical Alzheimer Disease Using Plasma Biomarkers",
       "abstractNote": "Importance\n              Alzheimer disease (AD) pathology starts with a prolonged phase of β-amyloid (Aβ) accumulation without symptoms. The duration of this phase differs greatly among individuals. While this disease phase has high relevance for clinical trial designs, it is currently unclear how to best predict the onset of clinical progression.\n            \n            \n              Objective\n              To evaluate combinations of different plasma biomarkers for predicting cognitive decline in Aβ-positive cognitively unimpaired (CU) individuals.\n            \n            \n              Design, Setting, and Participants\n              This prospective population-based prognostic study evaluated data from 2 prospective longitudinal cohort studies (the Swedish BioFINDER-1 and the Wisconsin Registry for Alzheimer Prevention [WRAP]), with data collected from February 8, 2010, to October 21, 2020, for the BioFINDER-1 cohort and from August 11, 2011, to June 27, 2021, for the WRAP cohort. Participants were CU individuals recruited from memory clinics who had brain Aβ pathology defined by cerebrospinal fluid (CSF) Aβ42/40 in the BioFINDER-1 study and by Pittsburgh Compound B (PiB) positron emission tomography (PET) in the WRAP study. A total of 564 eligible Aβ-positive and Aβ-negative CU participants with available relevant data from the BioFINDER-1 and WRAP cohorts were included in the study; of those, 171 Aβ-positive participants were included in the main analyses.\n            \n            \n              Exposures\n              Baseline P-tau181, P-tau217, P-tau231, glial fibrillary filament protein, and neurofilament light measured in plasma; CSF biomarkers in the BioFINDER-1 cohort, and PiB PET uptake in the WRAP cohort.\n            \n            \n              Main Outcomes and Measures\n              \n                The primary outcome was longitudinal measures of cognition (using the Mini-Mental State Examination [MMSE] and the modified Preclinical Alzheimer Cognitive Composite [mPACC]) over a median of 6 years (range, 2-10 years). The secondary outcome was conversion to AD dementia. Baseline biomarkers were used in linear regression models to predict rates of longitudinal cognitive change (calculated separately). Models were adjusted for age, sex, years of education, apolipoprotein E ε4 allele status, and baseline cognition. Multivariable models were compared based on model\n                R\n                2\n                coefficients and corrected Akaike information criterion.\n              \n            \n            \n              Results\n              \n                Among 171 Aβ-positive CU participants included in the main analyses, 119 (mean [SD] age, 73.0 [5.4] years; 60.5% female) were from the BioFINDER-1 study, and 52 (mean [SD] age, 64.4 [4.6] years; 65.4% female) were from the WRAP study. In the BioFINDER-1 cohort, plasma P-tau217 was the best marker to predict cognitive decline in the mPACC (model\n                R\n                2\n                 = 0.41) and the MMSE (model\n                R\n                2\n                 = 0.34) and was superior to the covariates-only models (mPACC:\n                R\n                2\n                 = 0.23; MMSE:\n                R\n                2\n                 = 0.04;\n                P\n                 &amp;lt; .001 for both comparisons). Results were validated in the WRAP cohort; for example, plasma P-tau217 was associated with mPACC slopes (\n                R\n                2\n                 = 0.13 vs 0.01 in the covariates-only model;\n                P\n                 = .01) and MMSE slopes (\n                R\n                2\n                 = 0.29 vs 0.24 in the covariates-only model;\n                P\n                 = .046). Sparse models were identified with plasma P-tau217 as a predictor of cognitive decline. Power calculations for enrichment in hypothetical clinical trials revealed large relative reductions in sample sizes when using plasma P-tau217 to enrich for CU individuals likely to experience cognitive decline over time.\n              \n            \n            \n              Conclusions and Relevance\n              In this study, plasma P-tau217 predicted cognitive decline in patients with preclinical AD. These findings suggest that plasma P-tau217 may be used as a complement to CSF or PET for participant selection in clinical trials of novel disease-modifying treatments.",
       "date": "2023-04-01",
       "DOI": "10.1001/jamaneurol.2022.5272",
+      "citationKey": "mattsson-carlgrenPredictionLongitudinalCognitive2023",
       "url": "https://jamanetwork.com/journals/jamaneurology/fullarticle/2801289",
       "accessDate": "2026-02-12T16:22:59Z",
       "language": "en",
@@ -3510,7 +3511,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:59Z",
-      "dateModified": "2026-02-12T16:22:59Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/HKX9Z4IG",
       "itemID": 90,
       "attachments": [
@@ -3527,19 +3528,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "mattsson-carlgrenPredictionLongitudinalCognitive2023",
       "itemKey": "HKX9Z4IG",
       "libraryID": 1,
       "select": "zotero://select/library/items/HKX9Z4IG"
     },
     {
       "key": "I77ETYDM",
-      "version": 84,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "The Microbiota–Gut–Brain Axis and Alzheimer’s Disease: Neuroinflammation Is to Blame?",
       "abstractNote": "For years, it has been reported that Alzheimer’s disease (AD) is the most common cause of dementia. Various external and internal factors may contribute to the early onset of AD. This review highlights a contribution of the disturbances in the microbiota–gut–brain (MGB) axis to the development of AD. Alteration in the gut microbiota composition is determined by increase in the permeability of the gut barrier and immune cell activation, leading to impairment in the blood–brain barrier function that promotes neuroinflammation, neuronal loss, neural injury, and ultimately AD. Numerous studies have shown that the gut microbiota plays a crucial role in brain function and changes in the behavior of individuals and the formation of bacterial amyloids. Lipopolysaccharides and bacterial amyloids synthesized by the gut microbiota can trigger the immune cells residing in the brain and can activate the immune response leading to neuroinflammation. Growing experimental and clinical data indicate the prominent role of gut dysbiosis and microbiota–host interactions in AD. Modulation of the gut microbiota with antibiotics or probiotic supplementation may create new preventive and therapeutic options in AD. Accumulating evidences affirm that research on MGB involvement in AD is necessary for new treatment targets and therapies for AD.",
       "date": "2020-12-24",
       "DOI": "10.3390/nu13010037",
+      "citationKey": "megurMicrobiotaGutBrain2020",
       "url": "https://www.mdpi.com/2072-6643/13/1/37",
       "accessDate": "2026-02-12T16:21:29Z",
       "shortTitle": "The Microbiota–Gut–Brain Axis and Alzheimer’s Disease",
@@ -3576,7 +3577,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:29Z",
-      "dateModified": "2026-02-12T16:21:29Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/I77ETYDM",
       "itemID": 57,
       "attachments": [
@@ -3593,18 +3594,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "megurMicrobiotaGutBrain2020",
       "itemKey": "I77ETYDM",
       "libraryID": 1,
       "select": "zotero://select/library/items/I77ETYDM"
     },
     {
       "key": "2NCCCS9W",
-      "version": 93,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Working Memory 2.0",
       "date": "10/2018",
       "DOI": "10.1016/j.neuron.2018.09.023",
+      "citationKey": "millerWorkingMemory202018",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0896627318308250",
       "accessDate": "2026-02-12T16:22:37Z",
       "language": "en",
@@ -3635,7 +3636,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:37Z",
-      "dateModified": "2026-02-12T16:22:37Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/2NCCCS9W",
       "itemID": 82,
       "attachments": [
@@ -3652,18 +3653,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "millerWorkingMemory202018",
       "itemKey": "2NCCCS9W",
       "libraryID": 1,
       "select": "zotero://select/library/items/2NCCCS9W"
     },
     {
       "key": "XR342BEK",
-      "version": 91,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Memory aging and brain maintenance",
       "date": "05/2012",
       "DOI": "10.1016/j.tics.2012.04.005",
+      "citationKey": "nybergMemoryAgingBrain2012",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1364661312000836",
       "accessDate": "2026-02-12T16:22:23Z",
       "language": "en",
@@ -3705,7 +3706,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:23Z",
-      "dateModified": "2026-02-12T16:22:23Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/XR342BEK",
       "itemID": 77,
       "attachments": [
@@ -3722,18 +3723,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "nybergMemoryAgingBrain2012",
       "itemKey": "XR342BEK",
       "libraryID": 1,
       "select": "zotero://select/library/items/XR342BEK"
     },
     {
       "key": "2WM9EIKG",
-      "version": 98,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Advances in Microfluidic Blood–Brain Barrier (BBB) Models",
       "date": "12/2019",
       "DOI": "10.1016/j.tibtech.2019.04.006",
+      "citationKey": "oddoAdvancesMicrofluidicBlood2019",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0167779919300848",
       "accessDate": "2026-02-12T16:22:54Z",
       "language": "en",
@@ -3784,7 +3785,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:54Z",
-      "dateModified": "2026-02-12T16:22:54Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/2WM9EIKG",
       "itemID": 88,
       "attachments": [
@@ -3801,18 +3802,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "oddoAdvancesMicrofluidicBlood2019",
       "itemKey": "2WM9EIKG",
       "libraryID": 1,
       "select": "zotero://select/library/items/2WM9EIKG"
     },
     {
       "key": "22UMWP58",
-      "version": 90,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "CSF and blood biomarkers for the diagnosis of Alzheimer's disease: a systematic review and meta-analysis",
       "date": "06/2016",
       "DOI": "10.1016/S1474-4422(16)00070-3",
+      "citationKey": "olssonCSFBloodBiomarkers2016",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1474442216000703",
       "accessDate": "2026-02-12T16:22:06Z",
       "shortTitle": "CSF and blood biomarkers for the diagnosis of Alzheimer's disease",
@@ -3904,7 +3905,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:06Z",
-      "dateModified": "2026-02-12T16:22:06Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/22UMWP58",
       "itemID": 71,
       "attachments": [
@@ -3921,14 +3922,13 @@
         }
       ],
       "notes": [],
-      "citationKey": "olssonCSFBloodBiomarkers2016",
       "itemKey": "22UMWP58",
       "libraryID": 1,
       "select": "zotero://select/library/items/22UMWP58"
     },
     {
       "key": "YXAMRXMM",
-      "version": 2,
+      "version": 5,
       "itemType": "journalArticle",
       "title": "Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
       "abstractNote": "Significance\n            Since Alzheimer’s disease (AD) is a multifaceted neurodegenerative disease, multitargeted therapeutic approaches are likely required for effective AD treatment. The importance of acid sphingomyelinase (ASM) activation in the various neuropathological features of AD is well-known. Therefore, in this study, we focused on identifying an efficient, direct inhibitor of ASM activity. We found that KARI 201 was a highly selective ASM activity inhibitor without any off-target effects. Through RNA-sequencing analysis in brains of AD mice, we also unexpectedly uncovered the role of KARI 201 as a ghrelin receptor agonist. This dual role of KARI 201 in neurons led to improvement of Aβ accumulation, neuroinflammation, synapse loss, hippocampal neurogenesis, and memory dysfunction in AD mice.\n          , \n            Alzheimer’s disease (AD) is characterized by complex, multifactorial neuropathology, suggesting that small molecules targeting multiple neuropathological factors are likely required to successfully impact clinical progression. Acid sphingomyelinase (ASM) activation has been recognized as an important contributor to these neuropathological features in AD, leading to the concept of using ASM inhibitors for the treatment of this disorder. Here we report the identification of KARI 201, a direct ASM inhibitor evaluated for AD treatment. KARI 201 exhibits highly selective inhibition effects on ASM, with excellent pharmacokinetic properties, especially with regard to brain distribution. Unexpectedly, we found another role of KARI 201 as a ghrelin receptor agonist, which also has therapeutic potential for AD treatment. This dual role of KARI 201 in neurons efficiently rescued neuropathological features in AD mice, including amyloid beta deposition, autophagy dysfunction, neuroinflammation, synaptic loss, and decreased hippocampal neurogenesis and synaptic plasticity, leading to an improvement in memory function. Our data highlight the possibility of potential clinical application of KARI 201 as an innovative and multifaceted drug for AD treatment.",
@@ -4069,12 +4069,13 @@
     },
     {
       "key": "NSUULQ4M",
-      "version": 90,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Confounding factors of Alzheimer's disease plasma biomarkers and their impact on clinical performance",
       "abstractNote": "Abstract\n            \n              Introduction\n              Plasma biomarkers will likely revolutionize the diagnostic work‐up of Alzheimer's disease (AD) globally. Before widespread use, we need to determine if confounding factors affect the levels of these biomarkers, and their clinical utility.\n            \n            \n              Methods\n              \n                Participants with plasma and CSF biomarkers, creatinine, body mass index (BMI), and medical history data were included (BioFINDER‐1:\n                n\n                 = 748, BioFINDER‐2:\n                n\n                 = 421). We measured beta‐amyloid (Aβ42, Aβ40), phosphorylated tau (p‐tau217, p‐tau181), neurofilament light (NfL), and glial fibrillary acidic protein (GFAP).\n              \n            \n            \n              Results\n              In both cohorts, creatinine and BMI were the main factors associated with NfL, GFAP, and to a lesser extent with p‐tau. However, adjustment for BMI and creatinine had only minor effects in models predicting either the corresponding levels in CSF or subsequent development of dementia.\n            \n            \n              Discussion\n              Creatinine and BMI are related to certain plasma biomarkers levels, but they do not have clinically relevant confounding effects for the vast majority of individuals.\n            \n            \n              Highlights\n              \n                \n                  \n                    Creatinine and body mass index (BMI) are related to certain plasma biomarker levels.\n                  \n                  \n                    Adjusting for creatinine and BMI has minor influence on plasma‐cerebrospinal fluid (CSF) associations.\n                  \n                  \n                    Adjusting for creatinine and BMI has minor influence on prediction of dementia using plasma biomarkers.",
       "date": "04/2023",
       "DOI": "10.1002/alz.12787",
+      "citationKey": "pichetbinetteConfoundingFactorsAlzheimers2023",
       "url": "https://alz-journals.onlinelibrary.wiley.com/doi/10.1002/alz.12787",
       "accessDate": "2026-02-12T16:22:11Z",
       "language": "en",
@@ -4140,7 +4141,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:11Z",
-      "dateModified": "2026-02-12T16:22:12Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/NSUULQ4M",
       "itemID": 73,
       "attachments": [
@@ -4157,19 +4158,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "pichetbinetteConfoundingFactorsAlzheimers2023",
       "itemKey": "NSUULQ4M",
       "libraryID": 1,
       "select": "zotero://select/library/items/NSUULQ4M"
     },
     {
       "key": "HDQ3UFPS",
-      "version": 91,
+      "version": 107,
       "itemType": "journalArticle",
       "title": "Head‐to‐head comparison of leading blood tests for Alzheimer's disease pathology",
       "abstractNote": "Abstract\n            \n              INTRODUCTION\n              Blood tests have the potential to improve the accuracy of Alzheimer's disease (AD) clinical diagnosis, which will enable greater access to AD‐specific treatments. This study compared leading commercial blood tests for amyloid pathology and other AD‐related outcomes.\n            \n            \n              METHODS\n              Plasma samples from the Alzheimer's Disease Neuroimaging Initiative were assayed with AD blood tests from C2N Diagnostics, Fujirebio Diagnostics, ALZPath, Janssen, Roche Diagnostics, and Quanterix. Outcomes measures were amyloid positron emission tomography (PET), tau PET, cortical thickness, and dementia severity. Logistic regression models assessed the classification accuracies of individual or combined plasma biomarkers for binarized outcomes, and Spearman correlations evaluated continuous relationships between individual plasma biomarkers and continuous outcomes.\n            \n            \n              RESULTS\n              Measures of plasma p‐tau217, either individually or in combination with other plasma biomarkers, had the strongest relationships with all AD outcomes.\n            \n            \n              DISCUSSION\n              This study identified the plasma biomarker analytes and assays that most accurately classified amyloid pathology and other AD‐related outcomes.\n            \n            \n              Highlights\n              \n                \n                  \n                    Plasma p‐tau217 measures most accurately classified amyloid and tau status.\n                  \n                  \n                    Plasma Aβ42/Aβ40 had relatively low accuracy in classification of amyloid status.\n                  \n                  \n                    Plasma p‐tau217 measures had higher correlations with cortical thickness than NfL.\n                  \n                  \n                    Correlations of plasma biomarkers with dementia symptoms were relatively low.",
       "date": "11/2024",
       "DOI": "10.1002/alz.14315",
+      "citationKey": "schindlerHeadtoheadComparisonLeading2024",
       "url": "https://alz-journals.onlinelibrary.wiley.com/doi/10.1002/alz.14315",
       "accessDate": "2026-02-12T16:22:14Z",
       "language": "en",
@@ -4299,7 +4300,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:14Z",
-      "dateModified": "2026-02-12T16:22:15Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/HDQ3UFPS",
       "itemID": 74,
       "attachments": [
@@ -4316,19 +4317,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "schindlerHeadtoheadComparisonLeading2024",
       "itemKey": "HDQ3UFPS",
       "libraryID": 1,
       "select": "zotero://select/library/items/HDQ3UFPS"
     },
     {
       "key": "NLK6UTEG",
-      "version": 84,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Current understanding of the Alzheimer’s disease-associated microbiome and therapeutic strategies",
       "abstractNote": "Abstract\n            Alzheimer’s disease (AD) is a fatal progressive neurodegenerative disease. Despite tremendous research efforts to understand this complex disease, the exact pathophysiology of the disease is not completely clear. Recently, anti-Aβ antibodies have been shown to remove amyloid from the brain and slow the clinical progression of mild dementia by ~30%. However, exploring alternative strategies is crucial to understanding and developing more effective therapeutic interventions. In recent years, the microbiota-gut-brain axis has received significant attention in the AD field. Numerous studies have suggested that alterations in the gut microbiota composition are associated with the progression of AD, and several underlying mechanisms have been proposed. However, studies in this area are still in their infancy, and many aspects of this field are just beginning to be explored and understood. Gaining a deeper understanding of the intricate interactions and signaling pathways involved in the microbiota-AD interaction is crucial for optimizing therapeutic strategies targeting gut microbiota to positively impact AD. In this review, we aim to summarize the current understanding of the microbiota-gut-brain axis in AD. We will discuss the existing evidence regarding the role of gut microbiota in AD pathogenesis, suggested underlying mechanisms, biological factors influencing the microbiome-gut-brain axis in AD, and remaining questions in the field. Last, we will discuss potential therapeutic approaches to recondition the community of gut microbiota to alleviate disease progression. An ongoing exploration of the gut-brain axis and the development of microbiota-based therapies hold the potential for advancing AD management in the future.",
       "date": "2024-01-04",
       "DOI": "10.1038/s12276-023-01146-2",
+      "citationKey": "seoCurrentUnderstandingAlzheimers2024",
       "url": "https://www.nature.com/articles/s12276-023-01146-2",
       "accessDate": "2026-02-12T16:21:36Z",
       "language": "en",
@@ -4354,7 +4355,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:36Z",
-      "dateModified": "2026-02-12T16:21:36Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/NLK6UTEG",
       "itemID": 59,
       "attachments": [
@@ -4371,18 +4372,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "seoCurrentUnderstandingAlzheimers2024",
       "itemKey": "NLK6UTEG",
       "libraryID": 1,
       "select": "zotero://select/library/items/NLK6UTEG"
     },
     {
       "key": "9FRBUCIZ",
-      "version": 100,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Genome-wide CRISPR Screens in Primary Human T Cells Reveal Key Regulators of Immune Function",
       "date": "12/2018",
       "DOI": "10.1016/j.cell.2018.10.024",
+      "citationKey": "shifrutGenomewideCRISPRScreens2018",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0092867418313333",
       "accessDate": "2026-02-12T16:23:12Z",
       "language": "en",
@@ -4448,7 +4449,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:12Z",
-      "dateModified": "2026-02-12T16:23:13Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/9FRBUCIZ",
       "itemID": 95,
       "attachments": [
@@ -4465,18 +4466,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "shifrutGenomewideCRISPRScreens2018",
       "itemKey": "9FRBUCIZ",
       "libraryID": 1,
       "select": "zotero://select/library/items/9FRBUCIZ"
     },
     {
       "key": "JB7HZ3AX",
-      "version": 87,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "The Gut Microbiome Alterations and Inflammation-Driven Pathogenesis of Alzheimer’s Disease—a Critical Review",
       "date": "3/2019",
       "DOI": "10.1007/s12035-018-1188-4",
+      "citationKey": "sochockaGutMicrobiomeAlterations2019",
       "url": "http://link.springer.com/10.1007/s12035-018-1188-4",
       "accessDate": "2026-02-12T16:21:43Z",
       "language": "en",
@@ -4522,7 +4523,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:43Z",
-      "dateModified": "2026-02-12T16:21:43Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/JB7HZ3AX",
       "itemID": 62,
       "attachments": [
@@ -4539,19 +4540,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "sochockaGutMicrobiomeAlterations2019",
       "itemKey": "JB7HZ3AX",
       "libraryID": 1,
       "select": "zotero://select/library/items/JB7HZ3AX"
     },
     {
       "key": "YWD8DGEL",
-      "version": 96,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Mesoporous Silica Nanoparticles: Synthesis, Biocompatibility and Drug Delivery",
       "abstractNote": "Abstract\n            In the past decade, mesoporous silica nanoparticles (MSNs) have attracted more and more attention for their potential biomedical applications. With their tailored mesoporous structure and high surface area, MSNs as drug delivery systems (DDSs) show significant advantages over traditional drug nanocarriers. In this review, we overview the recent progress in the synthesis of MSNs for drug delivery applications. First, we provide an overview of synthesis strategies for fabricating ordered MSNs and hollow/rattle‐type MSNs. Then, the in vitro and in vivo biocompatibility and biotranslocation of MSNs are discussed in relation to their chemophysical properties including particle size, surface properties, shape, and structure. The review also highlights the significant achievements in drug delivery using mesoporous silica nanoparticles and their multifunctional counterparts as drug carriers. In particular, the biological barriers for nano‐based targeted cancer therapy and MSN‐based targeting strategies are discussed. We conclude with our personal perspectives on the directions in which future work in this field might be focused.",
       "date": "2012-03-22",
       "DOI": "10.1002/adma.201104763",
+      "citationKey": "tangMesoporousSilicaNanoparticles2012",
       "url": "https://advanced.onlinelibrary.wiley.com/doi/10.1002/adma.201104763",
       "accessDate": "2026-02-12T16:22:45Z",
       "shortTitle": "Mesoporous Silica Nanoparticles",
@@ -4584,7 +4585,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:45Z",
-      "dateModified": "2026-02-12T16:22:45Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/YWD8DGEL",
       "itemID": 85,
       "attachments": [
@@ -4601,19 +4602,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "tangMesoporousSilicaNanoparticles2012",
       "itemKey": "YWD8DGEL",
       "libraryID": 1,
       "select": "zotero://select/library/items/YWD8DGEL"
     },
     {
       "key": "YA82YC5F",
-      "version": 104,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Biomarker modeling of Alzheimer’s disease using PET-based Braak staging",
       "abstractNote": "Abstract\n            \n              Gold-standard diagnosis of Alzheimer’s disease (AD) relies on histopathological staging systems. Using the topographical information from [\n              18\n              F]MK6240 tau positron-emission tomography (PET), we applied the Braak tau staging system to 324 living individuals. We used PET-based Braak stage to model the trajectories of amyloid-β, phosphorylated tau (pTau) in cerebrospinal fluid (pTau\n              181\n              , pTau\n              217\n              , pTau\n              231\n              and pTau\n              235\n              ) and plasma (pTau\n              181\n              and pTau\n              231\n              ), neurodegeneration and cognitive symptoms. We identified nonlinear AD biomarker trajectories corresponding to the spatial extent of tau-PET, with modest biomarker changes detectable by Braak stage II and significant changes occurring at stages III–IV, followed by plateaus. Early Braak stages were associated with isolated memory impairment, whereas Braak stages V–VI were incompatible with normal cognition. In 159 individuals with follow-up tau-PET, progression beyond stage III took place uniquely in the presence of amyloid-β positivity. Our findings support PET-based Braak staging as a framework to model the natural history of AD and monitor AD severity in living humans.",
       "date": "2022-04-25",
       "DOI": "10.1038/s43587-022-00204-0",
+      "citationKey": "therriaultBiomarkerModelingAlzheimers2022",
       "url": "https://www.nature.com/articles/s43587-022-00204-0",
       "accessDate": "2026-02-12T16:23:37Z",
       "language": "en",
@@ -4739,7 +4740,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:37Z",
-      "dateModified": "2026-02-12T16:23:37Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/YA82YC5F",
       "itemID": 103,
       "attachments": [
@@ -4756,18 +4757,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "therriaultBiomarkerModelingAlzheimers2022",
       "itemKey": "YA82YC5F",
       "libraryID": 1,
       "select": "zotero://select/library/items/YA82YC5F"
     },
     {
       "key": "BV6CS9QJ",
-      "version": 100,
+      "version": 109,
       "itemType": "journalArticle",
       "title": "Genome-wide CRISPR Screens Reveal Host Factors Critical for SARS-CoV-2 Infection",
       "date": "01/2021",
       "DOI": "10.1016/j.cell.2020.10.028",
+      "citationKey": "weiGenomewideCRISPRScreens2021",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0092867420313921",
       "accessDate": "2026-02-12T16:23:10Z",
       "language": "en",
@@ -4938,7 +4939,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:10Z",
-      "dateModified": "2026-02-12T16:23:10Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/BV6CS9QJ",
       "itemID": 94,
       "attachments": [
@@ -4955,18 +4956,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "weiGenomewideCRISPRScreens2021",
       "itemKey": "BV6CS9QJ",
       "libraryID": 1,
       "select": "zotero://select/library/items/BV6CS9QJ"
     },
     {
       "key": "SL5XBXFC",
-      "version": 75,
+      "version": 106,
       "itemType": "journalArticle",
       "title": "Short-chain fatty acids (SCFAs) alone or in combination regulate select immune functions of microglia-like cells",
       "date": "06/2020",
       "DOI": "10.1016/j.mcn.2020.103493",
+      "citationKey": "wenzelShortchainFattyAcids2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1044743120300658",
       "accessDate": "2026-02-12T16:21:24Z",
       "language": "en",
@@ -5001,7 +5002,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:21:24Z",
-      "dateModified": "2026-02-12T16:21:24Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/SL5XBXFC",
       "itemID": 55,
       "attachments": [
@@ -5018,19 +5019,19 @@
         }
       ],
       "notes": [],
-      "citationKey": "wenzelShortchainFattyAcids2020",
       "itemKey": "SL5XBXFC",
       "libraryID": 1,
       "select": "zotero://select/library/items/SL5XBXFC"
     },
     {
       "key": "7MRN94RH",
-      "version": 94,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Engineering Macrophages for Cancer Immunotherapy and Drug Delivery",
       "abstractNote": "Abstract\n            Macrophages play an important role in cancer development and metastasis. Proinflammatory M1 macrophages can phagocytose tumor cells, while anti‐inflammatory M2 macrophages such as tumor‐associated macrophages (TAMs) promote tumor growth and invasion. Modulating the tumor immune microenvironment through engineering macrophages is efficacious in tumor therapy. M1 macrophages target cancerous cells and, therefore, can be used as drug carriers for tumor therapy. Herein, the strategies to engineer macrophages for cancer immunotherapy, such as inhibition of macrophage recruitment, depletion of TAMs, reprograming of TAMs, and blocking of the CD47‐SIRPα pathway, are discussed. Further, the recent advances in drug delivery using M1 macrophages, macrophage‐derived exosomes, and macrophage‐membrane‐coated nanoparticles are elaborated. Overall, there is still significant room for development in macrophage‐mediated immune modulation and macrophage‐mediated drug delivery, which will further enhance current tumor therapies against various malignant solid tumors, including drug‐resistant tumors and metastatic tumors.",
       "date": "10/2020",
       "DOI": "10.1002/adma.202002054",
+      "citationKey": "xiaEngineeringMacrophagesCancer2020",
       "url": "https://advanced.onlinelibrary.wiley.com/doi/10.1002/adma.202002054",
       "accessDate": "2026-02-12T16:22:43Z",
       "language": "en",
@@ -5076,7 +5077,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:43Z",
-      "dateModified": "2026-02-12T16:22:43Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/7MRN94RH",
       "itemID": 84,
       "attachments": [
@@ -5093,18 +5094,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "xiaEngineeringMacrophagesCancer2020",
       "itemKey": "7MRN94RH",
       "libraryID": 1,
       "select": "zotero://select/library/items/7MRN94RH"
     },
     {
       "key": "TGQRF6JD",
-      "version": 100,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Engineered miniature CRISPR-Cas system for mammalian genome regulation and editing",
       "date": "10/2021",
       "DOI": "10.1016/j.molcel.2021.08.008",
+      "citationKey": "xuEngineeredMiniatureCRISPRCas2021",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S1097276521006481",
       "accessDate": "2026-02-12T16:23:15Z",
       "language": "en",
@@ -5155,7 +5156,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:15Z",
-      "dateModified": "2026-02-12T16:23:15Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/TGQRF6JD",
       "itemID": 96,
       "attachments": [
@@ -5172,18 +5173,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "xuEngineeredMiniatureCRISPRCas2021",
       "itemKey": "TGQRF6JD",
       "libraryID": 1,
       "select": "zotero://select/library/items/TGQRF6JD"
     },
     {
       "key": "GAF57TBI",
-      "version": 92,
+      "version": 108,
       "itemType": "journalArticle",
       "title": "Neuronal ensembles: Building blocks of neural circuits",
       "date": "03/2024",
       "DOI": "10.1016/j.neuron.2023.12.008",
+      "citationKey": "yusteNeuronalEnsemblesBuilding2024",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0896627323009674",
       "accessDate": "2026-02-12T16:22:32Z",
       "shortTitle": "Neuronal ensembles",
@@ -5215,7 +5216,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:22:32Z",
-      "dateModified": "2026-02-12T16:22:33Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/GAF57TBI",
       "itemID": 81,
       "attachments": [
@@ -5232,18 +5233,18 @@
         }
       ],
       "notes": [],
-      "citationKey": "yusteNeuronalEnsemblesBuilding2024",
       "itemKey": "GAF57TBI",
       "libraryID": 1,
       "select": "zotero://select/library/items/GAF57TBI"
     },
     {
       "key": "KCF97559",
-      "version": 101,
+      "version": 110,
       "itemType": "journalArticle",
       "title": "Glia-to-Neuron Conversion by CRISPR-CasRx Alleviates Symptoms of Neurological Disease in Mice",
       "date": "04/2020",
       "DOI": "10.1016/j.cell.2020.03.024",
+      "citationKey": "zhouGliatoNeuronConversionCRISPRCasRx2020",
       "url": "https://linkinghub.elsevier.com/retrieve/pii/S0092867420302865",
       "accessDate": "2026-02-12T16:23:20Z",
       "language": "en",
@@ -5369,7 +5370,7 @@
       "tags": [],
       "relations": {},
       "dateAdded": "2026-02-12T16:23:20Z",
-      "dateModified": "2026-02-12T16:23:20Z",
+      "dateModified": "2026-02-17T07:21:02Z",
       "uri": "http://zotero.org/users/19640652/items/KCF97559",
       "itemID": 98,
       "attachments": [
@@ -5386,7 +5387,6 @@
         }
       ],
       "notes": [],
-      "citationKey": "zhouGliatoNeuronConversionCRISPRCasRx2020",
       "itemKey": "KCF97559",
       "libraryID": 1,
       "select": "zotero://select/library/items/KCF97559"
