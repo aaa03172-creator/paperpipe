@@ -52,7 +52,14 @@ class LLMProvider:
         
         return "gpt-4o-mini" # Ultimate fallback
 
-    def _make_request(self, task: str, prompt: str, is_json: bool = False, schema: Optional[Dict] = None) -> Optional[str]:
+    def _make_request(
+        self,
+        task: str,
+        prompt: str,
+        is_json: bool = False,
+        schema: Optional[Dict] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Optional[str]:
         raise NotImplementedError
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
@@ -527,15 +534,25 @@ class OpenAIProvider(LLMProvider):
         # Otherwise, fall back to the generic LLMProvider logic
         return super()._get_model(task)
 
-    def _make_request(self, task: str, prompt: str, is_json: bool = False, schema: Optional[Dict] = None) -> Optional[str]:
+    def _make_request(
+        self,
+        task: str,
+        prompt: str,
+        is_json: bool = False,
+        schema: Optional[Dict] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Optional[str]:
         """중앙화된 API 요청 핸들러 (재시도, 타임아웃, 에러 처리)"""
         if not self.is_available():
             return None
 
         model = self._get_model(task)
         logger.info(f"Making LLM request to model '{model}' for task '{task}'.")
-        
-        messages = [{"role": "user", "content": prompt}]
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
         request_params = {
             "model": model,
             "messages": messages,
@@ -613,7 +630,14 @@ class OllamaProvider(LLMProvider):
         # Fallback to a general chat model if specific task model not found
         return self.models.get("chat", "phi3")
 
-    def _make_request(self, task: str, prompt: str, is_json: bool = False, schema: Optional[Dict] = None, system_prompt: Optional[str] = None) -> Optional[str]:
+    def _make_request(
+        self,
+        task: str,
+        prompt: str,
+        is_json: bool = False,
+        schema: Optional[Dict] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Optional[str]:
         if not self.is_available(): return None
 
         model = self._get_model(task)
@@ -671,15 +695,22 @@ class HybridProvider(LLMProvider):
     def is_available(self) -> bool:
         return self.local.is_available() or self.cloud.is_available()
 
-    def _make_request(self, task: str, prompt: str, is_json: bool = False, schema: Optional[Dict] = None) -> Optional[str]:
+    def _make_request(
+        self,
+        task: str,
+        prompt: str,
+        is_json: bool = False,
+        schema: Optional[Dict] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Optional[str]:
         # This method should not be called directly in HybridProvider,
         # as specific tasks are routed to specific sub-providers.
         # However, if a task is not explicitly routed, we can define a fallback.
         logger.warning(f"HybridProvider: Unrouted task '{task}'. Falling back to cloud if available, else local.")
         if self.cloud.is_available():
-            return self.cloud._make_request(task, prompt, is_json, schema)
+            return self.cloud._make_request(task, prompt, is_json, schema, system_prompt=system_prompt)
         elif self.local.is_available():
-            return self.local._make_request(task, prompt, is_json, schema)
+            return self.local._make_request(task, prompt, is_json, schema, system_prompt=system_prompt)
         else:
             logger.error(f"HybridProvider: No LLM available for task '{task}'.")
             return "❌ AI Error: No LLM available."
