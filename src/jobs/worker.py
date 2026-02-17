@@ -1,6 +1,8 @@
 import time
 import logging
 import traceback
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
 
@@ -68,7 +70,7 @@ class Worker:
             # Finish
             self.queue.update_job(job.job_id, {
                 "status": "completed", 
-                "finished_at": datetime.now(), 
+                "finished_at": datetime.now(timezone.utc).isoformat(),
                 "progress": 100,
                 "stage": "Done"
             })
@@ -80,11 +82,9 @@ class Worker:
             self.queue.update_job(job.job_id, {
                 "status": "failed",
                 "error_message": str(e),
-                "finished_at": datetime.now()
+                "finished_at": datetime.now(timezone.utc).isoformat()
             })
 
 if __name__ == "__main__":
-    from datetime import datetime
-    import json
     worker = Worker()
     worker.start()

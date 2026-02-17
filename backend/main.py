@@ -5,9 +5,10 @@ import asyncio
 import json
 from pathlib import Path
 
-from src.db_utils import get_db_connection
+from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus
+from .routers import obsidian, feedback
 
 app = FastAPI(title="PaperPipe API", version="3.1.0")
 
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 queue = JobQueue()
+init_db()
 
 @app.get("/health")
 def health_check():
@@ -81,3 +83,6 @@ async def job_events(job_id: str, request: Request):
             await asyncio.sleep(1)
 
     return EventSourceResponse(event_generator())
+
+app.include_router(obsidian.router)
+app.include_router(feedback.router)
