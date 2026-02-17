@@ -104,3 +104,44 @@ def test_force_overwrite(tmp_path):
     assert updated is True, "Force overwrite should trigger update"
     content = target_file.read_text(encoding="utf-8")
     assert "Overwrite Test Paper" in content
+
+def test_no_overwrite_missing_updated_at(tmp_path):
+    """Test NO overwrite when updated_at is missing (Safety fallback)."""
+    vault_path = tmp_path
+    inbox = vault_path / "Inbox" / "PaperPipe"
+    inbox.mkdir(parents=True, exist_ok=True)
+    target_file = inbox / "paper_overwrite_test.md"
+    
+    # 1. Create file with User Content
+    target_file.write_text("User Content", encoding="utf-8")
+    
+    # 2. Paper with None updated_at
+    paper = _sample_paper(updated_at=None)
+    paper['updated_at'] = None # Explicitly set None
+    
+    # 3. Export
+    updated = export_paper_to_markdown(paper, vault_path, overwrite=False)
+    
+    # 4. Assert
+    assert updated is False
+    assert target_file.read_text(encoding="utf-8") == "User Content"
+
+def test_no_overwrite_malformed_updated_at(tmp_path):
+    """Test NO overwrite when updated_at is malformed string."""
+    vault_path = tmp_path
+    inbox = vault_path / "Inbox" / "PaperPipe"
+    inbox.mkdir(parents=True, exist_ok=True)
+    target_file = inbox / "paper_overwrite_test.md"
+    
+    # 1. Create file with User Content
+    target_file.write_text("User Content", encoding="utf-8")
+    
+    # 2. Paper with BAD updated_at
+    paper = _sample_paper(updated_at="NOT-A-DATE")
+    
+    # 3. Export
+    updated = export_paper_to_markdown(paper, vault_path, overwrite=False)
+    
+    # 4. Assert
+    assert updated is False
+    assert target_file.read_text(encoding="utf-8") == "User Content"
