@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 class JobQueue:
     def __init__(self):
-        self.conn = get_db_connection() # Keep connection? Or per request?
-        # Better to instantiate per request or use get_db_connection in methods
+        # Keep queue stateless; each method manages its own DB connection lifecycle.
         pass
 
     def enqueue(self, paper_id: str, clean_reindex: bool = False) -> str:
