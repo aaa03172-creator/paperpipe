@@ -18,6 +18,7 @@ from src.db_utils import (
 )
 from src.schemas import Paper, PaperStatus, PaperTagging
 from src.obsidian import save_paper_to_obsidian
+from src.pdf import extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +181,18 @@ class PaperProcessor:
             
         # 1. Construct Paper object (minimal)
         summary = row.get('summary', '') or "Abstract not available."
+        full_text = None
+
+        if pdf_path:
+            p = Path(pdf_path)
+            if p.exists():
+                logger.info(f"      -> Extracting text from PDF: {p.name}")
+                full_text = extract_text_from_pdf(p, max_pages=5)
         
         paper_obj = {
             "title": title,
-            "summary": summary
+            "summary": summary,
+            "full_text": full_text,
         }
         
         # 2. Run Hybrid Tagging (includes Confidence)
