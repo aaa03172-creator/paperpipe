@@ -23,7 +23,6 @@ app.add_middleware(
 )
 
 queue = JobQueue()
-init_db()
 
 @app.get("/health")
 def health_check():
