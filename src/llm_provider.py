@@ -66,7 +66,33 @@ class LLMProvider:
             return None
 
         try:
-            return repair_and_parse_json(response_content)
+            parsed = repair_and_parse_json(response_content)
+            
+            # [Smart Unwrap Logic]
+            # If the LLM wrapped the response in "data", "response", "content", etc., unwrap it.
+            # We check if the expected keys are present.
+            expected_keys = ["hard_tags", "soft_tags", "evidence_span"]
+            
+            def find_keys(obj, keys):
+                if isinstance(obj, dict):
+                    # Check if this object has the keys we want
+                    if all(k in obj for k in keys):
+                        return obj
+                    # If not, check values (recursive descent)
+                    for v in obj.values():
+                        found = find_keys(v, keys)
+                        if found:
+                            return found
+                return None
+
+            # Try to find the schema if not at root
+            # Only do this if we are looking for a specific schema structure (inferred by context or generous check)
+            # For tagging, we expect hard_tags and soft_tags.
+            unwrapped = find_keys(parsed, ["hard_tags", "soft_tags"])
+            if unwrapped:
+                return unwrapped
+            
+            return parsed
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to extract JSON from content: {response_content[:100]}... ({e})")
         return None
@@ -324,6 +350,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         - If 'hard_tags' are not found, return dictionary with null values.
         - **'soft_tags' MUST NOT be empty and MUST START WITH #.**
         - **NEVER return an empty list for 'soft_tags'.**
+        - **DO NOT WRAP the response in 'content' or 'response' keys. return the schema keys at the ROOT.**
         """
         
         user_prompt = f"""
@@ -338,8 +365,8 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             snippet = full_text[:20000] # Limit to 20k chars context window
             user_prompt += f"\n- Full Text Content (First 20k chars):\n{snippet}\n"
         
-        # Use System Prompt + User Prompt. Disable JSON mode.
-        response_content = self._make_request("tagging", user_prompt, is_json=False, schema=None, system_prompt=system_prompt)
+        # Use System Prompt + User Prompt. Enable JSON mode for stability.
+        response_content = self._make_request("tagging", user_prompt, is_json=True, schema=None, system_prompt=system_prompt)
         
         if response_content:
             try:
