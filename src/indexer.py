@@ -16,6 +16,7 @@ def _model_slug(model_name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", model_name.lower()).strip("_")
 
 
+
 def default_collection_name(model_name: str, version: int = 1) -> str:
     return f"paper_pipe_bio__{_model_slug(model_name)}__v{version}"
 
@@ -112,6 +113,7 @@ class PaperIndexer:
         chroma_path: str = "./storage/vector_db",
         model_name: str = "NeuML/pubmedbert-base-embeddings",
         collection_name: str | None = None,
+        collection_version: int = 1,
         chroma_client: Any | None = None,
         embedder: Any | None = None,
         now_fn: Callable[[], str] = _utc_now_iso,
@@ -119,7 +121,8 @@ class PaperIndexer:
         self.db_path = db_path
         self.chroma_path = chroma_path
         self.model_name = model_name
-        self.collection_name = collection_name or default_collection_name(model_name)
+        self.collection_version = collection_version
+        self.collection_name = collection_name or default_collection_name(model_name, collection_version)
         self._chroma_client = chroma_client
         self._embedder = embedder
         self._now_fn = now_fn
@@ -200,13 +203,18 @@ class PaperIndexer:
         timestamp = self._now_fn()
 
         for row in rows:
+            # [Fix] Use 'doi' as ID if 'paper_id' missing
+            pid = str(row.get("paper_id") or row.get("doi") or "")
+            if not pid:
+                continue
+                
             feedback = _load_feedback(row.get("feedback_json"))
             tags = extract_tags(feedback)
-            ids.append(str(row["paper_id"]))
+            ids.append(pid)
             docs.append(build_document(row, tags))
             metadatas.append(
                 {
-                    "paper_id": str(row.get("paper_id") or ""),
+                    "paper_id": pid,
                     "title": str(row.get("title") or ""),
                     "year": _safe_int(row.get("year")),
                     "venue": str(row.get("venue") or ""),
@@ -216,6 +224,7 @@ class PaperIndexer:
                     "doi": str(row.get("doi") or ""),
                     "embedding_model": self.model_name,
                     "collection_name": self.collection_name,
+                    "collection_version": self.collection_version,
                     "indexed_at": timestamp,
                     "tags_count": len(tags),
                 }
@@ -252,6 +261,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default="NeuML/pubmedbert-base-embeddings",
         help="SentenceTransformer model name",
     )
+    parser.add_argument(
+        "--version",
+        type=int,
+        default=1,
+        help="Collection version number (default: 1)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -274,6 +289,7 @@ def main() -> None:
         chroma_path=args.chroma,
         model_name=args.model,
         collection_name=args.collection,
+        collection_version=args.version,
     )
 
     if args.command == "index":
