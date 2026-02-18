@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+DEFAULT_EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
+BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -14,6 +17,7 @@ def _utc_now_iso() -> str:
 
 def _model_slug(model_name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", model_name.lower()).strip("_")
+
 
 
 def default_collection_name(model_name: str, version: int = 1) -> str:
@@ -110,8 +114,10 @@ class PaperIndexer:
         self,
         db_path: str,
         chroma_path: str = "./storage/vector_db",
-        model_name: str = "NeuML/pubmedbert-base-embeddings",
+        model_name: str = DEFAULT_EMBEDDING_MODEL,
         collection_name: str | None = None,
+        collection_version: int = 1,
+        bge_query_prefix: str = "auto",
         chroma_client: Any | None = None,
         embedder: Any | None = None,
         now_fn: Callable[[], str] = _utc_now_iso,
@@ -119,7 +125,9 @@ class PaperIndexer:
         self.db_path = db_path
         self.chroma_path = chroma_path
         self.model_name = model_name
-        self.collection_name = collection_name or default_collection_name(model_name)
+        self.collection_version = collection_version
+        self.collection_name = collection_name or default_collection_name(model_name, collection_version)
+        self.bge_query_prefix = bge_query_prefix
         self._chroma_client = chroma_client
         self._embedder = embedder
         self._now_fn = now_fn
@@ -188,6 +196,20 @@ class PaperIndexer:
             embeddings = embeddings.tolist()
         return embeddings
 
+    def _use_bge_query_prefix(self) -> bool:
+        mode = (self.bge_query_prefix or "auto").lower()
+        if mode == "on":
+            return True
+        if mode == "off":
+            return False
+        return "bge" in self.model_name.lower()
+
+    def _prepare_query_text(self, query: str) -> tuple[str, bool]:
+        use_prefix = self._use_bge_query_prefix()
+        if not use_prefix:
+            return query, False
+        return f"{BGE_QUERY_PREFIX}{query}", True
+
     def index(self, include_all: bool = False) -> IndexRunResult:
         rows = self._select_rows(include_all=include_all)
         if not rows:
@@ -200,13 +222,18 @@ class PaperIndexer:
         timestamp = self._now_fn()
 
         for row in rows:
+            # [Fix] Use 'doi' as ID if 'paper_id' missing
+            pid = str(row.get("paper_id") or row.get("doi") or "")
+            if not pid:
+                continue
+                
             feedback = _load_feedback(row.get("feedback_json"))
             tags = extract_tags(feedback)
-            ids.append(str(row["paper_id"]))
+            ids.append(pid)
             docs.append(build_document(row, tags))
             metadatas.append(
                 {
-                    "paper_id": str(row.get("paper_id") or ""),
+                    "paper_id": pid,
                     "title": str(row.get("title") or ""),
                     "year": _safe_int(row.get("year")),
                     "venue": str(row.get("venue") or ""),
@@ -216,6 +243,7 @@ class PaperIndexer:
                     "doi": str(row.get("doi") or ""),
                     "embedding_model": self.model_name,
                     "collection_name": self.collection_name,
+                    "collection_version": self.collection_version,
                     "indexed_at": timestamp,
                     "tags_count": len(tags),
                 }
@@ -233,9 +261,12 @@ class PaperIndexer:
         return IndexRunResult(collection_name=self.collection_name, indexed_count=len(ids))
 
     def search(self, query: str, k: int = 5) -> dict[str, Any]:
-        embedding = self._encode_texts([query])[0]
+        query_text, query_prefix_used = self._prepare_query_text(query)
+        embedding = self._encode_texts([query_text])[0]
         collection = self._get_collection()
-        return collection.query(query_embeddings=[embedding], n_results=k)
+        results = collection.query(query_embeddings=[embedding], n_results=k)
+        results["query_prefix_used"] = query_prefix_used
+        return results
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -249,8 +280,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="NeuML/pubmedbert-base-embeddings",
-        help="SentenceTransformer model name",
+        default=DEFAULT_EMBEDDING_MODEL,
+        help="SentenceTransformer model name (default: NeuML/pubmedbert-base-embeddings)",
+    )
+    parser.add_argument(
+        "--version",
+        type=int,
+        default=1,
+        help="Collection version number (default: 1)",
+    )
+    parser.add_argument(
+        "--bge-query-prefix",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Apply BGE retrieval prefix for query encoding (default: auto)",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -274,6 +317,8 @@ def main() -> None:
         chroma_path=args.chroma,
         model_name=args.model,
         collection_name=args.collection,
+        collection_version=args.version,
+        bge_query_prefix=args.bge_query_prefix,
     )
 
     if args.command == "index":
