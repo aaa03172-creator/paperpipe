@@ -111,7 +111,7 @@ class PaperIndexer:
         self,
         db_path: str,
         chroma_path: str = "./storage/vector_db",
-        model_name: str = "NeuML/pubmedbert-base-embeddings",
+        model_name: str = "BAAI/bge-small-en",
         collection_name: str | None = None,
         collection_version: int = 1,
         chroma_client: Any | None = None,
@@ -258,8 +258,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="NeuML/pubmedbert-base-embeddings",
-        help="SentenceTransformer model name",
+        default="BAAI/bge-small-en",
+        help="SentenceTransformer model name (default: BAAI/bge-small-en)",
     )
     parser.add_argument(
         "--version",
