@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from src.indexer import PaperIndexer
+from src.indexer import DEFAULT_EMBEDDING_MODEL, PaperIndexer, default_collection_name
 
 
 DDL_SQL = """
@@ -223,3 +223,52 @@ def test_search_returns_non_empty_structure_when_index_exists(tmp_path):
     assert "documents" in results
     assert len(results["ids"]) == 1
     assert len(results["ids"][0]) >= 1
+
+
+def test_default_model_policy_is_neuml_and_collection_v1():
+    indexer = PaperIndexer(db_path=":memory:")
+    assert indexer.model_name == DEFAULT_EMBEDDING_MODEL
+    assert indexer.model_name == "NeuML/pubmedbert-base-embeddings"
+    assert indexer.collection_name == default_collection_name("NeuML/pubmedbert-base-embeddings", 1)
+
+
+def test_bge_query_prefix_auto_applies_for_bge_model(tmp_path):
+    db_path = tmp_path / "state.db"
+    _build_test_db(db_path)
+    client = FakeChromaClient()
+    embedder = FakeEmbedder()
+
+    indexer = PaperIndexer(
+        db_path=str(db_path),
+        chroma_client=client,
+        embedder=embedder,
+        model_name="BAAI/bge-small-en-v1.5",
+        bge_query_prefix="auto",
+    )
+    indexer.index(include_all=False)
+    results = indexer.search("biomarker", k=3)
+
+    encoded_query = embedder.calls[-1]["texts"][0]
+    assert encoded_query.startswith("Represent this sentence for searching relevant passages:")
+    assert results["query_prefix_used"] is True
+
+
+def test_bge_query_prefix_off_disables_prefix(tmp_path):
+    db_path = tmp_path / "state.db"
+    _build_test_db(db_path)
+    client = FakeChromaClient()
+    embedder = FakeEmbedder()
+
+    indexer = PaperIndexer(
+        db_path=str(db_path),
+        chroma_client=client,
+        embedder=embedder,
+        model_name="BAAI/bge-small-en-v1.5",
+        bge_query_prefix="off",
+    )
+    indexer.index(include_all=False)
+    results = indexer.search("biomarker", k=3)
+
+    encoded_query = embedder.calls[-1]["texts"][0]
+    assert encoded_query == "biomarker"
+    assert results["query_prefix_used"] is False
