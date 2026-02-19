@@ -23,6 +23,13 @@ class PaperMetadata(BaseModel):
     
     # Extra flexible fields
     raw_date: Optional[str] = None
+    # OCR fallback metadata (PR#3)
+    ocr_applied: bool = False
+    ocr_engine: Optional[str] = None
+    ocr_version: Optional[str] = None
+    ocr_lang: Optional[str] = None
+    ocr_error: Optional[str] = None
+    ocr_output_path: Optional[str] = None
     
 class Section(BaseModel):
     name: str = Field(..., description="Standardized section name (abstract, methods, results, discussion, etc.)")
