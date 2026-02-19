@@ -21,6 +21,7 @@ from src.contracts.document_artifact_v2 import (
     SpanV2,
     stable_id,
 )
+from src.ingest.ocr_fallback import detect_need_ocr, run_ocr, build_ocr_cache_path
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,13 @@ class IngestAgent:
     def __init__(self):
         pass
 
-    def process(self, pdf_path: str) -> Optional[DocumentArtifact]:
+    def process(
+        self,
+        pdf_path: str,
+        enable_ocr_fallback: bool = False,
+        ocr_lang: str = "eng",
+        ocr_min_text_chars: int = 200,
+    ) -> Optional[DocumentArtifact]:
         """
         Main entry point. Parses PDF and returns a structured artifact.
         """
@@ -43,13 +50,39 @@ class IngestAgent:
         if not path.exists():
             logger.error(f"PDF file not found: {pdf_path}")
             return None
+
+        ingest_path = path
+        ocr_meta = {
+            "ocr_applied": False,
+            "ocr_engine": None,
+            "ocr_version": None,
+            "ocr_lang": None,
+            "ocr_output_path": None,
+            "error": None,
+        }
         
         try:
+            if enable_ocr_fallback and detect_need_ocr(path, min_text_chars=ocr_min_text_chars):
+                ocr_cache_path = build_ocr_cache_path(path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang)
+                ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang)
+                if ocr_meta.get("ocr_applied") and ocr_meta.get("ocr_output_path"):
+                    candidate = Path(str(ocr_meta["ocr_output_path"]))
+                    if candidate.exists():
+                        ingest_path = candidate
+
             # 1. Fast Extraction with PyMuPDF
-            doc_meta, sections, full_text_len = self._extract_text_and_meta(path)
+            doc_meta, sections, full_text_len = self._extract_text_and_meta(ingest_path)
             
             # 2. Table Extraction with pdfplumber
-            tables = self._extract_tables(path)
+            tables = self._extract_tables(ingest_path)
+
+            # 2.5 OCR metadata
+            doc_meta.ocr_applied = bool(ocr_meta.get("ocr_applied"))
+            doc_meta.ocr_engine = ocr_meta.get("ocr_engine")
+            doc_meta.ocr_version = ocr_meta.get("ocr_version")
+            doc_meta.ocr_lang = ocr_meta.get("ocr_lang")
+            doc_meta.ocr_error = ocr_meta.get("error")
+            doc_meta.ocr_output_path = ocr_meta.get("ocr_output_path")
             
             # 3. Construct Artifact
             artifact = DocumentArtifact(
