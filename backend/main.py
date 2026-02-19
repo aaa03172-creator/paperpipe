@@ -37,7 +37,12 @@ def list_papers():
 
 @app.post("/jobs/deepread", response_model=dict)
 def enqueue_job(job_req: JobCreate):
-    job_id = queue.enqueue(job_req.paper_id, job_req.clean_reindex)
+    job_id = queue.enqueue(
+        job_req.paper_id,
+        job_req.clean_reindex,
+        job_req.run_verify,
+        job_req.persona_id,
+    )
     return {"job_id": job_id, "status": "queued"}
 
 @app.get("/jobs/{job_id}", response_model=JobStatus)

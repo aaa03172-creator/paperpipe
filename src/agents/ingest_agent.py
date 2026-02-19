@@ -19,6 +19,7 @@ from src.contracts.document_artifact_v2 import (
     BlockV2,
     LineV2,
     SpanV2,
+    TableV2,
     stable_id,
 )
 from src.ingest.ocr_fallback import detect_need_ocr, run_ocr, build_ocr_cache_path
@@ -299,8 +300,19 @@ class IngestAgent:
         finally:
             doc.close()
 
+        tables_v2 = [
+            TableV2(
+                table_id=t.table_id,
+                caption=t.caption,
+                data=t.data,
+                source_page=t.source_page,
+            )
+            for t in legacy.tables
+        ]
+
         return DocumentArtifactV2(
             document_id=legacy.doc_id,
             meta=meta_v2,
             pages=pages,
+            tables=tables_v2,
         )
