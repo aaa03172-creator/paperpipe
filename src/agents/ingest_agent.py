@@ -12,6 +12,15 @@ from src.schemas.agent_artifacts import (
     Section, 
     TableData
 )
+from src.contracts.document_artifact_v2 import (
+    DocumentArtifactV2,
+    ArtifactMetaV2,
+    PageV2,
+    BlockV2,
+    LineV2,
+    SpanV2,
+    stable_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +70,16 @@ class IngestAgent:
         except Exception as e:
             logger.error(f"Failed to ingest PDF {pdf_path}: {e}")
             return None
+
+    def process_v2(self, pdf_path: str) -> Optional[DocumentArtifactV2]:
+        """
+        Additive v2 contract output.
+        Keeps existing ingest behavior intact while exposing stable IDs + bbox-ready structure.
+        """
+        legacy = self.process(pdf_path)
+        if not legacy:
+            return None
+        return self._build_v2_from_pdf(Path(pdf_path), legacy)
 
     def _extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         """
@@ -171,3 +190,84 @@ class IngestAgent:
             logger.warning(f"Table extraction failed for {path}: {e}")
             
         return tables
+
+    def _build_v2_from_pdf(self, path: Path, legacy: DocumentArtifact) -> DocumentArtifactV2:
+        """
+        Build DocumentArtifactV2 from current parser capabilities.
+        bbox is emitted only when available; otherwise set null + bbox_unavailable=true.
+        """
+        meta_v2 = ArtifactMetaV2(
+            title=legacy.metadata.title,
+            authors=legacy.metadata.authors,
+            year=legacy.metadata.year,
+            journal=legacy.metadata.journal,
+            doi=legacy.metadata.doi,
+            source_ref=legacy.source.ref,
+        )
+
+        pages: List[PageV2] = []
+        doc = fitz.open(path)
+        try:
+            for page_idx, page in enumerate(doc):
+                page_width = float(page.rect.width)
+                page_height = float(page.rect.height)
+
+                # PyMuPDF block tuples:
+                # (x0, y0, x1, y1, text, block_no, block_type)
+                raw_blocks = page.get_text("blocks")
+                sorted_blocks = sorted(
+                    raw_blocks,
+                    key=lambda b: (round(float(b[1]), 3), round(float(b[0]), 3), round(float(b[3]), 3), round(float(b[2]), 3)),
+                )
+
+                blocks: List[BlockV2] = []
+                for block_order, block in enumerate(sorted_blocks):
+                    x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4] or ""
+                    bbox = [float(x0), float(y0), float(x1), float(y1)]
+
+                    block_id = f"blk_{stable_id(legacy.doc_id, str(page_idx), str(block_order), f'{x0:.3f}', f'{y0:.3f}', f'{x1:.3f}', f'{y1:.3f}', text.strip())}"
+
+                    lines: List[LineV2] = []
+                    for line_order, line_text in enumerate([ln for ln in text.splitlines() if ln.strip()]):
+                        line_id = f"ln_{stable_id(block_id, str(line_order), line_text.strip())}"
+                        # Current parser does not provide per-line bbox reliably.
+                        span_id = f"sp_{stable_id(line_id, '0', line_text.strip())}"
+                        span = SpanV2(
+                            span_id=span_id,
+                            text=line_text,
+                            bbox_pdf=None,
+                            source_ref=f"{legacy.source.ref}#page={page_idx}",
+                            bbox_unavailable=True,
+                        )
+                        line = LineV2(
+                            line_id=line_id,
+                            text=line_text,
+                            bbox_pdf=None,
+                            spans=[span],
+                            bbox_unavailable=True,
+                        )
+                        lines.append(line)
+
+                    block_model = BlockV2(
+                        block_id=block_id,
+                        bbox_pdf=bbox,
+                        lines=lines,
+                        bbox_unavailable=False,
+                    )
+                    blocks.append(block_model)
+
+                page_model = PageV2(
+                    page_index=page_idx,
+                    width=page_width,
+                    height=page_height,
+                    blocks=blocks,
+                )
+                pages.append(page_model)
+        finally:
+            doc.close()
+
+        return DocumentArtifactV2(
+            document_id=legacy.doc_id,
+            meta=meta_v2,
+            pages=pages,
+        )
