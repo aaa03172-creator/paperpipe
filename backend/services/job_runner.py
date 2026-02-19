@@ -1,27 +1,32 @@
 import asyncio
 import uuid
-import os
 import json
 import logging
 import traceback
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, Any
+from datetime import datetime, timezone
+from typing import Dict, Any, Callable, Awaitable, Optional
 
 from src.config import load_config
-from src.db import get_paper_by_id
 from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
-from src.schemas.agent_artifacts import EvidenceSpan
 
 logger = logging.getLogger("paperpipe.backend")
 
 # Global Job Queue Registry (In-Memory PubSub)
 JOB_QUEUES: Dict[str, asyncio.Queue] = {}
 
-async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "default", run_verify: bool = False, run_id: str = None):
+async def run_deepread_job(
+    job_id: str,
+    paper_id: str,
+    persona_id: str = "default",
+    run_verify: bool = False,
+    run_id: str = None,
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    cancel_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
+):
     """
     Async Job Runner for Deep Read Pipeline.
     Orchestrates: Ingest -> Index -> Read -> Verify.
@@ -31,10 +36,14 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
         run_id = str(uuid.uuid4())
     
     queue = JOB_QUEUES.get(job_id)
-    
-    if not queue:
-        logger.error(f"Job Queue not found for {job_id}")
-        return
+
+    async def is_cancelled() -> bool:
+        if not cancel_check:
+            return False
+        result = cancel_check()
+        if asyncio.iscoroutine(result):
+            return await result
+        return bool(result)
 
     async def emit(stage: str, progress: int, message: str, level: str = "INFO"):
         event = {
@@ -44,13 +53,20 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
             "progress": progress,
             "message": message,
             "level": level,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        await queue.put({"event": "progress", "data": json.dumps(event)})
-        if level == "ERROR":
-             await queue.put({"event": "error", "data": json.dumps(event)})
+        if queue:
+            await queue.put({"event": "progress", "data": json.dumps(event)})
+            if level == "ERROR":
+                await queue.put({"event": "error", "data": json.dumps(event)})
+        if progress_callback:
+            await progress_callback(event)
+        return event
 
     try:
+        if await is_cancelled():
+            return {"status": "cancelled", "run_id": run_id}
+
         await emit("init", 0, f"Starting Deep Read for {paper_id}")
         
         config = load_config()
@@ -74,7 +90,7 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
         if not pdf_path or not pdf_path.exists():
             logger.error(f"❌ PDF not found for {paper_id} in {config.paths.library_dir}")
             await emit("init", 0, f"PDF not found for {paper_id}", level="ERROR")
-            return
+            return {"status": "failed", "error": f"PDF not found for {paper_id}", "run_id": run_id}
             
         logger.info(f"✅ Found PDF: {pdf_path}")
 
@@ -83,10 +99,12 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
         artifact_dir.mkdir(parents=True, exist_ok=True)
         
         # 2. Ingest
+        if await is_cancelled():
+            return {"status": "cancelled", "run_id": run_id}
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
         ingest_agent = IngestAgent()
-        doc_artifact = ingest_agent.process(str(pdf_path))
+        doc_artifact = ingest_agent.process_v2(str(pdf_path))
         
         if not doc_artifact:
              raise Exception("Ingestion failed to produce artifact")
@@ -95,9 +113,11 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
         with open(artifact_dir / "document_artifact.json", "w") as f:
             f.write(doc_artifact.model_dump_json(indent=2))
             
-        await emit("ingest", 25, f"Ingested {len(doc_artifact.sections)} sections")
+        await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
 
         # 3. Index
+        if await is_cancelled():
+            return {"status": "cancelled", "run_id": run_id}
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
         index_artifact = indexer_agent.process(doc_artifact)
@@ -109,9 +129,10 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
         await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks")
 
         # 4. Read (Claim Extraction)
+        if await is_cancelled():
+            return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
         reader_agent = ReaderAgent()
-        # ReaderAgent analyzes the DocumentArtifact directly (uses text/sections)
         claim_set = reader_agent.analyze(doc_artifact)
         
         if not claim_set:
@@ -125,21 +146,17 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
 
         # 5. Verify (Optional)
         if run_verify:
+            if await is_cancelled():
+                return {"status": "cancelled", "run_id": run_id}
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
-                # Prepare evidence list for verifier
-                # Flatten evidence from all claims
-                all_evidence = []
-                for claim in claim_set.claims:
-                    all_evidence.extend(claim.evidence_spans)
-                
                 stats_agent = StatsVerificationAgent()
-                # Note: StatsVerificationAgent.run expects doc_id and tables. 
-                # We adhere to its signature.
+                # StatsVerificationAgent.run signature:
+                # run(job_id: str, doc: DocumentArtifact|DocumentArtifactV2, claims: ClaimSet)
                 stats_report = stats_agent.run(
-                    doc_id=doc_artifact.doc_id, 
-                    tables=doc_artifact.tables, 
-                    claims=claim_set.claims
+                    job_id=job_id,
+                    doc=doc_artifact,
+                    claims=claim_set
                 )
                 
                 # Save Report
@@ -154,13 +171,17 @@ async def run_deepread_job(job_id: str, paper_id: str, persona_id: str = "defaul
 
         # 6. Complete
         await emit("completed", 100, "Pipeline Completed Successfully")
-        await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
+        if queue:
+            await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
+        return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
 
     except Exception as e:
         logger.error(f"Job Failed: {e}")
         traceback.print_exc() # Print trace to stdout for debugging
         await emit("error", 0, str(e), level="ERROR")
-        await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
+        if queue:
+            await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
+        return {"status": "failed", "error": str(e), "run_id": run_id}
     finally:
         # Cleanup queue after short delay to allow client to disconnect?
         # Actually EventSourceResponse typically handles disconnect.

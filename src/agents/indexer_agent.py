@@ -6,6 +6,8 @@ import chromadb
 from chromadb.config import Settings
 from src.agents.adapter import OllamaModelAdapter
 from src.schemas.agent_artifacts import DocumentArtifact, IndexArtifact, DocumentChunk
+from src.contracts.document_artifact_v2 import DocumentArtifactV2
+from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -31,12 +33,13 @@ class IndexerAgent:
         self.chroma_client = chromadb.PersistentClient(path=self.persist_path)
         self.collection = self.chroma_client.get_or_create_collection(name=collection_name)
 
-    def process(self, doc: DocumentArtifact) -> IndexArtifact:
+    def process(self, doc: DocumentArtifact | DocumentArtifactV2) -> IndexArtifact:
         """
         Chunks and indexes the document.
         Returns an IndexArtifact summarizing the operation.
         """
-        logger.info(f"Indexer Agent processing: {doc.doc_id}")
+        header = get_artifact_header(doc)
+        logger.info(f"Indexer Agent processing: {header.doc_id}")
         
         chunks: List[DocumentChunk] = []
         ids = []
@@ -45,7 +48,7 @@ class IndexerAgent:
         documents = []
         
         # Section-aware chunking
-        for section in doc.sections:
+        for section in iter_text_sections(doc):
             section_chunks = self._chunk_text(section.text, chunk_size=1000, overlap=200)
             
             for i, text_chunk in enumerate(section_chunks):
@@ -61,11 +64,11 @@ class IndexerAgent:
                 ids.append(chunk_id)
                 embeddings.append(embedding)
                 metadatas.append({
-                    "doc_id": doc.doc_id,
-                    "title": doc.metadata.title,
+                    "doc_id": header.doc_id,
+                    "title": header.title,
                     "section": section.name,
                     "chunk_index": i,
-                    "source": doc.source.ref
+                    "source": header.source_ref
                 })
                 documents.append(text_chunk)
                 
@@ -85,12 +88,12 @@ class IndexerAgent:
                 metadatas=metadatas,
                 documents=documents
             )
-            logger.info(f"Indexed {len(ids)} chunks for {doc.doc_id}")
+            logger.info(f"Indexed {len(ids)} chunks for {header.doc_id}")
         else:
-            logger.warning(f"No chunks indexed for {doc.doc_id}")
+            logger.warning(f"No chunks indexed for {header.doc_id}")
             
         return IndexArtifact(
-            doc_id=doc.doc_id,
+            doc_id=header.doc_id,
             vector_store_id="chromadb",
             chunk_count=len(chunks),
             chunks=chunks # Note: DocumentChunk in schema might be light, avoiding full text if not needed, but here we include it.

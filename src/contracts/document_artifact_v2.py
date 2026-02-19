@@ -56,10 +56,18 @@ class PageV2(BaseModel):
         return self
 
 
+class TableV2(BaseModel):
+    table_id: str
+    caption: str
+    data: List[List[str]] = Field(default_factory=list)
+    source_page: int
+
+
 class DocumentArtifactV2(BaseModel):
     document_id: str
     meta: ArtifactMetaV2
     pages: List[PageV2] = Field(default_factory=list)
+    tables: List[TableV2] = Field(default_factory=list)
     schema_version: str = "2.0"
 
 

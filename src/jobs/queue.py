@@ -16,7 +16,13 @@ class JobQueue:
         # Database connection is handled per-method to avoid thread safety issues
         pass
 
-    def enqueue(self, paper_id: str, clean_reindex: bool = False) -> str:
+    def enqueue(
+        self,
+        paper_id: str,
+        clean_reindex: bool = False,
+        run_verify: bool = False,
+        persona_id: str = "default",
+    ) -> str:
         """Enqueue a new job for the given paper_id."""
         job_id = str(uuid.uuid4())
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -24,9 +30,9 @@ class JobQueue:
         conn = get_db_connection()
         try:
             conn.execute("""
-                INSERT INTO jobs (job_id, run_id, paper_id, status, created_at)
-                VALUES (?, ?, ?, 'queued', CURRENT_TIMESTAMP)
-            """, (job_id, run_id, paper_id))
+                INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, status, created_at)
+                VALUES (?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
+            """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify))))
             conn.commit()
             logger.info(f"Enqueued job {job_id} for paper {paper_id}")
             return job_id
