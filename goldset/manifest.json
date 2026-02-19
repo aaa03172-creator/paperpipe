@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-02-19",
+  "notes": "Local-first goldset manifest. Missing local_path entries must fail explicitly.",
+  "documents": []
+}
