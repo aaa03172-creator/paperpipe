@@ -1,10 +1,12 @@
 import time
+import asyncio
 import logging
 import traceback
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
+from backend.services.job_runner import run_deepread_job
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -39,42 +41,61 @@ class Worker:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{job.job_id}.jsonl"
         
-        # Placeholder processing logic for MVP verification
         try:
             # Update log path
             self.queue.update_job(job.job_id, {"log_path": str(log_file)})
-            
-            # Simulate steps
-            steps = ["Initializing", "Parsing PDF", "Generating Summary", "Gatekeeper Check", "Finalizing"]
-            total_steps = len(steps)
-            
-            for i, step in enumerate(steps):
-                # Check for cancellation
-                current_job_state = self.queue.get_job(job.job_id)
-                if current_job_state.status == 'cancelled':
-                    logger.info(f"🛑 Job {job.job_id} cancelled.")
+
+            def is_cancelled() -> bool:
+                state = self.queue.get_job(job.job_id)
+                return bool(state and state.status == "cancelled")
+
+            async def on_progress(event: dict):
+                if is_cancelled():
                     return
 
-                # Log step
-                msg = f"Step {i+1}/{total_steps}: {step}"
-                logger.info(msg)
+                updates = {
+                    "progress": int(event.get("progress", 0)),
+                    "stage": event.get("stage", "running"),
+                }
+                if event.get("level") == "ERROR":
+                    updates["error_message"] = event.get("message")
+                self.queue.update_job(job.job_id, updates)
+
                 with open(log_file, "a") as f:
-                    f.write(json.dumps({"ts": time.time(), "level": "INFO", "msg": msg}) + "\n")
-                
-                # Update progress
-                progress = int(((i + 1) / total_steps) * 100)
-                self.queue.update_job(job.job_id, {"progress": progress, "stage": step})
-                
-                time.sleep(1) # Simulate work
-                
-            # Finish
-            self.queue.update_job(job.job_id, {
-                "status": "completed", 
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "progress": 100,
-                "stage": "Done"
-            })
-            logger.info(f"✅ Job {job.job_id} completed.")
+                    f.write(json.dumps(event) + "\n")
+
+            result = asyncio.run(
+                run_deepread_job(
+                    job_id=job.job_id,
+                    paper_id=job.paper_id,
+                    persona_id=job.persona_id or "default",
+                    run_verify=bool(job.run_verify),
+                    run_id=job.run_id,
+                    progress_callback=on_progress,
+                    cancel_check=is_cancelled,
+                )
+            )
+
+            if result and result.get("status") == "cancelled":
+                logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
+                return
+            elif result and result.get("status") == "succeeded":
+                self.queue.update_job(job.job_id, {
+                    "status": "completed",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "progress": 100,
+                    "stage": "completed",
+                    "artifact_dir": result.get("artifact_dir"),
+                })
+                logger.info(f"✅ Job {job.job_id} completed.")
+            else:
+                error_message = (result or {}).get("error", "Deep Read pipeline failed")
+                self.queue.update_job(job.job_id, {
+                    "status": "failed",
+                    "error_message": error_message,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                })
+                logger.error(f"❌ Job {job.job_id} failed: {error_message}")
             
         except Exception as e:
             logger.error(f"Job failed: {e}")

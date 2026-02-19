@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any
 
 from src.agents.adapter import OllamaModelAdapter
 from src.schemas.agent_artifacts import DocumentArtifact, ClaimSet, ScientificClaim, EvidenceSpan
+from src.contracts.document_artifact_v2 import DocumentArtifactV2
+from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from effgen.core.agent import Agent, AgentConfig
 
 logger = logging.getLogger(__name__)
@@ -35,15 +37,16 @@ Follow these strict directives:
 5. **Format:** You must strictly output your analysis matching the provided JSON schema.
 """
 
-    def analyze(self, doc: DocumentArtifact) -> Optional[ClaimSet]:
+    def analyze(self, doc: DocumentArtifact | DocumentArtifactV2) -> Optional[ClaimSet]:
         """
         Analyzes the DocumentArtifact and returns a ClaimSet.
         """
+        header = get_artifact_header(doc)
         # Prepare content from artifact
         # We'll use a simplified representation for the prompt context
-        doc_text = f"Title: {doc.metadata.title}\nAuthors: {', '.join(doc.metadata.authors)}\n\n"
+        doc_text = f"Title: {header.title}\nAuthors: {', '.join(header.authors)}\n\n"
         
-        for section in doc.sections:
+        for section in iter_text_sections(doc):
             doc_text += f"## {section.name.upper()}\n{section.text}\n\n"
             
         # Construct the task prompt
@@ -86,11 +89,11 @@ INSTRUCTIONS:
 EXAMPLE FORMAT (Follow this structure exactly):
 {example_json}
 
-Ensure the 'doc_id' in your output is: "{doc.doc_id}"
+Ensure the 'doc_id' in your output is: "{header.doc_id}"
 """
 
         try:
-            logger.info(f"🤖 Reader Agent analyzing: {doc.metadata.title}")
+            logger.info(f"🤖 Reader Agent analyzing: {header.title}")
             
             # Direct call to adapter with JSON format enforcement
             # effGen Agent wrapper might not support 'format' arg easily on run(),
