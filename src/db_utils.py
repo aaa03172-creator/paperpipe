@@ -22,6 +22,8 @@ def init_db():
             job_id TEXT PRIMARY KEY,
             run_id TEXT,
             paper_id TEXT,
+            persona_id TEXT DEFAULT 'default',
+            run_verify INTEGER DEFAULT 0,
             status TEXT DEFAULT 'queued',
             progress INTEGER DEFAULT 0,
             stage TEXT,
@@ -34,6 +36,14 @@ def init_db():
             error_message TEXT
         )
     """)
+
+    # Lightweight migration for existing DB files.
+    cursor.execute("PRAGMA table_info(jobs)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if "persona_id" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
+    if "run_verify" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
     
     conn.commit()
     conn.close()

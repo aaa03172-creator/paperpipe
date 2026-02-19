@@ -8,6 +8,8 @@ from src.schemas.agent_artifacts import (
     DocumentArtifact, ClaimSet, StatsReport, StatCheckEntry, VerificationStatus,
     TableData, EvidenceSpan
 )
+from src.contracts.document_artifact_v2 import DocumentArtifactV2
+from src.contracts.artifact_views import get_artifact_header
 from src.sandbox.docker_runner import DockerSandbox
 from src.agents.adapter import OllamaModelAdapter
 from src.config import load_config
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 class StatsAgentState(TypedDict):
     # Inputs
     job_id: str
-    doc: DocumentArtifact
+    doc: DocumentArtifact | DocumentArtifactV2
     claims: ClaimSet
     
     # Internal State
@@ -77,7 +79,7 @@ class StatsVerificationAgent:
         
         return workflow.compile()
 
-    def run(self, job_id: str, doc: DocumentArtifact, claims: ClaimSet) -> StatsReport:
+    def run(self, job_id: str, doc: DocumentArtifact | DocumentArtifactV2, claims: ClaimSet) -> StatsReport:
         """Run the verification agent."""
         initial_state = StatsAgentState(
             job_id=job_id,
@@ -102,8 +104,8 @@ class StatsVerificationAgent:
 
     def node_parse_tables(self, state: StatsAgentState) -> StatsAgentState:
         """Convert tables to Pandas DataFrame reconstruction code."""
-        logger.info(f"📊 [Node: Parse] Converting {len(state['doc'].tables)} tables to Pandas code...")
         tables = state["doc"].tables
+        logger.info(f"📊 [Node: Parse] Converting {len(tables)} tables to Pandas code...")
         code_lines = ["import pandas as pd", "import numpy as np", ""]
         
         for t in tables:
@@ -293,7 +295,7 @@ class StatsVerificationAgent:
             # Fallback report
             
         report = StatsReport(
-            doc_id=state["doc"].doc_id,
+            doc_id=get_artifact_header(state["doc"]).doc_id,
             run_id=state["job_id"], # reusing job_id as run_id for now
             checks=checks
         )
@@ -307,4 +309,3 @@ class StatsVerificationAgent:
         if state["execution_error"] and state["retry_count"] < 2:
             return "retry"
         return "end"
-
