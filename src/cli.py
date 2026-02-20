@@ -7,6 +7,11 @@ from rich.console import Console
 from src.config import load_config
 from src.db import init_db
 from src.logger import setup_logging
+from src.services.deepread_note_writer import (
+    build_deepread_markdown,
+    build_stats_markdown,
+    upsert_deepread_section,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -662,8 +667,11 @@ def deepread(
         # Step A: Ingest
         console.print("[bold]1️⃣  Ingesting PDF...[/bold]")
         ingester = IngestAgent()
-        doc = ingester.process(str(pdf_path))
-        console.print(f"   ✅ Extracted {len(doc.sections)} sections.")
+        doc = ingester.process_v2(str(pdf_path))
+        if not doc:
+            console.print("[red]❌ Ingest Agent failed to produce v2 artifact.[/red]")
+            return
+        console.print(f"   ✅ Extracted {len(doc.pages)} pages (v2 artifact).")
 
         # Step B: Index
         console.print("[bold]2️⃣  Indexing (RAG)...[/bold]")
@@ -692,54 +700,21 @@ def deepread(
                 
             console.print(f"   ✅ Verification Complete. Checks run: {len(stats_report.checks)}")
             
-            # Format Stats Output
-            stats_md = "\n## 🧪 Stats Verification\n"
-            for check in stats_report.checks:
-                icon = "✅" if check.verdict == "verified" else "🚨" if check.verdict == "inconsistent" else "⚠️"
-                stats_md += f"### Check: {check.test_type} {icon}\n"
-                stats_md += f"- **Hypothesis**: {check.hypothesis or 'N/A'}\n"
-                if check.decision_error:
-                    stats_md += f"- **CRITICAL**: Decision Error Detected! (Computed p={check.computed_p} vs Reported p={check.reported_p})\n"
-                else:
-                    stats_md += f"- **Verdict**: {check.verdict}\n"
-                    stats_md += f"- **Reported**: p={check.reported_p}\n"
-                    stats_md += f"- **Computed**: p={check.computed_p}\n"
-                
-                stats_md += f"- **Code Execution**:\n```python\n{check.code}\n```\n"
-                stats_md += f"- **Output**:\n```text\n{check.outputs}\n```\n"
+            stats_md = build_stats_markdown(stats_report)
 
         # 3. Output Formatting
-        # Convert ClaimSet to Markdown
-        md_output = "## 🤖 Agent Deep Read\n"
-        md_output += f"**Analyzed via {reader.model_name}**\n\n"
-        
-        for i, claim in enumerate(claims_set.claims, 1):
-            icon = "✅" if claim.confidence > 0.8 else "⚠️"
-            md_output += f"### {i}. {claim.statement} {icon}\n"
-            md_output += f"- **Type**: {claim.type}\n"
-            md_output += f"- **Confidence**: {claim.confidence}\n"
-            if claim.evidence_spans:
-                span = claim.evidence_spans[0]
-                evidence_text = span.quote if span.quote else span.raw_text
-                section_name = span.section if span.section else "Page " + str(span.page)
-                md_output += f"- **Evidence**: \"{evidence_text}\" (Section: {section_name})\n"
-            if claim.limitations:
-                 md_output += f"- **Limitations**: {', '.join(claim.limitations)}\n"
-            md_output += "\n"
-        
-        # Append Stats Report if verified
-        if verify and stats_md:
-            md_output += stats_md
+        md_output = build_deepread_markdown(
+            model_name=reader.model_name,
+            claims_set=claims_set,
+            stats_md=stats_md if verify else "",
+        )
             
-        # 4. Append
+            # 4. Upsert (replace existing Deep Read section(s) idempotently)
         if target_note_path:
-            content = target_note_path.read_text()
-            if "## 🤖 Agent Deep Read" not in content:
-                target_note_path.write_text(content + "\n\n" + md_output)
-                console.print(f"[bold green]✨ Analysis appended to note![/bold green]")
-            else:
-                 console.print("[yellow]⚠️ Analysis already present. Skipping append.[/yellow]")
-                 console.print(md_output) # Print to stdout instead
+            content = target_note_path.read_text(encoding="utf-8")
+            updated = upsert_deepread_section(content, md_output)
+            target_note_path.write_text(updated, encoding="utf-8")
+            console.print("[bold green]✨ Deep Read section upserted in note.[/bold green]")
         else:
             console.print(md_output)
 
