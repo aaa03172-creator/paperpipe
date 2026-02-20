@@ -74,6 +74,7 @@ def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str,
         return []
     lines = FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
     items: List[Dict[str, str]] = []
+    seen_papers: set[str] = set()
     for raw in reversed(lines):
         raw = raw.strip()
         if not raw:
@@ -82,14 +83,17 @@ def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str,
             rec = json.loads(raw)
         except Exception:
             continue
+        if rec.get("accepted") is not True:
+            continue
         rec_paper = str(rec.get("paper_id") or "")
-        if not rec_paper or rec_paper == paper_id:
+        if not rec_paper or rec_paper == paper_id or rec_paper in seen_papers:
             continue
         corr = str(rec.get("user_correction") or "").strip()
         if not corr:
             continue
         preview = corr.replace("\n", " ")[:180]
         items.append({"paper_id": rec_paper, "preview": preview})
+        seen_papers.add(rec_paper)
         if len(items) >= limit:
             break
     return items
