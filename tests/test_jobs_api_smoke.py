@@ -40,6 +40,8 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["persona_id"] == "smoke-persona"
         assert queued_data["run_verify"] == 1
         assert queued_data["bootstrap_meta_path"] is None
+        assert queued_data["similar_feedback_count"] is None
+        assert queued_data["persona_applied"] is None
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
@@ -102,6 +104,8 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["log_path"] is not None
         assert done_data["bootstrap_meta_path"] is not None
         assert done_data["bootstrap_meta_path"].endswith("bootstrap_meta.json")
+        assert done_data["similar_feedback_count"] is None
+        assert done_data["persona_applied"] is None
         assert Path(done_data["log_path"]).exists()
 
         # bootstrap meta file is not generated in this fake runner path.
@@ -125,6 +129,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         artifact_dir = tmp_path / "storage" / "artifacts" / "paper_boot_meta" / "run_1"
         artifact_dir.mkdir(parents=True, exist_ok=True)
         meta = {"paper_id": "paper_boot_meta", "run_id": "run_1", "persona_applied": True}
+        meta["similar_feedback_count"] = 2
         (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
         queue.update_job(
@@ -141,6 +146,8 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert detail.status_code == 200
         payload = detail.json()
         assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert payload["similar_feedback_count"] == 2
+        assert payload["persona_applied"] is True
 
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
