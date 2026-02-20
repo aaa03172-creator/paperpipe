@@ -8,10 +8,10 @@ from pathlib import Path
 
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
-from src.jobs.schemas import JobCreate, JobStatus
+from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
-from src.jobs.schemas import JobCreate, JobStatus
+from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
 from .routers import obsidian, feedback
 
 app = FastAPI(title="PaperPipe API", version="3.1.0")
@@ -24,6 +24,17 @@ app.add_middleware(
 )
 
 queue = JobQueue()
+
+
+def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
+    artifact_dir = getattr(job, "artifact_dir", None)
+    if not artifact_dir:
+        return None
+    return str(Path(artifact_dir) / "bootstrap_meta.json")
+
+
+def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
+    return job.model_copy(update={"bootstrap_meta_path": _resolve_bootstrap_meta_path(job)})
 
 @app.get("/health")
 def health_check():
@@ -77,7 +88,24 @@ def get_job_status(job_id: str):
     job = queue.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _with_bootstrap_meta_path(job)
+
+
+@app.get("/jobs/{job_id}/bootstrap-meta", response_model=JobBootstrapMeta)
+def get_job_bootstrap_meta(job_id: str):
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    meta_path = _resolve_bootstrap_meta_path(job)
+    if not meta_path:
+        raise HTTPException(status_code=404, detail="bootstrap_meta not available")
+    path = Path(meta_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="bootstrap_meta file not found")
+    try:
+        return JobBootstrapMeta.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to parse bootstrap_meta: {exc}")
 
 @app.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str):
@@ -99,7 +127,8 @@ async def job_events(job_id: str, request: Request):
                 break
             
             # Send status update
-            yield {"event": "status", "data": json.dumps(job.dict(), default=str)}
+            enriched = _with_bootstrap_meta_path(job)
+            yield {"event": "status", "data": json.dumps(enriched.model_dump(), default=str)}
             
             # Send new log lines
             if job.log_path and Path(job.log_path).exists():

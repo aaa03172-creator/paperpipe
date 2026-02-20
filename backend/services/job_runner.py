@@ -195,6 +195,11 @@ async def run_deepread_job(
             "persona_applied": False,
             "similar_feedback_count": 0,
             "similar_feedback_paper_ids": [],
+            "run_verify": bool(run_verify),
+            "reader_model": None,
+            "verifier_used": bool(run_verify),
+            "verifier_status": "not_run",
+            "stats_report_written": False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -249,6 +254,8 @@ async def run_deepread_job(
             await emit("read", 52, f"Persona applied: {persona_id}")
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         main_model = _resolve_main_model(config)
+        bootstrap_meta["reader_model"] = main_model
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         try:
             reader_agent = ReaderAgent(
                 model_name=main_model,
@@ -286,11 +293,16 @@ async def run_deepread_job(
                 # Save Report
                 with open(artifact_dir / "stats_report.json", "w") as f:
                     f.write(stats_report.model_dump_json(indent=2))
+                bootstrap_meta["verifier_status"] = "completed"
+                bootstrap_meta["stats_report_written"] = True
+                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                     
                 await emit("verify", 95, f"Verified {len(stats_report.checks)} checks")
                 
             except Exception as e:
                 logger.error(f"Verification Failed: {e}")
+                bootstrap_meta["verifier_status"] = "failed"
+                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
 
         # 6. Complete

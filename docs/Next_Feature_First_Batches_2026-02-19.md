@@ -1,5 +1,10 @@
 # Next Feature: First Work Batches (2026-02-19)
 
+## Status (Updated: 2026-02-20)
+- Batch 1 (P0): Completed
+- Batch 2 (P1): Completed
+- Batch 3 (P1): Completed
+
 ## Batch 1 (P0): DeepRead 섹션 Upsert 표준화
 
 ### Goal
@@ -16,9 +21,9 @@
 - `tests/` 신규 테스트 1~2개
 
 ### AC
-- [ ] 동일 노트에 deepread 2회 실행 시 섹션 1개만 존재.
-- [ ] 중복 헤더가 이미 있는 노트도 실행 후 섹션 1개로 정규화.
-- [ ] 기존 본문(DeepRead 섹션 외)은 변경되지 않음.
+- [x] 동일 노트에 deepread 2회 실행 시 섹션 1개만 존재.
+- [x] 중복 헤더가 이미 있는 노트도 실행 후 섹션 1개로 정규화.
+- [x] 기존 본문(DeepRead 섹션 외)은 변경되지 않음.
 
 ### Tests
 - `tests/test_cli_deepread_upsert.py`
@@ -39,9 +44,9 @@
 - `backend/services/job_runner.py` (후속 연결 포인트만 추가, 동작 변경 최소화)
 
 ### AC
-- [ ] DeepRead markdown 구성/반영 로직이 단일 함수로 관리됨.
-- [ ] CLI와 백엔드가 동일 contract를 사용할 수 있는 구조 확보.
-- [ ] 기존 deepread 출력 포맷 유지.
+- [x] DeepRead markdown 구성/반영 로직이 단일 함수로 관리됨.
+- [x] CLI와 백엔드가 동일 contract를 사용할 수 있는 구조 확보.
+- [x] 기존 deepread 출력 포맷 유지.
 
 ### Tests
 - `tests/test_deepread_note_writer.py`
@@ -60,8 +65,8 @@
 - 필요 시 작은 fixture 추가
 
 ### AC
-- [ ] 체인 실행 후 노트 반영 결과가 중복 없이 유지됨.
-- [ ] 재실행 시 동일 섹션 교체 동작이 유지됨.
+- [x] 체인 실행 후 노트 반영 결과가 중복 없이 유지됨.
+- [x] 재실행 시 동일 섹션 교체 동작이 유지됨.
 
 ### Tests
 - `pytest -q tests/test_worker_job_runner_chain.py tests/test_cli_deepread_upsert.py tests/test_deepread_note_writer.py`
