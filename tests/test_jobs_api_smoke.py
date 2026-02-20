@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from fastapi.testclient import TestClient
 
@@ -38,6 +39,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["status"] == "queued"
         assert queued_data["persona_id"] == "smoke-persona"
         assert queued_data["run_verify"] == 1
+        assert queued_data["bootstrap_meta_path"] is None
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
@@ -98,6 +100,51 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["stage"] == "completed"
         assert done_data["artifact_dir"] is not None
         assert done_data["log_path"] is not None
+        assert done_data["bootstrap_meta_path"] is not None
+        assert done_data["bootstrap_meta_path"].endswith("bootstrap_meta.json")
         assert Path(done_data["log_path"]).exists()
+
+        # bootstrap meta file is not generated in this fake runner path.
+        meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
+        assert meta_resp.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_boot_meta")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_boot_meta" / "run_1"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        meta = {"paper_id": "paper_boot_meta", "run_id": "run_1", "persona_applied": True}
+        (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "artifact_dir": str(artifact_dir),
+                "progress": 100,
+                "stage": "completed",
+            },
+        )
+
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+
+        meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
+        assert meta_resp.status_code == 200
+        assert meta_resp.json()["paper_id"] == "paper_boot_meta"
+        assert meta_resp.json()["persona_applied"] is True
     finally:
         db_utils.DB_PATH = original_db_path
