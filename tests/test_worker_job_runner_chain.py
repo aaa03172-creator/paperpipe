@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import json
 
 import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
@@ -161,6 +162,11 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "index_artifact.json").exists()
         assert (artifact_dir / "claimset.json").exists()
         assert (artifact_dir / "stats_report.json").exists()
+        assert (artifact_dir / "bootstrap_meta.json").exists()
+        meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        assert meta["paper_id"] == paper_id
+        assert "persona_id" in meta
+        assert "similar_feedback_count" in meta
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
