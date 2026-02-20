@@ -42,6 +42,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["bootstrap_meta_path"] is None
         assert queued_data["similar_feedback_count"] is None
         assert queued_data["persona_applied"] is None
+        assert queued_data["artifact_document_written"] is None
+        assert queued_data["artifact_index_written"] is None
+        assert queued_data["artifact_claimset_written"] is None
+        assert queued_data["artifact_stats_written"] is None
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
@@ -106,6 +110,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["bootstrap_meta_path"].endswith("bootstrap_meta.json")
         assert done_data["similar_feedback_count"] is None
         assert done_data["persona_applied"] is None
+        assert done_data["artifact_document_written"] is None
+        assert done_data["artifact_index_written"] is None
+        assert done_data["artifact_claimset_written"] is None
+        assert done_data["artifact_stats_written"] is None
         assert Path(done_data["log_path"]).exists()
 
         # bootstrap meta file is not generated in this fake runner path.
@@ -130,6 +138,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         artifact_dir.mkdir(parents=True, exist_ok=True)
         meta = {"paper_id": "paper_boot_meta", "run_id": "run_1", "persona_applied": True}
         meta["similar_feedback_count"] = 2
+        meta["artifact_document_written"] = True
+        meta["artifact_index_written"] = True
+        meta["artifact_claimset_written"] = True
+        meta["artifact_stats_written"] = False
         (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
         queue.update_job(
@@ -148,10 +160,15 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
         assert payload["similar_feedback_count"] == 2
         assert payload["persona_applied"] is True
+        assert payload["artifact_document_written"] is True
+        assert payload["artifact_index_written"] is True
+        assert payload["artifact_claimset_written"] is True
+        assert payload["artifact_stats_written"] is False
 
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
         assert meta_resp.json()["paper_id"] == "paper_boot_meta"
         assert meta_resp.json()["persona_applied"] is True
+        assert meta_resp.json()["artifact_document_written"] is True
     finally:
         db_utils.DB_PATH = original_db_path
