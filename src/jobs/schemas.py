@@ -24,6 +24,8 @@ class JobStatus(BaseModel):
     artifact_dir: Optional[str]
     log_path: Optional[str]
     bootstrap_meta_path: Optional[str] = None
+    similar_feedback_count: Optional[int] = None
+    persona_applied: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 

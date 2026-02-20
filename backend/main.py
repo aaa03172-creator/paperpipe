@@ -33,8 +33,28 @@ def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
     return str(Path(artifact_dir) / "bootstrap_meta.json")
 
 
+def _read_bootstrap_meta(meta_path: str | None) -> dict:
+    if not meta_path:
+        return {}
+    path = Path(meta_path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
-    return job.model_copy(update={"bootstrap_meta_path": _resolve_bootstrap_meta_path(job)})
+    meta_path = _resolve_bootstrap_meta_path(job)
+    meta = _read_bootstrap_meta(meta_path)
+    return job.model_copy(
+        update={
+            "bootstrap_meta_path": meta_path,
+            "similar_feedback_count": meta.get("similar_feedback_count"),
+            "persona_applied": meta.get("persona_applied"),
+        }
+    )
 
 @app.get("/health")
 def health_check():
