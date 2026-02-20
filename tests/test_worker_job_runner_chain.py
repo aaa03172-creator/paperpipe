@@ -167,6 +167,11 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["paper_id"] == paper_id
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
+        assert meta["run_verify"] is True
+        assert meta["verifier_used"] is True
+        assert meta["verifier_status"] == "completed"
+        assert meta["stats_report_written"] is True
+        assert meta["reader_model"] is not None
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
