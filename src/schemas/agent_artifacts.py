@@ -1,6 +1,7 @@
 from typing import List, Optional, Union, Dict, Any, Literal
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator
+import uuid
 
 # -----------------------------------------------------------------------------
 # 1. DocumentArtifact (Output of Ingest Agent)
@@ -193,6 +194,7 @@ class StatsReport(BaseModel):
 # -----------------------------------------------------------------------------
 
 class FeedbackCase(BaseModel):
+    feedback_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     paper_id: str
     run_id: str
     original_claim_id: Optional[str] = None
