@@ -34,14 +34,30 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
 
         library_dir = tmp_path / "Library"
         library_dir.mkdir(parents=True, exist_ok=True)
+        vault_dir = tmp_path / "Vault"
+        (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+        (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
         paper_id = "paper_chain_001"
         (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        note_path = vault_dir / "Inbox" / "paper_chain_001.md"
+        note_path.write_text("# Paper\n\nInitial\n", encoding="utf-8")
+        (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+            "Paper_ID,DOI,Title,Note_Path\n"
+            "paper_chain_001,10.1000/test,Smoke Title,Inbox/paper_chain_001.md\n",
+            encoding="utf-8",
+        )
 
         # Keep worker path real; only patch heavy agent internals inside job_runner.
         monkeypatch.setattr(
             job_runner_mod,
             "load_config",
-            lambda: SimpleNamespace(paths=SimpleNamespace(library_dir=library_dir)),
+            lambda: SimpleNamespace(
+                paths=SimpleNamespace(
+                    library_dir=library_dir,
+                    obsidian_vault=vault_dir,
+                    index_all=Path("00_Index/paper_collection.csv"),
+                )
+            ),
         )
 
         class FakeIngestAgent:
@@ -120,7 +136,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         monkeypatch.setattr(job_runner_mod, "StatsVerificationAgent", FakeStatsAgent)
 
         queue = JobQueue()
-        job_id = queue.enqueue(
+        job_id_1 = queue.enqueue(
             paper_id=paper_id,
             clean_reindex=False,
             run_verify=True,
@@ -128,12 +144,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         )
         claimed = queue.claim_next_job()
         assert claimed is not None
-        assert claimed.job_id == job_id
+        assert claimed.job_id == job_id_1
 
         worker = worker_mod.Worker()
         worker.process_job(claimed)
 
-        done = queue.get_job(job_id)
+        done = queue.get_job(job_id_1)
         assert done is not None
         assert done.status == "completed"
         assert done.stage == "completed"
@@ -145,5 +161,21 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "index_artifact.json").exists()
         assert (artifact_dir / "claimset.json").exists()
         assert (artifact_dir / "stats_report.json").exists()
+
+        # Re-run on same paper and ensure note keeps a single Deep Read section.
+        job_id_2 = queue.enqueue(
+            paper_id=paper_id,
+            clean_reindex=False,
+            run_verify=True,
+            persona_id="smoke-persona",
+        )
+        claimed2 = queue.claim_next_job()
+        assert claimed2 is not None
+        assert claimed2.job_id == job_id_2
+        worker.process_job(claimed2)
+
+        note_content = note_path.read_text(encoding="utf-8")
+        assert note_content.count("## 🤖 Agent Deep Read") == 1
+        assert "smoke claim" in note_content
     finally:
         db_utils.DB_PATH = original_db_path

@@ -3,6 +3,7 @@ import uuid
 import json
 import logging
 import traceback
+import csv
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Awaitable, Optional
@@ -12,11 +13,37 @@ from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
+from src.services.deepread_note_writer import (
+    build_deepread_markdown,
+    build_stats_markdown,
+    upsert_deepread_section,
+)
 
 logger = logging.getLogger("paperpipe.backend")
 
 # Global Job Queue Registry (In-Memory PubSub)
 JOB_QUEUES: Dict[str, asyncio.Queue] = {}
+
+
+def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
+    vault_path = config.paths.obsidian_vault
+    idx_files = [config.paths.index_all, Path("00_Index/on_demand.csv")]
+    for rel_idx in idx_files:
+        index_path = vault_path / rel_idx
+        if not index_path.exists():
+            continue
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    if row.get("Paper_ID") == paper_id or row.get("DOI") == paper_id:
+                        note_rel = row.get("Note_Path")
+                        if note_rel:
+                            note_path = vault_path / note_rel
+                            if note_path.exists():
+                                return note_path
+        except Exception:
+            continue
+    return None
 
 async def run_deepread_job(
     job_id: str,
@@ -170,6 +197,23 @@ async def run_deepread_job(
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
 
         # 6. Complete
+        # Best-effort note upsert (non-fatal): keep runtime fail-safe.
+        try:
+            note_path = _resolve_note_path_for_paper(config, paper_id)
+            if note_path:
+                stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
+                deepread_md = build_deepread_markdown(
+                    model_name=getattr(reader_agent, "model_name", "reader"),
+                    claims_set=claim_set,
+                    stats_md=stats_md,
+                )
+                note_content = note_path.read_text(encoding="utf-8")
+                note_updated = upsert_deepread_section(note_content, deepread_md)
+                note_path.write_text(note_updated, encoding="utf-8")
+                await emit("read", 78, f"Deep Read section upserted: {note_path.name}")
+        except Exception as note_err:
+            await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
+
         await emit("completed", 100, "Pipeline Completed Successfully")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
