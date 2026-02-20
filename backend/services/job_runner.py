@@ -200,6 +200,10 @@ async def run_deepread_job(
             "verifier_used": bool(run_verify),
             "verifier_status": "not_run",
             "stats_report_written": False,
+            "artifact_document_written": False,
+            "artifact_index_written": False,
+            "artifact_claimset_written": False,
+            "artifact_stats_written": False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -218,6 +222,8 @@ async def run_deepread_job(
         # Save Document Artifact
         with open(artifact_dir / "document_artifact.json", "w") as f:
             f.write(doc_artifact.model_dump_json(indent=2))
+        bootstrap_meta["artifact_document_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
 
@@ -231,6 +237,8 @@ async def run_deepread_job(
         # Save Index Artifact
         with open(artifact_dir / "index_artifact.json", "w") as f:
              f.write(index_artifact.model_dump_json(indent=2))
+        bootstrap_meta["artifact_index_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
              
         await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks")
 
@@ -272,6 +280,8 @@ async def run_deepread_job(
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
             f.write(claim_set.model_dump_json(indent=2))
+        bootstrap_meta["artifact_claimset_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
 
@@ -295,6 +305,7 @@ async def run_deepread_job(
                     f.write(stats_report.model_dump_json(indent=2))
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
+                bootstrap_meta["artifact_stats_written"] = True
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                     
                 await emit("verify", 95, f"Verified {len(stats_report.checks)} checks")
