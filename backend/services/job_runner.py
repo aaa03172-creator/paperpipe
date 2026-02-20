@@ -6,13 +6,14 @@ import traceback
 import csv
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, Callable, Awaitable, Optional
+from typing import Dict, Any, Callable, Awaitable, Optional, List
 
 from src.config import load_config
 from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
+from src.profiles.profile_store import load_profiles
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
     build_stats_markdown,
@@ -23,6 +24,7 @@ logger = logging.getLogger("paperpipe.backend")
 
 # Global Job Queue Registry (In-Memory PubSub)
 JOB_QUEUES: Dict[str, asyncio.Queue] = {}
+FEEDBACK_FILE = Path("storage/feedback.jsonl")
 
 
 def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
@@ -44,6 +46,67 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
         except Exception:
             continue
     return None
+
+
+def _resolve_persona_hint(persona_id: str) -> Optional[str]:
+    pid = (persona_id or "default").strip()
+    if not pid or pid == "default":
+        return None
+    try:
+        conf = load_profiles()
+    except Exception as exc:
+        logger.warning("Persona profile load failed for '%s': %s", pid, exc)
+        return None
+    for profile in conf.profiles:
+        if profile.id == pid and profile.enabled:
+            hint_parts = [f"profile_id={profile.id}", f"title={profile.title}"]
+            if profile.notes:
+                hint_parts.append(f"notes={profile.notes}")
+            q = profile.query.to_boolean_string()
+            if q:
+                hint_parts.append(f"query_focus={q}")
+            return "\n".join(hint_parts)
+    return None
+
+
+def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str, str]]:
+    if not FEEDBACK_FILE.exists():
+        return []
+    lines = FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
+    items: List[Dict[str, str]] = []
+    for raw in reversed(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        rec_paper = str(rec.get("paper_id") or "")
+        if not rec_paper or rec_paper == paper_id:
+            continue
+        corr = str(rec.get("user_correction") or "").strip()
+        if not corr:
+            continue
+        preview = corr.replace("\n", " ")[:180]
+        items.append({"paper_id": rec_paper, "preview": preview})
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _resolve_main_model(config) -> str:
+    agents = getattr(config, "agents", None)
+    model_name = getattr(agents, "main_model", None) if agents is not None else None
+    return model_name or "llama3:latest"
+
+
+def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
+    try:
+        with open(artifact_dir / "bootstrap_meta.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to write bootstrap_meta.json: %s", exc)
 
 async def run_deepread_job(
     job_id: str,
@@ -124,6 +187,17 @@ async def run_deepread_job(
         # Prepare Artifact Storage
         artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
         artifact_dir.mkdir(parents=True, exist_ok=True)
+        bootstrap_meta: Dict[str, Any] = {
+            "job_id": job_id,
+            "run_id": run_id,
+            "paper_id": paper_id,
+            "persona_id": persona_id,
+            "persona_applied": False,
+            "similar_feedback_count": 0,
+            "similar_feedback_paper_ids": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         
         # 2. Ingest
         if await is_cancelled():
@@ -159,7 +233,30 @@ async def run_deepread_job(
         if await is_cancelled():
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
-        reader_agent = ReaderAgent()
+        persona_hint = _resolve_persona_hint(persona_id)
+        similar_feedback = _load_similar_feedback_top3(paper_id=paper_id, limit=3)
+        if similar_feedback:
+            fb_lines = ["Similar feedback examples (Top-3):"]
+            for idx, item in enumerate(similar_feedback, 1):
+                fb_lines.append(f"{idx}) paper_id={item['paper_id']} preview={item['preview']}")
+            feedback_hint = "\n".join(fb_lines)
+            persona_hint = f"{persona_hint}\n\n{feedback_hint}" if persona_hint else feedback_hint
+            bootstrap_meta["similar_feedback_count"] = len(similar_feedback)
+            bootstrap_meta["similar_feedback_paper_ids"] = [item["paper_id"] for item in similar_feedback]
+            await emit("read", 53, f"Similar feedback injected: {len(similar_feedback)}")
+        if persona_hint:
+            bootstrap_meta["persona_applied"] = True
+            await emit("read", 52, f"Persona applied: {persona_id}")
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        main_model = _resolve_main_model(config)
+        try:
+            reader_agent = ReaderAgent(
+                model_name=main_model,
+                persona_hint=persona_hint,
+            )
+        except TypeError:
+            # Test doubles may expose a simplified constructor.
+            reader_agent = ReaderAgent()
         claim_set = reader_agent.analyze(doc_artifact)
         
         if not claim_set:
