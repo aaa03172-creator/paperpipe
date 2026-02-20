@@ -9,6 +9,7 @@
   - `document_id`: stable document identifier (reuses legacy `doc_id`)
   - `meta`: title/authors/year/journal/doi/source_ref
   - `pages[]`
+  - `tables[]` (table_id/caption/data/source_page)
 - `PageV2`
   - `page_index`: 0-indexed page number
   - `width`, `height`: page dimensions in PDF points
