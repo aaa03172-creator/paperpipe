@@ -2,6 +2,7 @@
 import logging
 import fitz  # standard pymupdf import
 import pdfplumber
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -36,6 +37,40 @@ class IngestAgent:
     
     def __init__(self):
         pass
+
+    @staticmethod
+    def _safe_parse_year(creation_date: str | None) -> int:
+        """
+        Parse year from PDF metadata creationDate safely.
+        Accepts canonical PDF date strings (e.g., D:20190101120000)
+        and falls back to any 4-digit year match.
+        """
+        if not creation_date:
+            return 0
+        if len(creation_date) > 6:
+            chunk = creation_date[2:6]
+            if chunk.isdigit():
+                return int(chunk)
+        match = re.search(r"(19|20)\d{2}", creation_date)
+        if match:
+            try:
+                return int(match.group(0))
+            except Exception:
+                return 0
+        return 0
+
+    @staticmethod
+    def _clamp_bbox_to_page(bbox: List[float], page_width: float, page_height: float) -> List[float]:
+        x0, y0, x1, y1 = bbox
+        x0 = max(0.0, min(float(x0), page_width))
+        y0 = max(0.0, min(float(y0), page_height))
+        x1 = max(0.0, min(float(x1), page_width))
+        y1 = max(0.0, min(float(y1), page_height))
+        if x0 > x1:
+            x0, x1 = x1, x0
+        if y0 > y1:
+            y0, y1 = y1, y0
+        return [x0, y0, x1, y1]
 
     def process(
         self,
@@ -126,7 +161,7 @@ class IngestAgent:
         paper_meta = PaperMetadata(
             title=meta.get('title', path.stem),
             authors=[meta.get('author', '')] if meta.get('author') else [],
-            year=int(meta.get('creationDate', '0')[2:6]) if meta.get('creationDate') and len(meta.get('creationDate')) > 6 else 0,
+            year=self._safe_parse_year(meta.get('creationDate')),
             journal=meta.get('subject', 'Unknown')
         )
         
@@ -257,7 +292,11 @@ class IngestAgent:
                 blocks: List[BlockV2] = []
                 for block_order, block in enumerate(sorted_blocks):
                     x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4] or ""
-                    bbox = [float(x0), float(y0), float(x1), float(y1)]
+                    bbox = self._clamp_bbox_to_page(
+                        [float(x0), float(y0), float(x1), float(y1)],
+                        page_width,
+                        page_height,
+                    )
 
                     block_id = f"blk_{stable_id(legacy.doc_id, str(page_idx), str(block_order), f'{x0:.3f}', f'{y0:.3f}', f'{x1:.3f}', f'{y1:.3f}', text.strip())}"
 

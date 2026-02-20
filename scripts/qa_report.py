@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
 from src.db_utils import get_db_connection
@@ -11,7 +12,57 @@ from src.config import load_config
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_qa_check():
+def _is_test_fixture_record(paper_id: str, pdf_path: str | None) -> bool:
+    pid = str(paper_id or "")
+    path = str(pdf_path or "").replace("\\", "/")
+    return (
+        pid.startswith("local--")
+        or "_test_" in pid
+        or pid.startswith("integration_test_")
+        or pid == "phase0_test"
+        or "/tests/" in path
+    )
+
+def _claimset_artifacts_root() -> Path:
+    env_root = os.getenv("PAPERPIPE_ARTIFACTS_DIR")
+    if env_root:
+        return Path(env_root).expanduser()
+    return Path(__file__).resolve().parents[1] / "storage" / "artifacts"
+
+def _has_claimset_artifact(paper_id: str) -> bool:
+    paper_dir = _claimset_artifacts_root() / paper_id
+    if not paper_dir.exists():
+        return False
+    for candidate in sorted(paper_dir.glob("*/claimset.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            parsed = json.loads(candidate.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("claims"), list):
+            return True
+    return False
+
+def _has_valid_claimset(feedback_json: str | None) -> bool:
+    if not feedback_json:
+        return False
+    try:
+        parsed = json.loads(feedback_json)
+    except Exception:
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    claims = parsed.get("claims")
+    if isinstance(claims, list):
+        return True
+    nested = parsed.get("ClaimSet")
+    if isinstance(nested, dict) and isinstance(nested.get("claims"), list):
+        return True
+    nested = parsed.get("claimset")
+    if isinstance(nested, dict) and isinstance(nested.get("claims"), list):
+        return True
+    return False
+
+def run_qa_check(include_test_fixtures: bool = False):
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -41,6 +92,25 @@ def run_qa_check():
     print(f"     (Definition: status IN ('APPROVED', 'INDEXED'))")
     print(f"[DB] Missing Summary: {missing_summary}")
     print(f"[DB] Missing Feedback JSON: {missing_feedback}")
+
+    cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
+    active_feedback_rows = cursor.fetchall()
+    missing_or_invalid_claimset = 0
+    for row in active_feedback_rows:
+        paper_id = row[0]
+        feedback_json = row[1]
+        pdf_path = row[2]
+        if not include_test_fixtures and _is_test_fixture_record(paper_id, pdf_path):
+            continue
+        if _has_valid_claimset(feedback_json):
+            continue
+        if _has_claimset_artifact(paper_id):
+            continue
+        missing_or_invalid_claimset += 1
+    if include_test_fixtures:
+        print(f"[DB] Missing/Invalid ClaimSet: {missing_or_invalid_claimset}")
+    else:
+        print(f"[DB] Missing/Invalid ClaimSet (Operational): {missing_or_invalid_claimset}")
     
     if missing_summary > 0:
         cursor.execute("SELECT paper_id FROM papers WHERE status IN ('APPROVED', 'INDEXED') AND (summary IS NULL OR summary = '' OR summary = 'Abstract not available.')")
@@ -63,14 +133,35 @@ def run_qa_check():
     print("-" * 30)
 
     # 2. File Existence & Content Check
+    missing_critical_review_section = 0
     if not vault_path or not vault_path.exists():
         print("[File] Obsidian Vault path not found or invalid.")
-        return
+        print("=== End Report ===")
+        conn.close()
+        return {
+            "total_active": total,
+            "missing_summary": missing_summary,
+            "missing_feedback": missing_feedback,
+            "missing_or_invalid_claimset": missing_or_invalid_claimset,
+            "missing_critical_review_section": missing_critical_review_section,
+            "missing_files": 0,
+            "bad_content_files": 0,
+        }
 
     inbox_dir = vault_path / "Inbox/PaperPipe"
     if not inbox_dir.exists():
          print(f"[File] Inbox dir not found: {inbox_dir}")
-         return
+         print("=== End Report ===")
+         conn.close()
+         return {
+             "total_active": total,
+             "missing_summary": missing_summary,
+             "missing_feedback": missing_feedback,
+             "missing_or_invalid_claimset": missing_or_invalid_claimset,
+             "missing_critical_review_section": missing_critical_review_section,
+             "missing_files": 0,
+             "bad_content_files": 0,
+         }
 
     print(f"[File] Checking exports in: {inbox_dir}")
     
@@ -98,8 +189,12 @@ def run_qa_check():
                     bad_content_files.append(f"{pid} (No summary)")
                 if "tags:\n  - \n" in content: # Empty tag list check heuristic
                     bad_content_files.append(f"{pid} (Empty tags)")
+                if "## Critical Review (ClaimSet)" not in content:
+                    missing_critical_review_section += 1
             except Exception as e:
                 bad_content_files.append(f"{pid} (Read Error: {e})")
+
+    print(f"[File] Missing Critical Review section: {missing_critical_review_section}")
 
     print(f"[File] Missing Markdown Files: {len(missing_files)}")
     if missing_files:
@@ -111,6 +206,15 @@ def run_qa_check():
 
     print("=== End Report ===")
     conn.close()
+    return {
+        "total_active": total,
+        "missing_summary": missing_summary,
+        "missing_feedback": missing_feedback,
+        "missing_or_invalid_claimset": missing_or_invalid_claimset,
+        "missing_critical_review_section": missing_critical_review_section,
+        "missing_files": len(missing_files),
+        "bad_content_files": len(bad_content_files),
+    }
 
 if __name__ == "__main__":
     run_qa_check()
