@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from src.db_utils import get_db_connection, init_db
@@ -33,7 +34,33 @@ def list_papers():
     conn = get_db_connection()
     papers = conn.execute("SELECT * FROM papers ORDER BY updated_at DESC LIMIT 50").fetchall()
     conn.close()
-    return [dict(p) for p in papers]
+    out = []
+    for p in papers:
+        item = dict(p)
+        pdf_path = item.get("pdf_path")
+        pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
+        item["pdf_exists"] = pdf_exists
+        if not pdf_exists and pdf_path:
+            item["pdf_status"] = "missing"
+        out.append(item)
+    return out
+
+
+@app.get("/papers/{paper_id}")
+def get_paper(paper_id: str):
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    item = dict(row)
+    pdf_path = item.get("pdf_path")
+    pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
+    item["pdf_exists"] = pdf_exists
+    if not pdf_exists and pdf_path:
+        item["pdf_status"] = "missing"
+    return item
 
 @app.post("/jobs/deepread", response_model=dict)
 def enqueue_job(job_req: JobCreate):

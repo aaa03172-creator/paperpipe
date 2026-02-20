@@ -18,7 +18,7 @@ class ReaderAgent:
     Uses a 'Senior Postdoc' persona and structured JSON output.
     """
     
-    def __init__(self, model_name: str = "llama3:latest"):
+    def __init__(self, model_name: str = "llama3:latest", persona_hint: Optional[str] = None):
         self.model_name = model_name
         self.adapter = OllamaModelAdapter(model_name=model_name)
         
@@ -36,6 +36,8 @@ Follow these strict directives:
 4. **Actionable Insights:** Conclude your analysis by suggesting one concrete, testable hypothesis or next experimental step based on this paper's flaws or findings.
 5. **Format:** You must strictly output your analysis matching the provided JSON schema.
 """
+        if persona_hint:
+            self.system_prompt += f"\n\nPersona override:\n{persona_hint}\n"
 
     def analyze(self, doc: DocumentArtifact | DocumentArtifactV2) -> Optional[ClaimSet]:
         """
