@@ -54,7 +54,18 @@ def _extract_doi_from_filename(path: Path) -> str:
     return ""
 
 
-def _extract_doi_from_pdf_content(path: Path) -> str:
+def _extract_doi_candidates_from_pdf_content(path: Path) -> list[tuple[str, str]]:
+    # Returns tuples of (doi, source_type) with source_type used for confidence decisions.
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _record(value: str, source: str) -> None:
+        doi = _normalize_doi(value)
+        if not doi or doi in seen:
+            return
+        candidates.append((doi, source))
+        seen.add(doi)
+
     # Try structured extraction first when a PDF parser is available.
     try:
         from pypdf import PdfReader  # type: ignore
@@ -64,14 +75,12 @@ def _extract_doi_from_pdf_content(path: Path) -> str:
         for value in meta.values():
             if not value:
                 continue
-            match = DOI_RE.search(str(value))
-            if match:
-                return _normalize_doi(match.group(0))
+            for match in DOI_RE.finditer(str(value)):
+                _record(match.group(0), "metadata")
         for page in reader.pages[:3]:
             text = page.extract_text() or ""
-            match = DOI_RE.search(text)
-            if match:
-                return _normalize_doi(match.group(0))
+            for match in DOI_RE.finditer(text):
+                _record(match.group(0), "text")
     except Exception:
         pass
 
@@ -79,12 +88,34 @@ def _extract_doi_from_pdf_content(path: Path) -> str:
     try:
         raw = path.read_bytes()
         text = raw.decode("latin-1", errors="ignore")
-        match = DOI_RE.search(text)
-        if match:
-            return _normalize_doi(match.group(0))
+        for match in DOI_RE.finditer(text):
+            _record(match.group(0), "raw")
     except Exception:
         pass
-    return ""
+    return candidates
+
+
+def _tokenize_text_for_score(value: str) -> set[str]:
+    return {token for token in _sanitize_text(value).split() if len(token) >= 3}
+
+
+def _is_confident_content_doi_match(file_stem: str, row: dict[str, Any], source: str) -> bool:
+    if source == "metadata":
+        return True
+    stem_tokens = _tokenize_text_for_score(file_stem)
+    if not stem_tokens:
+        return False
+
+    title = str(row.get("title") or "")
+    title_tokens = _tokenize_text_for_score(title)
+    if stem_tokens.intersection(title_tokens):
+        return True
+
+    paper_id = str(row.get("paper_id") or "").lower()
+    if paper_id and paper_id in file_stem.lower():
+        return True
+
+    return SequenceMatcher(None, _sanitize_text(file_stem), _sanitize_text(title)).ratio() >= 0.35
 
 
 def _load_manual_required_candidates() -> list[dict[str, Any]]:
@@ -192,32 +223,44 @@ def process_downloaded_pdf(
     unmatched_dir = storage_dir / "_unmatched"
     candidates = _load_manual_required_candidates()
 
-    doi = _extract_doi_from_filename(source)
-    if not doi:
-        doi = _extract_doi_from_pdf_content(source)
-    doi_hits: list[dict[str, Any]] = []
-    if doi:
+    doi_candidates: list[tuple[str, str]] = []
+    filename_doi = _extract_doi_from_filename(source)
+    if filename_doi:
+        doi_candidates.append((filename_doi, "filename"))
+
+    for doi, source_type in _extract_doi_candidates_from_pdf_content(source):
+        if not any(existing == doi for existing, _ in doi_candidates):
+            doi_candidates.append((doi, source_type))
+
+    for doi, source_type in doi_candidates:
         doi_hits = [r for r in candidates if _normalize_doi(str(r.get("doi") or "")) == doi]
+        if not doi_hits:
+            continue
 
-    if len(doi_hits) == 1:
-        row = doi_hits[0]
-        paper_id = str(row["paper_id"])
-        dest = _resolve_destination(storage_dir, paper_id, source.suffix.lower() or ".pdf")
-        shutil.move(str(source), str(dest))
-        _update_downloaded_path(paper_id, dest)
-        return DownloadWatchResult(status="matched_doi", destination=dest, matched_paper_id=paper_id, note=doi)
+        if len(doi_hits) == 1:
+            row = doi_hits[0]
+            if source_type != "filename" and not _is_confident_content_doi_match(source.stem, row, source_type):
+                continue
 
-    if len(doi_hits) > 1:
-        unmatched_dir.mkdir(parents=True, exist_ok=True)
-        dest = _resolve_destination(unmatched_dir, source.stem, source.suffix.lower() or ".pdf")
-        shutil.move(str(source), str(dest))
-        for row in doi_hits:
-            _enqueue_pdf_match_review(str(row["paper_id"]), f"Ambiguous DOI match for file={source.name}, doi={doi}")
-        return DownloadWatchResult(status="ambiguous_doi", destination=dest, matched_paper_id=None, note=doi)
+            paper_id = str(row["paper_id"])
+            dest = _resolve_destination(storage_dir, paper_id, source.suffix.lower() or ".pdf")
+            shutil.move(str(source), str(dest))
+            _update_downloaded_path(paper_id, dest)
+            return DownloadWatchResult(status="matched_doi", destination=dest, matched_paper_id=paper_id, note=f"{doi}:{source_type}")
 
+        if len(doi_hits) > 1:
+            unmatched_dir.mkdir(parents=True, exist_ok=True)
+            dest = _resolve_destination(unmatched_dir, source.stem, source.suffix.lower() or ".pdf")
+            shutil.move(str(source), str(dest))
+            for row in doi_hits:
+                _enqueue_pdf_match_review(str(row["paper_id"]), f"Ambiguous DOI match for file={source.name}, doi={doi} (source={source_type})")
+            return DownloadWatchResult(status="ambiguous_doi", destination=dest, matched_paper_id=None, note=doi)
+
+    # No confident DOI match found.
     title_hits = _best_title_candidates(source.stem, candidates, title_threshold)
     if len(title_hits) == 1:
         row = title_hits[0][1]
+        unmatched_dir.mkdir(parents=True, exist_ok=True)
         paper_id = str(row["paper_id"])
         dest = _resolve_destination(storage_dir, paper_id, source.suffix.lower() or ".pdf")
         shutil.move(str(source), str(dest))
@@ -250,13 +293,11 @@ def process_downloaded_pdf(
             _enqueue_pdf_match_review(
                 UNMATCHED_SENTINEL_PAPER_ID,
                 f"Unmatched PDF file={source.name}; no title candidates",
-                allow_multiple_open=True,
             )
     else:
         _enqueue_pdf_match_review(
             UNMATCHED_SENTINEL_PAPER_ID,
             f"Unmatched PDF file={source.name}; manual_required queue empty",
-            allow_multiple_open=True,
         )
     return DownloadWatchResult(status="unmatched", destination=dest, matched_paper_id=None)
 

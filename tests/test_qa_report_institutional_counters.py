@@ -99,5 +99,6 @@ def test_qa_report_counts_institutional_counters(tmp_path: Path, monkeypatch):
     result = qa_report.run_qa_check()
     assert result["manual_required"] == 1
     assert result["downloaded_missing_path"] == 1
-    assert result["unmatched"] == 2
+    assert result["unmatched"] == 1
+    assert result["unmatched_files"] == 2
     assert result["unmatched_review_open"] == 1

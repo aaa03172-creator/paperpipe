@@ -159,7 +159,7 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"[DB] manual_required: {institutional_counters['manual_required']}")
     print(f"[DB] downloaded_missing_path: {institutional_counters['downloaded_missing_path']}")
     print(f"[DB] unmatched_review_open: {institutional_counters['unmatched_review_open']}")
-    print(f"[File] unmatched: {unmatched_files}")
+    print(f"[File] unmatched_files: {unmatched_files}")
 
     cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
     active_feedback_rows = cursor.fetchall()
@@ -216,7 +216,8 @@ def run_qa_check(include_test_fixtures: bool = False):
             "missing_or_invalid_claimset": missing_or_invalid_claimset,
             "manual_required": institutional_counters["manual_required"],
             "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-            "unmatched": unmatched_files,
+            "unmatched": institutional_counters["unmatched_review_open"],
+            "unmatched_files": unmatched_files,
             "unmatched_review_open": institutional_counters["unmatched_review_open"],
             "missing_critical_review_section": missing_critical_review_section,
             "missing_files": 0,
@@ -235,8 +236,9 @@ def run_qa_check(include_test_fixtures: bool = False):
              "missing_or_invalid_claimset": missing_or_invalid_claimset,
              "manual_required": institutional_counters["manual_required"],
              "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-             "unmatched": unmatched_files,
-             "unmatched_review_open": institutional_counters["unmatched_review_open"],
+            "unmatched": institutional_counters["unmatched_review_open"],
+            "unmatched_files": unmatched_files,
+            "unmatched_review_open": institutional_counters["unmatched_review_open"],
              "missing_critical_review_section": missing_critical_review_section,
              "missing_files": 0,
              "bad_content_files": 0,
@@ -292,7 +294,8 @@ def run_qa_check(include_test_fixtures: bool = False):
         "missing_or_invalid_claimset": missing_or_invalid_claimset,
         "manual_required": institutional_counters["manual_required"],
         "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-        "unmatched": unmatched_files,
+        "unmatched": institutional_counters["unmatched_review_open"],
+        "unmatched_files": unmatched_files,
         "unmatched_review_open": institutional_counters["unmatched_review_open"],
         "missing_critical_review_section": missing_critical_review_section,
         "missing_files": len(missing_files),
