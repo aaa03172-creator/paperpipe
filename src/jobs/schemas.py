@@ -26,6 +26,10 @@ class JobStatus(BaseModel):
     bootstrap_meta_path: Optional[str] = None
     similar_feedback_count: Optional[int] = None
     persona_applied: Optional[bool] = None
+    artifact_document_written: Optional[bool] = None
+    artifact_index_written: Optional[bool] = None
+    artifact_claimset_written: Optional[bool] = None
+    artifact_stats_written: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,6 +47,10 @@ class JobBootstrapMeta(BaseModel):
     verifier_used: Optional[bool] = None
     verifier_status: Optional[str] = None
     stats_report_written: Optional[bool] = None
+    artifact_document_written: Optional[bool] = None
+    artifact_index_written: Optional[bool] = None
+    artifact_claimset_written: Optional[bool] = None
+    artifact_stats_written: Optional[bool] = None
     timestamp: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")

@@ -43,6 +43,7 @@ logs/
 export/
 storage/artifacts/
 storage/rag/
+storage/feedback_index/
 storage/sandbox/
 storage/*.json
 storage/*.jsonl
@@ -55,6 +56,8 @@ NotebookLM_Upload/
 tests/temp_vault/
 tests/mock_downloads/
 tests/mock_notebooklm_upload/
+tests/test_feedback_manual.py
+run_manual_injection.py
 
 # User Data
 brain/

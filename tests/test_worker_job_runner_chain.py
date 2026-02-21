@@ -171,6 +171,10 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["verifier_used"] is True
         assert meta["verifier_status"] == "completed"
         assert meta["stats_report_written"] is True
+        assert meta["artifact_document_written"] is True
+        assert meta["artifact_index_written"] is True
+        assert meta["artifact_claimset_written"] is True
+        assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.

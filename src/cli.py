@@ -679,9 +679,21 @@ def deepread(
         index_artifact = indexer.process(doc)
         console.print(f"   ✅ Indexed {index_artifact.chunk_count} chunks.")
 
+        # Inject Feedback dynamically
+        from src.agents.feedback_retriever import FeedbackRetriever
+        retriever = FeedbackRetriever()
+        similar_feedback = retriever.query_relevant_feedback(doc.meta.title, limit=3)
+        persona_hint = None
+        if similar_feedback:
+             fb_lines = ["Similar feedback examples (Top-3):"]
+             for idx, item in enumerate(similar_feedback, 1):
+                 fb_lines.append(f"{idx}) paper_id={item['paper_id']} preview={item['preview']}")
+             persona_hint = "\n".join(fb_lines)
+             console.print(f"   [yellow]⚠️ Similar feedback injected: {len(similar_feedback)}[/yellow]")
+             
         # Step C: Read (Claim Extraction)
         console.print("[bold]3️⃣  Deep Reading (Agentic Analysis)...[/bold]")
-        reader = ReaderAgent(model_name=config.agents.main_model)
+        reader = ReaderAgent(model_name=config.agents.main_model, persona_hint=persona_hint)
         claims_set = reader.analyze(doc)
         
         if not claims_set:

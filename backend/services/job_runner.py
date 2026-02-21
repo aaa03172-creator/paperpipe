@@ -19,6 +19,7 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.agents.feedback_retriever import FeedbackRetriever
 
 logger = logging.getLogger("paperpipe.backend")
 
@@ -69,11 +70,24 @@ def _resolve_persona_hint(persona_id: str) -> Optional[str]:
     return None
 
 
-def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str, str]]:
+def _load_similar_feedback_top3(query_text: str, limit: int = 3) -> List[Dict[str, str]]:
+    """
+    Uses FeedbackRetriever to find top-K approved feedback cases relevant to the query.
+    """
+    try:
+        retriever = FeedbackRetriever()
+        cases = retriever.query_relevant_feedback(query_text, limit=limit)
+        if cases:
+            return cases
+    except Exception as e:
+        logger.warning(f"Failed to load similar feedback: {e}")
     if not FEEDBACK_FILE.exists():
         return []
+
+    # Fallback: JSONL recent accepted feedback scan.
     lines = FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
     items: List[Dict[str, str]] = []
+    seen_papers: set[str] = set()
     for raw in reversed(lines):
         raw = raw.strip()
         if not raw:
@@ -82,14 +96,17 @@ def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str,
             rec = json.loads(raw)
         except Exception:
             continue
+        if rec.get("accepted") is not True:
+            continue
         rec_paper = str(rec.get("paper_id") or "")
-        if not rec_paper or rec_paper == paper_id:
+        if not rec_paper or rec_paper == query_text or rec_paper in seen_papers:
             continue
         corr = str(rec.get("user_correction") or "").strip()
         if not corr:
             continue
         preview = corr.replace("\n", " ")[:180]
         items.append({"paper_id": rec_paper, "preview": preview})
+        seen_papers.add(rec_paper)
         if len(items) >= limit:
             break
     return items
@@ -200,6 +217,10 @@ async def run_deepread_job(
             "verifier_used": bool(run_verify),
             "verifier_status": "not_run",
             "stats_report_written": False,
+            "artifact_document_written": False,
+            "artifact_index_written": False,
+            "artifact_claimset_written": False,
+            "artifact_stats_written": False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -218,6 +239,8 @@ async def run_deepread_job(
         # Save Document Artifact
         with open(artifact_dir / "document_artifact.json", "w") as f:
             f.write(doc_artifact.model_dump_json(indent=2))
+        bootstrap_meta["artifact_document_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
 
@@ -231,6 +254,8 @@ async def run_deepread_job(
         # Save Index Artifact
         with open(artifact_dir / "index_artifact.json", "w") as f:
              f.write(index_artifact.model_dump_json(indent=2))
+        bootstrap_meta["artifact_index_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
              
         await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks")
 
@@ -239,7 +264,11 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
         persona_hint = _resolve_persona_hint(persona_id)
-        similar_feedback = _load_similar_feedback_top3(paper_id=paper_id, limit=3)
+
+        # Dynamic Few-Shot Injection based on persona
+        feedback_query_text = persona_hint if persona_hint else paper_id
+        similar_feedback = _load_similar_feedback_top3(query_text=feedback_query_text, limit=3)
+        
         if similar_feedback:
             fb_lines = ["Similar feedback examples (Top-3):"]
             for idx, item in enumerate(similar_feedback, 1):
@@ -272,6 +301,8 @@ async def run_deepread_job(
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
             f.write(claim_set.model_dump_json(indent=2))
+        bootstrap_meta["artifact_claimset_written"] = True
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
 
@@ -295,6 +326,7 @@ async def run_deepread_job(
                     f.write(stats_report.model_dump_json(indent=2))
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
+                bootstrap_meta["artifact_stats_written"] = True
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                     
                 await emit("verify", 95, f"Verified {len(stats_report.checks)} checks")
