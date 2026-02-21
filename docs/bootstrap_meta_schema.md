@@ -29,6 +29,9 @@ This file is written per deepread run at:
 - `claimset_claim_count` (int): Number of extracted claims saved in `claimset.json`.
 - `claimset_readiness_reason` (string): Machine-friendly reason such as `not_evaluated`, `claims_present`, `empty_claims`.
 - `claimset_readiness_badge` (string): UI-friendly badge label (`UNKNOWN` | `READY` | `NOT_READY`).
+- `claimset_ops_action` (string): Operational next action (`none` | `manual_review_queued` | `manual_review_required` | `retry_suggested`).
+- `claimset_ops_alert` (bool): Whether operational attention is required immediately.
+- `claimset_ops_note` (string): Additional action context (e.g., `ready`, `queued`, `already_open`, `queue_unavailable`, `runtime_error:*`).
 - `timestamp` (string, ISO-8601): UTC timestamp when metadata was initialized.
 
 ## Example
@@ -55,6 +58,9 @@ This file is written per deepread run at:
   "claimset_claim_count": 4,
   "claimset_readiness_reason": "claims_present",
   "claimset_readiness_badge": "READY",
+  "claimset_ops_action": "none",
+  "claimset_ops_alert": false,
+  "claimset_ops_note": "ready",
   "timestamp": "2026-02-20T00:00:00+00:00"
 }
 ```
