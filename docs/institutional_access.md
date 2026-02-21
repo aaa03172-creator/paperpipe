@@ -18,6 +18,19 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
   - `python3 scripts/open_download_links.py --limit 20 --status manual_required`
   - prints all links and opens each with macOS `open`
 
+## What is implemented (Feature B baseline)
+- Downloads watcher matching flow:
+  - watches `paths.downloads_watch_dir` (default `~/Downloads`)
+  - moves matched PDFs to `paths.pdf_storage_dir` (default `storage/pdfs`)
+  - updates `papers.pdf_status='downloaded'` and `papers.pdf_path`
+- Matching strategy:
+  - DOI-first exact match (filename DOI -> papers.doi/paper_id)
+  - title similarity fallback (safe threshold)
+  - ambiguous/unmatched files go to `storage/pdfs/_unmatched`
+  - ambiguous/unmatched creates `review_queue` with `NEEDS_PDF_MATCH` (best-effort)
+- Run command:
+  - `python3 -m src.cli watch-downloads`
+
 ## Legal/Safety
 - No paywall bypass.
 - No credential scraping.
