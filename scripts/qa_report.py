@@ -62,6 +62,54 @@ def _has_valid_claimset(feedback_json: str | None) -> bool:
         return True
     return False
 
+
+def _safe_int(value) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _collect_institutional_counters(cursor) -> dict:
+    counters = {
+        "manual_required": 0,
+        "downloaded_missing_path": 0,
+        "unmatched": 0,
+    }
+    try:
+        cursor.execute(
+            """
+            SELECT
+                SUM(CASE WHEN lower(coalesce(pdf_status, '')) = 'manual_required' THEN 1 ELSE 0 END) AS manual_required,
+                SUM(CASE WHEN lower(coalesce(pdf_status, '')) = 'downloaded' AND (pdf_path IS NULL OR trim(pdf_path) = '') THEN 1 ELSE 0 END) AS downloaded_missing_path
+            FROM papers
+            WHERE status IN ('APPROVED', 'INDEXED')
+            """
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            counters["manual_required"] = _safe_int(row[0])
+            counters["downloaded_missing_path"] = _safe_int(row[1])
+    except sqlite3.OperationalError:
+        # Legacy schemas may not have pdf_status/pdf_path.
+        pass
+
+    try:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM review_queue
+            WHERE decision = 'NEEDS_PDF_MATCH'
+              AND resolved_at IS NULL
+            """
+        )
+        row = cursor.fetchone()
+        counters["unmatched"] = _safe_int(row[0] if row is not None else 0)
+    except sqlite3.OperationalError:
+        # review_queue may not exist in minimal/local schemas.
+        pass
+    return counters
+
 def run_qa_check(include_test_fixtures: bool = False):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -92,6 +140,10 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"     (Definition: status IN ('APPROVED', 'INDEXED'))")
     print(f"[DB] Missing Summary: {missing_summary}")
     print(f"[DB] Missing Feedback JSON: {missing_feedback}")
+    institutional_counters = _collect_institutional_counters(cursor)
+    print(f"[DB] manual_required: {institutional_counters['manual_required']}")
+    print(f"[DB] downloaded_missing_path: {institutional_counters['downloaded_missing_path']}")
+    print(f"[DB] unmatched: {institutional_counters['unmatched']}")
 
     cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
     active_feedback_rows = cursor.fetchall()
@@ -120,7 +172,10 @@ def run_qa_check(include_test_fixtures: bool = False):
     print("-" * 30)
     
     # 1.5 FAILED Papers Report
-    cursor.execute("SELECT paper_id, title, gate_reason FROM papers WHERE status='FAILED'")
+    try:
+        cursor.execute("SELECT paper_id, title, gate_reason FROM papers WHERE status='FAILED'")
+    except sqlite3.OperationalError:
+        cursor.execute("SELECT paper_id, title, NULL as gate_reason FROM papers WHERE status='FAILED'")
     failed_papers = cursor.fetchall()
     
     print(f"[DB] FAILED Papers (Excluded from Export): {len(failed_papers)}")
@@ -143,6 +198,9 @@ def run_qa_check(include_test_fixtures: bool = False):
             "missing_summary": missing_summary,
             "missing_feedback": missing_feedback,
             "missing_or_invalid_claimset": missing_or_invalid_claimset,
+            "manual_required": institutional_counters["manual_required"],
+            "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
+            "unmatched": institutional_counters["unmatched"],
             "missing_critical_review_section": missing_critical_review_section,
             "missing_files": 0,
             "bad_content_files": 0,
@@ -158,6 +216,9 @@ def run_qa_check(include_test_fixtures: bool = False):
              "missing_summary": missing_summary,
              "missing_feedback": missing_feedback,
              "missing_or_invalid_claimset": missing_or_invalid_claimset,
+             "manual_required": institutional_counters["manual_required"],
+             "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
+             "unmatched": institutional_counters["unmatched"],
              "missing_critical_review_section": missing_critical_review_section,
              "missing_files": 0,
              "bad_content_files": 0,
@@ -211,6 +272,9 @@ def run_qa_check(include_test_fixtures: bool = False):
         "missing_summary": missing_summary,
         "missing_feedback": missing_feedback,
         "missing_or_invalid_claimset": missing_or_invalid_claimset,
+        "manual_required": institutional_counters["manual_required"],
+        "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
+        "unmatched": institutional_counters["unmatched"],
         "missing_critical_review_section": missing_critical_review_section,
         "missing_files": len(missing_files),
         "bad_content_files": len(bad_content_files),
