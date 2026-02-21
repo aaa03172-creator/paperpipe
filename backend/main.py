@@ -9,9 +9,6 @@ from pathlib import Path
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
-from src.db_utils import get_db_connection, init_db
-from src.jobs.queue import JobQueue
-from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
 from .routers import obsidian, feedback
 
 app = FastAPI(title="PaperPipe API", version="3.1.0")

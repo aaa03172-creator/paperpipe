@@ -5,7 +5,8 @@ import logging
 from pathlib import Path
 from rich.console import Console
 from src.config import load_config
-from src.db import init_db
+from src.db import init_run_stats_table
+from src.db_utils import init_db as init_jobs_db, DB_PATH as DB_UTILS_PATH
 from src.logger import setup_logging
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
@@ -33,6 +34,17 @@ except Exception:
     log_level = "INFO"
 
 logger = setup_logging(log_level=log_level)
+
+
+def bootstrap_database() -> Path:
+    """Initialize canonical runtime schema (papers/review_queue/jobs/run_stats)."""
+    from scripts.init_db import init_db as init_core_db
+
+    init_core_db()
+    init_jobs_db()
+    init_run_stats_table()
+    return DB_UTILS_PATH
+
 
 # 0. Main Entry
 @app.callback()
@@ -106,8 +118,8 @@ def doctor():
         return
 
     try:
-        init_db()
-        console.print("✅ Database initialized (state.db).")
+        db_path = bootstrap_database()
+        console.print(f"✅ Database initialized ({db_path}).")
     except Exception as e:
         console.print(f"❌ Database Error: {e}", style="bold red")
     
@@ -332,10 +344,16 @@ def reset():
     console.print("[bold red]🗑️  Resetting all data...[/bold red]")
 
     # 1. DB
-    db_path = Path("state.db")
-    if db_path.exists():
-        db_path.unlink()
-        console.print("   - Deleted state.db")
+    db_paths = [DB_UTILS_PATH, Path("state.db")]
+    seen = set()
+    for db_path in db_paths:
+        db_path = Path(db_path)
+        if str(db_path) in seen:
+            continue
+        seen.add(str(db_path))
+        if db_path.exists():
+            db_path.unlink()
+            console.print(f"   - Deleted {db_path}")
     
     # 2. Logs
     log_path = Path("logs/paperpipe.log")
@@ -367,8 +385,8 @@ def reset():
         console.print(f"   ⚠️  Failed to clean Obsidian vault: {e}")
 
     # 4. Re-init
-    init_db()
-    console.print("✅ Reset complete. System is clean.")
+    db_path = bootstrap_database()
+    console.print(f"✅ Reset complete. System is clean. ({db_path})")
 
 @app.command()
 def test_unpaywall(doi: str = "10.1038/s41586-020-2165-8"):
@@ -643,8 +661,10 @@ def deepread(
         paper_row = None
         
     pdf_path = None
-    if paper_row and paper_row.get("local_path"):
-        pdf_path = Path(paper_row["local_path"])
+    if paper_row:
+        db_pdf_path = paper_row.get("local_path") or paper_row.get("pdf_path")
+        if db_pdf_path:
+            pdf_path = Path(db_pdf_path)
     
     # Fallback: Search Library
     if not pdf_path or not pdf_path.exists():
