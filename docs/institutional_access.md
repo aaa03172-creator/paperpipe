@@ -24,10 +24,10 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
   - moves matched PDFs to `paths.pdf_storage_dir` (default `storage/pdfs`)
   - updates `papers.pdf_status='downloaded'` and `papers.pdf_path`
 - Matching strategy:
-  - DOI-first exact match (filename DOI -> papers.doi/paper_id)
+  - DOI-first exact match (filename DOI -> PDF content/metadata DOI -> papers.doi)
   - title similarity fallback (safe threshold)
   - ambiguous/unmatched files go to `storage/pdfs/_unmatched`
-  - ambiguous/unmatched creates `review_queue` with `NEEDS_PDF_MATCH` (best-effort)
+  - ambiguous/unmatched creates `review_queue` with `NEEDS_PDF_MATCH`
 - Run command:
   - `python3 -m src.cli watch-downloads`
 
@@ -41,10 +41,29 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
 - DB path is unified to `storage/state.db`.
 - Export now persists `papers.obsidian_path` after markdown write.
 
-## Next Steps
-- Feature C: QA counters for manual/downloaded/unmatched states (baseline implemented)
-  - `scripts/qa_report.py` now reports:
-    - `manual_required`
-    - `downloaded_missing_path`
-    - `unmatched` (`review_queue` open `NEEDS_PDF_MATCH`)
-    - `unmatched_files` (`storage/pdfs/_unmatched` PDF file count)
+## QA / Operations (implemented)
+- `scripts/qa_report.py` reports:
+  - `manual_required`
+  - `downloaded_missing_path`
+  - `unmatched` (`storage/pdfs/_unmatched` PDF file count)
+  - `unmatched_review_open` (`review_queue` open `NEEDS_PDF_MATCH`)
+- Generate downloader ops dashboard:
+  - `python3 scripts/downloader_ops_dashboard.py --hours 24`
+  - output: `storage/reports/downloader_ops_dashboard.md`
+- Retry telemetry is exposed in `download_attempts`:
+  - `retry_no`
+  - `will_retry`
+
+## Optional Follow-ups (implemented)
+- Provider HTTP policy:
+  - provider-specific timeout/header defaults in `src/downloader/router.py`
+  - override support via `DownloadRouter(..., provider_timeouts=..., provider_headers=...)`
+- Candidate cache controls:
+  - `candidate_cache_ttl_seconds` (default 600s)
+  - `candidate_cache_max_entries` (default 1024)
+
+## CI (opt-in integration)
+- Workflow: `.github/workflows/phase3-integration-optin.yml`
+- Runs `scripts/test_phase3_integration.py` only when opted in:
+  - manual dispatch with `run_phase3_integration=true`, or
+  - repo variable `RUN_PHASE3_INTEGRATION=1`
