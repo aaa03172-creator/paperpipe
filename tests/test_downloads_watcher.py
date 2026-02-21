@@ -147,7 +147,7 @@ def test_downloads_watcher_matches_doi_from_pdf_content(tmp_path):
         downloads_dir = tmp_path / "Downloads"
         storage_dir = tmp_path / "storage" / "pdfs"
         downloads_dir.mkdir(parents=True, exist_ok=True)
-        source_pdf = downloads_dir / "publisher-download.pdf"
+        source_pdf = downloads_dir / "content_doi_paper.pdf"
         source_pdf.write_bytes(b"%PDF-1.4\n1 0 obj << /Producer (doi:10.7777/content-123) >>\n")
 
         result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
@@ -163,6 +163,45 @@ def test_downloads_watcher_matches_doi_from_pdf_content(tmp_path):
         conn.close()
         assert row["pdf_status"] == "downloaded"
         assert row["pdf_path"] == str(result.destination)
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_downloads_watcher_rejects_untrusted_pdf_content_doi(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.execute(
+            "INSERT INTO papers (paper_id, doi, title, pdf_status) VALUES (?, ?, ?, ?)",
+            ("paper_content_doi", "10.7777/content-123", "Rare Longitudinal Study on ABC", "manual_required"),
+        )
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "unrelated-download.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n1 0 obj << /Producer (doi:10.7777/content-123) >>\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert result.status == "unmatched"
+        assert result.matched_paper_id is None
+        assert result.destination is not None
+        assert result.destination.exists()
+
+        conn = db_utils.get_db_connection()
+        rows = conn.execute(
+            "SELECT paper_id, decision, resolved_at FROM review_queue ORDER BY id"
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 1
+        assert rows[0]["paper_id"] == "paper_content_doi"
+        assert rows[0]["decision"] == "NEEDS_PDF_MATCH"
+        assert rows[0]["resolved_at"] is None
     finally:
         db_utils.DB_PATH = original_db_path
 
