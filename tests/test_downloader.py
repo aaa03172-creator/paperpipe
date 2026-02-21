@@ -186,6 +186,45 @@ def test_download_file_rejects_html_content_type(mock_get, mock_config, tmp_path
     assert not file_path.exists()
 
 
+@patch("src.downloader.router.requests.get")
+def test_download_file_uses_provider_policy_defaults(mock_get, mock_config, tmp_path):
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/pdf"}
+    response.iter_content.return_value = [b"%PDF-1.4\n"]
+    response.raise_for_status.return_value = None
+    mock_get.return_value = response
+
+    router = DownloadRouter(mock_config)
+    file_path = tmp_path / "paper.pdf"
+
+    assert router._download_file("https://example.com/file.pdf", file_path, provider_name="unpaywall") is True
+    mock_get.assert_called_once()
+    kwargs = mock_get.call_args.kwargs
+    assert kwargs["timeout"] == 25.0
+    assert "User-Agent" in kwargs["headers"]
+
+
+@patch("src.downloader.router.requests.get")
+def test_download_file_uses_provider_policy_overrides(mock_get, mock_config, tmp_path):
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/pdf"}
+    response.iter_content.return_value = [b"%PDF-1.7\n"]
+    response.raise_for_status.return_value = None
+    mock_get.return_value = response
+
+    router = DownloadRouter(
+        mock_config,
+        provider_timeouts={"custom_provider": 5.0},
+        provider_headers={"custom_provider": {"X-Test": "1"}},
+    )
+    file_path = tmp_path / "paper.pdf"
+
+    assert router._download_file("https://example.com/file.pdf", file_path, provider_name="custom_provider") is True
+    kwargs = mock_get.call_args.kwargs
+    assert kwargs["timeout"] == 5.0
+    assert kwargs["headers"]["X-Test"] == "1"
+
+
 def test_arxiv_provider_resolves_from_link():
     provider = ArxivProvider()
     paper = Paper(
@@ -249,6 +288,42 @@ def test_router_candidate_cache_reuses_provider_resolution(_mock_download, mock_
     assert provider.calls == 1
 
 
+@patch("src.downloader.router.DownloadRouter._download_file", return_value=False)
+@patch("src.downloader.router.time.time")
+def test_router_candidate_cache_ttl_expires(mock_time, _mock_download, mock_config, dummy_paper):
+    provider = _CountedProvider()
+    router = DownloadRouter(
+        mock_config,
+        providers=[provider],
+        candidate_cache_ttl_seconds=1.0,
+        candidate_cache_max_entries=16,
+    )
+    mock_time.side_effect = [1000.0, 1002.1]
+
+    router.execute(dummy_paper)
+    router.execute(dummy_paper)
+
+    assert provider.calls == 2
+
+
+@patch("src.downloader.router.DownloadRouter._download_file", return_value=False)
+def test_router_candidate_cache_size_is_bounded(_mock_download, mock_config, dummy_paper):
+    provider = _CountedProvider()
+    router = DownloadRouter(
+        mock_config,
+        providers=[provider],
+        candidate_cache_ttl_seconds=3600.0,
+        candidate_cache_max_entries=1,
+    )
+    paper_two = dummy_paper.model_copy(update={"id": "test-paper-456"})
+
+    router.execute(dummy_paper)
+    router.execute(paper_two)
+    router.execute(dummy_paper)
+
+    assert provider.calls == 3
+
+
 @patch("src.downloader.router.time.sleep", return_value=None)
 @patch("src.downloader.router.DownloadRouter._download_file")
 def test_rate_limit_retry_is_bounded(mock_download, _mock_sleep, mock_config, dummy_paper):
@@ -268,3 +343,5 @@ def test_rate_limit_retry_is_bounded(mock_download, _mock_sleep, mock_config, du
     assert result.local_pdf_path is None
     assert len(result.download_attempts) == 3
     assert all(attempt.status == DownloadFailure.RATE_LIMIT for attempt in result.download_attempts)
+    assert [attempt.retry_no for attempt in result.download_attempts] == [0, 1, 2]
+    assert [attempt.will_retry for attempt in result.download_attempts] == [True, True, False]

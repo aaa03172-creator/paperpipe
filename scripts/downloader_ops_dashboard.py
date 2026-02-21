@@ -58,6 +58,10 @@ def collect_metrics(db_path: Path, hours: int) -> dict[str, Any]:
             "attempt_rows": 0,
             "status_counts": {},
             "provider_counts": {},
+            "retry_attempts_total": 0,
+            "retry_attempts_by_provider": {},
+            "rate_limit_retry_signals": 0,
+            "rate_limit_exhausted": 0,
             "missing_pdf_rows": 0,
             "has_download_attempts_column": False,
         }
@@ -83,7 +87,11 @@ def collect_metrics(db_path: Path, hours: int) -> dict[str, Any]:
 
     status_counts: Counter[str] = Counter()
     provider_counts: Counter[str] = Counter()
+    retry_attempts_by_provider: Counter[str] = Counter()
     attempt_rows = 0
+    retry_attempts_total = 0
+    rate_limit_retry_signals = 0
+    rate_limit_exhausted = 0
 
     for row in rows:
         attempts = _parse_attempts(row["download_attempts"]) if has_attempts else []
@@ -94,6 +102,16 @@ def collect_metrics(db_path: Path, hours: int) -> dict[str, Any]:
             provider = str(attempt.get("provider") or "unknown")
             status_counts[status] += 1
             provider_counts[provider] += 1
+            retry_no = int(attempt.get("retry_no") or 0)
+            will_retry = bool(attempt.get("will_retry") or False)
+            if retry_no > 0:
+                retry_attempts_total += 1
+                retry_attempts_by_provider[provider] += 1
+            if status == "rate_limit":
+                if will_retry:
+                    rate_limit_retry_signals += 1
+                else:
+                    rate_limit_exhausted += 1
 
     missing_pdf_rows = 0
     if has_pdf_path:
@@ -107,6 +125,10 @@ def collect_metrics(db_path: Path, hours: int) -> dict[str, Any]:
         "attempt_rows": attempt_rows,
         "status_counts": dict(status_counts),
         "provider_counts": dict(provider_counts),
+        "retry_attempts_total": retry_attempts_total,
+        "retry_attempts_by_provider": dict(retry_attempts_by_provider),
+        "rate_limit_retry_signals": rate_limit_retry_signals,
+        "rate_limit_exhausted": rate_limit_exhausted,
         "missing_pdf_rows": missing_pdf_rows,
         "has_download_attempts_column": has_attempts,
     }
@@ -141,6 +163,9 @@ def render_markdown(metrics: dict[str, Any], alerts: list[str]) -> str:
         f"- Papers in window: {metrics['paper_rows']}",
         f"- Rows with attempts: {metrics['attempt_rows']}",
         f"- Rows missing `pdf_path`: {metrics['missing_pdf_rows']}",
+        f"- Retry attempts (actual): {metrics.get('retry_attempts_total', 0)}",
+        f"- Rate-limit retry signals: {metrics.get('rate_limit_retry_signals', 0)}",
+        f"- Rate-limit exhausted: {metrics.get('rate_limit_exhausted', 0)}",
         "",
     ]
 
@@ -163,6 +188,12 @@ def render_markdown(metrics: dict[str, Any], alerts: list[str]) -> str:
     for key, value in sorted(metrics.get("provider_counts", {}).items()):
         lines.append(f"| {key} | {value} |")
     if not metrics.get("provider_counts"):
+        lines.append("| (none) | 0 |")
+
+    lines.extend(["", "## Retry Attempt Counts", "| provider | retry_attempts |", "| --- | ---: |"])
+    for key, value in sorted(metrics.get("retry_attempts_by_provider", {}).items()):
+        lines.append(f"| {key} | {value} |")
+    if not metrics.get("retry_attempts_by_provider"):
         lines.append("| (none) | 0 |")
 
     lines.extend(["", "## Alerts"])
