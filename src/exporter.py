@@ -9,6 +9,11 @@ from typing import Dict, Any, List, Optional
 
 from src.config import load_config
 from src.db_utils import get_db_connection
+from src.institutional_access import (
+    extract_institutional_proxy_link,
+    generate_institutional_proxy_url,
+    upsert_institutional_proxy_link,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,24 @@ def _build_pdf_links(paper: Dict[str, Any], vault_path: Path) -> List[str]:
         links.append(f"[Open PDF](file://{pdf_path.absolute()})")
 
     return links
+
+
+def _build_institutional_download_block(paper: Dict[str, Any], feedback: Dict[str, Any]) -> str:
+    status = str(paper.get("pdf_status") or "").strip().lower()
+    if status != "manual_required":
+        return ""
+
+    url = extract_institutional_proxy_link(feedback)
+    if not url:
+        url = generate_institutional_proxy_url(paper=paper)
+    if not url:
+        return ""
+
+    return (
+        "## Download (Institutional)\n"
+        f"- [Institutional Link]({url})\n"
+        "- Login once, download PDF, it will be auto-collected.\n"
+    )
 
 def _sanitize_frontmatter_tag(tag: Any) -> Optional[str]:
     if tag is None:
@@ -415,6 +438,7 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
     links.extend(_build_zotero_links(paper))
     links.extend(_build_pdf_links(paper, vault_path))
     references_block = "\n".join([f"* {link}" for link in links]) if links else "*No external links available.*"
+    institutional_block = _build_institutional_download_block(paper, feedback)
     claimset_claims = resolve_claimset_claims(paper, feedback)
     claimset_block = _format_claimset_section(paper, claimset_claims)
 
@@ -448,6 +472,8 @@ status: {paper['status']}
 
 ## 🔗 References
 {references_block}
+
+{institutional_block}
 """
 
     # --- 3. Save File ---
@@ -538,6 +564,25 @@ def run_export(overwrite: bool = True):
     
     count = 0
     for p in papers:
+        try:
+            if not p.get("pdf_path"):
+                proxy_url = generate_institutional_proxy_url(paper=p)
+                if proxy_url:
+                    updated_feedback = upsert_institutional_proxy_link(p.get("feedback_json"), proxy_url)
+                    p["feedback_json"] = updated_feedback
+                    p["pdf_status"] = "manual_required"
+                    cursor.execute(
+                        """
+                        UPDATE papers
+                        SET pdf_status = ?, feedback_json = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE paper_id = ?
+                        """,
+                        ("manual_required", updated_feedback, p["paper_id"]),
+                    )
+        except sqlite3.OperationalError:
+            # Backward compatibility for legacy test schemas without pdf_status.
+            pass
+
         if export_paper_to_markdown(p, vault_path, overwrite):
             count += 1
             try:
