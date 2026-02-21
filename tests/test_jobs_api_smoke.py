@@ -46,6 +46,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["artifact_index_written"] is None
         assert queued_data["artifact_claimset_written"] is None
         assert queued_data["artifact_stats_written"] is None
+        assert queued_data["claimset_readiness"] is None
+        assert queued_data["claimset_ready"] is None
+        assert queued_data["claimset_claim_count"] is None
+        assert queued_data["claimset_readiness_reason"] is None
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
@@ -114,6 +118,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["artifact_index_written"] is None
         assert done_data["artifact_claimset_written"] is None
         assert done_data["artifact_stats_written"] is None
+        assert done_data["claimset_readiness"] is None
+        assert done_data["claimset_ready"] is None
+        assert done_data["claimset_claim_count"] is None
+        assert done_data["claimset_readiness_reason"] is None
         assert Path(done_data["log_path"]).exists()
 
         # bootstrap meta file is not generated in this fake runner path.
@@ -142,6 +150,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["artifact_index_written"] = True
         meta["artifact_claimset_written"] = True
         meta["artifact_stats_written"] = False
+        meta["claimset_readiness"] = "ready"
+        meta["claimset_ready"] = True
+        meta["claimset_claim_count"] = 3
+        meta["claimset_readiness_reason"] = "claims_present"
         (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
         queue.update_job(
@@ -164,11 +176,17 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["artifact_index_written"] is True
         assert payload["artifact_claimset_written"] is True
         assert payload["artifact_stats_written"] is False
+        assert payload["claimset_readiness"] == "ready"
+        assert payload["claimset_ready"] is True
+        assert payload["claimset_claim_count"] == 3
+        assert payload["claimset_readiness_reason"] == "claims_present"
 
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
         assert meta_resp.json()["paper_id"] == "paper_boot_meta"
         assert meta_resp.json()["persona_applied"] is True
         assert meta_resp.json()["artifact_document_written"] is True
+        assert meta_resp.json()["claimset_readiness"] == "ready"
+        assert meta_resp.json()["claimset_ready"] is True
     finally:
         db_utils.DB_PATH = original_db_path

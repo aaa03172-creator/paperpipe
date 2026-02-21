@@ -24,6 +24,10 @@ This file is written per deepread run at:
 - `artifact_index_written` (bool): Whether `index_artifact.json` was written.
 - `artifact_claimset_written` (bool): Whether `claimset.json` was written.
 - `artifact_stats_written` (bool): Whether `stats_report.json` was written.
+- `claimset_readiness` (string): `unknown` | `ready` | `not_ready`.
+- `claimset_ready` (bool|null): Convenience boolean for consumers (`null` when unknown/not evaluated).
+- `claimset_claim_count` (int): Number of extracted claims saved in `claimset.json`.
+- `claimset_readiness_reason` (string): Machine-friendly reason such as `not_evaluated`, `claims_present`, `empty_claims`.
 - `timestamp` (string, ISO-8601): UTC timestamp when metadata was initialized.
 
 ## Example
@@ -45,6 +49,10 @@ This file is written per deepread run at:
   "artifact_index_written": true,
   "artifact_claimset_written": true,
   "artifact_stats_written": true,
+  "claimset_readiness": "ready",
+  "claimset_ready": true,
+  "claimset_claim_count": 4,
+  "claimset_readiness_reason": "claims_present",
   "timestamp": "2026-02-20T00:00:00+00:00"
 }
 ```

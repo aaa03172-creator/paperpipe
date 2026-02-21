@@ -176,6 +176,10 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
+        assert meta["claimset_readiness"] == "ready"
+        assert meta["claimset_ready"] is True
+        assert meta["claimset_claim_count"] == 1
+        assert meta["claimset_readiness_reason"] == "claims_present"
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(

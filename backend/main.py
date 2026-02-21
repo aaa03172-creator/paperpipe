@@ -57,6 +57,10 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "artifact_index_written": meta.get("artifact_index_written"),
             "artifact_claimset_written": meta.get("artifact_claimset_written"),
             "artifact_stats_written": meta.get("artifact_stats_written"),
+            "claimset_readiness": meta.get("claimset_readiness"),
+            "claimset_ready": meta.get("claimset_ready"),
+            "claimset_claim_count": meta.get("claimset_claim_count"),
+            "claimset_readiness_reason": meta.get("claimset_readiness_reason"),
         }
     )
 

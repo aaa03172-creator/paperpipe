@@ -30,6 +30,10 @@ class JobStatus(BaseModel):
     artifact_index_written: Optional[bool] = None
     artifact_claimset_written: Optional[bool] = None
     artifact_stats_written: Optional[bool] = None
+    claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
+    claimset_ready: Optional[bool] = None
+    claimset_claim_count: Optional[int] = None
+    claimset_readiness_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,6 +55,10 @@ class JobBootstrapMeta(BaseModel):
     artifact_index_written: Optional[bool] = None
     artifact_claimset_written: Optional[bool] = None
     artifact_stats_written: Optional[bool] = None
+    claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
+    claimset_ready: Optional[bool] = None
+    claimset_claim_count: Optional[int] = None
+    claimset_readiness_reason: Optional[str] = None
     timestamp: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")
