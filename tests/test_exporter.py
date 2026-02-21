@@ -73,3 +73,21 @@ def test_exporter_omits_link_sections_when_values_missing(tmp_path):
     assert "zotero://select/library/items/" not in content
     assert "zotero://open-pdf/library/items/" not in content
     assert "file://" not in content
+
+
+def test_exporter_includes_institutional_link_block_for_manual_required(tmp_path):
+    paper = _sample_paper()
+    paper["pdf_status"] = "manual_required"
+    paper["doi"] = "10.1000/inst.test"
+    paper["feedback_json"] = (
+        '{"links":{"institutional_proxy_url":"https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst.test"}}'
+    )
+
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
+    assert ok is True
+
+    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    content = target.read_text(encoding="utf-8")
+    assert "## Download (Institutional)" in content
+    assert "Institutional Link" in content
+    assert "Login once, download PDF, it will be auto-collected." in content
