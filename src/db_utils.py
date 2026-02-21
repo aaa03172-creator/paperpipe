@@ -9,6 +9,20 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = Path("storage/state.db")
 
+
+def _get_paper_columns(cursor: sqlite3.Cursor) -> set[str]:
+    cursor.execute("PRAGMA table_info(papers)")
+    return {row[1] for row in cursor.fetchall()}
+
+
+def _paper_lookup_conditions(columns: set[str]) -> list[str]:
+    conditions: list[str] = []
+    if "paper_id" in columns:
+        conditions.append("paper_id = ?")
+    if "doi" in columns:
+        conditions.append("doi = ?")
+    return conditions
+
 def init_db():
     """Initialize job-related tables without altering existing papers schema."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +99,201 @@ def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_paper_by_id(identifier: str) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        lookup_cols: list[str] = []
+        if "paper_id" in columns:
+            lookup_cols.append("paper_id")
+        if "id" in columns:
+            lookup_cols.append("id")
+        if "doi" in columns:
+            lookup_cols.append("doi")
+
+        for col in lookup_cols:
+            cursor.execute(f"SELECT * FROM papers WHERE {col} = ? LIMIT 1", (identifier,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+        return None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+
+def is_paper_processed(identifier: str) -> bool:
+    if not identifier:
+        return False
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        conditions = _paper_lookup_conditions(columns)
+        if not conditions:
+            return False
+        params = [identifier] * len(conditions)
+        cursor.execute(
+            f"SELECT 1 FROM papers WHERE {' OR '.join(conditions)} LIMIT 1",
+            params,
+        )
+        return cursor.fetchone() is not None
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def save_paper_state(identifier: str, title: str, source: str, processed_date: str) -> None:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if not columns:
+            return
+
+        insert_cols: list[str] = []
+        insert_vals: list[Any] = []
+        update_set: list[str] = []
+
+        if "paper_id" in columns:
+            insert_cols.append("paper_id")
+            insert_vals.append(identifier)
+            update_set.append("paper_id=excluded.paper_id")
+        if "doi" in columns:
+            insert_cols.append("doi")
+            insert_vals.append(identifier)
+            update_set.append("doi=excluded.doi")
+        if "title" in columns:
+            insert_cols.append("title")
+            insert_vals.append(title)
+            update_set.append("title=excluded.title")
+        if "source" in columns:
+            insert_cols.append("source")
+            insert_vals.append(source)
+            update_set.append("source=excluded.source")
+        if "processed_date" in columns:
+            insert_cols.append("processed_date")
+            insert_vals.append(processed_date)
+            update_set.append("processed_date=excluded.processed_date")
+        if "processed_at" in columns:
+            insert_cols.append("processed_at")
+            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            update_set.append("processed_at=excluded.processed_at")
+        if "updated_at" in columns:
+            insert_cols.append("updated_at")
+            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            update_set.append("updated_at=excluded.updated_at")
+        if "created_at" in columns:
+            insert_cols.append("created_at")
+            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        if "is_retracted" in columns:
+            insert_cols.append("is_retracted")
+            insert_vals.append(0)
+            update_set.append("is_retracted=COALESCE(papers.is_retracted, 0)")
+
+        if not insert_cols:
+            return
+
+        placeholders = ",".join("?" for _ in insert_cols)
+        conflict_target = "paper_id" if "paper_id" in columns else ("doi" if "doi" in columns else None)
+
+        if conflict_target:
+            sql = (
+                f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT({conflict_target}) DO UPDATE SET {', '.join(update_set)}"
+            )
+            cursor.execute(sql, tuple(insert_vals))
+        else:
+            sql = f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})"
+            cursor.execute(sql, tuple(insert_vals))
+
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+
+
+def update_reading_status(identifier: str, reading_status: str) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if "reading_status" not in columns:
+            try:
+                cursor.execute("ALTER TABLE papers ADD COLUMN reading_status TEXT DEFAULT 'Inbox'")
+                columns.add("reading_status")
+            except sqlite3.OperationalError:
+                pass
+        conditions = _paper_lookup_conditions(columns)
+        if "reading_status" not in columns or not conditions:
+            return False
+        params = [reading_status] + [identifier] * len(conditions)
+        cursor.execute(
+            f"UPDATE papers SET reading_status = ? WHERE {' OR '.join(conditions)}",
+            params,
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_papers() -> List[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if not columns:
+            return []
+        if "doi" in columns:
+            doi_expr = "doi"
+        elif "paper_id" in columns:
+            doi_expr = "paper_id AS doi"
+        else:
+            doi_expr = "NULL AS doi"
+        title_expr = "title" if "title" in columns else "NULL AS title"
+        retracted_expr = "is_retracted" if "is_retracted" in columns else "0 AS is_retracted"
+        cursor.execute(f"SELECT {doi_expr}, {title_expr}, {retracted_expr} FROM papers")
+        return [dict(row) for row in cursor.fetchall()]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+def mark_as_retracted(identifier: str) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if "is_retracted" not in columns:
+            try:
+                cursor.execute("ALTER TABLE papers ADD COLUMN is_retracted BOOLEAN DEFAULT 0")
+                columns.add("is_retracted")
+            except sqlite3.OperationalError:
+                pass
+        conditions = _paper_lookup_conditions(columns)
+        if "is_retracted" not in columns or not conditions:
+            return False
+        params = [identifier] * len(conditions)
+        cursor.execute(
+            f"UPDATE papers SET is_retracted = 1 WHERE {' OR '.join(conditions)}",
+            params,
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
 
 def sync_zotero_to_db(zotero_json_path: Path) -> int:
     """
