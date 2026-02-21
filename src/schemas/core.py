@@ -3,10 +3,37 @@ Pydantic 스키마 정의.
 LLM에서 추출한 데이터의 유효성을 검사하고 타입을 강제하는 데 사용됩니다.
 """
 
+from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Literal, Optional, Union, Dict
+from typing import Any, List, Literal, Optional, Union, Dict
 from pathlib import Path
 from enum import Enum
+
+# --- Downloader Schemas ---
+class DownloadFailure(str, Enum):
+    NO_LINK = "no_link"
+    RATE_LIMIT = "rate_limit"
+    TEMP_FAIL = "temp_fail"
+    PERM_FAIL = "perm_fail"
+    POLICY_BLOCK = "policy_block"
+    BAD_CONTENT = "bad_content"
+
+
+class DownloadAttempt(BaseModel):
+    provider: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    status: DownloadFailure
+    candidate_url: Optional[str] = None
+    message: Optional[str] = None
+
+
+class DownloadCandidate(BaseModel):
+    url: str
+    source_name: str
+    is_oa: bool
+    confidence: float
+    license: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 # --- Data Schemas ---
 
@@ -61,6 +88,7 @@ class Paper(BaseModel):
     # [NEW] Ticket 8: Reading Status Tracking
     reading_status: ReadingStatus = Field(default=ReadingStatus.INBOX, description="User workflow status (Inbox, Reading, Done)")
     manual_rank_score: Optional[float] = Field(None, description="Final calculated rank score")
+    download_attempts: List[DownloadAttempt] = Field(default_factory=list, description="PDF download attempts across providers")
 
     # Optional fields
     doi: Optional[str] = Field(default=None, description="DOI of the paper")
