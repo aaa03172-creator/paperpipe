@@ -5,8 +5,11 @@ import logging
 from pathlib import Path
 from rich.console import Console
 from src.config import load_config
-from src.db import init_run_stats_table
-from src.db_utils import init_db as init_jobs_db, DB_PATH as DB_UTILS_PATH
+from src.db_utils import (
+    init_db as init_jobs_db,
+    init_run_stats_table,
+    DB_PATH as DB_UTILS_PATH,
+)
 from src.logger import setup_logging
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
@@ -1001,7 +1004,7 @@ def profiles_audit(
     from src.profiles.patch_apply import apply_patch
     from src.profiles.risk_rules import validate_profile
     from src.agents.profile_chat_agent import ProfileChatAgent
-    from src.db import get_profile_stats
+    from src.db_utils import get_profile_stats
     
     config = load_profiles()
     if not config.profiles:

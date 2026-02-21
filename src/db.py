@@ -1,14 +1,29 @@
 import sqlite3
 import json
+import warnings
 from datetime import datetime
 from pathlib import Path
 
 from src.db_utils import DB_PATH as CANONICAL_DB_PATH
 
 DB_PATH = CANONICAL_DB_PATH
+_DEPRECATION_WARNED = False
+
+
+def _warn_deprecated_once() -> None:
+    global _DEPRECATION_WARNED
+    if _DEPRECATION_WARNED:
+        return
+    warnings.warn(
+        "src.db is deprecated; use src.db_utils for new runtime DB access.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _DEPRECATION_WARNED = True
 
 
 def _connect() -> sqlite3.Connection:
+    _warn_deprecated_once()
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(DB_PATH)
 

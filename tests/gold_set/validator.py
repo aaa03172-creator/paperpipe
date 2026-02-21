@@ -4,7 +4,7 @@ from typing import Dict, Set, List
 from pathlib import Path
 
 # Adjust path if running from root
-from src.db import get_all_papers, is_paper_processed, DB_PATH
+from src.db_utils import get_all_papers, is_paper_processed, DB_PATH
 # We might need to fetch detailed tags from DB. 
 # Currently 'papers' table only has doi, title, source.
 # Wait, where are tags stored?
