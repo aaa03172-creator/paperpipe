@@ -47,3 +47,4 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
     - `manual_required`
     - `downloaded_missing_path`
     - `unmatched` (`review_queue` open `NEEDS_PDF_MATCH`)
+    - `unmatched_files` (`storage/pdfs/_unmatched` PDF file count)

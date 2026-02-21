@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 
 import src.db_utils as db_utils
+import src.downloads_watcher as downloads_watcher
 from src.downloads_watcher import process_downloaded_pdf
 
 
@@ -237,5 +238,77 @@ def test_downloads_watcher_unmatched_with_empty_queue_creates_review_entry(tmp_p
         assert rows[0]["paper_id"] == "__UNMATCHED__"
         assert rows[0]["decision"] == "NEEDS_PDF_MATCH"
         assert "manual_required queue empty" in rows[0]["reason"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_downloads_watcher_does_not_duplicate_unmatched_sentinel_open_rows(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        first_pdf = downloads_dir / "unknown-download-1.pdf"
+        second_pdf = downloads_dir / "unknown-download-2.pdf"
+        first_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+        second_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        first = process_downloaded_pdf(first_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        second = process_downloaded_pdf(second_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert first.status == "unmatched"
+        assert second.status == "unmatched"
+
+        conn = db_utils.get_db_connection()
+        rows = conn.execute(
+            """
+            SELECT paper_id, decision, resolved_at
+            FROM review_queue
+            WHERE paper_id = '__UNMATCHED__' AND decision = 'NEEDS_PDF_MATCH'
+            ORDER BY id
+            """
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 1
+        assert rows[0]["resolved_at"] is None
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_downloads_watcher_allows_metadata_doi_match_without_title_overlap(tmp_path, monkeypatch):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.execute(
+            "INSERT INTO papers (paper_id, doi, title, pdf_status) VALUES (?, ?, ?, ?)",
+            ("meta_paper", "10.8888/meta-1", "Highly Specific Study Title", "manual_required"),
+        )
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(
+            downloads_watcher,
+            "_extract_doi_candidates_from_pdf_content",
+            lambda _: [("10.8888/meta-1", "metadata")],
+        )
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "totally-unrelated-filename.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert result.status == "matched_doi"
+        assert result.matched_paper_id == "meta_paper"
+        assert result.destination is not None and result.destination.exists()
     finally:
         db_utils.DB_PATH = original_db_path

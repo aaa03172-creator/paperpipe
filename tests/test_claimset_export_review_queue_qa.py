@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from scripts import qa_report
 from src import db_utils
 from src.exporter import (
@@ -44,6 +45,13 @@ def _create_review_queue_table(conn: sqlite3.Connection) -> None:
             resolved_at TIMESTAMP,
             resolution TEXT
         )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_review_queue_open_unique
+        ON review_queue (paper_id, decision)
+        WHERE resolved_at IS NULL
         """
     )
 
@@ -103,6 +111,22 @@ def test_review_queue_insertion_is_idempotent():
     assert "NEEDS_EVIDENCE_LINK" in inserted_first
     assert inserted_second == []
     assert count == 1
+
+
+def test_review_queue_unique_open_index_blocks_duplicate_insert():
+    conn = sqlite3.connect(":memory:")
+    _create_review_queue_table(conn)
+    conn.execute(
+        "INSERT INTO review_queue (paper_id, decision, reason) VALUES (?, ?, ?)",
+        ("p_dup", "NEEDS_READER", "first"),
+    )
+    conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO review_queue (paper_id, decision, reason) VALUES (?, ?, ?)",
+            ("p_dup", "NEEDS_READER", "duplicate"),
+        )
 
 def test_claimset_fallback_from_artifact_avoids_needs_reader(tmp_path: Path, monkeypatch):
     artifacts_root = tmp_path / "artifacts"

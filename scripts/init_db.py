@@ -90,6 +90,13 @@ def init_db():
         FOREIGN KEY(paper_id) REFERENCES papers(paper_id)
     );
     """)
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_review_queue_open_unique
+        ON review_queue (paper_id, decision)
+        WHERE resolved_at IS NULL
+        """
+    )
 
     conn.commit()
     conn.close()

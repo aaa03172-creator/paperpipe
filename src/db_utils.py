@@ -44,6 +44,20 @@ def init_db():
         cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
     if "run_verify" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
+
+    # Enforce one open review item per (paper_id, decision) when review_queue exists.
+    # This complements app-level idempotency checks and protects concurrent writers.
+    try:
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_review_queue_open_unique
+            ON review_queue (paper_id, decision)
+            WHERE resolved_at IS NULL
+            """
+        )
+    except sqlite3.OperationalError:
+        # review_queue may not exist in minimal test/local schemas.
+        pass
     
     conn.commit()
     conn.close()

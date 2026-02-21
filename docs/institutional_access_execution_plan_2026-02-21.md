@@ -5,7 +5,7 @@ Date: 2026-02-21
 ## Scope Requested
 - Feature A: institutional proxy link generation + manual_required queue + bulk opener script
 - Feature B: Downloads watcher for semi-auto PDF intake after user browser download
-- Feature C: QA counters (manual_required / downloaded-missing-path / unmatched)
+- Feature C: QA counters (manual_required / downloaded-missing-path / unmatched + unmatched_files)
 
 ## Hard Rules (Applied)
 - No paywall bypass, no credential scraping, no ID/PW storage.
