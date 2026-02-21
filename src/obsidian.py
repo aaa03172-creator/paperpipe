@@ -151,6 +151,17 @@ def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtracti
 > **Limitation**: {relevance.get('limitation', 'N/A')}
 '''
 
+    # [NEW] Optional Institutional Proxy Link
+    institutional_block = ""
+    if not paper.get('local_pdf_path'):
+        from src.institutional_access import extract_institutional_proxy_link
+        proxy_url = extract_institutional_proxy_link(paper.get('feedback_json'))
+        if proxy_url:
+            institutional_block = f"""
+> [!info] 🪪 Institutional Access Available
+> PDF was not auto-downloaded. [Download via KNU Libproxy]({proxy_url})
+"""
+
     return f"""---
 type: clinical_trial
 aliases: ["{paper['title']}"]
@@ -164,7 +175,7 @@ doi: {paper['doi']}
 ---
 
 # {paper['title']}
-
+{institutional_block}
 {one_liner_section}
 ## 🏥 Trial Quick Look
 {summary_block}
