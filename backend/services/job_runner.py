@@ -221,6 +221,10 @@ async def run_deepread_job(
             "artifact_index_written": False,
             "artifact_claimset_written": False,
             "artifact_stats_written": False,
+            "claimset_readiness": "unknown",
+            "claimset_ready": None,
+            "claimset_claim_count": 0,
+            "claimset_readiness_reason": "not_evaluated",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -302,6 +306,16 @@ async def run_deepread_job(
         with open(artifact_dir / "claimset.json", "w") as f:
             f.write(claim_set.model_dump_json(indent=2))
         bootstrap_meta["artifact_claimset_written"] = True
+        claim_count = len(claim_set.claims)
+        bootstrap_meta["claimset_claim_count"] = claim_count
+        if claim_count > 0:
+            bootstrap_meta["claimset_readiness"] = "ready"
+            bootstrap_meta["claimset_ready"] = True
+            bootstrap_meta["claimset_readiness_reason"] = "claims_present"
+        else:
+            bootstrap_meta["claimset_readiness"] = "not_ready"
+            bootstrap_meta["claimset_ready"] = False
+            bootstrap_meta["claimset_readiness_reason"] = "empty_claims"
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
