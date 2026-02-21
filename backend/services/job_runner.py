@@ -4,11 +4,13 @@ import json
 import logging
 import traceback
 import csv
+import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Awaitable, Optional, List
 
 from src.config import load_config
+from src.db_utils import get_db_connection
 from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
@@ -26,6 +28,7 @@ logger = logging.getLogger("paperpipe.backend")
 # Global Job Queue Registry (In-Memory PubSub)
 JOB_QUEUES: Dict[str, asyncio.Queue] = {}
 FEEDBACK_FILE = Path("storage/feedback.jsonl")
+REVIEW_NEEDS_READER = "NEEDS_READER"
 
 
 def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
@@ -125,6 +128,45 @@ def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     except Exception as exc:
         logger.warning("Failed to write bootstrap_meta.json: %s", exc)
 
+
+def _enqueue_needs_reader_followup(paper_id: str, reason: str) -> str:
+    """
+    Best-effort operational follow-up for not-ready claimsets.
+    Returns one of: queued | already_open | queue_unavailable | queue_error.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT 1 FROM review_queue
+            WHERE paper_id = ? AND decision = ? AND resolved_at IS NULL
+            LIMIT 1
+            """,
+            (paper_id, REVIEW_NEEDS_READER),
+        )
+        if cur.fetchone():
+            return "already_open"
+        cur.execute(
+            """
+            INSERT INTO review_queue (paper_id, decision, reason)
+            VALUES (?, ?, ?)
+            """,
+            (paper_id, REVIEW_NEEDS_READER, reason),
+        )
+        conn.commit()
+        return "queued"
+    except sqlite3.OperationalError as exc:
+        logger.warning("review_queue unavailable for paper_id=%s: %s", paper_id, exc)
+        return "queue_unavailable"
+    except Exception as exc:
+        logger.warning("review_queue enqueue failed for paper_id=%s: %s", paper_id, exc)
+        return "queue_error"
+    finally:
+        if conn is not None:
+            conn.close()
+
 async def run_deepread_job(
     job_id: str,
     paper_id: str,
@@ -143,6 +185,8 @@ async def run_deepread_job(
         run_id = str(uuid.uuid4())
     
     queue = JOB_QUEUES.get(job_id)
+    artifact_dir: Optional[Path] = None
+    bootstrap_meta: Optional[Dict[str, Any]] = None
 
     async def is_cancelled() -> bool:
         if not cancel_check:
@@ -204,7 +248,7 @@ async def run_deepread_job(
         # Prepare Artifact Storage
         artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        bootstrap_meta: Dict[str, Any] = {
+        bootstrap_meta = {
             "job_id": job_id,
             "run_id": run_id,
             "paper_id": paper_id,
@@ -226,6 +270,9 @@ async def run_deepread_job(
             "claimset_claim_count": 0,
             "claimset_readiness_reason": "not_evaluated",
             "claimset_readiness_badge": "UNKNOWN",
+            "claimset_ops_action": "none",
+            "claimset_ops_alert": False,
+            "claimset_ops_note": "not_evaluated",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -314,11 +361,25 @@ async def run_deepread_job(
             bootstrap_meta["claimset_ready"] = True
             bootstrap_meta["claimset_readiness_reason"] = "claims_present"
             bootstrap_meta["claimset_readiness_badge"] = "READY"
+            bootstrap_meta["claimset_ops_action"] = "none"
+            bootstrap_meta["claimset_ops_alert"] = False
+            bootstrap_meta["claimset_ops_note"] = "ready"
         else:
             bootstrap_meta["claimset_readiness"] = "not_ready"
             bootstrap_meta["claimset_ready"] = False
             bootstrap_meta["claimset_readiness_reason"] = "empty_claims"
             bootstrap_meta["claimset_readiness_badge"] = "NOT_READY"
+            followup = _enqueue_needs_reader_followup(
+                paper_id=paper_id,
+                reason="Runtime claimset empty (claims=0) after reader step",
+            )
+            if followup in {"queued", "already_open"}:
+                bootstrap_meta["claimset_ops_action"] = "manual_review_queued"
+                bootstrap_meta["claimset_ops_alert"] = False
+            else:
+                bootstrap_meta["claimset_ops_action"] = "manual_review_required"
+                bootstrap_meta["claimset_ops_alert"] = True
+            bootstrap_meta["claimset_ops_note"] = followup
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
@@ -380,6 +441,15 @@ async def run_deepread_job(
     except Exception as e:
         logger.error(f"Job Failed: {e}")
         traceback.print_exc() # Print trace to stdout for debugging
+        if artifact_dir is not None and bootstrap_meta is not None:
+            bootstrap_meta["claimset_readiness"] = "unknown"
+            bootstrap_meta["claimset_ready"] = None
+            bootstrap_meta["claimset_readiness_reason"] = "runtime_error"
+            bootstrap_meta["claimset_readiness_badge"] = "UNKNOWN"
+            bootstrap_meta["claimset_ops_action"] = "retry_suggested"
+            bootstrap_meta["claimset_ops_alert"] = True
+            bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         await emit("error", 0, str(e), level="ERROR")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})

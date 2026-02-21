@@ -35,6 +35,9 @@ class JobStatus(BaseModel):
     claimset_claim_count: Optional[int] = None
     claimset_readiness_reason: Optional[str] = None
     claimset_readiness_badge: Optional[str] = None
+    claimset_ops_action: Optional[str] = None
+    claimset_ops_alert: Optional[bool] = None
+    claimset_ops_note: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,6 +64,9 @@ class JobBootstrapMeta(BaseModel):
     claimset_claim_count: Optional[int] = None
     claimset_readiness_reason: Optional[str] = None
     claimset_readiness_badge: Optional[str] = None
+    claimset_ops_action: Optional[str] = None
+    claimset_ops_alert: Optional[bool] = None
+    claimset_ops_note: Optional[str] = None
     timestamp: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")

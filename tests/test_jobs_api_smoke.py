@@ -51,6 +51,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["claimset_claim_count"] is None
         assert queued_data["claimset_readiness_reason"] is None
         assert queued_data["claimset_readiness_badge"] is None
+        assert queued_data["claimset_ops_action"] is None
+        assert queued_data["claimset_ops_alert"] is None
+        assert queued_data["claimset_ops_note"] is None
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
@@ -124,6 +127,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["claimset_claim_count"] is None
         assert done_data["claimset_readiness_reason"] is None
         assert done_data["claimset_readiness_badge"] is None
+        assert done_data["claimset_ops_action"] is None
+        assert done_data["claimset_ops_alert"] is None
+        assert done_data["claimset_ops_note"] is None
         assert Path(done_data["log_path"]).exists()
 
         # bootstrap meta file is not generated in this fake runner path.
@@ -157,6 +163,9 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["claimset_claim_count"] = 3
         meta["claimset_readiness_reason"] = "claims_present"
         meta["claimset_readiness_badge"] = "READY"
+        meta["claimset_ops_action"] = "none"
+        meta["claimset_ops_alert"] = False
+        meta["claimset_ops_note"] = "ready"
         (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
         queue.update_job(
@@ -184,6 +193,9 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["claimset_claim_count"] == 3
         assert payload["claimset_readiness_reason"] == "claims_present"
         assert payload["claimset_readiness_badge"] == "READY"
+        assert payload["claimset_ops_action"] == "none"
+        assert payload["claimset_ops_alert"] is False
+        assert payload["claimset_ops_note"] == "ready"
 
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
@@ -193,5 +205,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_readiness"] == "ready"
         assert meta_resp.json()["claimset_ready"] is True
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
+        assert meta_resp.json()["claimset_ops_action"] == "none"
+        assert meta_resp.json()["claimset_ops_alert"] is False
     finally:
         db_utils.DB_PATH = original_db_path
