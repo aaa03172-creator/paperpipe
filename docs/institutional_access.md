@@ -45,8 +45,9 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
 - `scripts/qa_report.py` reports:
   - `manual_required`
   - `downloaded_missing_path`
-  - `unmatched` (`storage/pdfs/_unmatched` PDF file count)
+  - `unmatched_files` (`storage/pdfs/_unmatched` PDF file count)
   - `unmatched_review_open` (`review_queue` open `NEEDS_PDF_MATCH`)
+  - `unmatched` (legacy alias; same value as `unmatched_review_open`)
 - Generate downloader ops dashboard:
   - `python3 scripts/downloader_ops_dashboard.py --hours 24`
   - output: `storage/reports/downloader_ops_dashboard.md`

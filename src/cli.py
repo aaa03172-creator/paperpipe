@@ -15,6 +15,11 @@ from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
 )
+from src.services.profile_cli_workflows import (
+    run_profiles_audit_workflow,
+    run_profiles_chat_workflow,
+)
+from src.services.rag_cli_workflows import ask_question_workflow
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -627,59 +632,7 @@ def ask(
     """
     [v3.0] Query the local RAG knowledge base (storage/rag/).
     """
-    from src.config import load_config
-    from src.agents.indexer_agent import IndexerAgent
-    from src.agents.adapter import OllamaModelAdapter
-
-    config = load_config()
-    if not config.agents.enabled:
-        console.print("[yellow]⚠️ Agents are disabled in config.[/yellow]")
-        return
-        
-    console.print(f"[bold cyan]🤔 User: {question}[/bold cyan]")
-    
-    try:
-        # 1. Retrieve
-        indexer = IndexerAgent(collection_name="paperpipe_rag") 
-        # Note: IndexerAgent initializes adapter internally too, careful with resource usage? 
-        # Ollama is stateless HTTP, so it's fine.
-        
-        with console.status("[bold green]🔍 Searching Knowledge Base...[/bold green]"):
-            docs = indexer.query(question, n_results=5)
-        
-        if not docs:
-            console.print("[red]❌ No relevant documents found.[/red]")
-            return
-            
-        console.print(f"   📄 Found {len(docs)} relevant chunks.")
-        
-        # 2. Generate
-        context = "\n\n".join(docs)
-        prompt = f"""
-You are a helpful research assistant for the PaperPipe system.
-Answer the user's question based ONLY on the provided context from scientific papers.
-If the answer is not in the context, say "I cannot find the answer in the indexed papers."
-
-CONTEXT:
-{context}
-
-QUESTION:
-{question}
-
-ANSWER:
-"""
-        
-        adapter = OllamaModelAdapter(model_name=config.agents.main_model)
-        
-        with console.status("[bold green]🧠 Thinking...[/bold green]"):
-            result = adapter.generate(prompt)
-            
-        console.print(f"\n[bold]🤖 Answer:[/bold]\n{result.text}\n")
-        
-    except Exception as e:
-        console.print(f"[bold red]❌ Error: {e}[/bold red]")
-        import traceback
-        traceback.print_exc()
+    ask_question_workflow(question, console)
 
 # 7. Export Manager (Phase 2)
 @app.command()
@@ -710,123 +663,7 @@ def profiles_chat(
     """
     [v3.0] Chat with the Strict Data Librarian to update search profiles.
     """
-    try:
-        from src.profiles.profile_store import load_profiles, save_profiles
-        from src.profiles.patch_apply import apply_patch
-        from src.profiles.risk_rules import validate_profile
-        from src.agents.profile_chat_agent import ProfileChatAgent
-        
-        # 1. Load Profiles
-        config = load_profiles()
-        if not config.profiles:
-            console.print("[yellow]⚠️ No profiles found. Please create one manually first in config/profiles.yaml[/yellow]")
-            return
-
-        # 2. Select Profile
-        selected_profile = None
-        if target_id:
-            for p in config.profiles:
-                if p.id == target_id:
-                    selected_profile = p
-                    break
-        
-        if not selected_profile:
-            console.print("[bold cyan]📚 Select a Profile to Update:[/bold cyan]")
-            for i, p in enumerate(config.profiles, 1):
-                console.print(f" {i}. [bold]{p.id}[/bold] ({p.title})")
-            
-            choice = typer.prompt("Enter number or ID")
-            try:
-                # Try as index
-                idx = int(choice) - 1
-                if 0 <= idx < len(config.profiles):
-                    selected_profile = config.profiles[idx]
-            except ValueError:
-                # Try as ID
-                for p in config.profiles:
-                    if p.id == choice.strip():
-                        selected_profile = p
-                        break
-        
-        if not selected_profile:
-            console.print("[bold red]❌ Invalid profile selected.[/bold red]")
-            return
-
-        console.print(f"\n[bold green]✅ Selected: {selected_profile.title} ({selected_profile.id})[/bold green]")
-        
-        # 3. Get User Request
-        if not prompt:
-            prompt = typer.prompt("💬 What would you like to change?")
-
-        # 4. Agent Generation
-        agent = ProfileChatAgent()
-        with console.status("[bold green]🤖 Librarian is thinking...[/bold green]"):
-            patch_request = agent.generate_patch(selected_profile, prompt)
-            
-        # 5. Dry Run & Validation
-        try:
-            new_profile = apply_patch(selected_profile, patch_request)
-            risk_errors = validate_profile(new_profile)
-        except Exception as e:
-            console.print(f"[bold red]❌ Patch Application Failed:[/bold red] {e}")
-            return
-
-        # 6. Show Diff
-        console.print("\n[bold]📝 Proposed Changes:[/bold]")
-        
-        # Simple Diff Display
-        import difflib
-        old_json = selected_profile.model_dump_json(indent=2)
-        new_json = new_profile.model_dump_json(indent=2)
-        
-        diff = difflib.unified_diff(
-            old_json.splitlines(), 
-            new_json.splitlines(), 
-            lineterm="",
-            fromfile="Current",
-            tofile="Proposed"
-        )
-        
-        has_changes = False
-        for line in diff:
-            has_changes = True
-            if line.startswith('+') and not line.startswith('+++'):
-                console.print(line, style="green")
-            elif line.startswith('-') and not line.startswith('---'):
-                console.print(line, style="red")
-            else:
-                console.print(line, style="dim")
-                
-        if not has_changes:
-            console.print("[yellow]⚠️ No changes proposed (Agent likely rejected request or request was trivial).[/yellow]")
-            return
-
-        # 7. Show Risks
-        if risk_errors:
-            console.print("\n[bold red]🚫 RISK VIOLATIONS DETECTED:[/bold red]")
-            for err in risk_errors:
-                console.print(f" - {err}")
-            console.print("[bold red]The Strict Librarian Refuses to Save Risky Profiles.[/bold red]")
-            return
-
-        # 8. Confirmation
-        if typer.confirm("\n🚀 Apply these changes?"):
-            # Update in-memory list
-            for i, p in enumerate(config.profiles):
-                if p.id == selected_profile.id:
-                    config.profiles[i] = new_profile
-                    break
-            
-            # Save
-            save_profiles(config)
-            console.print("[bold green]✅ Profile Updated & Saved![/bold green]")
-        else:
-            console.print("[yellow]❌ Changes discarded.[/yellow]")
-
-    except Exception as e:
-         console.print(f"[bold red]❌ Error: {e}[/bold red]")
-         import traceback
-         traceback.print_exc()
+    run_profiles_chat_workflow(target_id, prompt, console)
 
 @app.command(name="audit")
 def profiles_audit(
@@ -835,82 +672,7 @@ def profiles_audit(
     """
     [v3.0] Audit profiles for performance issues (limit hits) & Auto-Fix.
     """
-    from src.profiles.profile_store import load_profiles, save_profiles
-    from src.profiles.patch_apply import apply_patch
-    from src.profiles.risk_rules import validate_profile
-    from src.agents.profile_chat_agent import ProfileChatAgent
-    from src.db_utils import get_profile_stats
-    
-    config = load_profiles()
-    if not config.profiles:
-        console.print("[yellow]⚠️ No profiles to audit.[/yellow]")
-        return
-        
-    console.print(f"[bold]🔍 Auditing {len(config.profiles)} profiles (Last {days} days)...[/bold]")
-    agent = None # Lazy load
-    
-    issues_found = 0
-    
-    for profile in config.profiles:
-        stats = get_profile_stats(profile.id, days=days)
-        if not stats:
-            continue
-            
-        total_runs = len(stats)
-        limit_hits = sum(1 for s in stats if s['limit_hit'])
-        hit_ratio = limit_hits / total_runs
-        avg_items = sum(s['items_fetched'] for s in stats) / total_runs
-        
-        # Threshold: > 50% runs hit limit
-        if hit_ratio > 0.5:
-            issues_found += 1
-            console.print(f"\n[bold red]🚨 ISSUE: {profile.title} ({profile.id})[/bold red]")
-            console.print(f"   - Limit Hit Rate: {hit_ratio:.1%} ({limit_hits}/{total_runs} runs)")
-            console.print(f"   - Avg Fetched: {avg_items:.1f} (Limit: {profile.limits.max_results_per_run})")
-            
-            if typer.confirm("   🛠️  Ask Librarian to fix this?"):
-                if not agent: agent = ProfileChatAgent()
-                
-                with console.status("   🤖 Generating Fix..."):
-                    patch = agent.suggest_audit_fix(profile, hit_ratio, days)
-                    
-                # Dry Run
-                try:
-                    new_profile = apply_patch(profile, patch)
-                    validate_profile(new_profile) # Ignore return, just check assumption
-                except Exception as e:
-                    console.print(f"[red]   ❌ Fix generation failed: {e}[/red]")
-                    continue
-                    
-                # Show Diff
-                console.print("\n   [bold]Proposed Fix:[/bold]")
-                import difflib
-                old_json = profile.model_dump_json(indent=2)
-                new_json = new_profile.model_dump_json(indent=2)
-                diff = difflib.unified_diff(
-                    old_json.splitlines(), new_json.splitlines(), lineterm="", fromfile="Current", tofile="Fix"
-                )
-                for line in diff:
-                     color = "green" if line.startswith('+') else "red" if line.startswith('-') else "dim"
-                     if not line.startswith('---') and not line.startswith('+++'):
-                         console.print(f"   {line}", style=color)
-                         
-                if typer.confirm("   🚀 Apply Fix?"):
-                    # Apply
-                    for i, p in enumerate(config.profiles):
-                        if p.id == profile.id:
-                            config.profiles[i] = new_profile
-                            break
-                    save_profiles(config)
-                    console.print("   ✅ Fixed & Saved.")
-                else:
-                    console.print("   💨 Skipped.")
-        else:
-             # Healthy
-             pass
-             
-    if issues_found == 0:
-        console.print("\n[bold green]✅ All profiles healthy![/bold green]")
+    run_profiles_audit_workflow(days, console)
 
 
 if __name__ == "__main__":
