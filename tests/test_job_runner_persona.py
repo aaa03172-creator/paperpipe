@@ -45,11 +45,12 @@ def test_load_similar_feedback_top3_ignores_same_paper_and_limits(tmp_path, monk
     feedback_file.write_text(
         "\n".join(
             [
-                '{"paper_id":"same","user_correction":"should be ignored"}',
-                '{"paper_id":"p1","user_correction":"corr1"}',
-                '{"paper_id":"p2","user_correction":"corr2"}',
-                '{"paper_id":"p3","user_correction":"corr3"}',
-                '{"paper_id":"p4","user_correction":"corr4"}',
+                '{"paper_id":"same","accepted":true,"user_correction":"should be ignored"}',
+                '{"paper_id":"p1","accepted":false,"user_correction":"corr1 rejected"}',
+                '{"paper_id":"p2","accepted":true,"user_correction":"corr2"}',
+                '{"paper_id":"p2","accepted":true,"user_correction":"corr2 duplicate latest"}',
+                '{"paper_id":"p3","accepted":true,"user_correction":"corr3"}',
+                '{"paper_id":"p4","accepted":true,"user_correction":"corr4"}',
             ]
         ),
         encoding="utf-8",

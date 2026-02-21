@@ -53,6 +53,10 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "bootstrap_meta_path": meta_path,
             "similar_feedback_count": meta.get("similar_feedback_count"),
             "persona_applied": meta.get("persona_applied"),
+            "artifact_document_written": meta.get("artifact_document_written"),
+            "artifact_index_written": meta.get("artifact_index_written"),
+            "artifact_claimset_written": meta.get("artifact_claimset_written"),
+            "artifact_stats_written": meta.get("artifact_stats_written"),
         }
     )
 

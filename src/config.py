@@ -122,6 +122,7 @@ class AgentConfig(BaseModel):
     backend: str = "ollama_adapter"
     main_model: str = "llama3:latest"
     rag_index_path: str = "./storage/rag/"
+    feedback_index_path: str = "./storage/feedback_index/"
     tools: AgentToolsConfig = Field(default_factory=AgentToolsConfig)
     logging: AgentLoggingConfig = Field(default_factory=AgentLoggingConfig)
 
