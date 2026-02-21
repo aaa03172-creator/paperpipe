@@ -19,6 +19,7 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.agents.feedback_retriever import FeedbackRetriever
 
 logger = logging.getLogger("paperpipe.backend")
 
@@ -69,9 +70,21 @@ def _resolve_persona_hint(persona_id: str) -> Optional[str]:
     return None
 
 
-def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str, str]]:
+def _load_similar_feedback_top3(query_text: str, limit: int = 3) -> List[Dict[str, str]]:
+    """
+    Uses FeedbackRetriever to find top-K approved feedback cases relevant to the query.
+    """
+    try:
+        retriever = FeedbackRetriever()
+        cases = retriever.query_relevant_feedback(query_text, limit=limit)
+        if cases:
+            return cases
+    except Exception as e:
+        logger.warning(f"Failed to load similar feedback: {e}")
     if not FEEDBACK_FILE.exists():
         return []
+
+    # Fallback: JSONL recent accepted feedback scan.
     lines = FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
     items: List[Dict[str, str]] = []
     seen_papers: set[str] = set()
@@ -86,7 +99,7 @@ def _load_similar_feedback_top3(paper_id: str, limit: int = 3) -> List[Dict[str,
         if rec.get("accepted") is not True:
             continue
         rec_paper = str(rec.get("paper_id") or "")
-        if not rec_paper or rec_paper == paper_id or rec_paper in seen_papers:
+        if not rec_paper or rec_paper == query_text or rec_paper in seen_papers:
             continue
         corr = str(rec.get("user_correction") or "").strip()
         if not corr:
@@ -251,7 +264,11 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
         persona_hint = _resolve_persona_hint(persona_id)
-        similar_feedback = _load_similar_feedback_top3(paper_id=paper_id, limit=3)
+
+        # Dynamic Few-Shot Injection based on persona
+        feedback_query_text = persona_hint if persona_hint else paper_id
+        similar_feedback = _load_similar_feedback_top3(query_text=feedback_query_text, limit=3)
+        
         if similar_feedback:
             fb_lines = ["Similar feedback examples (Top-3):"]
             for idx, item in enumerate(similar_feedback, 1):
