@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.schemas.agent_artifacts import FeedbackCase
@@ -20,7 +20,7 @@ async def submit_feedback(feedback: FeedbackCase):
     try:
         # timestamp
         if not feedback.timestamp:
-            feedback.timestamp = datetime.utcnow().isoformat()
+            feedback.timestamp = datetime.now(timezone.utc).isoformat()
             
         # Ensure directory
         FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
