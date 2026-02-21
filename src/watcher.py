@@ -1,11 +1,18 @@
 
 import time
 import logging
+import shutil
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from src.config import AppConfig
+from src.fetchers import fetch_pubmed
+from src.llm_provider import get_llm_provider
+from src.processor import process_local_pdf as processor_process_local_pdf
+from src.obsidian import save_paper_to_obsidian
+from src.zotero import export_to_ris
+from src.schemas import PaperStatus
 
 # Setup logger for this module
 logger = logging.getLogger("src.watcher")
@@ -68,3 +75,58 @@ class WatcherService:
             logger.info("🛑 Watcher stopped.")
         
         self.observer.join()
+
+
+def extract_doi_from_pdf(_path: Path) -> str | None:
+    """Legacy shim retained for tests that patch this symbol."""
+    return None
+
+
+def process_local_pdf(file_path: Path, config: AppConfig | None = None):
+    """Compatibility entrypoint used by legacy tests/scripts."""
+    if config is None:
+        return processor_process_local_pdf(file_path, config=None)
+
+    doi = extract_doi_from_pdf(file_path)
+    fetched = fetch_pubmed([doi], max_results=1) if doi else []
+    paper = fetched[0] if fetched else None
+    if paper is None:
+        return processor_process_local_pdf(file_path, config=config)
+
+    llm = get_llm_provider(config.llm, getattr(config, "entity_aliases", {}))
+    tags: list[str] = []
+    confidence = 0.0
+    slot = "test"
+    if llm:
+        tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
+        tags = tag_payload.get("soft_tags", []) or []
+        confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
+        try:
+            slot = llm.classify_slot({"title": paper.title, "summary": paper.summary}, slot) or slot
+        except Exception:
+            pass
+
+    row = {
+        "id": paper.id,
+        "paper_id": paper.id,
+        "doi": paper.doi or paper.id,
+        "title": paper.title,
+        "authors": paper.authors,
+        "published": paper.published,
+        "source": paper.source,
+        "summary": paper.summary,
+        "link": paper.link,
+        "slot": slot,
+        "tags": tags,
+        "processing_status": PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW,
+        "pdf_path": str(file_path),
+        "local_pdf_path": str(file_path),
+    }
+
+    save_paper_to_obsidian(row, config)
+    export_to_ris(row, Path(config.paths.export_dir))
+    if config.paths.upload_dir:
+        upload_dir = Path(config.paths.upload_dir)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file_path, upload_dir / file_path.name)
+    return row
