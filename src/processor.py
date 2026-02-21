@@ -383,6 +383,13 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     "pdf_path": str(paper.local_pdf_path) if paper.local_pdf_path else None,
                     "local_pdf_path": str(paper.local_pdf_path) if paper.local_pdf_path else None,
                 }
+                
+                if not row["pdf_path"]:
+                    from src.institutional_access import generate_institutional_proxy_url, upsert_institutional_proxy_link
+                    proxy_url = generate_institutional_proxy_url(doi=row["doi"], publisher_url=row["link"])
+                    if proxy_url:
+                        row["feedback_json"] = upsert_institutional_proxy_link("{}", proxy_url)
+                
                 results.append(row)
 
                 try:
