@@ -28,6 +28,7 @@ This file is written per deepread run at:
 - `claimset_ready` (bool|null): Convenience boolean for consumers (`null` when unknown/not evaluated).
 - `claimset_claim_count` (int): Number of extracted claims saved in `claimset.json`.
 - `claimset_readiness_reason` (string): Machine-friendly reason such as `not_evaluated`, `claims_present`, `empty_claims`.
+- `claimset_readiness_badge` (string): UI-friendly badge label (`UNKNOWN` | `READY` | `NOT_READY`).
 - `timestamp` (string, ISO-8601): UTC timestamp when metadata was initialized.
 
 ## Example
@@ -53,6 +54,7 @@ This file is written per deepread run at:
   "claimset_ready": true,
   "claimset_claim_count": 4,
   "claimset_readiness_reason": "claims_present",
+  "claimset_readiness_badge": "READY",
   "timestamp": "2026-02-20T00:00:00+00:00"
 }
 ```

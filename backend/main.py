@@ -48,6 +48,15 @@ def _read_bootstrap_meta(meta_path: str | None) -> dict:
 def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
     meta_path = _resolve_bootstrap_meta_path(job)
     meta = _read_bootstrap_meta(meta_path)
+    readiness = meta.get("claimset_readiness")
+    badge = meta.get("claimset_readiness_badge")
+    if badge is None:
+        if readiness == "ready":
+            badge = "READY"
+        elif readiness == "not_ready":
+            badge = "NOT_READY"
+        elif readiness == "unknown":
+            badge = "UNKNOWN"
     return job.model_copy(
         update={
             "bootstrap_meta_path": meta_path,
@@ -61,6 +70,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "claimset_ready": meta.get("claimset_ready"),
             "claimset_claim_count": meta.get("claimset_claim_count"),
             "claimset_readiness_reason": meta.get("claimset_readiness_reason"),
+            "claimset_readiness_badge": badge,
         }
     )
 
