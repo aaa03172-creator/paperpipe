@@ -235,18 +235,27 @@ def get_paper_by_id(identifier: str) -> dict:
     conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    
-    # Try ID first
-    c.execute("SELECT * FROM papers WHERE id = ?", (identifier,))
-    row = c.fetchone()
-    
-    if not row:
-        # Try DOI
-        c.execute("SELECT * FROM papers WHERE doi = ?", (identifier,))
-        row = c.fetchone()
-        
-    conn.close()
-    return dict(row) if row else None
+
+    try:
+        c.execute("PRAGMA table_info(papers)")
+        columns = {row[1] for row in c.fetchall()}
+
+        lookup_order = []
+        if "paper_id" in columns:
+            lookup_order.append("paper_id")
+        if "id" in columns:
+            lookup_order.append("id")
+        if "doi" in columns:
+            lookup_order.append("doi")
+
+        for col in lookup_order:
+            c.execute(f"SELECT * FROM papers WHERE {col} = ?", (identifier,))
+            row = c.fetchone()
+            if row:
+                return dict(row)
+        return None
+    finally:
+        conn.close()
 
 
 def get_db_connection() -> sqlite3.Connection:
