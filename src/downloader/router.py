@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,24 @@ from src.downloader.providers.unpaywall import UnpaywallProvider
 from src.schemas.core import DownloadAttempt, DownloadFailure, Paper
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProviderHttpPolicy:
+    timeout_seconds: float = 30.0
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+DEFAULT_PROVIDER_POLICIES: dict[str, ProviderHttpPolicy] = {
+    "direct_link": ProviderHttpPolicy(
+        timeout_seconds=20.0,
+        headers={"User-Agent": "PaperPipe/1.0 (+OA Downloader)"},
+    ),
+    "unpaywall": ProviderHttpPolicy(
+        timeout_seconds=25.0,
+        headers={"User-Agent": "PaperPipe/1.0 (+Unpaywall OA)"},
+    ),
+}
 
 
 def _sanitize_filename(name: str) -> str:
@@ -33,6 +52,10 @@ class DownloadRouter:
         providers: Optional[list[DownloadProvider]] = None,
         max_rate_limit_retries: int = 2,
         rate_limit_backoff_seconds: float = 1.0,
+        provider_timeouts: Optional[dict[str, float]] = None,
+        provider_headers: Optional[dict[str, dict[str, str]]] = None,
+        candidate_cache_ttl_seconds: float = 600.0,
+        candidate_cache_max_entries: int = 1024,
     ):
         self.config = config
         self.providers: list[DownloadProvider] = providers or [
@@ -41,7 +64,19 @@ class DownloadRouter:
         ]
         self.max_rate_limit_retries = max(0, max_rate_limit_retries)
         self.rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
-        self._candidate_cache: dict[str, Optional[DownloadCandidate]] = {}
+        self.candidate_cache_ttl_seconds = max(0.0, candidate_cache_ttl_seconds)
+        self.candidate_cache_max_entries = max(1, candidate_cache_max_entries)
+        self._candidate_cache: dict[str, tuple[float, Optional[DownloadCandidate]]] = {}
+        self._provider_policies: dict[str, ProviderHttpPolicy] = {
+            name: ProviderHttpPolicy(timeout_seconds=policy.timeout_seconds, headers=dict(policy.headers))
+            for name, policy in DEFAULT_PROVIDER_POLICIES.items()
+        }
+        for name, timeout in (provider_timeouts or {}).items():
+            policy = self._provider_policies.setdefault(name, ProviderHttpPolicy())
+            policy.timeout_seconds = max(0.1, float(timeout))
+        for name, headers in (provider_headers or {}).items():
+            policy = self._provider_policies.setdefault(name, ProviderHttpPolicy())
+            policy.headers.update({str(k): str(v) for k, v in (headers or {}).items()})
 
     def execute(self, paper: Paper) -> Paper:
         """Backward-compatible API that updates and returns Paper."""
@@ -161,11 +196,31 @@ class DownloadRouter:
         cache_key = (
             f"{provider.provider_name}|{paper.id}|{paper.doi or ''}|{paper.pdf_link or ''}|{paper.link or ''}"
         )
-        if cache_key in self._candidate_cache:
-            return self._candidate_cache[cache_key]
+        now = time.time()
+        self._prune_candidate_cache(now)
+        cached = self._candidate_cache.get(cache_key)
+        if cached is not None:
+            _cached_at, cached_candidate = cached
+            return cached_candidate
         candidate = provider.resolve_pdf(paper)
-        self._candidate_cache[cache_key] = candidate
+        self._candidate_cache[cache_key] = (now, candidate)
+        self._prune_candidate_cache(now)
         return candidate
+
+    def _prune_candidate_cache(self, now: float) -> None:
+        if not self._candidate_cache:
+            return
+        if self.candidate_cache_ttl_seconds > 0:
+            expired_keys = [
+                key
+                for key, (cached_at, _candidate) in self._candidate_cache.items()
+                if now - cached_at > self.candidate_cache_ttl_seconds
+            ]
+            for key in expired_keys:
+                self._candidate_cache.pop(key, None)
+        while len(self._candidate_cache) > self.candidate_cache_max_entries:
+            oldest_key = min(self._candidate_cache.items(), key=lambda item: item[1][0])[0]
+            self._candidate_cache.pop(oldest_key, None)
 
     def _download_file_with_retries(
         self,
@@ -178,18 +233,21 @@ class DownloadRouter:
         retry_count = 0
         while True:
             try:
-                return self._download_file(url, filepath)
+                return self._download_file(url, filepath, provider_name=provider_name)
             except requests.exceptions.HTTPError as exc:
                 fail_status = self._map_http_failure(exc)
+                can_retry = fail_status == DownloadFailure.RATE_LIMIT and retry_count < self.max_rate_limit_retries
                 attempts.append(
                     DownloadAttempt(
                         provider=provider_name,
                         status=fail_status,
                         candidate_url=url,
                         message=str(exc),
+                        retry_no=retry_count,
+                        will_retry=can_retry,
                     )
                 )
-                if fail_status == DownloadFailure.RATE_LIMIT and retry_count < self.max_rate_limit_retries:
+                if can_retry:
                     delay_seconds = self.rate_limit_backoff_seconds * (2**retry_count)
                     logger.warning(
                         "[%s] Rate limited via %s. Retrying in %.2fs (retry %s/%s).",
@@ -213,9 +271,18 @@ class DownloadRouter:
             return DownloadFailure.PERM_FAIL
         return DownloadFailure.TEMP_FAIL
 
-    def _download_file(self, url: str, filepath: Path) -> bool:
+    def _policy_for_provider(self, provider_name: str) -> ProviderHttpPolicy:
+        return self._provider_policies.get(provider_name, ProviderHttpPolicy())
+
+    def _download_file(self, url: str, filepath: Path, provider_name: str = "unknown") -> bool:
         """Download URL in streaming mode and validate content type + PDF header."""
-        response = requests.get(url, stream=True, timeout=30)
+        policy = self._policy_for_provider(provider_name)
+        response = requests.get(
+            url,
+            stream=True,
+            timeout=policy.timeout_seconds,
+            headers=policy.headers,
+        )
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "").lower()

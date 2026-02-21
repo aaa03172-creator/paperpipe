@@ -25,6 +25,8 @@ class DownloadAttempt(BaseModel):
     status: DownloadFailure
     candidate_url: Optional[str] = None
     message: Optional[str] = None
+    retry_no: int = 0
+    will_retry: bool = False
 
 
 class DownloadCandidate(BaseModel):
