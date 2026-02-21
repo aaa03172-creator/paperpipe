@@ -92,6 +92,23 @@ def init_db():
     """)
     cursor.execute(
         """
+        UPDATE review_queue
+        SET resolved_at = CURRENT_TIMESTAMP,
+            resolution = COALESCE(resolution, 'AUTO_DEDUP_DUPLICATE_OPEN'),
+            owner = COALESCE(owner, 'SYSTEM')
+        WHERE resolved_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM review_queue rq2
+            WHERE rq2.paper_id = review_queue.paper_id
+              AND rq2.decision = review_queue.decision
+              AND rq2.resolved_at IS NULL
+              AND rq2.id < review_queue.id
+          )
+        """
+    )
+    cursor.execute(
+        """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_review_queue_open_unique
         ON review_queue (paper_id, decision)
         WHERE resolved_at IS NULL
