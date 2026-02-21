@@ -9,19 +9,19 @@ def test_cli_read_updates_reading_status_via_db_utils(monkeypatch):
     runner = CliRunner()
     called = {}
 
-    monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace())
+    import src.services.cli_workflows as cli_workflows
 
     import src.obsidian as obsidian_module
-    import src.db_utils as db_utils_module
 
     monkeypatch.setattr(obsidian_module, "set_reading_status", lambda *_: "10.1000/read")
+    monkeypatch.setattr(cli_workflows, "load_config", lambda: SimpleNamespace())
 
     def _update_reading_status(identifier: str, status: str) -> bool:
         called["identifier"] = identifier
         called["status"] = status
         return True
 
-    monkeypatch.setattr(db_utils_module, "update_reading_status", _update_reading_status)
+    monkeypatch.setattr(cli_workflows, "update_reading_status", _update_reading_status)
 
     result = runner.invoke(cli.app, ["read", "10.1000/read"])
     assert result.exit_code == 0
@@ -33,18 +33,18 @@ def test_cli_done_skips_db_update_when_note_lookup_fails(monkeypatch):
     runner = CliRunner()
     called = {"updated": False}
 
-    monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace())
+    import src.services.cli_workflows as cli_workflows
 
     import src.obsidian as obsidian_module
-    import src.db_utils as db_utils_module
 
     monkeypatch.setattr(obsidian_module, "set_reading_status", lambda *_: None)
+    monkeypatch.setattr(cli_workflows, "load_config", lambda: SimpleNamespace())
 
     def _update_reading_status(*_args, **_kwargs) -> bool:
         called["updated"] = True
         return True
 
-    monkeypatch.setattr(db_utils_module, "update_reading_status", _update_reading_status)
+    monkeypatch.setattr(cli_workflows, "update_reading_status", _update_reading_status)
 
     result = runner.invoke(cli.app, ["done", "missing"])
     assert result.exit_code == 0
@@ -54,8 +54,11 @@ def test_cli_done_skips_db_update_when_note_lookup_fails(monkeypatch):
 
 def test_cli_deepread_exits_early_when_agents_disabled(monkeypatch):
     runner = CliRunner()
+    import src.services.cli_workflows as cli_workflows
+
     monkeypatch.setattr(
-        "src.config.load_config",
+        cli_workflows,
+        "load_config",
         lambda: SimpleNamespace(agents=SimpleNamespace(enabled=False)),
     )
 

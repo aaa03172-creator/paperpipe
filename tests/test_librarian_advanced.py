@@ -4,7 +4,7 @@ import json
 from src.agents.profile_chat_agent import ProfileChatAgent, STRICT_LIBRARIAN_PROMPT, AUDIT_PROMPT
 from src.profiles.profile_schema import Profile, QuerySpec, Limits
 from src.profiles.patch_schema import PatchRequest
-from src.db import init_run_stats_table, log_run_stat, get_profile_stats
+from src.db_utils import init_run_stats_table, log_run_stat, get_profile_stats
 
 class TestAdvancedLibrarian(unittest.TestCase):
     def setUp(self):
@@ -71,7 +71,7 @@ class TestAdvancedLibrarian(unittest.TestCase):
         # Since src.db uses "state.db" constant, hard to mock without patching DB_PATH or creating temp db file.
         # We will mock sqlite3.connect in src.db
         
-        with patch("src.db.sqlite3.connect") as mock_connect:
+        with patch("src.db_utils.sqlite3.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_connect.return_value = mock_conn
             mock_cursor = mock_conn.cursor.return_value
