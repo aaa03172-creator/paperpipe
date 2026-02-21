@@ -42,5 +42,8 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
 - Export now persists `papers.obsidian_path` after markdown write.
 
 ## Next Steps
-- Feature B: Downloads watcher (auto-match/move/update)
-- Feature C: QA counters for manual/downloaded/unmatched states
+- Feature C: QA counters for manual/downloaded/unmatched states (baseline implemented)
+  - `scripts/qa_report.py` now reports:
+    - `manual_required`
+    - `downloaded_missing_path`
+    - `unmatched` (`review_queue` open `NEEDS_PDF_MATCH`)
