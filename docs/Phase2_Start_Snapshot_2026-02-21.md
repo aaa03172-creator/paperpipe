@@ -3,7 +3,7 @@
 ## Baseline
 - Branch: `codex/pkm-claimset-phase2-next`
 - Base: `master`
-- Head commit: `30b4e85`
+- Head commit: `506922e`
 
 ## Recently Merged
 - PR #24: Jobs API bootstrap summary fields
@@ -27,8 +27,9 @@
 - Keep API contracts and fail-safe behavior intact
 
 ## Next Recommended Batch
-- Define and implement ClaimSet runtime completion criteria (ready/not-ready flags) in API-visible bootstrap/meta fields.
-- Add regression test for readiness signaling in Worker->JobRunner flow.
+- ClaimSet readiness runtime criteria + API-visible bootstrap/meta fields: completed.
+- Worker->JobRunner readiness signaling regression coverage: completed.
+- Next: merge prep and remaining docs/cleanup only.
 
 ## Guardrails
 - Local-first only
