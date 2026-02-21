@@ -3,11 +3,16 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = "state.db"
+DB_PATH = Path("storage/state.db")
+
+
+def _connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(DB_PATH)
 
 def init_db():
     """데이터베이스 및 테이블 초기화"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     # 실행 기록 테이블
     c.execute('''
@@ -57,7 +62,7 @@ def init_db():
 
 def update_paper_status(doi: str, status: str):
     """논문 읽기 상태 업데이트 (Inbox -> Reading -> Done)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     try:
         c.execute("UPDATE papers SET reading_status = ? WHERE doi = ?", (status, doi))
@@ -69,7 +74,7 @@ def update_paper_status(doi: str, status: str):
 
 def get_paper_status(doi: str) -> str:
     """논문의 현재 상태 조회"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT reading_status FROM papers WHERE doi = ?", (doi,))
     row = c.fetchone()
@@ -78,7 +83,7 @@ def get_paper_status(doi: str) -> str:
 
 def check_run_exists(target_date: str) -> bool:
     """특정 날짜에 이미 실행했는지 확인"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT status FROM runs WHERE date = ? AND status = 'SUCCESS'", (target_date,))
     result = c.fetchone()
@@ -89,7 +94,7 @@ def is_paper_processed(doi: str) -> bool:
     """이미 처리된 논문인지(중복) 확인"""
     if not doi:
         return False
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT doi FROM papers WHERE doi = ?", (doi,))
     result = c.fetchone()
@@ -98,7 +103,7 @@ def is_paper_processed(doi: str) -> bool:
 
 def get_all_papers() -> list:
     """DB에 저장된 모든 논문의 DOI와 제목 반환"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute("SELECT doi, title, is_retracted FROM papers")
@@ -108,7 +113,7 @@ def get_all_papers() -> list:
 
 def mark_as_retracted(doi: str):
     """논문을 철회된 것으로 표시"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("UPDATE papers SET is_retracted = 1 WHERE doi = ?", (doi,))
     conn.commit()
@@ -116,7 +121,7 @@ def mark_as_retracted(doi: str):
 
 def save_paper_state(doi: str, title: str, source: str, processed_date: str):
     """처리완료된 논문을 DB에 기록"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     try:
         c.execute("""
@@ -135,7 +140,7 @@ def save_paper_state(doi: str, title: str, source: str, processed_date: str):
 def save_embedding(doi: str, vector: list):
     """벡터 임베딩 저장"""
     if not doi or not vector: return
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     try:
         vector_json = json.dumps(vector)
@@ -154,7 +159,7 @@ def save_embedding(doi: str, vector: list):
 
 def get_all_embeddings() -> dict:
     """모든 벡터 임베딩 로드 (Smart Linking용)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     try:
         c.execute("SELECT doi, vector FROM embeddings")
@@ -174,7 +179,7 @@ def get_all_embeddings() -> dict:
 
 def init_run_stats_table():
     """Initialize the run_stats table for performance auditing."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS run_stats (
@@ -191,7 +196,7 @@ def init_run_stats_table():
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool):
     """Log a run statistic."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = _connect()
         c = conn.cursor()
         c.execute('''
             INSERT INTO run_stats (profile_id, items_fetched, limit_hit)
@@ -204,7 +209,7 @@ def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool):
 
 def get_profile_stats(profile_id: str, days: int = 7):
     """Get stats for a profile over the last N days."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     
@@ -242,3 +247,9 @@ def get_paper_by_id(identifier: str) -> dict:
         
     conn.close()
     return dict(row) if row else None
+
+
+def get_db_connection() -> sqlite3.Connection:
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    return conn
