@@ -33,7 +33,7 @@ class FeedbackRetriever:
         self,
         embedding_model: str = "nomic-embed-text",
         collection_name: str = "paperpipe_feedback",
-        min_similarity: float = 0.75,
+        min_similarity: float = 0.50,
     ):
         self.embedding_model = embedding_model
         self.collection_name = collection_name
