@@ -411,6 +411,33 @@ def watch():
     except Exception as e:
         console.print(f"[bold red]❌ Watcher Error: {e}[/bold red]")
 
+
+@app.command()
+def watch_downloads():
+    """Watch Downloads folder and auto-match manual-required PDFs into storage."""
+    from src.downloads_watcher import DownloadsWatcherService
+
+    config = load_config()
+    watch_dir = config.paths.downloads_watch_dir
+    storage_dir = config.paths.pdf_storage_dir
+
+    console.print("[bold green]👀 Starting Downloads Watcher...[/bold green]")
+    console.print(f"   - Downloads Dir: {watch_dir}")
+    console.print(f"   - PDF Storage Dir: {storage_dir}")
+    console.print("   (Press Ctrl+C to stop)")
+
+    service = DownloadsWatcherService(
+        downloads_watch_dir=watch_dir,
+        pdf_storage_dir=storage_dir,
+        title_threshold=0.90,
+    )
+    try:
+        service.start()
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]🛑 Downloads watcher stopped by user.[/bold yellow]")
+    except Exception as e:
+        console.print(f"[bold red]❌ Downloads watcher error: {e}[/bold red]")
+
 @app.command()
 def organize(target_dir: str = "."):
     """

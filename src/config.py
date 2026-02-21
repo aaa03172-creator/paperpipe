@@ -20,8 +20,20 @@ class PathsConfig(BaseModel):
     export_dir: Path = Path("export")
     watch_folder: Optional[Path] = None # [NEW]
     library_dir: Path = Path("Library") # [NEW]
+    downloads_watch_dir: Path = Path("~/Downloads")
+    pdf_storage_dir: Path = Path("storage/pdfs")
 
-    @field_validator("zotero_base_dir", "obsidian_vault", "upload_dir", "export_dir", "watch_folder", "library_dir", mode="before")
+    @field_validator(
+        "zotero_base_dir",
+        "obsidian_vault",
+        "upload_dir",
+        "export_dir",
+        "watch_folder",
+        "library_dir",
+        "downloads_watch_dir",
+        "pdf_storage_dir",
+        mode="before",
+    )
 
     @classmethod
     def expand_paths(cls, v):
