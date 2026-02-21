@@ -2,9 +2,16 @@ import requests
 import time
 import subprocess
 import sys
+import os
+import pytest
 from src.db_utils import init_db
 
 API_URL = "http://127.0.0.1:8000"
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_PHASE3_INTEGRATION") != "1",
+    reason="Set RUN_PHASE3_INTEGRATION=1 to run live API/worker integration test.",
+)
 
 def test_api_worker_integration():
     print("🚀 Starting Integration Test...")
