@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 import json
+import sqlite3
 
 import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
@@ -181,6 +182,9 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["claimset_claim_count"] == 1
         assert meta["claimset_readiness_reason"] == "claims_present"
         assert meta["claimset_readiness_badge"] == "READY"
+        assert meta["claimset_ops_action"] == "none"
+        assert meta["claimset_ops_alert"] is False
+        assert meta["claimset_ops_note"] == "ready"
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
@@ -197,5 +201,123 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         note_content = note_path.read_text(encoding="utf-8")
         assert note_content.count("## 🤖 Agent Deep Read") == 1
         assert "smoke claim" in note_content
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_id TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                reason TEXT,
+                owner TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                resolution TEXT
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        library_dir = tmp_path / "Library"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        vault_dir = tmp_path / "Vault"
+        (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+        (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+        paper_id = "paper_not_ready_001"
+        (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        (vault_dir / "Inbox" / "paper_not_ready_001.md").write_text("# Paper\n", encoding="utf-8")
+        (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+            "Paper_ID,DOI,Title,Note_Path\n"
+            "paper_not_ready_001,10.1000/test,Smoke Title,Inbox/paper_not_ready_001.md\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            job_runner_mod,
+            "load_config",
+            lambda: SimpleNamespace(
+                paths=SimpleNamespace(
+                    library_dir=library_dir,
+                    obsidian_vault=vault_dir,
+                    index_all=Path("00_Index/paper_collection.csv"),
+                )
+            ),
+        )
+
+        class FakeIngestAgent:
+            def process_v2(self, pdf_path: str):
+                return DocumentArtifactV2(
+                    document_id=paper_id,
+                    meta=ArtifactMetaV2(title="Smoke Title", authors=["A"], source_ref=pdf_path),
+                    pages=[
+                        PageV2(
+                            page_index=0,
+                            width=595.0,
+                            height=842.0,
+                            blocks=[BlockV2(block_id="b1", lines=[LineV2(line_id="l1", text="x", spans=[SpanV2(span_id="s1", text="x")])])],
+                        )
+                    ],
+                    tables=[],
+                )
+
+        class FakeIndexerAgent:
+            def process(self, doc):
+                return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+        class FakeReaderEmptyClaimSet:
+            def analyze(self, doc):
+                return ClaimSet(doc_id=doc.document_id, claims=[])
+
+        monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+        monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+        monkeypatch.setattr(job_runner_mod, "ReaderAgent", FakeReaderEmptyClaimSet)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id=paper_id,
+            clean_reindex=False,
+            run_verify=False,
+            persona_id="smoke-persona",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        artifact_dir = Path(done.artifact_dir)
+        meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        assert meta["claimset_readiness"] == "not_ready"
+        assert meta["claimset_ready"] is False
+        assert meta["claimset_claim_count"] == 0
+        assert meta["claimset_readiness_badge"] == "NOT_READY"
+        assert meta["claimset_ops_action"] == "manual_review_queued"
+        assert meta["claimset_ops_alert"] is False
+        assert meta["claimset_ops_note"] in {"queued", "already_open"}
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        row = conn.execute(
+            "SELECT decision, reason, resolved_at FROM review_queue WHERE paper_id = ? ORDER BY id DESC LIMIT 1",
+            (paper_id,),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "NEEDS_READER"
+        assert "claims=0" in (row[1] or "")
+        assert row[2] is None
     finally:
         db_utils.DB_PATH = original_db_path

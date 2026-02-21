@@ -71,6 +71,9 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "claimset_claim_count": meta.get("claimset_claim_count"),
             "claimset_readiness_reason": meta.get("claimset_readiness_reason"),
             "claimset_readiness_badge": badge,
+            "claimset_ops_action": meta.get("claimset_ops_action"),
+            "claimset_ops_alert": meta.get("claimset_ops_alert"),
+            "claimset_ops_note": meta.get("claimset_ops_note"),
         }
     )
 
