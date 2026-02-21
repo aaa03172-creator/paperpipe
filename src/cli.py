@@ -609,7 +609,7 @@ def done(
 
 def _update_status(identifier: str, status: str):
     from src.obsidian import set_reading_status
-    from src.db import update_paper_status
+    from src.db_utils import update_reading_status
     
     config = load_config()
     console.print(f"[bold cyan]🔄 Updating status to '{status}' for: {identifier}[/bold cyan]")
@@ -619,7 +619,7 @@ def _update_status(identifier: str, status: str):
     
     if doi:
         # 2. Update DB (Backend State)
-        update_paper_status(doi, status)
+        update_reading_status(doi, status)
         console.print(f"   ✅ DB Updated (DOI: {doi})")
         console.print(f"   ✅ Obsidian Note & Index Updated")
     else:
@@ -638,13 +638,7 @@ def deepread(
     Appends structured analysis to the Obsidian note.
     """
     from src.config import load_config
-    from src.db import get_paper_by_id
-    from src.agents.ingest_agent import IngestAgent
-    from src.agents.indexer_agent import IndexerAgent
-    from src.agents.reader_agent import ReaderAgent
-    # Lazy import for verification
-    if verify:
-        from src.agents.stats_agent import StatsVerificationAgent
+    from src.db_utils import get_paper_by_id
     
     config = load_config()
     if not config.agents.enabled:
@@ -711,6 +705,12 @@ def deepread(
 
     # 2. Pipeline Execution
     try:
+        from src.agents.ingest_agent import IngestAgent
+        from src.agents.indexer_agent import IndexerAgent
+        from src.agents.reader_agent import ReaderAgent
+        if verify:
+            from src.agents.stats_agent import StatsVerificationAgent
+
         # Step A: Ingest
         console.print("[bold]1️⃣  Ingesting PDF...[/bold]")
         ingester = IngestAgent()

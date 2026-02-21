@@ -1,7 +1,8 @@
 import time
 import logging
 from src.config import load_config
-from src.db import get_all_papers, mark_as_retracted, init_db
+from scripts.init_db import init_db as init_core_db
+from src.db_utils import get_all_papers, mark_as_retracted, init_db as init_jobs_db
 from src.retraction import check_retraction
 from src.logger import setup_logging
 
@@ -17,7 +18,8 @@ def audit_retractions():
     3. Update DB if retracted.
     4. Log results.
     """
-    init_db() # Ensure DB schema is up-to-date
+    init_core_db()  # Ensure papers/review_queue schema is up-to-date
+    init_jobs_db()  # Ensure job/review queue migrations are applied
     config = load_config()
     papers = get_all_papers()
     

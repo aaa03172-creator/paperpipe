@@ -16,9 +16,9 @@ from src.db_utils import (
     sync_zotero_to_db, 
     get_papers_by_status, 
     update_paper_status,
-    DB_PATH
+    is_paper_processed,
+    save_paper_state,
 )
-from src.db import save_paper_state, is_paper_processed
 from src.schemas import Paper, PaperStatus, PaperTagging
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
