@@ -295,20 +295,24 @@ def resolve_review_followups(conn: sqlite3.Connection, paper: Dict[str, Any], fe
 
     resolved: List[str] = []
     cur = conn.cursor()
-    for decision in resolve_targets:
-        cur.execute(
-            """
-            UPDATE review_queue
-            SET resolved_at = CURRENT_TIMESTAMP,
-                resolution = COALESCE(resolution, 'AUTO_RESOLVED')
-            WHERE paper_id = ?
-              AND decision = ?
-              AND resolved_at IS NULL
-            """,
-            (paper_id, decision),
-        )
-        if cur.rowcount > 0:
-            resolved.append(decision)
+    try:
+        for decision in resolve_targets:
+            cur.execute(
+                """
+                UPDATE review_queue
+                SET resolved_at = CURRENT_TIMESTAMP,
+                    resolution = COALESCE(resolution, 'AUTO_RESOLVED')
+                WHERE paper_id = ?
+                  AND decision = ?
+                  AND resolved_at IS NULL
+                """,
+                (paper_id, decision),
+            )
+            if cur.rowcount > 0:
+                resolved.append(decision)
+    except sqlite3.OperationalError as exc:
+        logger.warning("review_queue unavailable; follow-up resolve skipped: %s", exc)
+        return []
     return resolved
 
 def _auto_skip_test_fixture_followups(conn: sqlite3.Connection, paper: Dict[str, Any]) -> int:
@@ -500,6 +504,13 @@ status: {paper['status']}
         
     return True
 
+
+def _expected_obsidian_relpath_for_paper_id(paper_id: str) -> str:
+    safe_filename = "".join([c for c in paper_id if c.isalnum() or c in (" ", "-", "_")]).strip()
+    if not safe_filename:
+        safe_filename = "paper"
+    return f"Inbox/PaperPipe/{safe_filename}.md"
+
 def run_export(overwrite: bool = True):
     """
     Exports all APPROVED/INDEXED papers to Obsidian.
@@ -529,6 +540,18 @@ def run_export(overwrite: bool = True):
     for p in papers:
         if export_paper_to_markdown(p, vault_path, overwrite):
             count += 1
+            try:
+                cursor.execute(
+                    """
+                    UPDATE papers
+                    SET obsidian_path = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE paper_id = ?
+                    """,
+                    (_expected_obsidian_relpath_for_paper_id(str(p["paper_id"])), p["paper_id"]),
+                )
+            except sqlite3.OperationalError:
+                # Backward compatibility: some test/local DBs may not have this column.
+                pass
         if _is_test_fixture_paper(p):
             _auto_skip_test_fixture_followups(conn, p)
             continue
