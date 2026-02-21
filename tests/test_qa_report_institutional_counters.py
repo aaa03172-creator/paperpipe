@@ -78,10 +78,17 @@ def test_qa_report_counts_institutional_counters(tmp_path: Path, monkeypatch):
     conn.close()
 
     monkeypatch.setattr(db_utils, "DB_PATH", db_path)
+    unmatched_dir = tmp_path / "storage" / "pdfs" / "_unmatched"
+    unmatched_dir.mkdir(parents=True, exist_ok=True)
+    (unmatched_dir / "u1.pdf").write_bytes(b"%PDF-1.4")
+    (unmatched_dir / "u2.pdf").write_bytes(b"%PDF-1.4")
+
     monkeypatch.setattr(
         qa_report,
         "load_config",
-        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=str(vault))),
+        lambda: SimpleNamespace(
+            paths=SimpleNamespace(obsidian_vault=str(vault), pdf_storage_dir=str(tmp_path / "storage" / "pdfs"))
+        ),
     )
 
     # Minimal markdown files to avoid file-missing noise.
@@ -92,5 +99,5 @@ def test_qa_report_counts_institutional_counters(tmp_path: Path, monkeypatch):
     result = qa_report.run_qa_check()
     assert result["manual_required"] == 1
     assert result["downloaded_missing_path"] == 1
-    assert result["unmatched"] == 1
-
+    assert result["unmatched"] == 2
+    assert result["unmatched_review_open"] == 1

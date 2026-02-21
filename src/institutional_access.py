@@ -37,7 +37,7 @@ def generate_institutional_proxy_url(
     if paper:
         feedback = _parse_feedback(paper.get("feedback_json"))
         links = feedback.get("links") if isinstance(feedback.get("links"), dict) else {}
-        doi = doi or paper.get("doi") or paper.get("paper_id")
+        doi = doi or paper.get("doi")
         publisher_url = (
             publisher_url
             or links.get("publisher_url")

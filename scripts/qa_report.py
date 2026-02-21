@@ -74,7 +74,7 @@ def _collect_institutional_counters(cursor) -> dict:
     counters = {
         "manual_required": 0,
         "downloaded_missing_path": 0,
-        "unmatched": 0,
+        "unmatched_review_open": 0,
     }
     try:
         cursor.execute(
@@ -104,11 +104,25 @@ def _collect_institutional_counters(cursor) -> dict:
             """
         )
         row = cursor.fetchone()
-        counters["unmatched"] = _safe_int(row[0] if row is not None else 0)
+        counters["unmatched_review_open"] = _safe_int(row[0] if row is not None else 0)
     except sqlite3.OperationalError:
         # review_queue may not exist in minimal/local schemas.
         pass
     return counters
+
+
+def _count_unmatched_files(config) -> int:
+    try:
+        storage_root = Path(getattr(config.paths, "pdf_storage_dir", "storage/pdfs")).expanduser()
+    except Exception:
+        storage_root = Path("storage/pdfs")
+    unmatched_dir = storage_root / "_unmatched"
+    if not unmatched_dir.exists():
+        return 0
+    try:
+        return sum(1 for p in unmatched_dir.iterdir() if p.is_file() and p.suffix.lower() == ".pdf")
+    except Exception:
+        return 0
 
 def run_qa_check(include_test_fixtures: bool = False):
     conn = get_db_connection()
@@ -141,9 +155,11 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"[DB] Missing Summary: {missing_summary}")
     print(f"[DB] Missing Feedback JSON: {missing_feedback}")
     institutional_counters = _collect_institutional_counters(cursor)
+    unmatched_files = _count_unmatched_files(config)
     print(f"[DB] manual_required: {institutional_counters['manual_required']}")
     print(f"[DB] downloaded_missing_path: {institutional_counters['downloaded_missing_path']}")
-    print(f"[DB] unmatched: {institutional_counters['unmatched']}")
+    print(f"[DB] unmatched_review_open: {institutional_counters['unmatched_review_open']}")
+    print(f"[File] unmatched: {unmatched_files}")
 
     cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
     active_feedback_rows = cursor.fetchall()
@@ -200,7 +216,8 @@ def run_qa_check(include_test_fixtures: bool = False):
             "missing_or_invalid_claimset": missing_or_invalid_claimset,
             "manual_required": institutional_counters["manual_required"],
             "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-            "unmatched": institutional_counters["unmatched"],
+            "unmatched": unmatched_files,
+            "unmatched_review_open": institutional_counters["unmatched_review_open"],
             "missing_critical_review_section": missing_critical_review_section,
             "missing_files": 0,
             "bad_content_files": 0,
@@ -218,7 +235,8 @@ def run_qa_check(include_test_fixtures: bool = False):
              "missing_or_invalid_claimset": missing_or_invalid_claimset,
              "manual_required": institutional_counters["manual_required"],
              "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-             "unmatched": institutional_counters["unmatched"],
+             "unmatched": unmatched_files,
+             "unmatched_review_open": institutional_counters["unmatched_review_open"],
              "missing_critical_review_section": missing_critical_review_section,
              "missing_files": 0,
              "bad_content_files": 0,
@@ -274,7 +292,8 @@ def run_qa_check(include_test_fixtures: bool = False):
         "missing_or_invalid_claimset": missing_or_invalid_claimset,
         "manual_required": institutional_counters["manual_required"],
         "downloaded_missing_path": institutional_counters["downloaded_missing_path"],
-        "unmatched": institutional_counters["unmatched"],
+        "unmatched": unmatched_files,
+        "unmatched_review_open": institutional_counters["unmatched_review_open"],
         "missing_critical_review_section": missing_critical_review_section,
         "missing_files": len(missing_files),
         "bad_content_files": len(bad_content_files),

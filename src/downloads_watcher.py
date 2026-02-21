@@ -17,6 +17,7 @@ from src.db_utils import get_db_connection
 logger = logging.getLogger(__name__)
 
 REVIEW_NEEDS_PDF_MATCH = "NEEDS_PDF_MATCH"
+UNMATCHED_SENTINEL_PAPER_ID = "__UNMATCHED__"
 DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 
 
@@ -36,7 +37,7 @@ def _normalize_doi(value: str | None) -> str:
         if doi.startswith(prefix.lower()):
             doi = doi[len(prefix) :]
             break
-    return doi.strip()
+    return doi.strip().rstrip(").,;]>\"'")
 
 
 def _sanitize_text(value: str) -> str:
@@ -50,6 +51,39 @@ def _extract_doi_from_filename(path: Path) -> str:
     match = DOI_RE.search(candidate)
     if match:
         return _normalize_doi(match.group(0))
+    return ""
+
+
+def _extract_doi_from_pdf_content(path: Path) -> str:
+    # Try structured extraction first when a PDF parser is available.
+    try:
+        from pypdf import PdfReader  # type: ignore
+
+        reader = PdfReader(str(path))
+        meta = reader.metadata or {}
+        for value in meta.values():
+            if not value:
+                continue
+            match = DOI_RE.search(str(value))
+            if match:
+                return _normalize_doi(match.group(0))
+        for page in reader.pages[:3]:
+            text = page.extract_text() or ""
+            match = DOI_RE.search(text)
+            if match:
+                return _normalize_doi(match.group(0))
+    except Exception:
+        pass
+
+    # Fallback: scan raw bytes for DOI-like token to support lightweight fixtures.
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("latin-1", errors="ignore")
+        match = DOI_RE.search(text)
+        if match:
+            return _normalize_doi(match.group(0))
+    except Exception:
+        pass
     return ""
 
 
@@ -69,20 +103,21 @@ def _load_manual_required_candidates() -> list[dict[str, Any]]:
         conn.close()
 
 
-def _enqueue_pdf_match_review(paper_id: str, reason: str) -> bool:
+def _enqueue_pdf_match_review(paper_id: str, reason: str, allow_multiple_open: bool = False) -> bool:
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT 1 FROM review_queue
-            WHERE paper_id = ? AND decision = ? AND resolved_at IS NULL
-            LIMIT 1
-            """,
-            (paper_id, REVIEW_NEEDS_PDF_MATCH),
-        )
-        if cur.fetchone():
-            return False
+        if not allow_multiple_open:
+            cur.execute(
+                """
+                SELECT 1 FROM review_queue
+                WHERE paper_id = ? AND decision = ? AND resolved_at IS NULL
+                LIMIT 1
+                """,
+                (paper_id, REVIEW_NEEDS_PDF_MATCH),
+            )
+            if cur.fetchone():
+                return False
         cur.execute(
             """
             INSERT INTO review_queue (paper_id, decision, reason)
@@ -158,9 +193,11 @@ def process_downloaded_pdf(
     candidates = _load_manual_required_candidates()
 
     doi = _extract_doi_from_filename(source)
+    if not doi:
+        doi = _extract_doi_from_pdf_content(source)
     doi_hits: list[dict[str, Any]] = []
     if doi:
-        doi_hits = [r for r in candidates if _normalize_doi(str(r.get("doi") or r.get("paper_id") or "")) == doi]
+        doi_hits = [r for r in candidates if _normalize_doi(str(r.get("doi") or "")) == doi]
 
     if len(doi_hits) == 1:
         row = doi_hits[0]
@@ -200,7 +237,7 @@ def process_downloaded_pdf(
             )
         return DownloadWatchResult(status="ambiguous_title", destination=dest, matched_paper_id=None)
 
-    # Unmatched: best-effort queue to most similar manual-required paper for manual triage.
+    # Unmatched: queue at least one review record for operational triage.
     if candidates:
         all_scored = _best_title_candidates(source.stem, candidates, threshold=0.0)
         if all_scored:
@@ -209,6 +246,18 @@ def process_downloaded_pdf(
                 str(best_row["paper_id"]),
                 f"Unmatched PDF file={source.name}; best_title_score={best_score:.3f}",
             )
+        else:
+            _enqueue_pdf_match_review(
+                UNMATCHED_SENTINEL_PAPER_ID,
+                f"Unmatched PDF file={source.name}; no title candidates",
+                allow_multiple_open=True,
+            )
+    else:
+        _enqueue_pdf_match_review(
+            UNMATCHED_SENTINEL_PAPER_ID,
+            f"Unmatched PDF file={source.name}; manual_required queue empty",
+            allow_multiple_open=True,
+        )
     return DownloadWatchResult(status="unmatched", destination=dest, matched_paper_id=None)
 
 
@@ -251,4 +300,3 @@ class DownloadsWatcherService:
         except KeyboardInterrupt:
             self.observer.stop()
         self.observer.join()
-
