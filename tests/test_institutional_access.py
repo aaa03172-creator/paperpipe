@@ -21,6 +21,12 @@ def test_generate_institutional_proxy_url_fallback():
     url = generate_institutional_proxy_url(doi=None, publisher_url=None)
     assert url is None
 
+def test_generate_institutional_proxy_url_does_not_use_paper_id_as_doi():
+    url = generate_institutional_proxy_url(
+        paper={"paper_id": "local--paper-001", "doi": None, "feedback_json": "{}"}
+    )
+    assert url is None
+
 def test_upsert_institutional_proxy_link_on_empty_dict():
     res = upsert_institutional_proxy_link("{}", "https://example.com/proxy")
     parsed = json.loads(res)

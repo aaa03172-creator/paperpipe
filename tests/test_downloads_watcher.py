@@ -130,3 +130,73 @@ def test_downloads_watcher_ambiguous_doi_moves_unmatched_and_queues_review(tmp_p
     finally:
         db_utils.DB_PATH = original_db_path
 
+
+def test_downloads_watcher_matches_doi_from_pdf_content(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.execute(
+            "INSERT INTO papers (paper_id, doi, title, pdf_status) VALUES (?, ?, ?, ?)",
+            ("paper_content_doi", "10.7777/content-123", "Content DOI paper", "manual_required"),
+        )
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "publisher-download.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n1 0 obj << /Producer (doi:10.7777/content-123) >>\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert result.status == "matched_doi"
+        assert result.matched_paper_id == "paper_content_doi"
+        assert result.destination is not None and result.destination.exists()
+
+        conn = db_utils.get_db_connection()
+        row = conn.execute(
+            "SELECT pdf_status, pdf_path FROM papers WHERE paper_id = ?",
+            ("paper_content_doi",),
+        ).fetchone()
+        conn.close()
+        assert row["pdf_status"] == "downloaded"
+        assert row["pdf_path"] == str(result.destination)
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_downloads_watcher_unmatched_with_empty_queue_creates_review_entry(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "unknown-download.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert result.status == "unmatched"
+        assert result.destination is not None
+        assert "_unmatched" in str(result.destination)
+        assert result.destination.exists()
+
+        conn = db_utils.get_db_connection()
+        rows = conn.execute(
+            "SELECT paper_id, decision, reason FROM review_queue ORDER BY id"
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 1
+        assert rows[0]["paper_id"] == "__UNMATCHED__"
+        assert rows[0]["decision"] == "NEEDS_PDF_MATCH"
+        assert "manual_required queue empty" in rows[0]["reason"]
+    finally:
+        db_utils.DB_PATH = original_db_path
