@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,7 @@ import requests
 
 from src.config import AppConfig
 from src.downloader.providers.base import DownloadProvider, DownloadResult
+from src.downloader.providers.base import DownloadCandidate
 from src.downloader.providers.direct import DirectLinkProvider
 from src.downloader.providers.unpaywall import UnpaywallProvider
 from src.schemas.core import DownloadAttempt, DownloadFailure, Paper
@@ -25,12 +27,21 @@ def _sanitize_filename(name: str) -> str:
 class DownloadRouter:
     """Routes OA download attempts across providers with fail-safe semantics."""
 
-    def __init__(self, config: AppConfig, providers: Optional[list[DownloadProvider]] = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        providers: Optional[list[DownloadProvider]] = None,
+        max_rate_limit_retries: int = 2,
+        rate_limit_backoff_seconds: float = 1.0,
+    ):
         self.config = config
         self.providers: list[DownloadProvider] = providers or [
             DirectLinkProvider(),
             UnpaywallProvider(email=config.system.unpaywall_email),
         ]
+        self.max_rate_limit_retries = max(0, max_rate_limit_retries)
+        self.rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
+        self._candidate_cache: dict[str, Optional[DownloadCandidate]] = {}
 
     def execute(self, paper: Paper) -> Paper:
         """Backward-compatible API that updates and returns Paper."""
@@ -63,7 +74,7 @@ class DownloadRouter:
         for provider in self.providers:
             provider_name = provider.provider_name
             try:
-                candidate = provider.resolve_pdf(paper)
+                candidate = self._resolve_candidate_with_cache(provider, paper)
             except Exception as exc:
                 logger.error("[%s] Unexpected error in provider %s: %s", paper.id, provider_name, exc)
                 attempts.append(
@@ -99,7 +110,13 @@ class DownloadRouter:
             logger.info("[%s] %s resolved candidate: %s", paper.id, provider_name, candidate.url)
 
             try:
-                is_valid_pdf = self._download_file(candidate.url, filepath)
+                is_valid_pdf = self._download_file_with_retries(
+                    url=candidate.url,
+                    filepath=filepath,
+                    provider_name=provider_name,
+                    paper_id=paper.id,
+                    attempts=attempts,
+                )
                 if not is_valid_pdf:
                     attempts.append(
                         DownloadAttempt(
@@ -119,16 +136,7 @@ class DownloadRouter:
                     attempts=attempts,
                 )
             except requests.exceptions.HTTPError as exc:
-                fail_status = self._map_http_failure(exc)
                 logger.warning("[%s] HTTP Error during download via %s: %s", paper.id, provider_name, exc)
-                attempts.append(
-                    DownloadAttempt(
-                        provider=provider_name,
-                        status=fail_status,
-                        candidate_url=candidate.url,
-                        message=str(exc),
-                    )
-                )
             except requests.exceptions.RequestException as exc:
                 logger.warning("[%s] Network Error during download via %s: %s", paper.id, provider_name, exc)
                 attempts.append(
@@ -148,6 +156,54 @@ class DownloadRouter:
             final_status=final_status,
             message="providers_exhausted",
         )
+
+    def _resolve_candidate_with_cache(self, provider: DownloadProvider, paper: Paper) -> Optional[DownloadCandidate]:
+        cache_key = (
+            f"{provider.provider_name}|{paper.id}|{paper.doi or ''}|{paper.pdf_link or ''}|{paper.link or ''}"
+        )
+        if cache_key in self._candidate_cache:
+            return self._candidate_cache[cache_key]
+        candidate = provider.resolve_pdf(paper)
+        self._candidate_cache[cache_key] = candidate
+        return candidate
+
+    def _download_file_with_retries(
+        self,
+        url: str,
+        filepath: Path,
+        provider_name: str,
+        paper_id: str,
+        attempts: list[DownloadAttempt],
+    ) -> bool:
+        retry_count = 0
+        while True:
+            try:
+                return self._download_file(url, filepath)
+            except requests.exceptions.HTTPError as exc:
+                fail_status = self._map_http_failure(exc)
+                attempts.append(
+                    DownloadAttempt(
+                        provider=provider_name,
+                        status=fail_status,
+                        candidate_url=url,
+                        message=str(exc),
+                    )
+                )
+                if fail_status == DownloadFailure.RATE_LIMIT and retry_count < self.max_rate_limit_retries:
+                    delay_seconds = self.rate_limit_backoff_seconds * (2**retry_count)
+                    logger.warning(
+                        "[%s] Rate limited via %s. Retrying in %.2fs (retry %s/%s).",
+                        paper_id,
+                        provider_name,
+                        delay_seconds,
+                        retry_count + 1,
+                        self.max_rate_limit_retries,
+                    )
+                    retry_count += 1
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
+                    continue
+                raise
 
     def _map_http_failure(self, error: requests.exceptions.HTTPError) -> DownloadFailure:
         status_code = error.response.status_code if error.response else 0

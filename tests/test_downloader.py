@@ -2,9 +2,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from src.config import AppConfig, PathsConfig, SystemConfig
-from src.downloader import DownloadRouter, DirectLinkProvider, UnpaywallProvider
+from src.downloader import ArxivProvider, DownloadRouter, DirectLinkProvider, PmcProvider, UnpaywallProvider
 from src.downloader.providers.base import DownloadCandidate, DownloadProvider
 from src.schemas.core import DownloadFailure, Paper
 
@@ -183,3 +184,87 @@ def test_download_file_rejects_html_content_type(mock_get, mock_config, tmp_path
 
     assert router._download_file("https://example.com/not-pdf", file_path) is False
     assert not file_path.exists()
+
+
+def test_arxiv_provider_resolves_from_link():
+    provider = ArxivProvider()
+    paper = Paper(
+        id="ignore",
+        title="x",
+        authors=[],
+        published="2024",
+        source="ArXiv",
+        summary="x",
+        link="https://arxiv.org/abs/2401.01234v2",
+    )
+    candidate = provider.resolve_pdf(paper)
+    assert candidate is not None
+    assert candidate.url == "https://arxiv.org/pdf/2401.01234v2.pdf"
+    assert candidate.is_oa is True
+
+
+def test_pmc_provider_resolves_from_link():
+    provider = PmcProvider()
+    paper = Paper(
+        id="ignore",
+        title="x",
+        authors=[],
+        published="2024",
+        source="PubMed",
+        summary="x",
+        link="https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/",
+    )
+    candidate = provider.resolve_pdf(paper)
+    assert candidate is not None
+    assert candidate.url == "https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/pdf/"
+    assert candidate.is_oa is True
+
+
+class _CountedProvider(DownloadProvider):
+    def __init__(self):
+        self.calls = 0
+
+    @property
+    def provider_name(self) -> str:
+        return "counted_provider"
+
+    def resolve_pdf(self, paper: Paper):
+        self.calls += 1
+        return DownloadCandidate(
+            url="https://example.com/cached.pdf",
+            source_name=self.provider_name,
+            is_oa=True,
+            confidence=1.0,
+        )
+
+
+@patch("src.downloader.router.DownloadRouter._download_file", return_value=False)
+def test_router_candidate_cache_reuses_provider_resolution(_mock_download, mock_config, dummy_paper):
+    provider = _CountedProvider()
+    router = DownloadRouter(mock_config, providers=[provider])
+
+    router.execute(dummy_paper)
+    router.execute(dummy_paper)
+
+    assert provider.calls == 1
+
+
+@patch("src.downloader.router.time.sleep", return_value=None)
+@patch("src.downloader.router.DownloadRouter._download_file")
+def test_rate_limit_retry_is_bounded(mock_download, _mock_sleep, mock_config, dummy_paper):
+    response = MagicMock()
+    response.status_code = 429
+    http_error = requests.exceptions.HTTPError("429 too many requests", response=response)
+    mock_download.side_effect = [http_error, http_error, http_error]
+
+    router = DownloadRouter(
+        mock_config,
+        providers=[_GoodProvider()],
+        max_rate_limit_retries=2,
+        rate_limit_backoff_seconds=0,
+    )
+    result = router.execute(dummy_paper)
+
+    assert result.local_pdf_path is None
+    assert len(result.download_attempts) == 3
+    assert all(attempt.status == DownloadFailure.RATE_LIMIT for attempt in result.download_attempts)
