@@ -23,7 +23,14 @@ def test_build_deepread_markdown_renders_claims():
                 type="efficacy",
                 statement="Drug A improved outcome.",
                 confidence=0.91,
-                evidence_spans=[EvidenceSpan(raw_text="Result section evidence", page=2)],
+                evidence_spans=[
+                    EvidenceSpan(
+                        raw_text="Result section evidence",
+                        quote="Result section evidence",
+                        page=2,
+                        confidence_band="certain",
+                    )
+                ],
             )
         ],
     )
@@ -32,6 +39,26 @@ def test_build_deepread_markdown_renders_claims():
     assert "Analyzed via llama3:latest" in md
     assert "Drug A improved outcome." in md
     assert "Result section evidence" in md
+    assert "[p.2]" in md
+    assert "(certain)" in md
+
+
+def test_build_deepread_markdown_evidence_fallback_without_page():
+    claimset = ClaimSet(
+        doc_id="doc2",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="efficacy",
+                statement="No page case",
+                confidence=0.6,
+                evidence_spans=[EvidenceSpan(raw_text="quote-only", confidence_band="hold")],
+            )
+        ],
+    )
+    md = build_deepread_markdown("llama3:latest", claimset)
+    assert "p.?" in md
+    assert "next: search quote in source" in md
 
 
 def test_build_stats_markdown_renders_checks():

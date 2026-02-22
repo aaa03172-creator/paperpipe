@@ -99,7 +99,7 @@ class EvidenceSpan(BaseModel):
     Evidence location within the document.
     Updated for Milestone 5 Strict Compliance.
     """
-    page: Optional[int] = Field(0, description="0-indexed PDF page number")
+    page: Optional[int] = Field(None, description="PDF page number (optional input, system-resolved when possible)")
     chunk_id: Optional[str] = Field("unknown", description="Standard chunk_id from DocumentArtifact")
     char_start: Optional[int] = Field(None, description="Start offset in chunk")
     char_end: Optional[int] = Field(None, description="End offset in chunk")
@@ -108,6 +108,15 @@ class EvidenceSpan(BaseModel):
     raw_text: str = Field(..., description="Extracted raw text or table caption")
     quote: Optional[str] = Field(None, description="Short excerpt (recommended < 25 words)")
     rationale: Optional[str] = Field(None, description="MANDATORY: Why this evidence supports the claim (1-2 sentences)")
+    grounded: Optional[bool] = Field(None, description="True when quote is verified against chunk text.")
+    resolution: Optional[Literal["OK", "FAILED_MATCH", "MISSING_CHUNK", "AMBIGUOUS_MATCH"]] = Field(
+        None,
+        description="Post-process grounding resolution state.",
+    )
+    confidence_band: Optional[Literal["certain", "estimated", "hold"]] = Field(
+        None,
+        description="Confidence band derived from grounding checks.",
+    )
 
     # Backwards compatibility fields (Optional)
     section: Optional[str] = None

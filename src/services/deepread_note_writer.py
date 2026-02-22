@@ -43,8 +43,14 @@ def build_deepread_markdown(model_name: str, claims_set: ClaimSet, stats_md: str
         if claim.evidence_spans:
             span = claim.evidence_spans[0]
             evidence_text = span.quote if span.quote else span.raw_text
-            section_name = span.section if span.section else "Page " + str(span.page)
-            md_output += f"- **Evidence**: \"{evidence_text}\" (Section: {section_name})\n"
+            badge = span.confidence_band or "hold"
+            page = _display_page_number(span.page)
+            if page is not None:
+                md_output += f"- **Evidence**: \"{evidence_text}\" [p.{page}] ({badge})\n"
+            else:
+                md_output += (
+                    f"- **Evidence**: \"{evidence_text}\" (p.? | {badge} | next: search quote in source)\n"
+                )
         if claim.limitations:
             md_output += f"- **Limitations**: {', '.join(claim.limitations)}\n"
         md_output += "\n"
@@ -72,3 +78,11 @@ def upsert_deepread_section(content: str, new_section: str) -> str:
         cursor = m.end()
     out.append(content[cursor:])
     return "".join(out)
+
+
+def _display_page_number(page: int | None) -> int | None:
+    if page is None:
+        return None
+    if page <= 0:
+        return 1
+    return page

@@ -65,6 +65,7 @@ async def run_read_stage(
     persona_id: str,
     config: Any,
     doc_artifact: Any,
+    index_artifact: Any,
     artifact_dir: Path,
     bootstrap_meta: dict[str, Any],
     emit: Callable[[str, int, str, str], Awaitable[Any]],
@@ -75,6 +76,7 @@ async def run_read_stage(
     load_similar_feedback_top3: Callable[[str, int], list[dict[str, str]]],
     resolve_main_model: Callable[[Any], str],
     update_claimset_readiness: Callable[[dict[str, Any], str, int], None],
+    resolve_claimset_evidence: Callable[[Any, Any], Any],
     reader_agent_cls: Any,
 ) -> tuple[Any, Any] | None:
     if await is_cancelled():
@@ -111,6 +113,8 @@ async def run_read_stage(
     claim_set = reader_agent.analyze(doc_artifact)
     if not claim_set:
         raise Exception("Reader Agent failed to produce claims")
+
+    claim_set = resolve_claimset_evidence(claim_set, index_artifact)
 
     write_artifact_model(artifact_dir, "claimset.json", claim_set)
     bootstrap_meta["artifact_claimset_written"] = True

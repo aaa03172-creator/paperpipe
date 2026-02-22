@@ -22,6 +22,7 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.agents.feedback_retriever import FeedbackRetriever
+from src.core.evidence_resolver import resolve_claimset_evidence
 from backend.services.job_runner_stages import (
     run_ingest_stage,
     run_index_stage,
@@ -387,6 +388,7 @@ async def run_deepread_job(
             persona_id=persona_id,
             config=config,
             doc_artifact=doc_artifact,
+            index_artifact=index_artifact,
             artifact_dir=artifact_dir,
             bootstrap_meta=bootstrap_meta,
             emit=emit,
@@ -397,6 +399,7 @@ async def run_deepread_job(
             load_similar_feedback_top3=_load_similar_feedback_top3,
             resolve_main_model=_resolve_main_model,
             update_claimset_readiness=_update_claimset_readiness,
+            resolve_claimset_evidence=resolve_claimset_evidence,
             reader_agent_cls=ReaderAgent,
         )
         if read_result is None:

@@ -1,6 +1,6 @@
 
 import logging
-import uuid
+import re
 from typing import List, Optional
 import chromadb
 from chromadb.config import Settings
@@ -48,11 +48,12 @@ class IndexerAgent:
         documents = []
         
         # Section-aware chunking
-        for section in iter_text_sections(doc):
+        for section_idx, section in enumerate(iter_text_sections(doc), start=1):
             section_chunks = self._chunk_text(section.text, chunk_size=1000, overlap=200)
-            
+            section_page = self._resolve_section_page(section.page, section.name, section_idx)
+
             for i, text_chunk in enumerate(section_chunks):
-                chunk_id = str(uuid.uuid4())
+                chunk_id = self._build_chunk_id(section_page, i + 1)
                 
                 # Create embedding
                 embedding = self.adapter.embed(text_chunk, model=self.embedding_model)
@@ -68,6 +69,7 @@ class IndexerAgent:
                     "title": header.title,
                     "section": section.name,
                     "chunk_index": i,
+                    "page": section_page,
                     "source": header.source_ref
                 })
                 documents.append(text_chunk)
@@ -141,3 +143,18 @@ class IndexerAgent:
             start += chunk_size - overlap
             
         return chunks
+
+    @staticmethod
+    def _build_chunk_id(page: int, chunk_idx: int) -> str:
+        return f"p{page:02d}_c{chunk_idx:02d}"
+
+    @staticmethod
+    def _resolve_section_page(page: Optional[int], section_name: str, fallback_page: int) -> int:
+        if isinstance(page, int) and page > 0:
+            return page
+        m = re.match(r"^page_(\d+)$", section_name or "")
+        if m:
+            parsed = int(m.group(1))
+            if parsed > 0:
+                return parsed
+        return max(1, fallback_page)

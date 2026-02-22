@@ -9,6 +9,7 @@ from src.schemas.agent_artifacts import DocumentArtifact
 class TextSectionView:
     name: str
     text: str
+    page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -37,8 +38,9 @@ def get_artifact_header(doc: DocumentArtifact | DocumentArtifactV2) -> ArtifactH
 
 def iter_text_sections(doc: DocumentArtifact | DocumentArtifactV2) -> Iterable[TextSectionView]:
     if isinstance(doc, DocumentArtifact):
-        for section in doc.sections:
-            yield TextSectionView(name=section.name, text=section.text)
+        for idx, section in enumerate(doc.sections, start=1):
+            page = section.page_start if section.page_start is not None else idx
+            yield TextSectionView(name=section.name, text=section.text, page=page)
         return
 
     for page in doc.pages:
@@ -50,4 +52,4 @@ def iter_text_sections(doc: DocumentArtifact | DocumentArtifactV2) -> Iterable[T
         text = "\n".join(lines).strip()
         if not text:
             continue
-        yield TextSectionView(name=f"page_{page.page_index + 1}", text=text)
+        yield TextSectionView(name=f"page_{page.page_index + 1}", text=text, page=page.page_index + 1)
