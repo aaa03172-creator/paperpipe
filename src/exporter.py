@@ -1,7 +1,6 @@
 import json
 import logging
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -28,6 +27,10 @@ from src.exporter_review_queue import (
     enqueue_review_followups,
     resolve_review_followups,
 )
+from src.exporter_render import (
+    build_markdown_content,
+    should_write_markdown,
+)
 from src.institutional_access import (
     generate_institutional_proxy_url,
     upsert_institutional_proxy_link,
@@ -52,101 +55,7 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
     Returns True if exported, False if skipped (exists and not overwrite).
     """
     pid = paper["paper_id"]
-    title = paper["title"] or "Untitled"
-    summary = paper["summary"] or "No summary available."
-
-    try:
-        feedback = json.loads(paper.get("feedback_json") or "{}")
-    except Exception:
-        feedback = {}
-    if not isinstance(feedback, dict):
-        feedback = {}
-
-    hard_tags = feedback.get("hard_tags", {})
-    soft_tags = feedback.get("soft_tags", [])
-    confidence = paper.get("confidence")
-    if confidence is None:
-        confidence = feedback.get("confidence", 0.0)
-
-    obsidian_tags = []
-
-    study_type = hard_tags.get("study_type")
-    if study_type:
-        safe_type = str(study_type).replace(" ", "_")
-        obsidian_tags.append(f"Type/{safe_type}")
-
-    for tag in soft_tags:
-        safe_tag = _sanitize_frontmatter_tag(tag)
-        if safe_tag:
-            obsidian_tags.append(safe_tag)
-
-    verdict = "❓ Unknown"
-    try:
-        f_conf = float(confidence)
-        if f_conf >= 0.9:
-            verdict = "🌟 Strongly Approved"
-        elif f_conf >= 0.7:
-            verdict = "✅ Approved"
-        else:
-            verdict = "⚠️ Low Confidence"
-    except (TypeError, ValueError):
-        pass
-
-    design_tag = hard_tags.get("design", "Unknown")
-
-    evidence = feedback.get("evidence_snippets", [])
-    findings_list = ""
-    if evidence:
-        for ev in evidence:
-            loc = ev.get("location", "Text")
-            txt = ev.get("snippet", "")
-            sup = ev.get("supports", "")
-            findings_list += f"* **[{loc}]**: {txt} (Supports: *{sup}*)\n"
-    elif feedback.get("evidence_span"):
-        span = feedback.get("evidence_span")
-        findings_list = f"* **[Abstract/Text]**: {span} (Primary Evidence)\n"
-    else:
-        findings_list = "* *No granular findings extracted.*"
-
-    links: List[str] = []
-    links.extend(_build_zotero_links(paper))
-    links.extend(_build_pdf_links(paper, vault_path))
-    references_block = "\n".join([f"* {link}" for link in links]) if links else "*No external links available.*"
-    institutional_block = _build_institutional_download_block(paper, feedback)
-    claimset_claims = resolve_claimset_claims(paper, feedback)
-    claimset_block = _format_claimset_section(paper, claimset_claims)
-
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    content = f"""---
-id: {pid}
-aliases: [\"{title.replace('"', '')}\"]
-tags:
-{chr(10).join([f"  - {t}" for t in obsidian_tags])}
-date_processed: {today}
-confidence: {confidence}
-status: {paper['status']}
----
-
-# {title}
-
-> **One-Line Summary**
-> {summary}
-
-## 📊 Critical Analysis
-* **Study Design:** {design_tag}
-* **Professor's Verdict:** {verdict} ({confidence})
-
-### Key Findings & Evidence
-{findings_list}
-
-{claimset_block}
-
-## 🔗 References
-{references_block}
-
-{institutional_block}
-"""
+    content = build_markdown_content(paper, vault_path)
 
     safe_filename = "".join([c for c in pid if c.isalnum() or c in (" ", "-", "_")]).strip()
     if not safe_filename:
@@ -157,24 +66,7 @@ status: {paper['status']}
 
     target_file = inbox_dir / f"{safe_filename}.md"
 
-    should_write = False
-    if overwrite:
-        should_write = True
-    elif not target_file.exists():
-        should_write = True
-    else:
-        try:
-            file_mtime = target_file.stat().st_mtime
-            db_updated_str = paper.get("updated_at")
-            if db_updated_str:
-                dt_db = datetime.fromisoformat(db_updated_str)
-                ts_db = dt_db.timestamp()
-                if ts_db > file_mtime:
-                    should_write = True
-        except Exception:
-            pass
-
-    if not should_write and not overwrite:
+    if not should_write_markdown(target_file, paper, overwrite):
         return False
 
     with open(target_file, "w", encoding="utf-8") as handle:
