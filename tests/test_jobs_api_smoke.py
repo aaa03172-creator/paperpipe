@@ -52,6 +52,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["stats_cache_hit"] is None
         assert queued_data["stats_cache_key"] is None
         assert queued_data["stats_cache_path"] is None
+        assert queued_data["evidence_spans_total"] is None
+        assert queued_data["evidence_spans_grounded"] is None
+        assert queued_data["evidence_grounded_ratio"] is None
         assert queued_data["claimset_readiness"] is None
         assert queued_data["claimset_ready"] is None
         assert queued_data["claimset_claim_count"] is None
@@ -169,6 +172,9 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["stats_cache_hit"] = False
         meta["stats_cache_key"] = "abc123"
         meta["stats_cache_path"] = str(artifact_dir / "stats_cache" / "abc123.json")
+        meta["evidence_spans_total"] = 4
+        meta["evidence_spans_grounded"] = 3
+        meta["evidence_grounded_ratio"] = 0.75
         meta["claimset_readiness"] = "ready"
         meta["claimset_ready"] = True
         meta["claimset_claim_count"] = 3
@@ -203,6 +209,9 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["stats_cache_hit"] is False
         assert payload["stats_cache_key"] == "abc123"
         assert payload["stats_cache_path"] == str(artifact_dir / "stats_cache" / "abc123.json")
+        assert payload["evidence_spans_total"] == 4
+        assert payload["evidence_spans_grounded"] == 3
+        assert payload["evidence_grounded_ratio"] == 0.75
         assert payload["claimset_readiness"] == "ready"
         assert payload["claimset_ready"] is True
         assert payload["claimset_claim_count"] == 3
@@ -221,6 +230,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_ready"] is True
         assert meta_resp.json()["stats_trigger_reason"] == "flag:run_verify"
         assert meta_resp.json()["stats_cache_key"] == "abc123"
+        assert meta_resp.json()["evidence_grounded_ratio"] == 0.75
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False

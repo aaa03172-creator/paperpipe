@@ -37,6 +37,9 @@ class JobStatus(BaseModel):
     stats_cache_hit: Optional[bool] = None
     stats_cache_key: Optional[str] = None
     stats_cache_path: Optional[str] = None
+    evidence_spans_total: Optional[int] = None
+    evidence_spans_grounded: Optional[int] = None
+    evidence_grounded_ratio: Optional[float] = None
     claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
     claimset_ready: Optional[bool] = None
     claimset_claim_count: Optional[int] = None
@@ -63,6 +66,9 @@ class JobBootstrapMeta(BaseModel):
     stats_cache_key: Optional[str] = None
     stats_cache_path: Optional[str] = None
     stats_paper_hash: Optional[str] = None
+    evidence_spans_total: Optional[int] = None
+    evidence_spans_grounded: Optional[int] = None
+    evidence_grounded_ratio: Optional[float] = None
     reader_model: Optional[str] = None
     verifier_used: Optional[bool] = None
     verifier_status: Optional[str] = None

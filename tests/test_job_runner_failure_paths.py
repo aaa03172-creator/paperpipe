@@ -17,6 +17,7 @@ from src.contracts.document_artifact_v2 import (
 )
 from src.schemas.agent_artifacts import (
     ClaimSet,
+    EvidenceSpan,
     IndexArtifact,
     ScientificClaim,
     StatCheckEntry,
@@ -469,3 +470,83 @@ def test_run_deepread_job_tag_trigger_runs_verify_and_reuses_stats_cache(tmp_pat
         assert meta2["stats_cache_key"] == meta1["stats_cache_key"]
     finally:
         db_utils.DB_PATH = old_db
+
+
+def test_run_deepread_job_records_evidence_grounded_ratio(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "grounded_ratio_case"
+    config = _make_config(tmp_path, paper_id)
+    pdf_path = config.paths.library_dir / f"{paper_id}.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    class FakeIngestAgent:
+        def process_v2(self, path: str):
+            return _make_doc_artifact(paper_id, path)
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class FakeReaderAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def analyze(self, doc):
+            return ClaimSet(
+                doc_id=doc.document_id,
+                claims=[
+                    ScientificClaim(
+                        claim_id="c1",
+                        type="efficacy",
+                        statement="claim text",
+                        confidence=0.9,
+                        evidence_spans=[
+                            EvidenceSpan(
+                                page=1,
+                                chunk_id="p01_c01",
+                                raw_text="first evidence",
+                                quote="first evidence",
+                                grounded=True,
+                            ),
+                            EvidenceSpan(
+                                page=1,
+                                chunk_id="p01_c02",
+                                raw_text="second evidence",
+                                quote="second evidence",
+                                grounded=False,
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(job_runner_mod, "load_config", lambda: config)
+    monkeypatch.setattr(job_runner_mod, "_load_similar_feedback_top3", lambda query_text, limit=3: [])
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner_mod, "ReaderAgent", FakeReaderAgent)
+    monkeypatch.setattr(
+        job_runner_mod,
+        "resolve_claimset_evidence",
+        lambda claim_set, index_artifact: claim_set,  # preserve test-provided grounded flags
+    )
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job_grounded_ratio",
+            paper_id=paper_id,
+            run_id="run_grounded_ratio",
+            run_verify=False,
+            run_profile="grounded_read",
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    meta = json.loads(
+        (tmp_path / "storage" / "artifacts" / paper_id / "run_grounded_ratio" / "bootstrap_meta.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert meta["evidence_spans_total"] == 2
+    assert meta["evidence_spans_grounded"] == 1
+    assert meta["evidence_grounded_ratio"] == 0.5

@@ -76,6 +76,9 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "stats_cache_hit": meta.get("stats_cache_hit"),
             "stats_cache_key": meta.get("stats_cache_key"),
             "stats_cache_path": meta.get("stats_cache_path"),
+            "evidence_spans_total": meta.get("evidence_spans_total"),
+            "evidence_spans_grounded": meta.get("evidence_spans_grounded"),
+            "evidence_grounded_ratio": meta.get("evidence_grounded_ratio"),
             "claimset_readiness": meta.get("claimset_readiness"),
             "claimset_ready": meta.get("claimset_ready"),
             "claimset_claim_count": meta.get("claimset_claim_count"),
@@ -172,6 +175,74 @@ def get_job_bootstrap_meta(job_id: str):
 def cancel_job(job_id: str):
     queue.cancel_job(job_id)
     return {"status": "cancelled"}
+
+
+@app.get("/metrics/quality")
+def quality_metrics(limit: int = 100):
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT job_id, artifact_dir
+            FROM jobs
+            WHERE status IN ('completed', 'failed', 'cancelled')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(limit, 1000)),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {
+            "jobs_scanned": 0,
+            "bootstrap_meta_found": 0,
+            "evidence_grounded_ratio_count": 0,
+            "evidence_grounded_ratio_avg": None,
+            "stats_cache_total": 0,
+            "stats_cache_hit_count": 0,
+            "stats_cache_hit_rate": None,
+        }
+    finally:
+        conn.close()
+
+    ratios: list[float] = []
+    stats_cache_total = 0
+    stats_cache_hit_count = 0
+    bootstrap_meta_found = 0
+
+    for row in rows:
+        artifact_dir = row["artifact_dir"]
+        if not artifact_dir:
+            continue
+        meta = _read_bootstrap_meta(str(Path(artifact_dir) / "bootstrap_meta.json"))
+        if not meta:
+            continue
+        bootstrap_meta_found += 1
+
+        ratio = meta.get("evidence_grounded_ratio")
+        if isinstance(ratio, (int, float)):
+            ratios.append(float(ratio))
+
+        cache_hit = meta.get("stats_cache_hit")
+        if isinstance(cache_hit, bool):
+            stats_cache_total += 1
+            if cache_hit:
+                stats_cache_hit_count += 1
+
+    ratio_avg = round(sum(ratios) / len(ratios), 4) if ratios else None
+    hit_rate = (
+        round(stats_cache_hit_count / stats_cache_total, 4)
+        if stats_cache_total > 0
+        else None
+    )
+    return {
+        "jobs_scanned": len(rows),
+        "bootstrap_meta_found": bootstrap_meta_found,
+        "evidence_grounded_ratio_count": len(ratios),
+        "evidence_grounded_ratio_avg": ratio_avg,
+        "stats_cache_total": stats_cache_total,
+        "stats_cache_hit_count": stats_cache_hit_count,
+        "stats_cache_hit_rate": hit_rate,
+    }
 
 @app.get("/jobs/{job_id}/events")
 async def job_events(job_id: str, request: Request):

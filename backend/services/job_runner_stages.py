@@ -121,9 +121,21 @@ async def run_read_stage(
         raise Exception("Reader Agent failed to produce claims")
 
     claim_set = resolve_claimset_evidence(claim_set, index_artifact)
+    total_spans = 0
+    grounded_spans = 0
+    for claim in claim_set.claims:
+        for span in claim.evidence_spans:
+            total_spans += 1
+            if getattr(span, "grounded", None) is True:
+                grounded_spans += 1
 
     write_artifact_model(artifact_dir, "claimset.json", claim_set)
     bootstrap_meta["artifact_claimset_written"] = True
+    bootstrap_meta["evidence_spans_total"] = total_spans
+    bootstrap_meta["evidence_spans_grounded"] = grounded_spans
+    bootstrap_meta["evidence_grounded_ratio"] = (
+        round(grounded_spans / total_spans, 4) if total_spans > 0 else None
+    )
     update_claimset_readiness(bootstrap_meta, paper_id, len(claim_set.claims))
     write_bootstrap_meta(artifact_dir, bootstrap_meta)
     await emit("read", 75, f"Extracted {len(claim_set.claims)} claims", "INFO")
