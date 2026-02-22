@@ -1,16 +1,17 @@
 # Engineering Health Check - 2026-02-22
 
 ## Snapshot
-- Runtime Python lines (`src` + `backend`): `13,046`
-- Test Python lines (`tests`): `7,535`
-- Test-to-runtime line ratio: `57.8%`
-- Current test status: `222 passed, 1 skipped, 8 warnings`
+- Runtime Python lines (`src` + `backend`): `13,320`
+- Test Python lines (`tests`): `7,868`
+- Test-to-runtime line ratio: `59.1%`
+- Current test status: `233 passed, 1 skipped, 8 warnings`
 
 ## 1) Modularization Status
 Large files (`>500` lines): none at this checkpoint.
 
 Largest runtime modules (current top):
-- `backend/services/job_runner.py` (`492`)
+- `backend/services/job_runner.py` (`462`)
+- `backend/services/job_runner_stages.py` (`159`)
 - `src/processor.py` (`253`)
 - `src/downloader/router.py` (`244`)
 - `src/db.py` (`244`, deprecated compatibility layer)

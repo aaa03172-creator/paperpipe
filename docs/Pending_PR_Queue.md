@@ -114,3 +114,32 @@
   - `tests/test_job_runner_failure_paths.py` passes.
   - `tests/test_worker_job_runner_chain.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-BE-Evidence-Contract-v1
+- Title: `feat(evidence): deterministic chunk_id + grounding resolver`
+- Priority: High
+- Purpose: Align runtime with blueprint evidence contract by replacing UUID chunk IDs and enforcing quote/chunk grounding state.
+- Scope:
+  - `src/agents/indexer_agent.py`
+  - `src/contracts/artifact_views.py`
+  - `src/schemas/agent_artifacts.py`
+  - `src/core/evidence_resolver.py`
+  - `backend/services/job_runner.py`
+  - `backend/services/job_runner_stages.py`
+  - `tests/test_indexer_chunk_id_determinism.py`
+  - `tests/test_evidence_resolver.py`
+- Merge Gate:
+  - Deterministic chunk-id tests pass.
+  - Evidence resolver tests pass.
+  - `pytest -q` full suite passes.
+
+## PR-BE-Citation-Jump-MVP
+- Title: `feat(deepread): render evidence with [p.X] + certainty badges`
+- Priority: High
+- Purpose: Add citation jump MVP UX with page-link token and certainty state (`certain/estimated/hold`) fallback messaging.
+- Scope:
+  - `src/services/deepread_note_writer.py`
+  - `tests/test_deepread_note_writer.py`
+- Merge Gate:
+  - DeepRead rendering tests pass.
+  - `pytest -q` full suite passes.
