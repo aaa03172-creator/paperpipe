@@ -26,11 +26,11 @@
   - Evidence grounding resolver + certainty bands applied before claimset persistence.
   - Citation-jump MVP rendering (`[p.X]` + certainty/hold fallback).
   - `run_profile` contract persisted from API -> queue -> worker -> runner.
+  - Discover queue path (`seed` expansion + DB status + Obsidian related-works upsert).
 - Missing or conflicting with v2 (not yet adopted):
   - No `paper_key` identity and path strategy in runtime.
   - Artifact path still uses `storage/artifacts/{paper_id}/{run_id}`.
   - `job_events`/`user_actions` tables and buffered event writer are not implemented.
-  - OpenAlex discovery expansion(backward/forward) and queue section upsert are not implemented.
   - Stats trigger tag mapping + cache hit contract(`stats_cache_hit`) are not implemented.
 
 ## Decision Gate (Before v2 Adoption)
@@ -42,5 +42,5 @@
 
 ## Recommended Next Execution Order (Current Safe Path)
 1. Keep current refactor line (done): worker/job_runner modular hardening.
-2. Execute v1 `PR-1` (Discover queue) and `PR-4` (Stats trigger/cache) in that order.
+2. Execute v1 `PR-4` (Stats trigger/cache).
 3. Defer `paper_key`/event-log migration until v2 docs approval is explicit.

@@ -11,6 +11,7 @@
 - `PR-BE-Evidence-Contract-v1`
 - `PR-BE-Citation-Jump-MVP`
 - `PR-BE-RunProfile-v1`
+- `PR-BE-Discover-Queue-v1`
 
 ## PR-DOC-Blueprint-v2
 - Title: `docs(blueprint): review and promote pragmatic blueprint v2`
@@ -25,20 +26,6 @@
 - Merge Gate:
   - Docs-only PR (no runtime files).
   - Reviewer sign-off required (Antigravity + Codex).
-
-## PR-BE-Discover-Queue-v1
-- Title: `feat(discover): seed expansion queue + obsidian upsert`
-- Priority: High
-- Purpose: Implement blueprint PR-1 (OpenAlex backward/forward expansion, dedupe, queue persistence, related works upsert).
-- Scope (expected):
-  - `src/fetch/openalex.py`
-  - `backend/*` or `src/*` queue orchestration modules
-  - Obsidian upsert path for `Related Works (Queue)`
-  - tests (unit + integration)
-- Merge Gate:
-  - Seed 1개 기준 5~10 related works generation.
-  - dedupe/idempotent rerun.
-  - `pytest -q` full suite green.
 
 ## PR-BE-Stats-Trigger-v1
 - Title: `feat(stats): trigger mapping + cache hit contract`

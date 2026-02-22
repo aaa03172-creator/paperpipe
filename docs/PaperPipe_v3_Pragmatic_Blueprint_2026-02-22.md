@@ -21,8 +21,9 @@
 - Reader는 여전히 claim/evidence 초안을 생성하지만,
   페이지/매칭 신뢰는 시스템 후처리에서 확정한다.
   - 참조: `src/agents/reader_agent.py`, `backend/services/job_runner_stages.py`
-- OpenAlex는 DOI 단건 메타데이터 조회 중심이며 seed 확장(참고/피인용) 기능이 없다.
-  - 참조: `src/fetch/openalex.py`
+- OpenAlex는 seed 기준 backward/forward 확장 API를 제공하며,
+  추천 후보를 DB(`RECOMMENDED`/`PENDING_QUEUE`) 및 Obsidian queue 섹션으로 반영한다.
+  - 참조: `src/fetch/openalex.py`, `src/discovery_queue.py`, `backend/routers/discover.py`
 - Stats는 선택 실행(`run_verify`) + 실행 프로파일(`run_profile`) 구조를 갖고 있다.
   - 참조: `src/jobs/schemas.py`, `src/jobs/queue.py`, `backend/services/job_runner.py`
 
@@ -146,6 +147,8 @@
   - seed 1개로 연관 논문 5~10편 생성
   - 각 항목 추천 이유 출력
   - 중복 없이 재실행 가능
+- 상태
+  - 완료 (API/DB/Obsidian queue 업서트 + 테스트 반영됨)
 
 ### PR-2: CITATION_JUMP_MVP_V1
 - 변경
@@ -205,9 +208,8 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: PR-1 DISCOVER_QUEUE_V1
-- 2순위: PR-4 STATS_TRIGGER_V1
-- 3순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
+- 1순위: PR-4 STATS_TRIGGER_V1
+- 2순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
 
 ---
 
