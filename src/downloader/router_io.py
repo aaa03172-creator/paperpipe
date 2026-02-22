@@ -11,6 +11,17 @@ from src.downloader.router_support import ProviderHttpPolicy
 from src.schemas.core import DownloadAttempt, DownloadFailure
 
 
+def is_valid_pdf_file(filepath: Path) -> bool:
+    """Validate local file via PDF magic bytes."""
+    if not filepath.exists() or not filepath.is_file():
+        return False
+    try:
+        with filepath.open("rb") as file_handle:
+            return file_handle.read(4) == b"%PDF"
+    except OSError:
+        return False
+
+
 def download_pdf_file(
     url: str,
     filepath: Path,

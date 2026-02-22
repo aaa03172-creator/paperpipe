@@ -68,12 +68,34 @@ def test_router_skips_when_pdf_exists(mock_config, dummy_paper):
     upload_dir.mkdir(parents=True)
 
     fake_pdf = upload_dir / "test-paper-123.pdf"
-    fake_pdf.write_text("dummy")
+    fake_pdf.write_bytes(b"%PDF-1.4\n")
 
     result = router.execute(dummy_paper)
 
     assert result.local_pdf_path == fake_pdf
     assert len(result.download_attempts) == 0
+
+
+@patch("src.downloader.router.DownloadRouter._download_file")
+def test_router_retries_when_existing_file_is_not_pdf(mock_download, mock_config, dummy_paper):
+    upload_dir = Path(mock_config.paths.upload_dir)
+    upload_dir.mkdir(parents=True)
+    target_path = upload_dir / "test-paper-123.pdf"
+    target_path.write_text("not a pdf")
+
+    dummy_paper.pdf_link = "http://example.com/fixed.pdf"
+
+    def _write_valid_pdf(_url, filepath, provider_name="unknown"):
+        filepath.write_bytes(b"%PDF-1.4\n")
+        return True
+
+    mock_download.side_effect = _write_valid_pdf
+
+    router = DownloadRouter(mock_config, providers=[DirectLinkProvider()])
+    result = router.execute(dummy_paper)
+
+    assert result.local_pdf_path == target_path
+    assert target_path.read_bytes().startswith(b"%PDF")
 
 
 @patch("src.downloader.router.DownloadRouter._download_file")

@@ -11,7 +11,11 @@ from src.config import AppConfig
 from src.downloader.providers.base import DownloadProvider, DownloadResult
 from src.downloader.providers.base import DownloadCandidate
 from src.downloader.providers.direct import DirectLinkProvider
-from src.downloader.router_io import download_pdf_file, download_with_rate_limit_retries
+from src.downloader.router_io import (
+    download_pdf_file,
+    download_with_rate_limit_retries,
+    is_valid_pdf_file,
+)
 from src.downloader.providers.unpaywall import UnpaywallProvider
 from src.downloader.router_support import (
     ProviderHttpPolicy,
@@ -81,8 +85,15 @@ class DownloadRouter:
         filepath = upload_path / filename
 
         if filepath.exists():
-            logger.info("[%s] PDF already exists at %s, skipping download.", paper.id, filepath)
-            return DownloadResult(success=True, local_pdf_path=filepath, pdf_link=paper.pdf_link)
+            if is_valid_pdf_file(filepath):
+                logger.info("[%s] PDF already exists at %s, skipping download.", paper.id, filepath)
+                return DownloadResult(success=True, local_pdf_path=filepath, pdf_link=paper.pdf_link)
+            logger.warning(
+                "[%s] Existing file at %s is not a valid PDF. Re-downloading.",
+                paper.id,
+                filepath,
+            )
+            filepath.unlink(missing_ok=True)
 
         attempts: list[DownloadAttempt] = []
 
