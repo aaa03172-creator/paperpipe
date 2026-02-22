@@ -1,7 +1,7 @@
 
 import requests
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -72,3 +72,114 @@ class OpenAlexFetcher:
         """
         # Placeholder for future optimization
         pass
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def fetch_work(self, identifier: str) -> Dict[str, Any]:
+        """
+        Fetch a single OpenAlex work by DOI/OpenAlex ID.
+        """
+        if not identifier:
+            return {}
+
+        normalized = identifier.strip()
+        if normalized.startswith("https://doi.org/"):
+            normalized = normalized.replace("https://doi.org/", "", 1)
+
+        if normalized.lower().startswith("doi:"):
+            target = normalized
+        elif normalized.upper().startswith("W"):
+            target = normalized
+        elif "/W" in normalized and "openalex.org" in normalized:
+            target = normalized.rstrip("/").split("/")[-1]
+        else:
+            target = f"doi:{normalized}"
+
+        url = f"{self.BASE_URL}/{target}"
+        params: Dict[str, str] = {}
+        if self.email:
+            params["mailto"] = self.email
+
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 404:
+                logger.debug("OpenAlex work not found: %s", identifier)
+                return {}
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            logger.warning("OpenAlex work fetch error for %s: %s", identifier, exc)
+            return {}
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def fetch_related_works(self, seed: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Fetch related works from both backward references and forward citations.
+        Returns normalized candidate dictionaries.
+        """
+        if not seed:
+            return []
+
+        seed_work = self.fetch_work(seed)
+        if not seed_work:
+            return []
+
+        per_direction = max(1, limit // 2)
+        params: Dict[str, Any] = {"per-page": per_direction}
+        if self.email:
+            params["mailto"] = self.email
+
+        candidates: List[Dict[str, Any]] = []
+
+        # Backward expansion (referenced works IDs).
+        for wid in (seed_work.get("referenced_works") or [])[:per_direction]:
+            work = self.fetch_work(str(wid))
+            if work:
+                candidates.append(self._normalize_related_work(work, relation="referenced"))
+
+        # Forward expansion (works that cite seed).
+        cited_by_api_url = seed_work.get("cited_by_api_url")
+        if cited_by_api_url:
+            try:
+                resp = requests.get(cited_by_api_url, params=params, timeout=10)
+                resp.raise_for_status()
+                payload = resp.json()
+                for work in (payload.get("results") or [])[:per_direction]:
+                    candidates.append(self._normalize_related_work(work, relation="cited_by"))
+            except Exception as exc:
+                logger.warning("OpenAlex cited_by fetch error for %s: %s", seed, exc)
+
+        dedup: Dict[str, Dict[str, Any]] = {}
+        for item in candidates:
+            key = (
+                str(item.get("doi") or "").lower().strip()
+                or str(item.get("openalex_id") or "").strip()
+                or str(item.get("title") or "").lower().strip()
+            )
+            if not key:
+                continue
+            if key in dedup:
+                if dedup[key].get("relation") != "referenced":
+                    dedup[key]["relation"] = item.get("relation", dedup[key].get("relation"))
+                continue
+            dedup[key] = item
+
+        results = list(dedup.values())
+        results.sort(key=lambda x: int(x.get("cited_by_count") or 0), reverse=True)
+        return results[:limit]
+
+    def _normalize_related_work(self, work: Dict[str, Any], relation: str) -> Dict[str, Any]:
+        source = ((work.get("primary_location") or {}).get("source") or {})
+        doi = str(work.get("doi") or "").strip()
+        if doi.startswith("https://doi.org/"):
+            doi = doi.replace("https://doi.org/", "", 1)
+        return {
+            "openalex_id": work.get("id"),
+            "doi": doi or None,
+            "title": work.get("display_name") or "Untitled",
+            "year": work.get("publication_year"),
+            "venue": source.get("display_name"),
+            "cited_by_count": int(work.get("cited_by_count") or 0),
+            "is_oa": bool((work.get("open_access") or {}).get("is_oa")),
+            "relation": relation,
+            "source_url": work.get("id"),
+        }

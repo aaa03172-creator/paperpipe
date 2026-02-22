@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
-from .routers import obsidian, feedback
+from .routers import obsidian, feedback, discover
 
 
 @asynccontextmanager
@@ -206,3 +206,4 @@ async def job_events(job_id: str, request: Request):
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
+app.include_router(discover.router)
