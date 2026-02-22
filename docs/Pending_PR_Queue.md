@@ -70,3 +70,14 @@
 - Merge Gate:
   - `tests/test_worker_cancellation_sync.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-QA-Runtime-Size-Guard
+- Title: `test(health): add runtime module size guardrail`
+- Priority: Medium
+- Purpose: Keep large-module growth visible by enforcing the 700-line runtime threshold in automated tests.
+- Scope:
+  - `tests/test_runtime_module_size_guard.py`
+  - `docs/engineering_health_2026-02-21.md`
+- Merge Gate:
+  - `tests/test_runtime_module_size_guard.py` passes.
+  - `pytest -q` full suite passes.

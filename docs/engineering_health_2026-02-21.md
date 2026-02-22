@@ -57,3 +57,6 @@ Action:
 3. Any schema-touching PR must include:
    - migration safety test
    - duplicate/open-row safety test where relevant
+
+Enforcement note:
+- Runtime size guard is now automated by `tests/test_runtime_module_size_guard.py` (threshold `700` lines).
