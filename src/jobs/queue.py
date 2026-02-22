@@ -105,39 +105,53 @@ class JobQueue:
         Implements Max Concurrency check (Limit 1 running job).
         """
         conn = get_db_connection()
-        cursor = conn.cursor()
         try:
-            # 1. Check running jobs count
-            cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
-            running_count = cursor.fetchone()[0]
-            if running_count >= 1: # Strict Limit 1 for now
+            # Transaction lock prevents parallel workers from claiming simultaneously.
+            conn.execute("BEGIN IMMEDIATE")
+
+            running_count = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'running'"
+            ).fetchone()[0]
+            if running_count >= 1:  # Strict Limit 1 for now
+                conn.rollback()
                 return None
-            
-            # 2. Find oldest queued job
-            cursor.execute("""
+
+            row = conn.execute("""
                 SELECT job_id FROM jobs 
                 WHERE status = 'queued' 
                 ORDER BY created_at ASC 
                 LIMIT 1
             """)
-            row = cursor.fetchone()
+            row = row.fetchone()
             if not row:
+                conn.rollback()
                 return None
-                
+
             job_id = row[0]
-            
-            # 3. Update to running
-            cursor.execute("""
+
+            updated = conn.execute("""
                 UPDATE jobs 
                 SET status = 'running', started_at = CURRENT_TIMESTAMP 
-                WHERE job_id = ?
+                WHERE job_id = ? AND status = 'queued'
             """, (job_id,))
+
+            if updated.rowcount != 1:
+                conn.rollback()
+                return None
+
+            full_row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
             conn.commit()
-            
-            # 4. Return full object
-            return self.get_job(job_id)
-            
+            if not full_row:
+                return None
+            return JobStatus(**dict(full_row))
         except sqlite3.OperationalError as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             logger.error(f"DB Error claiming job: {e}")
             return None
         finally:
