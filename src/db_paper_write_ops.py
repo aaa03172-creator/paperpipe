@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any, Dict, Optional
 
 import sqlite3
@@ -140,11 +141,16 @@ def update_paper_status_with_connection(
     updates: Optional[Dict[str, Any]] = None,
 ) -> None:
     cursor = conn.cursor()
+    columns = get_paper_columns(cursor)
     fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
     params = [new_status]
 
     if updates:
         for key, value in updates.items():
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                continue
+            if key not in columns:
+                continue
             fields.append(f"{key} = ?")
             params.append(value)
 
