@@ -6,6 +6,18 @@ import ast
 from collections import Counter, defaultdict
 from pathlib import Path
 
+DEFAULT_IGNORED_DUPLICATE_NAMES = {
+    "__init__",
+    "main",
+    "run",
+    "fetch",
+    "provider_name",
+    "resolve_pdf",
+    "_initialize",
+    "_make_request",
+    "get_embedding",
+}
+
 
 def _py_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.py") if p.is_file())
@@ -30,7 +42,12 @@ def _collect_function_names(path: Path) -> list[str]:
     return names
 
 
-def build_report(repo_root: Path, max_lines: int, top_n: int) -> dict:
+def build_report(
+    repo_root: Path,
+    max_lines: int,
+    top_n: int,
+    ignore_duplicate_names: set[str] | None = None,
+) -> dict:
     src_root = repo_root / "src"
     tests_root = repo_root / "tests"
 
@@ -49,6 +66,7 @@ def build_report(repo_root: Path, max_lines: int, top_n: int) -> dict:
 
     fn_counter: Counter[str] = Counter()
     fn_sources: dict[str, list[str]] = defaultdict(list)
+    ignore_names = ignore_duplicate_names if ignore_duplicate_names is not None else DEFAULT_IGNORED_DUPLICATE_NAMES
     for path in src_files:
         rel = str(path.relative_to(repo_root))
         for fn_name in _collect_function_names(path):
@@ -58,6 +76,8 @@ def build_report(repo_root: Path, max_lines: int, top_n: int) -> dict:
     duplicate_functions = []
     for name, count in fn_counter.most_common():
         if count < 2:
+            continue
+        if name in ignore_names:
             continue
         duplicate_functions.append(
             {
@@ -85,7 +105,11 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
-    report = build_report(repo_root=repo_root, max_lines=args.max_lines, top_n=args.top_n)
+    report = build_report(
+        repo_root=repo_root,
+        max_lines=args.max_lines,
+        top_n=args.top_n,
+    )
 
     print("[Code Health]")
     print(f"src_total_lines={report['src_total_lines']}")
