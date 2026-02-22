@@ -13,16 +13,18 @@
 - Conservative Parsing: MVP에서는 bbox/span 하이라이트를 기본 기능에서 제외하고 페이지 링크 + quote를 우선한다.
 
 ## 2. 현재 상태 요약 (코드 기준)
-- `chunk_id`는 현재 UUID 기반으로 비결정적이다.
+- `chunk_id`는 결정론적 형식(`p{page:02d}_c{chunk:02d}`)으로 전환되었다.
   - 참조: `src/agents/indexer_agent.py`
-- Evidence는 스키마상 존재하지만 `grounded/resolution` 검증 필드가 없다.
-  - 참조: `src/schemas/agent_artifacts.py`
-- Reader는 page/chunk를 LLM 자유 출력에 의존하고 있다.
-  - 참조: `src/agents/reader_agent.py`
+- Evidence는 `grounded/resolution/confidence_band` 검증 필드를 포함하고,
+  reader 후처리에서 grounding resolver를 적용한다.
+  - 참조: `src/schemas/agent_artifacts.py`, `src/core/evidence_resolver.py`, `backend/services/job_runner_stages.py`
+- Reader는 여전히 claim/evidence 초안을 생성하지만,
+  페이지/매칭 신뢰는 시스템 후처리에서 확정한다.
+  - 참조: `src/agents/reader_agent.py`, `backend/services/job_runner_stages.py`
 - OpenAlex는 DOI 단건 메타데이터 조회 중심이며 seed 확장(참고/피인용) 기능이 없다.
   - 참조: `src/fetch/openalex.py`
-- Stats는 이미 선택 실행(`run_verify`) 구조를 갖고 있다.
-  - 참조: `src/jobs/schemas.py`, `backend/services/job_runner.py`
+- Stats는 선택 실행(`run_verify`) + 실행 프로파일(`run_profile`) 구조를 갖고 있다.
+  - 참조: `src/jobs/schemas.py`, `src/jobs/queue.py`, `backend/services/job_runner.py`
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -132,6 +134,8 @@
   - 동일 PDF 재실행 시 `chunk_id` 세트 동일
   - claim evidence가 자동으로 `grounded true/false` 판정
   - page 미기입이어도 `chunk_id` 기반 페이지 확정 가능
+- 상태
+  - 완료 (코드/테스트 반영됨)
 
 ### PR-1: DISCOVER_QUEUE_V1
 - 변경
@@ -151,6 +155,8 @@
 - AC
   - 정상 환경에서 페이지 점프 동작
   - 매칭 실패 시 "보류 + 원인 + 다음 행동" 출력
+- 상태
+  - 완료 (코드/테스트 반영됨)
 
 ### PR-3: RUN_PROFILE_V1
 - 변경
@@ -159,6 +165,8 @@
 - AC
   - 모드별 불필요 단계 스킵
   - 변경 없는 입력에서 재실행 시간 단축(캐시 히트)
+- 상태
+  - 완료 (API/Queue/Worker/Runner 계약 반영됨)
 
 ### PR-4: STATS_TRIGGER_V1
 - 변경
@@ -197,11 +205,9 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: PR-0 EVIDENCE_CONTRACT_V1
-- 2순위: PR-2 CITATION_JUMP_MVP_V1
-- 3순위: PR-1 DISCOVER_QUEUE_V1
-- 4순위: PR-4 STATS_TRIGGER_V1
-- 5순위: PR-3 RUN_PROFILE_V1
+- 1순위: PR-1 DISCOVER_QUEUE_V1
+- 2순위: PR-4 STATS_TRIGGER_V1
+- 3순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
 
 ---
 
