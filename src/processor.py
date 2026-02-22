@@ -88,49 +88,33 @@ class PaperProcessor:
         remaining_budget = batch_size
         consecutive_failures = 0
         MAX_CONSECUTIVE_FAILURES = 3
+        stages = [
+            ([STATE_APPROVED], self._step_finalize),
+            ([STATE_GATED], self._step_gate),
+            ([STATE_FETCHED], self._step_analyze),
+            ([STATE_NEW], self._step_fetch),
+        ]
         
         while remaining_budget > 0:
             progress_made = False
-            
-            # Step 4: Finalize (APPROVED -> INDEXED)
-            if remaining_budget > 0:
-                candidates = get_papers_by_status([STATE_APPROVED], limit=remaining_budget)
-                processed, failed = self._process_step(candidates, self._step_finalize)
-                remaining_budget = consume_budget(remaining_budget, processed, failed)
-                consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0 or failed > 0:
-                    progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
-                
-            # Step 3: Gate (GATED -> APPROVED/...)
-            if remaining_budget > 0:
-                candidates = get_papers_by_status([STATE_GATED], limit=remaining_budget)
-                processed, failed = self._process_step(candidates, self._step_gate)
-                remaining_budget = consume_budget(remaining_budget, processed, failed)
-                consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0 or failed > 0:
-                    progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
 
-            # Step 2: Analyze (FETCHED -> GATED)
-            if remaining_budget > 0:
-                candidates = get_papers_by_status([STATE_FETCHED], limit=remaining_budget)
-                processed, failed = self._process_step(candidates, self._step_analyze)
-                remaining_budget = consume_budget(remaining_budget, processed, failed)
-                consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0 or failed > 0:
+            for statuses, handler in stages:
+                if remaining_budget <= 0:
+                    break
+                (
+                    remaining_budget,
+                    consecutive_failures,
+                    stage_progress,
+                ) = self._run_stage(
+                    statuses=statuses,
+                    handler=handler,
+                    remaining_budget=remaining_budget,
+                    consecutive_failures=consecutive_failures,
+                )
+                if stage_progress:
                     progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
-                
-            # Step 1: Fetch (NEW -> FETCHED)
-            if remaining_budget > 0:
-                candidates = get_papers_by_status([STATE_NEW], limit=remaining_budget)
-                processed, failed = self._process_step(candidates, self._step_fetch)
-                remaining_budget = consume_budget(remaining_budget, processed, failed)
-                consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0 or failed > 0:
-                    progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    break
             
             if not progress_made:
                 break
@@ -140,6 +124,21 @@ class PaperProcessor:
                 break
             
         logger.info(f"🏁 Run Complete. Actions consumed: {batch_size - remaining_budget}/{batch_size}")
+
+    def _run_stage(
+        self,
+        *,
+        statuses: List[str],
+        handler,
+        remaining_budget: int,
+        consecutive_failures: int,
+    ) -> tuple[int, int, bool]:
+        candidates = get_papers_by_status(statuses, limit=remaining_budget)
+        processed, failed = self._process_step(candidates, handler)
+        remaining_budget = consume_budget(remaining_budget, processed, failed)
+        consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
+        stage_progress = processed > 0 or failed > 0
+        return remaining_budget, consecutive_failures, stage_progress
 
     def _process_step(self, papers: List[Dict], handler) -> tuple[int, int]:
         """
