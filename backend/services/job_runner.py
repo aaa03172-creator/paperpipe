@@ -23,6 +23,7 @@ from src.services.deepread_note_writer import (
 )
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.core.evidence_resolver import resolve_claimset_evidence
+from backend.services.stats_runtime import resolve_stats_trigger_for_paper
 from backend.services.job_runner_stages import (
     run_ingest_stage,
     run_index_stage,
@@ -201,6 +202,10 @@ def _build_bootstrap_meta(
         "similar_feedback_count": 0,
         "similar_feedback_paper_ids": [],
         "run_verify": bool(run_verify),
+        "stats_trigger_reason": "none",
+        "stats_cache_hit": False,
+        "stats_cache_key": None,
+        "stats_cache_path": None,
         "reader_model": None,
         "verifier_used": bool(run_verify),
         "verifier_status": "not_run",
@@ -336,7 +341,11 @@ async def run_deepread_job(
         effective_profile = run_profile or ("deep_verify" if run_verify else "grounded_read")
         if effective_profile not in {"fast_ingest", "grounded_read", "deep_verify"}:
             effective_profile = "grounded_read"
-        effective_run_verify = effective_profile == "deep_verify"
+        effective_run_verify, trigger_reason = resolve_stats_trigger_for_paper(
+            paper_id,
+            run_verify=bool(run_verify),
+            run_profile=effective_profile,
+        )
         
         # 1. Locate PDF
         await emit("init", 5, "Locating PDF...")
@@ -359,6 +368,8 @@ async def run_deepread_job(
             run_verify=effective_run_verify,
         )
         bootstrap_meta["run_profile"] = effective_profile
+        bootstrap_meta["stats_trigger_reason"] = trigger_reason
+        bootstrap_meta["verifier_used"] = bool(effective_run_verify)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         
         # 2. Ingest
@@ -435,6 +446,9 @@ async def run_deepread_job(
                 write_artifact_model=_write_artifact_model,
                 write_bootstrap_meta=_write_bootstrap_meta,
                 stats_agent_cls=StatsVerificationAgent,
+                stats_profile=effective_profile,
+                stats_schema_version="1.0",
+                stats_cache_dir=Path("storage/stats_cache"),
             )
             if verify_result.get("cancelled"):
                 return {"status": "cancelled", "run_id": run_id}

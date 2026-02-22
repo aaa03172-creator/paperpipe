@@ -33,6 +33,10 @@ class JobStatus(BaseModel):
     artifact_index_written: Optional[bool] = None
     artifact_claimset_written: Optional[bool] = None
     artifact_stats_written: Optional[bool] = None
+    stats_trigger_reason: Optional[str] = None
+    stats_cache_hit: Optional[bool] = None
+    stats_cache_key: Optional[str] = None
+    stats_cache_path: Optional[str] = None
     claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
     claimset_ready: Optional[bool] = None
     claimset_claim_count: Optional[int] = None
@@ -54,6 +58,11 @@ class JobBootstrapMeta(BaseModel):
     similar_feedback_count: Optional[int] = None
     similar_feedback_paper_ids: List[str] = Field(default_factory=list)
     run_verify: Optional[bool] = None
+    stats_trigger_reason: Optional[str] = None
+    stats_cache_hit: Optional[bool] = None
+    stats_cache_key: Optional[str] = None
+    stats_cache_path: Optional[str] = None
+    stats_paper_hash: Optional[str] = None
     reader_model: Optional[str] = None
     verifier_used: Optional[bool] = None
     verifier_status: Optional[str] = None

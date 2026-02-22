@@ -2,6 +2,11 @@ import asyncio
 from pathlib import Path
 
 from backend.services import job_runner_stages as stages
+from backend.services.stats_runtime import (
+    build_stats_cache_key,
+    save_cached_stats_report,
+)
+from src.schemas.agent_artifacts import StatCheckEntry, StatsReport, VerificationStatus
 
 
 def test_run_ingest_stage_returns_none_when_cancelled(tmp_path):
@@ -105,3 +110,73 @@ def test_run_verify_stage_returns_cancelled_early(tmp_path):
     assert result == {"cancelled": True, "stats_report": None}
     assert bootstrap_meta["verifier_status"] == "not_run"
     assert events == []
+
+
+def test_run_verify_stage_uses_cache_without_invoking_agent(tmp_path):
+    class ShouldNotRunStatsAgent:
+        called = False
+
+        def run(self, **_kwargs):
+            ShouldNotRunStatsAgent.called = True
+            raise RuntimeError("stats agent should not run on cache hit")
+
+    doc = {"doc_id": "doc-cache"}
+    claims = {"claims": [{"claim_id": "c1"}]}
+    cache_dir = tmp_path / "stats_cache"
+    cache_key, _ = build_stats_cache_key(
+        doc_artifact=doc,
+        claim_set=claims,
+        stats_profile="deep_verify",
+        schema_version="1.0",
+    )
+    save_cached_stats_report(
+        cache_dir,
+        cache_key,
+        StatsReport(
+            doc_id="doc-cache",
+            run_id="job-cache",
+            checks=[
+                StatCheckEntry(
+                    check_id="c1",
+                    test_type="t-test",
+                    code="print('ok')",
+                    outputs="ok",
+                    verdict=VerificationStatus.VERIFIED,
+                )
+            ],
+        ),
+    )
+
+    events: list[tuple[str, int, str, str]] = []
+    bootstrap_meta = {"verifier_status": "not_run"}
+
+    async def emit(stage: str, progress: int, message: str, level: str = "INFO"):
+        events.append((stage, progress, message, level))
+
+    async def is_cancelled() -> bool:
+        return False
+
+    result = asyncio.run(
+        stages.run_verify_stage(
+            job_id="job-cache",
+            doc_artifact=doc,
+            claim_set=claims,
+            artifact_dir=tmp_path,
+            bootstrap_meta=bootstrap_meta,
+            emit=emit,
+            is_cancelled=is_cancelled,
+            write_artifact_model=lambda *_args, **_kwargs: None,
+            write_bootstrap_meta=lambda *_args, **_kwargs: None,
+            stats_agent_cls=ShouldNotRunStatsAgent,
+            stats_profile="deep_verify",
+            stats_schema_version="1.0",
+            stats_cache_dir=cache_dir,
+        )
+    )
+
+    assert result["cancelled"] is False
+    assert result["stats_report"] is not None
+    assert ShouldNotRunStatsAgent.called is False
+    assert bootstrap_meta["verifier_status"] == "cache_hit"
+    assert bootstrap_meta["stats_cache_hit"] is True
+    assert any(progress == 95 and "cache hit" in message.lower() for _, progress, message, _ in events)

@@ -48,6 +48,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["artifact_index_written"] is None
         assert queued_data["artifact_claimset_written"] is None
         assert queued_data["artifact_stats_written"] is None
+        assert queued_data["stats_trigger_reason"] is None
+        assert queued_data["stats_cache_hit"] is None
+        assert queued_data["stats_cache_key"] is None
+        assert queued_data["stats_cache_path"] is None
         assert queued_data["claimset_readiness"] is None
         assert queued_data["claimset_ready"] is None
         assert queued_data["claimset_claim_count"] is None
@@ -161,6 +165,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["artifact_index_written"] = True
         meta["artifact_claimset_written"] = True
         meta["artifact_stats_written"] = False
+        meta["stats_trigger_reason"] = "flag:run_verify"
+        meta["stats_cache_hit"] = False
+        meta["stats_cache_key"] = "abc123"
+        meta["stats_cache_path"] = str(artifact_dir / "stats_cache" / "abc123.json")
         meta["claimset_readiness"] = "ready"
         meta["claimset_ready"] = True
         meta["claimset_claim_count"] = 3
@@ -191,6 +199,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["artifact_index_written"] is True
         assert payload["artifact_claimset_written"] is True
         assert payload["artifact_stats_written"] is False
+        assert payload["stats_trigger_reason"] == "flag:run_verify"
+        assert payload["stats_cache_hit"] is False
+        assert payload["stats_cache_key"] == "abc123"
+        assert payload["stats_cache_path"] == str(artifact_dir / "stats_cache" / "abc123.json")
         assert payload["claimset_readiness"] == "ready"
         assert payload["claimset_ready"] is True
         assert payload["claimset_claim_count"] == 3
@@ -207,6 +219,8 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["artifact_document_written"] is True
         assert meta_resp.json()["claimset_readiness"] == "ready"
         assert meta_resp.json()["claimset_ready"] is True
+        assert meta_resp.json()["stats_trigger_reason"] == "flag:run_verify"
+        assert meta_resp.json()["stats_cache_key"] == "abc123"
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False
