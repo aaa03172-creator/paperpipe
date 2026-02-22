@@ -1,16 +1,16 @@
 # Engineering Health Check - 2026-02-22
 
 ## Snapshot
-- Runtime Python lines (`src` + `backend`): `13,002`
-- Test Python lines (`tests`): `7,014`
-- Test-to-runtime line ratio: `53.9%`
-- Current test status: `210 passed, 1 skipped, 8 warnings`
+- Runtime Python lines (`src` + `backend`): `13,046`
+- Test Python lines (`tests`): `7,535`
+- Test-to-runtime line ratio: `57.8%`
+- Current test status: `222 passed, 1 skipped, 8 warnings`
 
 ## 1) Modularization Status
 Large files (`>500` lines): none at this checkpoint.
 
 Largest runtime modules (current top):
-- `backend/services/job_runner.py` (`463`)
+- `backend/services/job_runner.py` (`492`)
 - `src/processor.py` (`253`)
 - `src/downloader/router.py` (`244`)
 - `src/db.py` (`244`, deprecated compatibility layer)
@@ -41,8 +41,8 @@ Strength:
 - New queue claim tests now protect ordering + single-running constraints.
 
 Gaps to watch:
-- `backend/services/job_runner.py` still has multiple exception branches best covered by failure-path tests.
-- SSE stream behavior (`/jobs/{id}/events`) has light direct coverage relative to operational importance.
+- Full backend integration script path (`scripts/test_phase3_integration.py`) should remain part of merge-gate for worker/API changes.
+- Legacy DB compatibility surface (`src/db.py`) still requires strict import guard discipline.
 
 Action:
 1. Maintain command-level smoke tests for `read/done/deepread`.

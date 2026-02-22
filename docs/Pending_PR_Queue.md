@@ -92,3 +92,14 @@
 - Merge Gate:
   - `tests/test_jobs_queue_schema_recovery.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-BE-JobRunner-StageSplit
+- Title: `refactor(job-runner): extract stage helpers while preserving fail-safe flow`
+- Priority: Medium
+- Purpose: Keep job runner maintainable by splitting repeated stage logic into helpers without behavior change.
+- Scope:
+  - `backend/services/job_runner.py`
+- Merge Gate:
+  - `tests/test_job_runner_failure_paths.py` passes.
+  - `tests/test_worker_job_runner_chain.py` passes.
+  - `pytest -q` full suite passes.
