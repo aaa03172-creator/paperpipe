@@ -23,6 +23,7 @@ class JobQueue:
         clean_reindex: bool = False,
         run_verify: bool = False,
         persona_id: str = "default",
+        run_profile: str | None = None,
     ) -> str:
         """Enqueue a new job for the given paper_id."""
         job_id = str(uuid.uuid4())
@@ -33,6 +34,7 @@ class JobQueue:
             run_id,
             paper_id,
             persona_id,
+            run_profile,
             int(bool(clean_reindex)),
             int(bool(run_verify)),
         )
@@ -44,12 +46,13 @@ class JobQueue:
                     run_id,
                     paper_id,
                     persona_id,
+                    run_profile,
                     clean_reindex,
                     run_verify,
                     status,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
             """, params)
 
         conn = get_db_connection()

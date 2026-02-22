@@ -38,6 +38,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         queued_data = queued.json()
         assert queued_data["status"] == "queued"
         assert queued_data["persona_id"] == "smoke-persona"
+        assert queued_data["run_profile"] is None
         assert queued_data["clean_reindex"] == 0
         assert queued_data["run_verify"] == 1
         assert queued_data["bootstrap_meta_path"] is None
@@ -68,6 +69,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             paper_id: str,
             persona_id: str = "default",
             run_verify: bool = False,
+            run_profile: str | None = None,
             run_id: str = None,
             progress_callback=None,
             cancel_check=None,
@@ -236,6 +238,7 @@ def test_jobs_deepread_persists_clean_reindex_flag(tmp_path, monkeypatch):
         queued = client.get(f"/jobs/{job_id}")
         assert queued.status_code == 200
         assert queued.json()["clean_reindex"] == 1
+        assert queued.json()["run_profile"] is None
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -260,5 +263,34 @@ def test_jobs_api_startup_initializes_jobs_table(tmp_path, monkeypatch):
             payload = resp.json()
             assert payload["status"] == "queued"
             assert payload["job_id"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_persists_run_profile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        resp = client.post(
+            "/jobs/deepread",
+            json={
+                "paper_id": "paper_profile_fast",
+                "clean_reindex": False,
+                "run_verify": False,
+                "persona_id": "default",
+                "run_profile": "fast_ingest",
+            },
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+
+        queued = client.get(f"/jobs/{job_id}")
+        assert queued.status_code == 200
+        assert queued.json()["run_profile"] == "fast_ingest"
     finally:
         db_utils.DB_PATH = original_db_path

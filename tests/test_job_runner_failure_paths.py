@@ -290,3 +290,53 @@ def test_run_deepread_job_not_ready_without_review_queue_flags_manual_action(tmp
     assert meta["claimset_ops_action"] == "manual_review_required"
     assert meta["claimset_ops_alert"] is True
     assert meta["claimset_ops_note"] == "queue_unavailable"
+
+
+def test_run_deepread_job_fast_ingest_skips_reader_and_verify(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "fast_ingest_case"
+    config = _make_config(tmp_path, paper_id)
+    pdf_path = config.paths.library_dir / f"{paper_id}.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    class FakeIngestAgent:
+        def process_v2(self, path: str):
+            return _make_doc_artifact(paper_id, path)
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class FailingReaderAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def analyze(self, doc):
+            raise RuntimeError("reader should not run in fast_ingest")
+
+    monkeypatch.setattr(job_runner_mod, "load_config", lambda: config)
+    monkeypatch.setattr(job_runner_mod, "_load_similar_feedback_top3", lambda query_text, limit=3: [])
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner_mod, "ReaderAgent", FailingReaderAgent)
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job_fast_ingest",
+            paper_id=paper_id,
+            run_id="run_fast_ingest",
+            run_profile="fast_ingest",
+            run_verify=True,  # profile should take precedence
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_fast_ingest"
+    meta_path = artifact_dir / "bootstrap_meta.json"
+    assert meta_path.exists()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["run_profile"] == "fast_ingest"
+    assert meta["run_verify"] is False
+    assert meta["artifact_document_written"] is True
+    assert meta["artifact_index_written"] is True
+    assert meta["artifact_claimset_written"] is False

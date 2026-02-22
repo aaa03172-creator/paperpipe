@@ -136,6 +136,7 @@ def enqueue_job(job_req: JobCreate):
         job_req.clean_reindex,
         job_req.run_verify,
         job_req.persona_id,
+        job_req.run_profile,
     )
     return {"job_id": job_id, "status": "queued"}
 

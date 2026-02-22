@@ -25,6 +25,7 @@ def test_enqueue_recovers_from_legacy_jobs_schema_missing_columns(tmp_path):
         assert job is not None
         assert job.paper_id == "paper_legacy_schema"
         assert job.persona_id == "default"
+        assert job.run_profile is None
         assert job.clean_reindex == 0
         assert job.run_verify == 0
         assert job.status == "queued"

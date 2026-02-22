@@ -283,6 +283,7 @@ async def run_deepread_job(
     paper_id: str,
     persona_id: str = "default",
     run_verify: bool = False,
+    run_profile: str | None = None,
     run_id: str = None,
     progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     cancel_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
@@ -332,6 +333,10 @@ async def run_deepread_job(
         await emit("init", 0, f"Starting Deep Read for {paper_id}")
         
         config = load_config()
+        effective_profile = run_profile or ("deep_verify" if run_verify else "grounded_read")
+        if effective_profile not in {"fast_ingest", "grounded_read", "deep_verify"}:
+            effective_profile = "grounded_read"
+        effective_run_verify = effective_profile == "deep_verify"
         
         # 1. Locate PDF
         await emit("init", 5, "Locating PDF...")
@@ -351,8 +356,10 @@ async def run_deepread_job(
             run_id=run_id,
             paper_id=paper_id,
             persona_id=persona_id,
-            run_verify=run_verify,
+            run_verify=effective_run_verify,
         )
+        bootstrap_meta["run_profile"] = effective_profile
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         
         # 2. Ingest
         doc_artifact = await run_ingest_stage(
@@ -382,6 +389,14 @@ async def run_deepread_job(
         if index_artifact is None:
             return {"status": "cancelled", "run_id": run_id}
 
+        if effective_profile == "fast_ingest":
+            await emit("completed", 100, "Fast ingest completed successfully")
+            if queue:
+                await queue.put(
+                    {"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})}
+                )
+            return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
+
         # 4. Read (Claim Extraction)
         read_result = await run_read_stage(
             paper_id=paper_id,
@@ -408,7 +423,7 @@ async def run_deepread_job(
 
         # 5. Verify (Optional)
         stats_report = None
-        if run_verify:
+        if effective_run_verify:
             verify_result = await run_verify_stage(
                 job_id=job_id,
                 doc_artifact=doc_artifact,

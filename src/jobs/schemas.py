@@ -7,12 +7,14 @@ class JobCreate(BaseModel):
     clean_reindex: bool = False
     run_verify: bool = False
     persona_id: str = "default"
+    run_profile: Optional[Literal["fast_ingest", "grounded_read", "deep_verify"]] = None
 
 class JobStatus(BaseModel):
     job_id: str
     paper_id: Optional[str]
     run_id: Optional[str]
     persona_id: Optional[str]
+    run_profile: Optional[str] = None
     clean_reindex: Optional[int]
     run_verify: Optional[int]
     status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']

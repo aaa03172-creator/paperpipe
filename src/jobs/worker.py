@@ -70,6 +70,7 @@ class Worker:
                     paper_id=job.paper_id,
                     persona_id=job.persona_id or "default",
                     run_verify=bool(job.run_verify),
+                    run_profile=job.run_profile,
                     run_id=job.run_id,
                     progress_callback=on_progress,
                     cancel_check=is_cancelled,
