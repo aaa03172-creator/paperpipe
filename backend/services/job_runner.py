@@ -167,6 +167,110 @@ def _enqueue_needs_reader_followup(paper_id: str, reason: str) -> str:
         if conn is not None:
             conn.close()
 
+
+def _locate_pdf_for_paper(config, paper_id: str) -> Optional[Path]:
+    results = list(config.paths.library_dir.rglob(f"*{paper_id}*.pdf"))
+    if not results and "/" in paper_id:
+        clean_id = paper_id.replace("/", "_")
+        results = list(config.paths.library_dir.rglob(f"*{clean_id}*.pdf"))
+    if not results:
+        return None
+    return results[0]
+
+
+def _build_bootstrap_meta(
+    job_id: str,
+    run_id: str,
+    paper_id: str,
+    persona_id: str,
+    run_verify: bool,
+) -> Dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "run_id": run_id,
+        "paper_id": paper_id,
+        "persona_id": persona_id,
+        "persona_applied": False,
+        "similar_feedback_count": 0,
+        "similar_feedback_paper_ids": [],
+        "run_verify": bool(run_verify),
+        "reader_model": None,
+        "verifier_used": bool(run_verify),
+        "verifier_status": "not_run",
+        "stats_report_written": False,
+        "artifact_document_written": False,
+        "artifact_index_written": False,
+        "artifact_claimset_written": False,
+        "artifact_stats_written": False,
+        "claimset_readiness": "unknown",
+        "claimset_ready": None,
+        "claimset_claim_count": 0,
+        "claimset_readiness_reason": "not_evaluated",
+        "claimset_readiness_badge": "UNKNOWN",
+        "claimset_ops_action": "none",
+        "claimset_ops_alert": False,
+        "claimset_ops_note": "not_evaluated",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _create_artifact_context(
+    job_id: str,
+    run_id: str,
+    paper_id: str,
+    persona_id: str,
+    run_verify: bool,
+) -> tuple[Path, Dict[str, Any]]:
+    artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap_meta = _build_bootstrap_meta(job_id, run_id, paper_id, persona_id, run_verify)
+    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+    return artifact_dir, bootstrap_meta
+
+
+def _write_artifact_model(artifact_dir: Path, filename: str, model_obj: Any) -> None:
+    with open(artifact_dir / filename, "w", encoding="utf-8") as f:
+        f.write(model_obj.model_dump_json(indent=2))
+
+
+def _update_claimset_readiness(bootstrap_meta: Dict[str, Any], paper_id: str, claim_count: int) -> None:
+    bootstrap_meta["claimset_claim_count"] = claim_count
+    if claim_count > 0:
+        bootstrap_meta["claimset_readiness"] = "ready"
+        bootstrap_meta["claimset_ready"] = True
+        bootstrap_meta["claimset_readiness_reason"] = "claims_present"
+        bootstrap_meta["claimset_readiness_badge"] = "READY"
+        bootstrap_meta["claimset_ops_action"] = "none"
+        bootstrap_meta["claimset_ops_alert"] = False
+        bootstrap_meta["claimset_ops_note"] = "ready"
+        return
+
+    bootstrap_meta["claimset_readiness"] = "not_ready"
+    bootstrap_meta["claimset_ready"] = False
+    bootstrap_meta["claimset_readiness_reason"] = "empty_claims"
+    bootstrap_meta["claimset_readiness_badge"] = "NOT_READY"
+    followup = _enqueue_needs_reader_followup(
+        paper_id=paper_id,
+        reason="Runtime claimset empty (claims=0) after reader step",
+    )
+    if followup in {"queued", "already_open"}:
+        bootstrap_meta["claimset_ops_action"] = "manual_review_queued"
+        bootstrap_meta["claimset_ops_alert"] = False
+    else:
+        bootstrap_meta["claimset_ops_action"] = "manual_review_required"
+        bootstrap_meta["claimset_ops_alert"] = True
+    bootstrap_meta["claimset_ops_note"] = followup
+
+
+def _mark_runtime_failure(bootstrap_meta: Dict[str, Any], exc: Exception) -> None:
+    bootstrap_meta["claimset_readiness"] = "unknown"
+    bootstrap_meta["claimset_ready"] = None
+    bootstrap_meta["claimset_readiness_reason"] = "runtime_error"
+    bootstrap_meta["claimset_readiness_badge"] = "UNKNOWN"
+    bootstrap_meta["claimset_ops_action"] = "retry_suggested"
+    bootstrap_meta["claimset_ops_alert"] = True
+    bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(exc).__name__}"
+
 async def run_deepread_job(
     job_id: str,
     paper_id: str,
@@ -223,20 +327,9 @@ async def run_deepread_job(
         config = load_config()
         
         # 1. Locate PDF
-        # Try finding locally in Library first (Mocking DB lookup for now if needed, or using direct path if we have it)
-        # For this MVP, let's assume paper_id is a citekey or we can find it in library
         await emit("init", 5, "Locating PDF...")
-        
-        pdf_path = None
-        # Simple heuristic: Look in Library root or subdirs
-        results = list(config.paths.library_dir.rglob(f"*{paper_id}*.pdf"))
-        # If ID is DOI, clean it
-        if not results and "/" in paper_id:
-             clean_id = paper_id.replace("/", "_")
-             results = list(config.paths.library_dir.rglob(f"*{clean_id}*.pdf"))
-        
-        if results:
-            pdf_path = results[0]
+
+        pdf_path = _locate_pdf_for_paper(config, paper_id)
         
         if not pdf_path or not pdf_path.exists():
             logger.error(f"❌ PDF not found for {paper_id} in {config.paths.library_dir}")
@@ -246,36 +339,13 @@ async def run_deepread_job(
         logger.info(f"✅ Found PDF: {pdf_path}")
 
         # Prepare Artifact Storage
-        artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        bootstrap_meta = {
-            "job_id": job_id,
-            "run_id": run_id,
-            "paper_id": paper_id,
-            "persona_id": persona_id,
-            "persona_applied": False,
-            "similar_feedback_count": 0,
-            "similar_feedback_paper_ids": [],
-            "run_verify": bool(run_verify),
-            "reader_model": None,
-            "verifier_used": bool(run_verify),
-            "verifier_status": "not_run",
-            "stats_report_written": False,
-            "artifact_document_written": False,
-            "artifact_index_written": False,
-            "artifact_claimset_written": False,
-            "artifact_stats_written": False,
-            "claimset_readiness": "unknown",
-            "claimset_ready": None,
-            "claimset_claim_count": 0,
-            "claimset_readiness_reason": "not_evaluated",
-            "claimset_readiness_badge": "UNKNOWN",
-            "claimset_ops_action": "none",
-            "claimset_ops_alert": False,
-            "claimset_ops_note": "not_evaluated",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        artifact_dir, bootstrap_meta = _create_artifact_context(
+            job_id=job_id,
+            run_id=run_id,
+            paper_id=paper_id,
+            persona_id=persona_id,
+            run_verify=run_verify,
+        )
         
         # 2. Ingest
         if await is_cancelled():
@@ -289,8 +359,7 @@ async def run_deepread_job(
              raise Exception("Ingestion failed to produce artifact")
 
         # Save Document Artifact
-        with open(artifact_dir / "document_artifact.json", "w", encoding="utf-8") as f:
-            f.write(doc_artifact.model_dump_json(indent=2))
+        _write_artifact_model(artifact_dir, "document_artifact.json", doc_artifact)
         bootstrap_meta["artifact_document_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
@@ -304,8 +373,7 @@ async def run_deepread_job(
         index_artifact = indexer_agent.process(doc_artifact)
         
         # Save Index Artifact
-        with open(artifact_dir / "index_artifact.json", "w", encoding="utf-8") as f:
-             f.write(index_artifact.model_dump_json(indent=2))
+        _write_artifact_model(artifact_dir, "index_artifact.json", index_artifact)
         bootstrap_meta["artifact_index_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
              
@@ -351,35 +419,10 @@ async def run_deepread_job(
              raise Exception("Reader Agent failed to produce claims")
              
         # Save ClaimSet
-        with open(artifact_dir / "claimset.json", "w", encoding="utf-8") as f:
-            f.write(claim_set.model_dump_json(indent=2))
+        _write_artifact_model(artifact_dir, "claimset.json", claim_set)
         bootstrap_meta["artifact_claimset_written"] = True
         claim_count = len(claim_set.claims)
-        bootstrap_meta["claimset_claim_count"] = claim_count
-        if claim_count > 0:
-            bootstrap_meta["claimset_readiness"] = "ready"
-            bootstrap_meta["claimset_ready"] = True
-            bootstrap_meta["claimset_readiness_reason"] = "claims_present"
-            bootstrap_meta["claimset_readiness_badge"] = "READY"
-            bootstrap_meta["claimset_ops_action"] = "none"
-            bootstrap_meta["claimset_ops_alert"] = False
-            bootstrap_meta["claimset_ops_note"] = "ready"
-        else:
-            bootstrap_meta["claimset_readiness"] = "not_ready"
-            bootstrap_meta["claimset_ready"] = False
-            bootstrap_meta["claimset_readiness_reason"] = "empty_claims"
-            bootstrap_meta["claimset_readiness_badge"] = "NOT_READY"
-            followup = _enqueue_needs_reader_followup(
-                paper_id=paper_id,
-                reason="Runtime claimset empty (claims=0) after reader step",
-            )
-            if followup in {"queued", "already_open"}:
-                bootstrap_meta["claimset_ops_action"] = "manual_review_queued"
-                bootstrap_meta["claimset_ops_alert"] = False
-            else:
-                bootstrap_meta["claimset_ops_action"] = "manual_review_required"
-                bootstrap_meta["claimset_ops_alert"] = True
-            bootstrap_meta["claimset_ops_note"] = followup
+        _update_claimset_readiness(bootstrap_meta, paper_id, claim_count)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
@@ -391,8 +434,6 @@ async def run_deepread_job(
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
                 stats_agent = StatsVerificationAgent()
-                # StatsVerificationAgent.run signature:
-                # run(job_id: str, doc: DocumentArtifact|DocumentArtifactV2, claims: ClaimSet)
                 stats_report = stats_agent.run(
                     job_id=job_id,
                     doc=doc_artifact,
@@ -400,8 +441,7 @@ async def run_deepread_job(
                 )
                 
                 # Save Report
-                with open(artifact_dir / "stats_report.json", "w", encoding="utf-8") as f:
-                    f.write(stats_report.model_dump_json(indent=2))
+                _write_artifact_model(artifact_dir, "stats_report.json", stats_report)
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
                 bootstrap_meta["artifact_stats_written"] = True
@@ -442,22 +482,11 @@ async def run_deepread_job(
         logger.error(f"Job Failed: {e}")
         traceback.print_exc() # Print trace to stdout for debugging
         if artifact_dir is not None and bootstrap_meta is not None:
-            bootstrap_meta["claimset_readiness"] = "unknown"
-            bootstrap_meta["claimset_ready"] = None
-            bootstrap_meta["claimset_readiness_reason"] = "runtime_error"
-            bootstrap_meta["claimset_readiness_badge"] = "UNKNOWN"
-            bootstrap_meta["claimset_ops_action"] = "retry_suggested"
-            bootstrap_meta["claimset_ops_alert"] = True
-            bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
+            _mark_runtime_failure(bootstrap_meta, e)
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         await emit("error", 0, str(e), level="ERROR")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
         return {"status": "failed", "error": str(e), "run_id": run_id}
     finally:
-        # Cleanup queue after short delay to allow client to disconnect?
-        # Actually EventSourceResponse typically handles disconnect.
-        # We might keep the queue for a bit or let it be garbage collected if we remove from dict.
-        # For MVP, we leave it or remove it.
-        # del JOB_QUEUES[job_id] # Keeping it might stream empty?
         pass
