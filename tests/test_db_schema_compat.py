@@ -149,3 +149,28 @@ def test_check_run_exists_returns_false_when_runs_table_missing(tmp_path: Path):
         assert legacy_db.check_run_exists("2026-02-22") is False
     finally:
         legacy_db.DB_PATH = original_db_path
+
+
+def test_log_run_stat_closes_connection_on_exception(monkeypatch):
+    class _FakeConn:
+        def __init__(self):
+            self.closed = False
+            self.committed = False
+
+        def commit(self):
+            self.committed = True
+
+        def close(self):
+            self.closed = True
+
+    conn = _FakeConn()
+    monkeypatch.setattr(legacy_db, "_connect", lambda: conn)
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(legacy_db, "log_run_stat_with_connection", _raise)
+    legacy_db.log_run_stat("p", 1, False)
+
+    assert conn.closed is True
+    assert conn.committed is False

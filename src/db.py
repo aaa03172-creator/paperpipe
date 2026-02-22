@@ -214,13 +214,16 @@ def init_run_stats_table():
 
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool):
     """Log a run statistic."""
+    conn = None
     try:
         conn = _connect()
         log_run_stat_with_connection(conn, profile_id, items_fetched, limit_hit)
         conn.commit()
-        conn.close()
     except Exception as exc:
         print(f"Failed to log run stat: {exc}")
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def get_profile_stats(profile_id: str, days: int = 7):
