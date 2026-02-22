@@ -69,7 +69,7 @@ class Intervention(BaseModel):
     dose_schedule: Optional[str] = None
     duration_weeks: int = 0
     route: Literal["oral", "other", "unknown"] = "unknown"
-    cointerventions: List[str] = []
+    cointerventions: List[str] = Field(default_factory=list)
 
 
 class Comparator(BaseModel):
@@ -81,7 +81,7 @@ class Comparator(BaseModel):
 class KetoneConfirmation(BaseModel):
     measured: bool = False
     metric: Literal["bHB", "acetoacetate", "ketones_unspecified", "unknown"] = "unknown"
-    timepoints: List[str] = []
+    timepoints: List[str] = Field(default_factory=list)
     result_summary: Optional[str] = None
 
 
@@ -99,9 +99,9 @@ class Outcome(BaseModel):
 
 
 class Outcomes(BaseModel):
-    cognition: List[Outcome] = []
-    adl_function: List[Outcome] = []
-    biomarkers: List[Outcome] = []
+    cognition: List[Outcome] = Field(default_factory=list)
+    adl_function: List[Outcome] = Field(default_factory=list)
+    biomarkers: List[Outcome] = Field(default_factory=list)
 
 
 class SafetyAdherence(BaseModel):
@@ -110,7 +110,7 @@ class SafetyAdherence(BaseModel):
     adverse_events_reported: bool = False
     adverse_events_summary: Optional[str] = None
     dropout_n_total: int = 0
-    dropout_reasons: List[str] = []
+    dropout_reasons: List[str] = Field(default_factory=list)
 
 
 class RiskOfBiasHints(BaseModel):
@@ -136,7 +136,7 @@ class EligibilityFlags(BaseModel):
 
 class ExtractionQuality(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
-    missing_fields: List[str] = []
+    missing_fields: List[str] = Field(default_factory=list)
 
 
 class PaperTagging(BaseModel):

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Literal, List
 from datetime import datetime
 
@@ -49,7 +49,7 @@ class JobBootstrapMeta(BaseModel):
     persona_id: Optional[str] = None
     persona_applied: Optional[bool] = None
     similar_feedback_count: Optional[int] = None
-    similar_feedback_paper_ids: List[str] = []
+    similar_feedback_paper_ids: List[str] = Field(default_factory=list)
     run_verify: Optional[bool] = None
     reader_model: Optional[str] = None
     verifier_used: Optional[bool] = None
