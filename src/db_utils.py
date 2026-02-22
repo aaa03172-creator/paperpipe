@@ -4,8 +4,11 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from src.db_bootstrap import (
+    ensure_event_log_tables,
     ensure_jobs_table,
+    ensure_paper_key_column,
     ensure_review_queue_open_unique_index,
+    ensure_runs_table,
 )
 from src.db_paper_ops import (
     get_all_papers_with_connection,
@@ -35,7 +38,16 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+        except sqlite3.OperationalError:
+            pass
         ensure_jobs_table(conn)
+        ensure_runs_table(conn)
+        ensure_event_log_tables(conn)
+        ensure_paper_key_column(conn)
         ensure_review_queue_open_unique_index(conn)
         conn.commit()
     finally:
@@ -45,6 +57,10 @@ def get_db_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 

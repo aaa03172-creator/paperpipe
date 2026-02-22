@@ -22,6 +22,7 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.agents.feedback_retriever import FeedbackRetriever
+from src.core.paper_identity import make_paper_key
 from src.core.evidence_resolver import resolve_claimset_evidence
 from backend.services.stats_runtime import resolve_stats_trigger_for_paper
 from backend.services.job_runner_stages import (
@@ -197,6 +198,7 @@ def _build_bootstrap_meta(
         "job_id": job_id,
         "run_id": run_id,
         "paper_id": paper_id,
+        "paper_key": make_paper_key(paper_id),
         "persona_id": persona_id,
         "persona_applied": False,
         "similar_feedback_count": 0,

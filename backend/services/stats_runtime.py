@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.db_utils import get_db_connection
+from src.db_event_log import log_user_action
 from src.schemas.agent_artifacts import StatsReport
 
 STATS_TRIGGER_TAGS = {"#important", "#action/stats_check"}
@@ -41,6 +42,7 @@ def resolve_stats_trigger_for_paper(
     matched_tags = _load_stats_trigger_tags(paper_id)
     if matched_tags:
         reasons.append("tags:" + ",".join(sorted(matched_tags)))
+        _record_trigger_actions(paper_id, matched_tags)
 
     if not reasons:
         return False, "none"
@@ -160,3 +162,23 @@ def _normalize_tag(raw: Any) -> str | None:
     if not value.startswith("#"):
         value = f"#{value}"
     return value
+
+
+def _record_trigger_actions(paper_id: str, matched_tags: set[str]) -> None:
+    action_map = {
+        "#important": "important",
+        "#action/stats_check": "stats_check",
+    }
+    for tag in matched_tags:
+        action_type = action_map.get(tag)
+        if not action_type:
+            continue
+        try:
+            log_user_action(
+                paper_id=paper_id,
+                action_type=action_type,
+                source="runtime",
+                payload={"tag": tag},
+            )
+        except Exception:
+            continue

@@ -56,6 +56,7 @@ class JobBootstrapMeta(BaseModel):
     job_id: Optional[str] = None
     run_id: Optional[str] = None
     paper_id: Optional[str] = None
+    paper_key: Optional[str] = None
     persona_id: Optional[str] = None
     persona_applied: Optional[bool] = None
     similar_feedback_count: Optional[int] = None
