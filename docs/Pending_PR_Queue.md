@@ -81,3 +81,14 @@
 - Merge Gate:
   - `tests/test_runtime_module_size_guard.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-BE-Queue-Legacy-Recovery
+- Title: `fix(jobs): auto-recover enqueue against legacy column-missing schema`
+- Priority: Medium
+- Purpose: Allow enqueue to self-heal when jobs table exists but lacks newer columns (migration drift).
+- Scope:
+  - `src/jobs/queue.py`
+  - `tests/test_jobs_queue_schema_recovery.py`
+- Merge Gate:
+  - `tests/test_jobs_queue_schema_recovery.py` passes.
+  - `pytest -q` full suite passes.
