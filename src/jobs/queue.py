@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from src.db_utils import get_db_connection
+from src.db_utils import get_db_connection, init_db
 from src.jobs.schemas import JobStatus
 
 logger = logging.getLogger(__name__)
@@ -27,13 +27,43 @@ class JobQueue:
         """Enqueue a new job for the given paper_id."""
         job_id = str(uuid.uuid4())
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+
+        params = (
+            job_id,
+            run_id,
+            paper_id,
+            persona_id,
+            int(bool(clean_reindex)),
+            int(bool(run_verify)),
+        )
+
+        def _insert(connection):
+            connection.execute("""
+                INSERT INTO jobs (
+                    job_id,
+                    run_id,
+                    paper_id,
+                    persona_id,
+                    clean_reindex,
+                    run_verify,
+                    status,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
+            """, params)
+
         conn = get_db_connection()
         try:
-            conn.execute("""
-                INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
-            """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify))))
+            try:
+                _insert(conn)
+            except sqlite3.OperationalError as exc:
+                err = str(exc)
+                if "no such table: jobs" not in err and "no such column: clean_reindex" not in err:
+                    raise
+                conn.close()
+                init_db()
+                conn = get_db_connection()
+                _insert(conn)
             conn.commit()
             logger.info(f"Enqueued job {job_id} for paper {paper_id}")
             return job_id

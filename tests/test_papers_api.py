@@ -85,3 +85,32 @@ def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypa
         assert by_id["p_has_pdf"]["pdf_exists"] is True
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_papers_list_returns_empty_when_papers_table_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        resp = client.get("/papers")
+        assert resp.status_code == 200
+        assert resp.json() == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_paper_detail_returns_404_when_papers_table_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        resp = client.get("/papers/missing")
+        assert resp.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path

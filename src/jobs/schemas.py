@@ -13,6 +13,7 @@ class JobStatus(BaseModel):
     paper_id: Optional[str]
     run_id: Optional[str]
     persona_id: Optional[str]
+    clean_reindex: Optional[int]
     run_verify: Optional[int]
     status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']
     progress: int

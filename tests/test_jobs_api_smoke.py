@@ -38,6 +38,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         queued_data = queued.json()
         assert queued_data["status"] == "queued"
         assert queued_data["persona_id"] == "smoke-persona"
+        assert queued_data["clean_reindex"] == 0
         assert queued_data["run_verify"] == 1
         assert queued_data["bootstrap_meta_path"] is None
         assert queued_data["similar_feedback_count"] is None
@@ -207,5 +208,57 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_persists_clean_reindex_flag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        resp = client.post(
+            "/jobs/deepread",
+            json={
+                "paper_id": "paper_clean_reindex_true",
+                "clean_reindex": True,
+                "run_verify": False,
+                "persona_id": "default",
+            },
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+
+        queued = client.get(f"/jobs/{job_id}")
+        assert queued.status_code == 200
+        assert queued.json()["clean_reindex"] == 1
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_api_startup_initializes_jobs_table(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        with TestClient(api_main.app) as client:
+            resp = client.post(
+                "/jobs/deepread",
+                json={
+                    "paper_id": "paper_startup_init",
+                    "clean_reindex": False,
+                    "run_verify": False,
+                    "persona_id": "default",
+                },
+            )
+            assert resp.status_code == 200
+            payload = resp.json()
+            assert payload["status"] == "queued"
+            assert payload["job_id"]
     finally:
         db_utils.DB_PATH = original_db_path

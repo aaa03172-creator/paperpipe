@@ -4,14 +4,23 @@ from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
 import os
+import sqlite3
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
 from .routers import obsidian, feedback
 
-app = FastAPI(title="PaperPipe API", version="3.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="PaperPipe API", version="3.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,6 +83,15 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
         }
     )
 
+
+def _enrich_pdf_flags(item: dict) -> dict:
+    pdf_path = item.get("pdf_path")
+    pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
+    item["pdf_exists"] = pdf_exists
+    if not pdf_exists and pdf_path:
+        item["pdf_status"] = "missing"
+    return item
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
@@ -81,35 +99,35 @@ def health_check():
 @app.get("/papers")
 def list_papers():
     conn = get_db_connection()
-    papers = conn.execute("SELECT * FROM papers ORDER BY updated_at DESC LIMIT 50").fetchall()
-    conn.close()
+    try:
+        papers = conn.execute("SELECT * FROM papers ORDER BY updated_at DESC LIMIT 50").fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table: papers" in str(exc):
+            return []
+        raise
+    finally:
+        conn.close()
+
     out = []
     for p in papers:
-        item = dict(p)
-        pdf_path = item.get("pdf_path")
-        pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
-        item["pdf_exists"] = pdf_exists
-        if not pdf_exists and pdf_path:
-            item["pdf_status"] = "missing"
-        out.append(item)
+        out.append(_enrich_pdf_flags(dict(p)))
     return out
 
 
 @app.get("/papers/{paper_id}")
 def get_paper(paper_id: str):
     conn = get_db_connection()
-    row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
-    conn.close()
+    try:
+        row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table: papers" in str(exc):
+            raise HTTPException(status_code=404, detail="Paper not found")
+        raise
+    finally:
+        conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
-
-    item = dict(row)
-    pdf_path = item.get("pdf_path")
-    pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
-    item["pdf_exists"] = pdf_exists
-    if not pdf_exists and pdf_path:
-        item["pdf_status"] = "missing"
-    return item
+    return _enrich_pdf_flags(dict(row))
 
 @app.post("/jobs/deepread", response_model=dict)
 def enqueue_job(job_req: JobCreate):
