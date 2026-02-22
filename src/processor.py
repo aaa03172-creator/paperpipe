@@ -149,14 +149,22 @@ class PaperProcessor:
         success = 0
         failure = 0
         for paper_row in papers:
-            if not paper_row: continue
-            pid = paper_row['paper_id']
+            if not paper_row:
+                continue
+            pid = str(paper_row.get("paper_id") or "")
             try:
                 handler(paper_row)
                 success += 1
             except Exception as e:
-                logger.error(f"❌ Error processing {pid} in {handler.__name__}: {e}", exc_info=True)
-                update_paper_status(pid, STATE_FAILED, {"feedback_json": f"Error: {str(e)}"})
+                id_for_log = pid or "<missing-paper-id>"
+                logger.error(f"❌ Error processing {id_for_log} in {handler.__name__}: {e}", exc_info=True)
+                if pid:
+                    update_paper_status(pid, STATE_FAILED, {"feedback_json": f"Error: {str(e)}"})
+                else:
+                    logger.error(
+                        "❌ Cannot update FAILED status: row is missing paper_id. row=%s",
+                        paper_row,
+                    )
                 failure += 1
         return success, failure
 

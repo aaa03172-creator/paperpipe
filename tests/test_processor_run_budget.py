@@ -52,3 +52,31 @@ def test_run_consumes_budget_on_mixed_results(monkeypatch):
     processor.run(batch_size=2)
 
     assert calls["count"] == 1
+
+
+def test_process_step_missing_paper_id_is_isolated(monkeypatch):
+    processor = _make_processor(monkeypatch)
+
+    recorded = {"calls": 0}
+
+    def _handler(_row):
+        recorded["calls"] += 1
+        raise RuntimeError("handler failed")
+
+    rows = [
+        {"title": "missing id row"},
+        {"paper_id": "p2", "title": "valid row"},
+    ]
+
+    status_updates = []
+    monkeypatch.setattr(
+        "src.processor.update_paper_status",
+        lambda paper_id, *_args, **_kwargs: status_updates.append(paper_id),
+    )
+
+    success, failure = processor._process_step(rows, _handler)
+
+    assert success == 0
+    assert failure == 2
+    assert recorded["calls"] == 2
+    assert status_updates == ["p2"]
