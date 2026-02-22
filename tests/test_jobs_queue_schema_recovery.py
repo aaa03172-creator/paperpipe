@@ -12,19 +12,7 @@ def test_enqueue_recovers_from_legacy_jobs_schema_missing_columns(tmp_path):
         conn.execute(
             """
             CREATE TABLE jobs (
-                job_id TEXT PRIMARY KEY,
-                run_id TEXT,
-                paper_id TEXT,
-                status TEXT DEFAULT 'queued',
-                progress INTEGER DEFAULT 0,
-                stage TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                started_at TIMESTAMP,
-                finished_at TIMESTAMP,
-                artifact_dir TEXT,
-                log_path TEXT,
-                error_code TEXT,
-                error_message TEXT
+                job_id TEXT PRIMARY KEY
             )
             """
         )
@@ -40,5 +28,7 @@ def test_enqueue_recovers_from_legacy_jobs_schema_missing_columns(tmp_path):
         assert job.clean_reindex == 0
         assert job.run_verify == 0
         assert job.status == "queued"
+        assert job.progress == 0
+        assert job.created_at is not None
     finally:
         db_utils.DB_PATH = original_db_path

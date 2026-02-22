@@ -87,6 +87,7 @@
 - Priority: Medium
 - Purpose: Allow enqueue to self-heal when jobs table exists but lacks newer columns (migration drift).
 - Scope:
+  - `src/db_bootstrap.py`
   - `src/jobs/queue.py`
   - `tests/test_jobs_queue_schema_recovery.py`
 - Merge Gate:
