@@ -16,6 +16,12 @@ DEFAULT_IGNORED_DUPLICATE_NAMES = {
     "_initialize",
     "_make_request",
     "get_embedding",
+    "init_run_stats_table",
+    "log_run_stat",
+    "get_profile_stats",
+    "get_db_connection",
+    "init_db",
+    "update_paper_status",
 }
 
 
