@@ -1,9 +1,26 @@
-import sqlite3
+from __future__ import annotations
+
 import json
+import sqlite3
 import warnings
 from datetime import datetime
 from pathlib import Path
 
+from src.db_paper_ops import (
+    get_all_papers_with_connection,
+    get_paper_by_id_with_connection,
+    get_paper_columns,
+    is_paper_processed_with_connection,
+    mark_as_retracted_with_connection,
+    paper_lookup_conditions,
+    save_paper_state_with_connection,
+    update_reading_status_with_connection,
+)
+from src.db_run_stats import (
+    get_profile_stats as get_profile_stats_with_connection,
+    init_run_stats_table as init_run_stats_table_with_connection,
+    log_run_stat as log_run_stat_with_connection,
+)
 from src.db_utils import DB_PATH as CANONICAL_DB_PATH
 
 DB_PATH = CANONICAL_DB_PATH
@@ -28,26 +45,17 @@ def _connect() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH)
 
 
-def _paper_columns(cursor: sqlite3.Cursor) -> set[str]:
-    cursor.execute("PRAGMA table_info(papers)")
-    return {row[1] for row in cursor.fetchall()}
+def get_db_connection() -> sqlite3.Connection:
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    return conn
 
-
-def _paper_lookup_conditions(columns: set[str]) -> list[str]:
-    conditions: list[str] = []
-    if "paper_id" in columns:
-        conditions.append("paper_id = ?")
-    if "doi" in columns:
-        conditions.append("doi = ?")
-    return conditions
 
 def init_db():
-    """데이터베이스 및 테이블 초기화"""
+    """레거시 초기화 진입점(정식 init은 scripts.init_db + src.db_utils)."""
     from scripts import init_db as init_core_module
     import src.db_utils as db_utils_module
 
-    # Canonical bootstrap first (papers/review_queue/jobs).
-    # Keep DB_PATH aligned for tests/custom DB targets.
     original_core_path = init_core_module.DB_PATH
     original_utils_path = db_utils_module.DB_PATH
     try:
@@ -61,74 +69,61 @@ def init_db():
 
     conn = _connect()
     c = conn.cursor()
-    # 실행 기록 테이블
-    c.execute('''
+    c.execute(
+        '''
         CREATE TABLE IF NOT EXISTS runs (
             date TEXT PRIMARY KEY,
             status TEXT,
             processed_count INTEGER,
             last_run_at TIMESTAMP
         )
-    ''')
-    # [NEW] Vector Embeddings Table
-    c.execute('''
+        '''
+    )
+    c.execute(
+        '''
         CREATE TABLE IF NOT EXISTS embeddings (
             doi TEXT PRIMARY KEY,
             vector TEXT,
             updated_at TIMESTAMP
         )
-    ''')
-    
-    
-    # [Migration] Add is_retracted column if not exists (for existing DBs)
+        '''
+    )
+
     try:
         c.execute("ALTER TABLE papers ADD COLUMN is_retracted BOOLEAN DEFAULT 0")
     except sqlite3.OperationalError:
-        pass # Column already exists
-
-    # [Migration] Add reading_status column if not exists
+        pass
     try:
         c.execute("ALTER TABLE papers ADD COLUMN reading_status TEXT DEFAULT 'Inbox'")
     except sqlite3.OperationalError:
-        pass # Column already exists
-
-    # [Migration] Add processed_date for legacy callers
+        pass
     try:
         c.execute("ALTER TABLE papers ADD COLUMN processed_date TEXT")
     except sqlite3.OperationalError:
-        pass # Column already exists
-        
-    init_run_stats_table() # [Milestone 4.5]
+        pass
+
+    init_run_stats_table_with_connection(conn)
     conn.commit()
     conn.close()
 
+
 def update_paper_status(identifier: str, status: str):
-    """논문 읽기 상태 업데이트 (Inbox -> Reading -> Done)"""
+    """논문 읽기 상태 업데이트(Inbox -> Reading -> Done)."""
     conn = _connect()
-    c = conn.cursor()
     try:
-        columns = _paper_columns(c)
-        conditions = _paper_lookup_conditions(columns)
-        if not conditions:
-            return
-        params = [status] + [identifier] * len(conditions)
-        c.execute(
-            f"UPDATE papers SET reading_status = ? WHERE {' OR '.join(conditions)}",
-            params,
-        )
+        update_reading_status_with_connection(conn, identifier, status)
         conn.commit()
-    except Exception as e:
-        print(f"DB Status Update Error: {e}")
     finally:
         conn.close()
 
+
 def get_paper_status(identifier: str) -> str:
-    """논문의 현재 상태 조회"""
+    """논문의 현재 reading_status 조회."""
     conn = _connect()
     c = conn.cursor()
     try:
-        columns = _paper_columns(c)
-        conditions = _paper_lookup_conditions(columns)
+        columns = get_paper_columns(c)
+        conditions = paper_lookup_conditions(columns)
         if not conditions:
             return "Inbox"
         params = [identifier] * len(conditions)
@@ -141,8 +136,9 @@ def get_paper_status(identifier: str) -> str:
     finally:
         conn.close()
 
+
 def check_run_exists(target_date: str) -> bool:
-    """특정 날짜에 이미 실행했는지 확인"""
+    """특정 날짜에 이미 성공 실행했는지 확인."""
     conn = _connect()
     c = conn.cursor()
     c.execute("SELECT status FROM runs WHERE date = ? AND status = 'SUCCESS'", (target_date,))
@@ -150,260 +146,127 @@ def check_run_exists(target_date: str) -> bool:
     conn.close()
     return result is not None
 
-def is_paper_processed(identifier: str) -> bool:
-    """이미 처리된 논문인지(중복) 확인"""
-    if not identifier:
-        return False
-    conn = _connect()
-    c = conn.cursor()
-    try:
-        columns = _paper_columns(c)
-        conditions = _paper_lookup_conditions(columns)
-        if not conditions:
-            return False
-        params = [identifier] * len(conditions)
-        c.execute(
-            f"SELECT 1 FROM papers WHERE {' OR '.join(conditions)} LIMIT 1",
-            params,
-        )
-        result = c.fetchone()
-        return result is not None
-    finally:
-        conn.close()
 
-def get_all_papers() -> list:
-    """DB에 저장된 모든 논문의 DOI와 제목 반환"""
+def is_paper_processed(identifier: str) -> bool:
+    """이미 처리된 논문인지(중복) 확인."""
     conn = _connect()
     conn.row_factory = sqlite3.Row
-    c = conn.cursor()
     try:
-        columns = _paper_columns(c)
-        doi_expr = "doi" if "doi" in columns else "NULL AS doi"
-        title_expr = "title" if "title" in columns else "NULL AS title"
-        retract_expr = "is_retracted" if "is_retracted" in columns else "0 AS is_retracted"
-        c.execute(f"SELECT {doi_expr}, {title_expr}, {retract_expr} FROM papers")
-        rows = c.fetchall()
-        return [dict(row) for row in rows]
+        return is_paper_processed_with_connection(conn, identifier)
     finally:
         conn.close()
+
+
+def get_all_papers() -> list:
+    """DB에 저장된 모든 논문의 DOI/제목/철회여부 반환."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        return get_all_papers_with_connection(conn)
+    finally:
+        conn.close()
+
 
 def mark_as_retracted(identifier: str):
-    """논문을 철회된 것으로 표시"""
+    """논문을 철회된 것으로 표시."""
     conn = _connect()
-    c = conn.cursor()
+    conn.row_factory = sqlite3.Row
     try:
-        columns = _paper_columns(c)
-        if "is_retracted" not in columns:
-            try:
-                c.execute("ALTER TABLE papers ADD COLUMN is_retracted BOOLEAN DEFAULT 0")
-                columns.add("is_retracted")
-            except sqlite3.OperationalError:
-                pass
-        conditions = _paper_lookup_conditions(columns)
-        if not conditions:
-            return
-        params = [identifier] * len(conditions)
-        c.execute(
-            f"UPDATE papers SET is_retracted = 1 WHERE {' OR '.join(conditions)}",
-            params,
-        )
+        mark_as_retracted_with_connection(conn, identifier)
         conn.commit()
     finally:
         conn.close()
+
 
 def save_paper_state(identifier: str, title: str, source: str, processed_date: str):
-    """처리완료된 논문을 DB에 기록"""
+    """처리완료된 논문을 DB에 기록."""
     conn = _connect()
-    c = conn.cursor()
+    conn.row_factory = sqlite3.Row
     try:
-        columns = _paper_columns(c)
-        if not columns:
-            return
-
-        insert_cols: list[str] = []
-        insert_vals: list[object] = []
-        update_set: list[str] = []
-
-        if "paper_id" in columns:
-            insert_cols.append("paper_id")
-            insert_vals.append(identifier)
-            update_set.append("paper_id=excluded.paper_id")
-        if "doi" in columns:
-            insert_cols.append("doi")
-            insert_vals.append(identifier)
-            update_set.append("doi=excluded.doi")
-        if "title" in columns:
-            insert_cols.append("title")
-            insert_vals.append(title)
-            update_set.append("title=excluded.title")
-        if "source" in columns:
-            insert_cols.append("source")
-            insert_vals.append(source)
-            update_set.append("source=excluded.source")
-        if "processed_date" in columns:
-            insert_cols.append("processed_date")
-            insert_vals.append(processed_date)
-            update_set.append("processed_date=excluded.processed_date")
-        if "processed_at" in columns:
-            insert_cols.append("processed_at")
-            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            update_set.append("processed_at=excluded.processed_at")
-        if "updated_at" in columns:
-            insert_cols.append("updated_at")
-            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            update_set.append("updated_at=excluded.updated_at")
-        if "is_retracted" in columns:
-            insert_cols.append("is_retracted")
-            insert_vals.append(0)
-            update_set.append("is_retracted=COALESCE(papers.is_retracted, 0)")
-
-        if not insert_cols:
-            return
-
-        placeholders = ",".join("?" for _ in insert_cols)
-        conflict_target = None
-        if "paper_id" in columns:
-            conflict_target = "paper_id"
-        elif "doi" in columns:
-            conflict_target = "doi"
-
-        if conflict_target:
-            sql = (
-                f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders}) "
-                f"ON CONFLICT({conflict_target}) DO UPDATE SET {', '.join(update_set)}"
-            )
-            c.execute(sql, tuple(insert_vals))
-        else:
-            sql = f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})"
-            c.execute(sql, tuple(insert_vals))
+        save_paper_state_with_connection(conn, identifier, title, source, processed_date)
         conn.commit()
-    except Exception as e:
-        print(f"DB Error: {e}")
     finally:
         conn.close()
 
+
 def save_embedding(doi: str, vector: list):
-    """벡터 임베딩 저장"""
-    if not doi or not vector: return
+    """벡터 임베딩 저장."""
+    if not doi or not vector:
+        return
     conn = _connect()
     c = conn.cursor()
     try:
         vector_json = json.dumps(vector)
-        c.execute("""
+        c.execute(
+            """
             INSERT INTO embeddings (doi, vector, updated_at)
             VALUES (?, ?, ?)
             ON CONFLICT(doi) DO UPDATE SET
                 vector=excluded.vector,
                 updated_at=excluded.updated_at
-        """, (doi, vector_json, datetime.now()))
+            """,
+            (doi, vector_json, datetime.now()),
+        )
         conn.commit()
-    except Exception as e:
-        print(f"DB Embedding Error: {e}")
+    except Exception as exc:
+        print(f"DB Embedding Error: {exc}")
     finally:
         conn.close()
 
+
 def get_all_embeddings() -> dict:
-    """모든 벡터 임베딩 로드 (Smart Linking용)"""
+    """모든 벡터 임베딩 로드 (Smart Linking용)."""
     conn = _connect()
     c = conn.cursor()
     try:
         c.execute("SELECT doi, vector FROM embeddings")
         rows = c.fetchall()
         result = {}
-        for r in rows:
+        for row in rows:
             try:
-                result[r[0]] = json.loads(r[1])
-            except:
+                result[row[0]] = json.loads(row[1])
+            except Exception:
                 pass
         return result
-    except Exception as e:
-        print(f"DB Load Embedding Error: {e}")
+    except Exception as exc:
+        print(f"DB Load Embedding Error: {exc}")
         return {}
     finally:
         conn.close()
 
+
 def init_run_stats_table():
-    """Initialize the run_stats table for performance auditing."""
+    """Initialize run_stats table for performance auditing."""
     conn = _connect()
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS run_stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            profile_id TEXT NOT NULL,
-            items_fetched INTEGER DEFAULT 0,
-            limit_hit BOOLEAN DEFAULT 0
-        )
-    ''')
+    init_run_stats_table_with_connection(conn)
     conn.commit()
     conn.close()
+
 
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool):
     """Log a run statistic."""
     try:
         conn = _connect()
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO run_stats (profile_id, items_fetched, limit_hit)
-            VALUES (?, ?, ?)
-        ''', (profile_id, items_fetched, int(limit_hit)))
+        log_run_stat_with_connection(conn, profile_id, items_fetched, limit_hit)
         conn.commit()
         conn.close()
-    except Exception as e:
-        print(f"Failed to log run stat: {e}")
+    except Exception as exc:
+        print(f"Failed to log run stat: {exc}")
+
 
 def get_profile_stats(profile_id: str, days: int = 7):
     """Get stats for a profile over the last N days."""
-    conn = _connect()
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    
-    # Calculate date threshold
-    import datetime
-    threshold = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-    
-    c.execute('''
-        SELECT * FROM run_stats 
-        WHERE profile_id = ? AND timestamp >= ?
-        ORDER BY timestamp DESC
-    ''', (profile_id, threshold))
-    
-    rows = c.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-def get_paper_by_id(identifier: str) -> dict:
-    """
-    Retrieve paper details by internal ID (timestamp_hash) or DOI.
-    Useful for looking up local paths or metadata.
-    """
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-
     try:
-        c.execute("PRAGMA table_info(papers)")
-        columns = {row[1] for row in c.fetchall()}
-
-        lookup_order = []
-        if "paper_id" in columns:
-            lookup_order.append("paper_id")
-        if "id" in columns:
-            lookup_order.append("id")
-        if "doi" in columns:
-            lookup_order.append("doi")
-
-        for col in lookup_order:
-            c.execute(f"SELECT * FROM papers WHERE {col} = ?", (identifier,))
-            row = c.fetchone()
-            if row:
-                return dict(row)
-        return None
+        return get_profile_stats_with_connection(conn, profile_id, days=days)
     finally:
         conn.close()
 
 
-def get_db_connection() -> sqlite3.Connection:
-    conn = _connect()
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_paper_by_id(identifier: str) -> dict:
+    """Retrieve paper details by internal ID(paper_id/id) or DOI."""
+    conn = get_db_connection()
+    try:
+        return get_paper_by_id_with_connection(conn, identifier)
+    finally:
+        conn.close()
