@@ -11,6 +11,7 @@ from src.config import AppConfig
 from src.downloader.providers.base import DownloadProvider, DownloadResult
 from src.downloader.providers.base import DownloadCandidate
 from src.downloader.providers.direct import DirectLinkProvider
+from src.downloader.router_io import download_pdf_file, download_with_rate_limit_retries
 from src.downloader.providers.unpaywall import UnpaywallProvider
 from src.downloader.router_support import (
     ProviderHttpPolicy,
@@ -202,38 +203,19 @@ class DownloadRouter:
         paper_id: str,
         attempts: list[DownloadAttempt],
     ) -> bool:
-        retry_count = 0
-        while True:
-            try:
-                return self._download_file(url, filepath, provider_name=provider_name)
-            except requests.exceptions.HTTPError as exc:
-                fail_status = self._map_http_failure(exc)
-                can_retry = fail_status == DownloadFailure.RATE_LIMIT and retry_count < self.max_rate_limit_retries
-                attempts.append(
-                    DownloadAttempt(
-                        provider=provider_name,
-                        status=fail_status,
-                        candidate_url=url,
-                        message=str(exc),
-                        retry_no=retry_count,
-                        will_retry=can_retry,
-                    )
-                )
-                if can_retry:
-                    delay_seconds = self.rate_limit_backoff_seconds * (2**retry_count)
-                    logger.warning(
-                        "[%s] Rate limited via %s. Retrying in %.2fs (retry %s/%s).",
-                        paper_id,
-                        provider_name,
-                        delay_seconds,
-                        retry_count + 1,
-                        self.max_rate_limit_retries,
-                    )
-                    retry_count += 1
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
-                    continue
-                raise
+        return download_with_rate_limit_retries(
+            url=url,
+            filepath=filepath,
+            provider_name=provider_name,
+            paper_id=paper_id,
+            attempts=attempts,
+            max_rate_limit_retries=self.max_rate_limit_retries,
+            rate_limit_backoff_seconds=self.rate_limit_backoff_seconds,
+            download_file_fn=lambda u, f, p: self._download_file(u, f, provider_name=p),
+            map_http_failure_fn=self._map_http_failure,
+            logger=logger,
+            sleep_fn=time.sleep,
+        )
 
     def _map_http_failure(self, error: requests.exceptions.HTTPError) -> DownloadFailure:
         return map_http_failure(error)
@@ -242,33 +224,8 @@ class DownloadRouter:
         return self._provider_policies.get(provider_name, ProviderHttpPolicy())
 
     def _download_file(self, url: str, filepath: Path, provider_name: str = "unknown") -> bool:
-        """Download URL in streaming mode and validate content type + PDF header."""
         policy = self._policy_for_provider(provider_name)
-        response = requests.get(
-            url,
-            stream=True,
-            timeout=policy.timeout_seconds,
-            headers=policy.headers,
-        )
-        response.raise_for_status()
-
-        content_type = response.headers.get("Content-Type", "").lower()
-        if "text/html" in content_type:
-            logger.warning("Downloaded content is HTML, not PDF (likely paywall/login page): %s", url)
-            return False
-
-        with filepath.open("wb") as file_handle:
-            for chunk in response.iter_content(chunk_size=8192):
-                file_handle.write(chunk)
-
-        with filepath.open("rb") as file_handle:
-            header = file_handle.read(4)
-            if header != b"%PDF":
-                logger.warning("File magic bytes indicate invalid PDF (%s) at %s", header, filepath)
-                filepath.unlink(missing_ok=True)
-                return False
-
-        return True
+        return download_pdf_file(url=url, filepath=filepath, policy=policy, logger=logger)
 
 
 def download_paper(paper: Paper, config: AppConfig) -> Paper:
