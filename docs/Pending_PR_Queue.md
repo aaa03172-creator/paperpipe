@@ -15,6 +15,7 @@
 - `PR-BE-Stats-Trigger-v1`
 - `PR-BE-Observability-Rollup`
 - `PR-BE-V2-Identity-EventLog`
+- `PR-BE-EventWriter-Buffered`
 
 ## PR-DOC-Blueprint-v2
 - Title: `docs(blueprint): review and promote pragmatic blueprint v2`
@@ -38,18 +39,6 @@
   - Runtime bootstrap includes paper_key backfill and event tables.
   - Worker lifecycle emits event logs without breaking fail-safe path.
   - `pytest -q` full suite green.
-
-## PR-BE-EventWriter-Buffered
-- Title: `perf(event-log): buffered writer for job_events`
-- Priority: Medium
-- Purpose: Replace per-event direct writes with buffered batch inserts to reduce lock/contention.
-- Scope (expected):
-  - `src/db_event_log.py` (or dedicated writer module)
-  - worker event logging call-site
-  - tests for flush/retry behavior
-- Merge Gate:
-  - Event loss prevention on graceful shutdown.
-  - Full regression green.
 
 ## PR-BE-ArtifactPath-PaperKey
 - Title: `refactor(artifacts): migrate path key from paper_id to paper_key`

@@ -33,9 +33,9 @@
     - deterministic `paper_key` column/backfill in `papers`
     - `runs` schema extension + `job_events` / `user_actions` ensure
     - runtime event instrumentation hooks from worker/progress paths
+  - `job_events` buffered writer with batch flush hooks in worker lifecycle.
 - Missing or conflicting with v2 (not yet adopted):
   - Artifact path still uses `storage/artifacts/{paper_id}/{run_id}` (paper_key path migration pending).
-  - Event writer is per-event write; buffered/batch writer is not implemented.
 
 ## Decision Gate (Before v2 Adoption)
 1. Confirm whether v2 (`PR-H0..H2`) replaces v1 (`PR-0..PR-4`) as SSOT execution order.
@@ -46,5 +46,4 @@
 
 ## Recommended Next Execution Order (Current Safe Path)
 1. Keep current refactor line (done): worker/job_runner modular hardening.
-2. Implement buffered event writer (`job_events`) to reduce write overhead and lock contention.
-3. Migrate artifact storage path from `{paper_id}` to `{paper_key}` with compatibility fallback.
+2. Migrate artifact storage path from `{paper_id}` to `{paper_key}` with compatibility fallback.
