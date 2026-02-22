@@ -124,11 +124,16 @@ def get_paper_status(identifier: str) -> str:
 def check_run_exists(target_date: str) -> bool:
     """특정 날짜에 이미 성공 실행했는지 확인."""
     conn = _connect()
-    c = conn.cursor()
-    c.execute("SELECT status FROM runs WHERE date = ? AND status = 'SUCCESS'", (target_date,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
+    try:
+        c = conn.cursor()
+        try:
+            c.execute("SELECT status FROM runs WHERE date = ? AND status = 'SUCCESS'", (target_date,))
+            result = c.fetchone()
+            return result is not None
+        except sqlite3.OperationalError:
+            return False
+    finally:
+        conn.close()
 
 
 def is_paper_processed(identifier: str) -> bool:

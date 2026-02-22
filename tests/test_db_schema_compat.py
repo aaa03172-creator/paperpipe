@@ -126,3 +126,23 @@ def test_init_db_bootstraps_canonical_tables(tmp_path: Path):
         assert "embeddings" in tables
     finally:
         legacy_db.DB_PATH = original_db_path
+
+
+def test_check_run_exists_returns_false_when_runs_table_missing(tmp_path: Path):
+    original_db_path = legacy_db.DB_PATH
+    legacy_db.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        assert legacy_db.check_run_exists("2026-02-22") is False
+    finally:
+        legacy_db.DB_PATH = original_db_path
