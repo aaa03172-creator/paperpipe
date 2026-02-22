@@ -13,6 +13,30 @@ pytestmark = pytest.mark.skipif(
     reason="Set RUN_PHASE3_INTEGRATION=1 to run live API/worker integration test.",
 )
 
+
+def _wait_for_health(api_url: str, timeout_seconds: int = 20, interval_seconds: float = 0.5) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            resp = requests.get(f"{api_url}/health", timeout=2)
+            if resp.status_code == 200:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(interval_seconds)
+    return False
+
+
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def test_api_worker_integration():
     print("🚀 Starting Integration Test...")
     
@@ -25,16 +49,32 @@ def test_api_worker_integration():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    time.sleep(3) # Wait for server
+    if not _wait_for_health(API_URL, timeout_seconds=30):
+        stderr_output = ""
+        if server_proc.stderr:
+            try:
+                stderr_output = server_proc.stderr.read().decode("utf-8", errors="replace")
+            except Exception:
+                stderr_output = "<unable to read server stderr>"
+        _terminate_process(server_proc)
+        raise RuntimeError(
+            "Backend failed to become healthy at /health within timeout.\n"
+            f"Server stderr:\n{stderr_output}"
+        )
     
+    worker_proc = None
     try:
         # 2. Check Health
-        resp = requests.get(f"{API_URL}/health")
+        resp = requests.get(f"{API_URL}/health", timeout=3)
         assert resp.status_code == 200
         print("✅ API Health OK")
         
         # 3. Enqueue Job
-        resp = requests.post(f"{API_URL}/jobs/deepread", json={"paper_id": "test_paper_001", "clean_reindex": True})
+        resp = requests.post(
+            f"{API_URL}/jobs/deepread",
+            json={"paper_id": "test_paper_001", "clean_reindex": True},
+            timeout=5,
+        )
         assert resp.status_code == 200
         job_id = resp.json()["job_id"]
         print(f"✅ Job Enqueued: {job_id}")
@@ -49,7 +89,7 @@ def test_api_worker_integration():
         
         # 5. Poll Status
         for _ in range(15):
-            resp = requests.get(f"{API_URL}/jobs/{job_id}")
+            resp = requests.get(f"{API_URL}/jobs/{job_id}", timeout=3)
             status = resp.json()
             print(f"   Status: {status['status']} | Progress: {status['progress']}%")
             
@@ -64,11 +104,9 @@ def test_api_worker_integration():
             print("❌ Timeout waiting for job completion")
             
     finally:
-        server_proc.terminate()
-        # worker_proc.terminate() # Variable might not be bound if earlier step fails, but handled in try/except usually. 
-        # Adding check
-        if 'worker_proc' in locals():
-            worker_proc.terminate()
+        _terminate_process(server_proc)
+        if worker_proc is not None:
+            _terminate_process(worker_proc)
             
 if __name__ == "__main__":
     test_api_worker_integration()
