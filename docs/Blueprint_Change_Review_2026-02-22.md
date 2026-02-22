@@ -27,11 +27,12 @@
   - Citation-jump MVP rendering (`[p.X]` + certainty/hold fallback).
   - `run_profile` contract persisted from API -> queue -> worker -> runner.
   - Discover queue path (`seed` expansion + DB status + Obsidian related-works upsert).
+  - Stats trigger path (`run_verify` + tag trigger + stats cache contract).
 - Missing or conflicting with v2 (not yet adopted):
   - No `paper_key` identity and path strategy in runtime.
   - Artifact path still uses `storage/artifacts/{paper_id}/{run_id}`.
   - `job_events`/`user_actions` tables and buffered event writer are not implemented.
-  - Stats trigger tag mapping + cache hit contract(`stats_cache_hit`) are not implemented.
+  - Observability counters(`evidence_grounded_ratio`) are not yet exposed as first-class API metric.
 
 ## Decision Gate (Before v2 Adoption)
 1. Confirm whether v2 (`PR-H0..H2`) replaces v1 (`PR-0..PR-4`) as SSOT execution order.
@@ -42,5 +43,5 @@
 
 ## Recommended Next Execution Order (Current Safe Path)
 1. Keep current refactor line (done): worker/job_runner modular hardening.
-2. Execute v1 `PR-4` (Stats trigger/cache).
+2. Add operational observability fields (`evidence_grounded_ratio`, `stats_cache_hit` rollup).
 3. Defer `paper_key`/event-log migration until v2 docs approval is explicit.

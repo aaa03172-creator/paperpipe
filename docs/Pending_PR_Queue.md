@@ -12,6 +12,7 @@
 - `PR-BE-Citation-Jump-MVP`
 - `PR-BE-RunProfile-v1`
 - `PR-BE-Discover-Queue-v1`
+- `PR-BE-Stats-Trigger-v1`
 
 ## PR-DOC-Blueprint-v2
 - Title: `docs(blueprint): review and promote pragmatic blueprint v2`
@@ -27,18 +28,16 @@
   - Docs-only PR (no runtime files).
   - Reviewer sign-off required (Antigravity + Codex).
 
-## PR-BE-Stats-Trigger-v1
-- Title: `feat(stats): trigger mapping + cache hit contract`
+## PR-BE-Observability-Rollup
+- Title: `feat(obs): expose grounded ratio + stats cache rollup metrics`
 - Priority: High
-- Purpose: Implement blueprint PR-4 (`run_verify` + tag/action trigger + cache/concurrency contract).
+- Purpose: Surface runtime quality counters for operations dashboard without changing core execution semantics.
 - Scope (expected):
-  - `backend/services/job_runner.py`
-  - `src/jobs/*`
-  - stats cache utility module (new if needed)
-  - tests for trigger/cached-skip paths
+  - `backend/main.py` (or dedicated metrics route)
+  - QA/report scripts
+  - tests for metric calculation and API response
 - Merge Gate:
-  - stats only executes on trigger.
-  - repeated request hits cache (`stats_cache_hit` observable).
+  - `evidence_grounded_ratio` and stats cache-hit rollup are queryable.
   - `pytest -q` full suite green.
 
 ## PR-BE-V2-Identity-EventLog (Deferred)

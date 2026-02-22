@@ -24,8 +24,8 @@
 - OpenAlex는 seed 기준 backward/forward 확장 API를 제공하며,
   추천 후보를 DB(`RECOMMENDED`/`PENDING_QUEUE`) 및 Obsidian queue 섹션으로 반영한다.
   - 참조: `src/fetch/openalex.py`, `src/discovery_queue.py`, `backend/routers/discover.py`
-- Stats는 선택 실행(`run_verify`) + 실행 프로파일(`run_profile`) 구조를 갖고 있다.
-  - 참조: `src/jobs/schemas.py`, `src/jobs/queue.py`, `backend/services/job_runner.py`
+- Stats는 선택 실행(`run_verify`) + 실행 프로파일(`run_profile`) + 태그 트리거(`#important`, `#action/stats_check`) + 캐시(`stats_cache_hit`) 구조를 갖고 있다.
+  - 참조: `src/jobs/schemas.py`, `backend/services/job_runner.py`, `backend/services/stats_runtime.py`
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -178,6 +178,8 @@
 - AC
   - 트리거 논문에만 stats 실행
   - 동일 논문 재요청 시 캐시 히트로 스킵
+- 상태
+  - 완료 (trigger/tag mapping + cache contract + API meta 반영)
 
 ## 9. 테스트 전략
 - Unit
@@ -208,8 +210,8 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: PR-4 STATS_TRIGGER_V1
-- 2순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
+- 1순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
+- 2순위: v2 전환 전 `paper_key`/event-log 도입 여부 결정
 
 ---
 
