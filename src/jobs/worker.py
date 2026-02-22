@@ -61,7 +61,7 @@ class Worker:
                     updates["error_message"] = event.get("message")
                 self.queue.update_job(job.job_id, updates)
 
-                with open(log_file, "a") as f:
+                with open(log_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(event) + "\n")
 
             result = asyncio.run(

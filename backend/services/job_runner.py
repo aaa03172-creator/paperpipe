@@ -289,7 +289,7 @@ async def run_deepread_job(
              raise Exception("Ingestion failed to produce artifact")
 
         # Save Document Artifact
-        with open(artifact_dir / "document_artifact.json", "w") as f:
+        with open(artifact_dir / "document_artifact.json", "w", encoding="utf-8") as f:
             f.write(doc_artifact.model_dump_json(indent=2))
         bootstrap_meta["artifact_document_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -304,7 +304,7 @@ async def run_deepread_job(
         index_artifact = indexer_agent.process(doc_artifact)
         
         # Save Index Artifact
-        with open(artifact_dir / "index_artifact.json", "w") as f:
+        with open(artifact_dir / "index_artifact.json", "w", encoding="utf-8") as f:
              f.write(index_artifact.model_dump_json(indent=2))
         bootstrap_meta["artifact_index_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -351,7 +351,7 @@ async def run_deepread_job(
              raise Exception("Reader Agent failed to produce claims")
              
         # Save ClaimSet
-        with open(artifact_dir / "claimset.json", "w") as f:
+        with open(artifact_dir / "claimset.json", "w", encoding="utf-8") as f:
             f.write(claim_set.model_dump_json(indent=2))
         bootstrap_meta["artifact_claimset_written"] = True
         claim_count = len(claim_set.claims)
@@ -400,7 +400,7 @@ async def run_deepread_job(
                 )
                 
                 # Save Report
-                with open(artifact_dir / "stats_report.json", "w") as f:
+                with open(artifact_dir / "stats_report.json", "w", encoding="utf-8") as f:
                     f.write(stats_report.model_dump_json(indent=2))
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
