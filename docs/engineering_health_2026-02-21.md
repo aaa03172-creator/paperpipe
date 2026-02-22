@@ -1,34 +1,34 @@
-# Engineering Health Check - 2026-02-21
+# Engineering Health Check - 2026-02-22
 
 ## Snapshot
-- `src` Python lines: `10,566`
-- `tests` Python lines: `5,969`
-- Test-to-source line ratio: `56.5%`
-- `src` Python files: `76`
-- `tests` Python files: `63`
-- Current test status: `156 passed, 7 warnings`
+- Runtime Python lines (`src` + `backend`): `13,002`
+- Test Python lines (`tests`): `7,014`
+- Test-to-runtime line ratio: `53.9%`
+- Current test status: `210 passed, 1 skipped, 8 warnings`
 
 ## 1) Modularization Status
-Large files (`>500` lines) currently include:
-- `src/cli.py` (`1079`)
-- `src/llm_provider.py` (`833`)
-- `src/exporter.py` (`616`)
-- `src/obsidian.py` (`564`)
-- `src/db_utils.py` (`516`)
+Large files (`>500` lines): none at this checkpoint.
+
+Largest runtime modules (current top):
+- `backend/services/job_runner.py` (`463`)
+- `src/processor.py` (`253`)
+- `src/downloader/router.py` (`244`)
+- `src/db.py` (`244`, deprecated compatibility layer)
 
 Risk:
-- Change blast radius is high in these files.
-- Review/ownership boundaries are unclear.
+- Primary blast radius moved to `backend/services/job_runner.py`.
+- Contract stability across `backend/main.py` ↔ `src/jobs/*` is now the main review focus.
 
 Action (recommended order):
-1. Split `src/cli.py` into command modules by domain (`ops`, `profile`, `deepread`, `maintenance`).
-2. Split `src/llm_provider.py` into provider adapters + JSON handling + retry policy.
-3. Keep `db_utils` as canonical DB API and move remaining legacy access behind compatibility wrappers only.
+1. Keep `backend/services/job_runner.py` below `500` lines by extracting stage-specific helpers before adding new Phase 3.x logic.
+2. Maintain `src/db_utils` as canonical runtime DB API and keep `src/db.py` wrapper-only.
+3. Require API/queue contract tests whenever `src/jobs/schemas.py` changes.
 
 ## 2) Duplicate Logic / Drift Risk
 Observed:
-- Historical DB dual-path (`src/db.py` and `src/db_utils.py`) created behavioral drift.
-- Runtime callers are now being migrated to `src/db_utils`, but compatibility code still exists for legacy flows/tests.
+- Legacy DB dual-path (`src/db.py` and `src/db_utils.py`) still exists.
+- LLM provider adapters intentionally share small repeated blocks (accepted duplicate for provider isolation).
+- Fetch modules (`src/fetchers.py`, `src/fetch/pubmed.py`, `src/fetch/arxiv.py`) retain repeated constants/import scaffolding.
 
 Action:
 1. Keep `src/db.py` deprecated and wrapper-only.
@@ -37,16 +37,16 @@ Action:
 
 ## 3) Test Coverage Posture
 Strength:
-- Absolute test volume is healthy for current size.
-- Recent refactors were validated against full suite.
+- Full suite remains green after queue/API hardening.
+- New queue claim tests now protect ordering + single-running constraints.
 
 Gaps to watch:
-- High-line modules can still hide untested branches.
-- CLI command matrix is large; smoke tests should expand gradually by command group.
+- `backend/services/job_runner.py` still has multiple exception branches best covered by failure-path tests.
+- SSE stream behavior (`/jobs/{id}/events`) has light direct coverage relative to operational importance.
 
 Action:
 1. Maintain command-level smoke tests for `read/done/deepread`.
-2. Add per-module risk tests when touching `cli.py`, `llm_provider.py`, `exporter.py`.
+2. Add direct API tests for job cancel/done SSE sequence.
 3. Add regression tests before moving legacy wrappers or schema-related logic.
 
 ## 4) Governance Rules (Immediate)
@@ -57,4 +57,3 @@ Action:
 3. Any schema-touching PR must include:
    - migration safety test
    - duplicate/open-row safety test where relevant
-
