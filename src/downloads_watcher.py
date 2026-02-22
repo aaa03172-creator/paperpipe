@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 import logging
-import re
 import shutil
 import time
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Optional
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from src.db_utils import get_db_connection
+from src import downloads_watcher_core as watcher_core
+from src import downloads_watcher_store as watcher_store
 
 logger = logging.getLogger(__name__)
 
 REVIEW_NEEDS_PDF_MATCH = "NEEDS_PDF_MATCH"
 UNMATCHED_SENTINEL_PAPER_ID = "__UNMATCHED__"
-DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
+DOI_RE = watcher_core.DOI_RE
 
 
 @dataclass
@@ -30,183 +29,52 @@ class DownloadWatchResult:
 
 
 def _normalize_doi(value: str | None) -> str:
-    if not value:
-        return ""
-    doi = value.strip().lower()
-    for prefix in ("https://doi.org/", "http://doi.org/", "doi.org/", "doi:", "DOI:"):
-        if doi.startswith(prefix.lower()):
-            doi = doi[len(prefix) :]
-            break
-    return doi.strip().rstrip(").,;]>\"'")
+    return watcher_core.normalize_doi(value)
 
 
 def _sanitize_text(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+    return watcher_core.sanitize_text(value)
 
 
 def _extract_doi_from_filename(path: Path) -> str:
-    stem = path.stem
-    # Tolerate common filename substitutions for slash.
-    candidate = stem.replace("_", "/")
-    match = DOI_RE.search(candidate)
-    if match:
-        return _normalize_doi(match.group(0))
-    return ""
+    return watcher_core.extract_doi_from_filename(path)
 
 
 def _extract_doi_candidates_from_pdf_content(path: Path) -> list[tuple[str, str]]:
-    # Returns tuples of (doi, source_type) with source_type used for confidence decisions.
-    candidates: list[tuple[str, str]] = []
-    seen: set[str] = set()
-
-    def _record(value: str, source: str) -> None:
-        doi = _normalize_doi(value)
-        if not doi or doi in seen:
-            return
-        candidates.append((doi, source))
-        seen.add(doi)
-
-    # Try structured extraction first when a PDF parser is available.
-    try:
-        from pypdf import PdfReader  # type: ignore
-
-        reader = PdfReader(str(path))
-        meta = reader.metadata or {}
-        for value in meta.values():
-            if not value:
-                continue
-            for match in DOI_RE.finditer(str(value)):
-                _record(match.group(0), "metadata")
-        for page in reader.pages[:3]:
-            text = page.extract_text() or ""
-            for match in DOI_RE.finditer(text):
-                _record(match.group(0), "text")
-    except Exception:
-        pass
-
-    # Fallback: scan raw bytes for DOI-like token to support lightweight fixtures.
-    try:
-        raw = path.read_bytes()
-        text = raw.decode("latin-1", errors="ignore")
-        for match in DOI_RE.finditer(text):
-            _record(match.group(0), "raw")
-    except Exception:
-        pass
-    return candidates
+    return watcher_core.extract_doi_candidates_from_pdf_content(path)
 
 
 def _tokenize_text_for_score(value: str) -> set[str]:
-    return {token for token in _sanitize_text(value).split() if len(token) >= 3}
+    return watcher_core.tokenize_text_for_score(value)
 
 
 def _is_confident_content_doi_match(file_stem: str, row: dict[str, Any], source: str) -> bool:
-    if source == "metadata":
-        return True
-    stem_tokens = _tokenize_text_for_score(file_stem)
-    if not stem_tokens:
-        return False
-
-    title = str(row.get("title") or "")
-    title_tokens = _tokenize_text_for_score(title)
-    if stem_tokens.intersection(title_tokens):
-        return True
-
-    paper_id = str(row.get("paper_id") or "").lower()
-    if paper_id and paper_id in file_stem.lower():
-        return True
-
-    return SequenceMatcher(None, _sanitize_text(file_stem), _sanitize_text(title)).ratio() >= 0.35
+    return watcher_core.is_confident_content_doi_match(file_stem, row, source)
 
 
 def _load_manual_required_candidates() -> list[dict[str, Any]]:
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT paper_id, doi, title
-            FROM papers
-            WHERE lower(coalesce(pdf_status, '')) = 'manual_required'
-            """
-        )
-        return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
+    return watcher_store.load_manual_required_candidates()
 
 
 def _enqueue_pdf_match_review(paper_id: str, reason: str, allow_multiple_open: bool = False) -> bool:
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        if not allow_multiple_open:
-            cur.execute(
-                """
-                SELECT 1 FROM review_queue
-                WHERE paper_id = ? AND decision = ? AND resolved_at IS NULL
-                LIMIT 1
-                """,
-                (paper_id, REVIEW_NEEDS_PDF_MATCH),
-            )
-            if cur.fetchone():
-                return False
-        cur.execute(
-            """
-            INSERT INTO review_queue (paper_id, decision, reason)
-            VALUES (?, ?, ?)
-            """,
-            (paper_id, REVIEW_NEEDS_PDF_MATCH, reason),
-        )
-        conn.commit()
-        return True
-    except Exception as exc:
-        logger.warning("Failed to enqueue NEEDS_PDF_MATCH for %s: %s", paper_id, exc)
-        return False
-    finally:
-        conn.close()
+    return watcher_store.enqueue_pdf_match_review(
+        paper_id=paper_id,
+        reason=reason,
+        decision=REVIEW_NEEDS_PDF_MATCH,
+        allow_multiple_open=allow_multiple_open,
+    )
 
 
 def _update_downloaded_path(paper_id: str, destination: Path) -> None:
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            UPDATE papers
-            SET pdf_status = 'downloaded',
-                pdf_path = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE paper_id = ?
-            """,
-            (str(destination), paper_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    watcher_store.update_downloaded_path(paper_id=paper_id, destination=destination)
 
 
 def _best_title_candidates(filename_stem: str, rows: list[dict[str, Any]], threshold: float) -> list[tuple[float, dict[str, Any]]]:
-    key = _sanitize_text(filename_stem)
-    scored: list[tuple[float, dict[str, Any]]] = []
-    if not key:
-        return scored
-    for row in rows:
-        title = _sanitize_text(str(row.get("title") or ""))
-        if not title:
-            continue
-        score = SequenceMatcher(None, key, title).ratio()
-        if score >= threshold:
-            scored.append((score, row))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return scored
+    return watcher_core.best_title_candidates(filename_stem, rows, threshold)
 
 
 def _resolve_destination(storage_dir: Path, paper_id: str, suffix: str = ".pdf") -> Path:
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    target = storage_dir / f"{paper_id}{suffix}"
-    if not target.exists():
-        return target
-    ts = int(time.time())
-    return storage_dir / f"{paper_id}_{ts}{suffix}"
+    return watcher_core.resolve_destination(storage_dir, paper_id, suffix)
 
 
 def process_downloaded_pdf(
