@@ -39,3 +39,23 @@
 - Merge Gate:
   - `tests/test_jobs_queue_claim_next.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-QA-JobRunner-FailurePaths
+- Title: `test(job-runner): add failure and cancellation path coverage`
+- Priority: High
+- Purpose: Lock fail-safe behavior for missing PDF, reader runtime error, verifier failure, and mid-run cancellation.
+- Scope:
+  - `tests/test_job_runner_failure_paths.py`
+- Merge Gate:
+  - `tests/test_job_runner_failure_paths.py` passes.
+  - `pytest -q` full suite passes.
+
+## PR-QA-JobCancel-Transitions
+- Title: `test(api-jobs): add cancel endpoint state-transition coverage`
+- Priority: High
+- Purpose: Ensure `/jobs/{id}/cancel` enforces expected queued/running -> cancelled transitions and unblocks next claim.
+- Scope:
+  - `tests/test_jobs_cancel_api.py`
+- Merge Gate:
+  - `tests/test_jobs_cancel_api.py` passes.
+  - `pytest -q` full suite passes.
