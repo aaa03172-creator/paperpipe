@@ -1,7 +1,6 @@
 import argparse
 import json
 import re
-import sqlite3
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -12,6 +11,7 @@ from src.indexer_content import (
     safe_int as _safe_int_value,
     utc_now_iso as _utc_now_iso_value,
 )
+from src.indexer_store import select_index_rows
 
 DEFAULT_EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
@@ -112,25 +112,7 @@ class PaperIndexer:
         )
 
     def _select_rows(self, include_all: bool) -> list[dict[str, Any]]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-
-        if include_all:
-            cur.execute("SELECT * FROM papers")
-        else:
-            cur.execute(
-                """
-                SELECT *
-                FROM papers
-                WHERE gate_decision = 'APPROVED'
-                   OR status IN ('APPROVED', 'INDEXED')
-                """
-            )
-
-        rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
-        return rows
+        return select_index_rows(self.db_path, include_all=include_all)
 
     def _encode_texts(self, texts: list[str]) -> list[list[float]]:
         embedder = self._ensure_embedder()
