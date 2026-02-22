@@ -1,7 +1,5 @@
 import typer
 import os
-import shutil
-import logging
 from pathlib import Path
 from rich.console import Console
 from src.config import load_config
@@ -20,6 +18,16 @@ from src.services.profile_cli_workflows import (
     run_profiles_chat_workflow,
 )
 from src.services.rag_cli_workflows import ask_question_workflow
+from src.services.cli_system_workflows import (
+    clear_logs_workflow,
+    doctor_workflow,
+    organize_workflow,
+    reset_workflow,
+    stats_workflow,
+    test_unpaywall_workflow,
+    watch_downloads_workflow,
+    watch_workflow,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -63,85 +71,7 @@ def main():
 @app.command()
 def doctor():
     """Check environment, config, and dependencies."""
-    console.print("[bold blue]🩺 Checking Environment...[/bold blue]")
-    
-    try:
-        config = load_config()
-        console.print("✅ Config loaded successfully.")
-        console.print(f"   - Zotero Dir: {config.paths.zotero_base_dir}")
-        console.print(f"   - Log Level: {config.system.log_level}")
-        
-        # [NEW] Check Watch Folder
-        if config.paths.watch_folder:
-            if config.paths.watch_folder.exists():
-                console.print(f"   - Watch Folder: ✅ Found ({config.paths.watch_folder})")
-            else:
-                console.print(f"   - Watch Folder: ⚠️ Configured but missing ({config.paths.watch_folder})")
-        else:
-            console.print("   - Watch Folder: ⚪ Not configured")
-
-        # [NEW] Check Unpaywall
-        if config.system.unpaywall_email and "example.com" not in config.system.unpaywall_email:
-             console.print(f"   - Unpaywall: ✅ Email configured ({config.system.unpaywall_email})")
-        else:
-             console.print("   - Unpaywall: ⚠️ Email missing or default")
-
-        # [NEW] Check Bibliometrics
-        if config.ranking.bibliometrics.enabled:
-             console.print("   - Bibliometrics: ✅ Enabled (OpenAlex)")
-        else:
-             console.print("   - Bibliometrics: ⚪ Disabled")
-
-        # [NEW] Check LLM & Ollama
-        try:
-            llm_config = config.llm
-            
-            # Helper to check mode safely
-            mode = getattr(llm_config, 'mode', 'cloud') 
-            
-            if mode in ["local", "hybrid"]:
-                 console.print(f"   - LLM Mode: [bold cyan]{mode}[/bold cyan] (Ollama Active)")
-                 if hasattr(llm_config, 'local') and llm_config.local:
-                     url = llm_config.local.base_url
-                     try:
-                         import ollama
-                         # Check basic connectivity
-                         client = ollama.Client(host=url)
-                         try:
-                             client.list()
-                             console.print(f"   - Ollama: ✅ Connected ({url})")
-                         except Exception as conn_err:
-                             console.print(f"   - Ollama: ❌ Connection Failed ({url}) - {conn_err}", style="red")
-                     except ImportError:
-                         console.print("   - Ollama: ⚠️ 'ollama' package not installed.", style="yellow")
-            else:
-                 console.print(f"   - LLM Mode: {mode} (Cloud Only)")
-                 
-        except Exception as e:
-            console.print(f"   - LLM Check: ⚠️ Error checking LLM config: {e}")
-
-    except Exception as e:
-        console.print(f"❌ Config Error: {e}", style="bold red")
-        return
-
-    try:
-        db_path = bootstrap_database()
-        console.print(f"✅ Database initialized ({db_path}).")
-    except Exception as e:
-        console.print(f"❌ Database Error: {e}", style="bold red")
-    
-    # Check OpenAI Key
-    if os.getenv("OPENAI_API_KEY"):
-        console.print("✅ OpenAI API Key detected.")
-    else:
-        console.print("❌ OpenAI API Key missing!", style="bold red")
-
-    if Path("logs/paperpipe.log").exists():
-        console.print("✅ Log file accessible.")
-    else:
-        console.print("⚠️ Log file not found yet (will be created on first log).")
-
-    console.print("[bold green]All systems go![/bold green]")
+    doctor_workflow(console, bootstrap_database)
     logger.info("Doctor check completed.")
 
 
@@ -303,8 +233,7 @@ def test_filter():
 @app.command()
 def clear_logs():
     """Clear log file"""
-    open("logs/paperpipe.log", "w").close()
-    console.print("✅ Logs cleared.")
+    clear_logs_workflow(console)
 
 
 @app.command()
@@ -347,121 +276,24 @@ def reset():
     if not typer.confirm("⚠️  Are you sure you want to delete ALL data?"):
         console.print("❌ Cancelled.")
         raise typer.Abort()
-
-    console.print("[bold red]🗑️  Resetting all data...[/bold red]")
-
-    # 1. DB
-    db_paths = [DB_UTILS_PATH, Path("state.db")]
-    seen = set()
-    for db_path in db_paths:
-        db_path = Path(db_path)
-        if str(db_path) in seen:
-            continue
-        seen.add(str(db_path))
-        if db_path.exists():
-            db_path.unlink()
-            console.print(f"   - Deleted {db_path}")
-    
-    # 2. Logs
-    log_path = Path("logs/paperpipe.log")
-    if log_path.exists():
-        open(log_path, "w").close()
-        console.print("   - Cleared logs")
-
-    # 3. Obsidian
-    try:
-        config = load_config()
-        vault_path = config.paths.obsidian_vault
-        
-        inbox_path = vault_path / "Inbox"
-        if inbox_path.exists():
-            shutil.rmtree(inbox_path)
-            console.print(f"   - Deleted {inbox_path}")
-            
-        index_all = vault_path / config.paths.index_all
-        if index_all.exists():
-            index_all.unlink()
-            console.print(f"   - Deleted {index_all}")
-            
-        index_clinical = vault_path / config.paths.index_clinical
-        if index_clinical.exists():
-            index_clinical.unlink()
-            console.print(f"   - Deleted {index_clinical}")
-
-    except Exception as e:
-        console.print(f"   ⚠️  Failed to clean Obsidian vault: {e}")
-
-    # 4. Re-init
-    db_path = bootstrap_database()
-    console.print(f"✅ Reset complete. System is clean. ({db_path})")
+    reset_workflow(console, bootstrap_database, [DB_UTILS_PATH, Path("state.db")])
 
 @app.command()
 def test_unpaywall(doi: str = "10.1038/s41586-020-2165-8"):
     """Test Unpaywall API link fetching"""
-    from src.downloader import _fetch_oa_link
-    config = load_config()
-    
-    console.print(f"[bold cyan]🔍 Testing Unpaywall for DOI: {doi}[/bold cyan]")
-    email = config.system.unpaywall_email
-    console.print(f"   - Email: {email}")
-    
-    link = _fetch_oa_link(doi, email)
-    if link:
-        console.print(f"✅ Found OA Link: {link}")
-    else:
-        console.print("❌ No OA Link found (or API error).")
+    test_unpaywall_workflow(doi, console)
 
 # 6. Watch Folder Service
 @app.command()
 def watch():
     """Start Watch Folder Service for auto-processing local PDFs."""
-    from src.watcher import WatcherService
-    from src.processor import Processor # We need a Processor class or module
-    # Actually processor.py is a module with functions. 
-    # The WatcherService expects an object with `process_local_pdf`.
-    # Let's create a simple wrapper or just pass the module if it has the function.
-    import src.processor as processor_module
-
-    config = load_config()
-    
-    console.print(f"[bold green]👀 Starting Watcher Service...[/bold green]")
-    console.print(f"   - Folder: {config.paths.watch_folder}")
-    console.print("   (Press Ctrl+C to stop)")
-    
-    service = WatcherService(config)
-    try:
-        service.start(processor_module)
-    except KeyboardInterrupt:
-        console.print("\n[bold yellow]🛑 Watcher stopped by user.[/bold yellow]")
-    except Exception as e:
-        console.print(f"[bold red]❌ Watcher Error: {e}[/bold red]")
+    watch_workflow(console)
 
 
 @app.command()
 def watch_downloads():
     """Watch Downloads folder and auto-match manual-required PDFs into storage."""
-    from src.downloads_watcher import DownloadsWatcherService
-
-    config = load_config()
-    watch_dir = config.paths.downloads_watch_dir
-    storage_dir = config.paths.pdf_storage_dir
-
-    console.print("[bold green]👀 Starting Downloads Watcher...[/bold green]")
-    console.print(f"   - Downloads Dir: {watch_dir}")
-    console.print(f"   - PDF Storage Dir: {storage_dir}")
-    console.print("   (Press Ctrl+C to stop)")
-
-    service = DownloadsWatcherService(
-        downloads_watch_dir=watch_dir,
-        pdf_storage_dir=storage_dir,
-        title_threshold=0.90,
-    )
-    try:
-        service.start()
-    except KeyboardInterrupt:
-        console.print("\n[bold yellow]🛑 Downloads watcher stopped by user.[/bold yellow]")
-    except Exception as e:
-        console.print(f"[bold red]❌ Downloads watcher error: {e}[/bold red]")
+    watch_downloads_workflow(console)
 
 @app.command()
 def organize(target_dir: str = "."):
@@ -469,64 +301,7 @@ def organize(target_dir: str = "."):
     Organize PDF files in a directory into the Library structure.
     Renames files to {Year}_{Author}_{ShortTitle}.pdf and moves them to Library/{Year}/.
     """
-    import shutil
-    import datetime
-    from pathlib import Path
-    from src.utils import create_paper_from_pdf, generate_filename
-    from src.config import load_config
-    
-    config = load_config()
-    target = Path(target_dir).expanduser()
-    
-    if not target.exists():
-        console.print(f"[bold red]❌ Target directory not found: {target}[/bold red]")
-        return
-        
-    pdfs = list(target.glob("*.pdf"))
-    if not pdfs:
-        console.print(f"[yellow]⚠️ No PDF files found in {target}[/yellow]")
-        return
-        
-    console.print(f"[bold green]📦 Organizing {len(pdfs)} PDFs from: {target}[/bold green]")
-    console.print(f"   -> Destination: {config.paths.library_dir}")
-    
-    success_count = 0
-    fail_count = 0
-    
-    for pdf in pdfs:
-        try:
-            # 1. Create Paper (Extract Metadata)
-            paper = create_paper_from_pdf(pdf)
-            
-            # 2. Generate Filename & Path
-            new_name = generate_filename(paper)
-            year = paper.published[:4] if paper.published and len(paper.published) >= 4 else "Unknown"
-            
-            year_dir = config.paths.library_dir / year
-            year_dir.mkdir(parents=True, exist_ok=True)
-            
-            final_path = year_dir / new_name
-            
-            # Handle duplicates
-            if final_path.exists() and final_path.resolve() != pdf.resolve():
-                 # If same file content (size check for speed), skip?
-                 # Better to just rename if unsure.
-                 timestamp = datetime.datetime.now().strftime("%H%M%S")
-                 final_path = year_dir / f"{final_path.stem}_{timestamp}{final_path.suffix}"
-            
-            if final_path.resolve() == pdf.resolve():
-                console.print(f"   ⏭️  Already organized: {pdf.name}")
-                continue
-                
-            shutil.move(pdf, final_path)
-            console.print(f"   ✅ {pdf.name} -> {year}/{new_name}")
-            success_count += 1
-            
-        except Exception as e:
-            console.print(f"   ❌ Failed to organize {pdf.name}: {e}")
-            fail_count += 1
-            
-    console.print(f"\n[bold]🎉 Done! Organized: {success_count}, Failed: {fail_count}[/bold]")
+    organize_workflow(target_dir, console)
 
 @app.command()
 def stats():
@@ -534,70 +309,7 @@ def stats():
     Show statistics of papers in the library (Reading Status).
     Reads from All Indexes (Main, OnDemand, Manual).
     """
-    import csv
-    from collections import Counter
-    from rich.table import Table
-    from src.config import load_config
-    
-    config = load_config()
-    vault_path = config.paths.obsidian_vault
-    
-    # Define potential indexes
-    potential_indexes = [
-        config.paths.index_all, # 00_Index/paper_collection.csv
-        "00_Index/on_demand.csv",
-        "00_Index/manual_collection.csv"
-    ]
-    
-    status_counts = Counter()
-    total = 0
-    scanned_files = 0
-    
-    for relative_idx_path in potential_indexes:
-        index_path = vault_path / relative_idx_path
-        
-        if not index_path.exists():
-            continue
-            
-        scanned_files += 1
-        try:
-            with open(index_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    s = row.get('Status', 'Unknown').strip() or 'Unknown'
-                    # Normalization
-                    if s.lower() == 'to read': s = 'Inbox'
-                    
-                    status_counts[s] += 1
-                    total += 1
-        except Exception as e:
-            console.print(f"[red]❌ Failed to read index {relative_idx_path}: {e}[/red]")
-
-    if scanned_files == 0:
-        console.print(f"[yellow]⚠️  No index files found in {vault_path}[/yellow]")
-        return
-        
-    table = Table(title=f"📚 Library Stats (Total: {total})", show_header=True, header_style="bold magenta")
-    table.add_column("Status", style="cyan")
-    table.add_column("Count", justify="right", style="white")
-    table.add_column("Percentage", justify="right", style="green")
-    
-    # Sort by predefined order
-    order = ["Inbox", "Reading", "Done", "Unknown"]
-    
-    for s in order:
-        if status_counts[s] > 0 or s in ["Inbox", "Reading", "Done"]: # Show zeros for main statuses
-            count = status_counts[s]
-            pct = (count / total * 100) if total > 0 else 0
-            table.add_row(s, str(count), f"{pct:.1f}%")
-            if s in status_counts: del status_counts[s]
-            
-    # Remaining
-    for s, count in status_counts.items():
-        pct = (count / total * 100) if total > 0 else 0
-        table.add_row(s, str(count), f"{pct:.1f}%")
-        
-    console.print(table)
+    stats_workflow(console)
 
 
 @app.command()
