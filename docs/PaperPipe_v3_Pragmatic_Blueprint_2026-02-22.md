@@ -28,6 +28,9 @@
   - 참조: `src/jobs/schemas.py`, `backend/services/job_runner.py`, `backend/services/stats_runtime.py`
 - 런타임 품질 관측치(`evidence_grounded_ratio`, cache-hit rollup)를 API에서 조회할 수 있다.
   - 참조: `backend/main.py` (`/metrics/quality`)
+- v2 identity/event-log 기반이 부분 반영되었다.
+  - `paper_key` 생성/백필, `runs` 확장, `job_events`, `user_actions`
+  - 참조: `src/db_bootstrap.py`, `src/db_event_log.py`, `src/core/paper_identity.py`
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -212,8 +215,8 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: v2 전환 전 `paper_key`/event-log 도입 여부 결정
-- 2순위: v2 docs 승인 후 identity/event-log migration 착수
+- 1순위: `job_events` buffered writer 도입(배치 insert, 짧은 트랜잭션)
+- 2순위: artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
 
 ---
 

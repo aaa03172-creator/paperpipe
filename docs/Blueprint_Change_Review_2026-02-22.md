@@ -29,10 +29,13 @@
   - Discover queue path (`seed` expansion + DB status + Obsidian related-works upsert).
   - Stats trigger path (`run_verify` + tag trigger + stats cache contract).
   - Observability rollup (`evidence_grounded_ratio`, `stats_cache_hit`) via API.
+  - v2 migration bootstrap start:
+    - deterministic `paper_key` column/backfill in `papers`
+    - `runs` schema extension + `job_events` / `user_actions` ensure
+    - runtime event instrumentation hooks from worker/progress paths
 - Missing or conflicting with v2 (not yet adopted):
-  - No `paper_key` identity and path strategy in runtime.
-  - Artifact path still uses `storage/artifacts/{paper_id}/{run_id}`.
-  - `job_events`/`user_actions` tables and buffered event writer are not implemented.
+  - Artifact path still uses `storage/artifacts/{paper_id}/{run_id}` (paper_key path migration pending).
+  - Event writer is per-event write; buffered/batch writer is not implemented.
 
 ## Decision Gate (Before v2 Adoption)
 1. Confirm whether v2 (`PR-H0..H2`) replaces v1 (`PR-0..PR-4`) as SSOT execution order.
@@ -43,4 +46,5 @@
 
 ## Recommended Next Execution Order (Current Safe Path)
 1. Keep current refactor line (done): worker/job_runner modular hardening.
-2. Defer `paper_key`/event-log migration until v2 docs approval is explicit.
+2. Implement buffered event writer (`job_events`) to reduce write overhead and lock contention.
+3. Migrate artifact storage path from `{paper_id}` to `{paper_key}` with compatibility fallback.
