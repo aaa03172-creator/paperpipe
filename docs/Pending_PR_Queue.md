@@ -59,3 +59,14 @@
 - Merge Gate:
   - `tests/test_jobs_cancel_api.py` passes.
   - `pytest -q` full suite passes.
+
+## PR-BE-Worker-CancelSync
+- Title: `fix(worker): sync cancelled status when runner returns cancelled`
+- Priority: High
+- Purpose: Prevent jobs from staying `running` when the runner exits with `cancelled` without prior DB status flip.
+- Scope:
+  - `src/jobs/worker.py`
+  - `tests/test_worker_cancellation_sync.py`
+- Merge Gate:
+  - `tests/test_worker_cancellation_sync.py` passes.
+  - `pytest -q` full suite passes.
