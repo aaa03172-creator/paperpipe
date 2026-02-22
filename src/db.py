@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import warnings
-from datetime import datetime
 from pathlib import Path
 
+from src.db_legacy_support import (
+    ensure_legacy_tables,
+    get_all_embeddings_with_connection,
+    save_embedding_with_connection,
+)
 from src.db_paper_ops import (
     get_all_papers_with_connection,
     get_paper_by_id_with_connection,
@@ -68,40 +71,7 @@ def init_db():
         db_utils_module.DB_PATH = original_utils_path
 
     conn = _connect()
-    c = conn.cursor()
-    c.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS runs (
-            date TEXT PRIMARY KEY,
-            status TEXT,
-            processed_count INTEGER,
-            last_run_at TIMESTAMP
-        )
-        '''
-    )
-    c.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS embeddings (
-            doi TEXT PRIMARY KEY,
-            vector TEXT,
-            updated_at TIMESTAMP
-        )
-        '''
-    )
-
-    try:
-        c.execute("ALTER TABLE papers ADD COLUMN is_retracted BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE papers ADD COLUMN reading_status TEXT DEFAULT 'Inbox'")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE papers ADD COLUMN processed_date TEXT")
-    except sqlite3.OperationalError:
-        pass
-
+    ensure_legacy_tables(conn)
     init_run_stats_table_with_connection(conn)
     conn.commit()
     conn.close()
@@ -194,19 +164,8 @@ def save_embedding(doi: str, vector: list):
     if not doi or not vector:
         return
     conn = _connect()
-    c = conn.cursor()
     try:
-        vector_json = json.dumps(vector)
-        c.execute(
-            """
-            INSERT INTO embeddings (doi, vector, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(doi) DO UPDATE SET
-                vector=excluded.vector,
-                updated_at=excluded.updated_at
-            """,
-            (doi, vector_json, datetime.now()),
-        )
+        save_embedding_with_connection(conn, doi, vector)
         conn.commit()
     except Exception as exc:
         print(f"DB Embedding Error: {exc}")
@@ -217,17 +176,8 @@ def save_embedding(doi: str, vector: list):
 def get_all_embeddings() -> dict:
     """모든 벡터 임베딩 로드 (Smart Linking용)."""
     conn = _connect()
-    c = conn.cursor()
     try:
-        c.execute("SELECT doi, vector FROM embeddings")
-        rows = c.fetchall()
-        result = {}
-        for row in rows:
-            try:
-                result[row[0]] = json.loads(row[1])
-            except Exception:
-                pass
-        return result
+        return get_all_embeddings_with_connection(conn)
     except Exception as exc:
         print(f"DB Load Embedding Error: {exc}")
         return {}
