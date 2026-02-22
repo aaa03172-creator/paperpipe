@@ -1,8 +1,7 @@
 import logging
 from typing import Dict, Any, Optional, List
-from openai import OpenAI, APITimeoutError, RateLimitError, APIStatusError
+from openai import OpenAI
 import json
-import time
 import numpy as np
 import ollama
 
@@ -18,6 +17,7 @@ from src.llm_prompts import (
     build_tagging_prompts,
     build_trial_extraction_prompt,
 )
+from src.llm_transport import openai_chat_request, ollama_chat_request
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -343,29 +343,12 @@ class OpenAIProvider(LLMProvider):
         if is_json or schema: # OpenAI uses response_format for JSON, schema is not directly passed
             request_params["response_format"] = {"type": "json_object"}
 
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                response = self.client.chat.completions.create(**request_params)
-                return response.choices[0].message.content
-            except RateLimitError:
-                wait_time = 2 ** (attempt + 1) # 2초, 4초, 8초 대기
-                logger.warning(f"LLM RateLimit hit on attempt {attempt + 1}. Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-                if attempt >= self.config.max_retries:
-                    logger.error("LLM RateLimit exceeded. Please check OpenAI credit balance.")
-                    return "❌ AI Error: Rate Limit (Check Billing)"
-            except APITimeoutError:
-                logger.warning(f"LLM Timeout on attempt {attempt + 1}. Retrying...")
-                if attempt >= self.config.max_retries:
-                    logger.error("LLM Timeout exceeded.")
-                    return "❌ AI Error: Timeout"
-            except APIStatusError as e:
-                logger.error(f"LLM API Error: {e.status_code} - {e.message}")
-                return f"❌ AI Error: {e.message}"
-            except Exception as e:
-                logger.exception(f"An unexpected error occurred during LLM request: {e}")
-                return f"❌ AI Error: An unexpected error occurred."
-        return None
+        return openai_chat_request(
+            client=self.client,
+            request_params=request_params,
+            max_retries=self.config.max_retries,
+            logger=logger,
+        )
     
     def get_embedding(self, text: str) -> Optional[List[float]]:
         if not self.is_available(): return None
@@ -423,35 +406,15 @@ class OllamaProvider(LLMProvider):
 
         model = self._get_model(task)
         logger.info(f"Making LLM request to Ollama model '{model}' for task '{task}'.")
-
-        options = {
-            "temperature": 0.3,
-            "num_predict": 4096, # Max tokens to generate
-        }
-        
-        # Ollama handles JSON output via the 'format' parameter
-        format_param = None
-        if schema:
-            format_param = "json" 
-        elif is_json:
-            format_param = "json"
-
-        messages = []
-        if system_prompt:
-            messages.append({'role': 'system', 'content': system_prompt})
-        messages.append({'role': 'user', 'content': prompt})
-
-        try:
-            response = self.ollama_client.chat(
-                model=model,
-                messages=messages,
-                format=format_param,
-                options=options
-            )
-            return response['message']['content']
-        except Exception as e:
-            logger.error(f"Ollama Request Failed for model '{model}': {e}")
-            return f"❌ AI Error: Ollama request failed ({model}). Check server logs."
+        return ollama_chat_request(
+            ollama_client=self.ollama_client,
+            model=model,
+            prompt=prompt,
+            is_json=is_json,
+            schema=schema,
+            system_prompt=system_prompt,
+            logger=logger,
+        )
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
         if not self.is_available(): return None
