@@ -22,6 +22,12 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.agents.feedback_retriever import FeedbackRetriever
+from backend.services.job_runner_stages import (
+    run_ingest_stage,
+    run_index_stage,
+    run_read_stage,
+    run_verify_stage,
+)
 
 logger = logging.getLogger("paperpipe.backend")
 
@@ -348,119 +354,80 @@ async def run_deepread_job(
         )
         
         # 2. Ingest
-        if await is_cancelled():
+        doc_artifact = await run_ingest_stage(
+            pdf_path=pdf_path,
+            artifact_dir=artifact_dir,
+            bootstrap_meta=bootstrap_meta,
+            emit=emit,
+            is_cancelled=is_cancelled,
+            write_artifact_model=_write_artifact_model,
+            write_bootstrap_meta=_write_bootstrap_meta,
+            ingest_agent_cls=IngestAgent,
+        )
+        if doc_artifact is None:
             return {"status": "cancelled", "run_id": run_id}
-        logger.info(f"Starting Ingest for {pdf_path.name}")
-        await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
-        ingest_agent = IngestAgent()
-        doc_artifact = ingest_agent.process_v2(str(pdf_path))
-        
-        if not doc_artifact:
-             raise Exception("Ingestion failed to produce artifact")
-
-        # Save Document Artifact
-        _write_artifact_model(artifact_dir, "document_artifact.json", doc_artifact)
-        bootstrap_meta["artifact_document_written"] = True
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-            
-        await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
 
         # 3. Index
-        if await is_cancelled():
+        index_artifact = await run_index_stage(
+            doc_artifact=doc_artifact,
+            artifact_dir=artifact_dir,
+            bootstrap_meta=bootstrap_meta,
+            emit=emit,
+            is_cancelled=is_cancelled,
+            write_artifact_model=_write_artifact_model,
+            write_bootstrap_meta=_write_bootstrap_meta,
+            indexer_agent_cls=IndexerAgent,
+        )
+        if index_artifact is None:
             return {"status": "cancelled", "run_id": run_id}
-        await emit("index", 30, "Indexing content...")
-        indexer_agent = IndexerAgent()
-        index_artifact = indexer_agent.process(doc_artifact)
-        
-        # Save Index Artifact
-        _write_artifact_model(artifact_dir, "index_artifact.json", index_artifact)
-        bootstrap_meta["artifact_index_written"] = True
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-             
-        await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks")
 
         # 4. Read (Claim Extraction)
-        if await is_cancelled():
+        read_result = await run_read_stage(
+            paper_id=paper_id,
+            persona_id=persona_id,
+            config=config,
+            doc_artifact=doc_artifact,
+            artifact_dir=artifact_dir,
+            bootstrap_meta=bootstrap_meta,
+            emit=emit,
+            is_cancelled=is_cancelled,
+            write_artifact_model=_write_artifact_model,
+            write_bootstrap_meta=_write_bootstrap_meta,
+            resolve_persona_hint=_resolve_persona_hint,
+            load_similar_feedback_top3=_load_similar_feedback_top3,
+            resolve_main_model=_resolve_main_model,
+            update_claimset_readiness=_update_claimset_readiness,
+            reader_agent_cls=ReaderAgent,
+        )
+        if read_result is None:
             return {"status": "cancelled", "run_id": run_id}
-        await emit("read", 50, "Reader Agent analyzing...")
-        persona_hint = _resolve_persona_hint(persona_id)
-
-        # Dynamic Few-Shot Injection based on persona
-        feedback_query_text = persona_hint if persona_hint else paper_id
-        similar_feedback = _load_similar_feedback_top3(query_text=feedback_query_text, limit=3)
-        
-        if similar_feedback:
-            fb_lines = ["Similar feedback examples (Top-3):"]
-            for idx, item in enumerate(similar_feedback, 1):
-                fb_lines.append(f"{idx}) paper_id={item['paper_id']} preview={item['preview']}")
-            feedback_hint = "\n".join(fb_lines)
-            persona_hint = f"{persona_hint}\n\n{feedback_hint}" if persona_hint else feedback_hint
-            bootstrap_meta["similar_feedback_count"] = len(similar_feedback)
-            bootstrap_meta["similar_feedback_paper_ids"] = [item["paper_id"] for item in similar_feedback]
-            await emit("read", 53, f"Similar feedback injected: {len(similar_feedback)}")
-        if persona_hint:
-            bootstrap_meta["persona_applied"] = True
-            await emit("read", 52, f"Persona applied: {persona_id}")
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-        main_model = _resolve_main_model(config)
-        bootstrap_meta["reader_model"] = main_model
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-        try:
-            reader_agent = ReaderAgent(
-                model_name=main_model,
-                persona_hint=persona_hint,
-            )
-        except TypeError:
-            # Test doubles may expose a simplified constructor.
-            reader_agent = ReaderAgent()
-        claim_set = reader_agent.analyze(doc_artifact)
-        
-        if not claim_set:
-             raise Exception("Reader Agent failed to produce claims")
-             
-        # Save ClaimSet
-        _write_artifact_model(artifact_dir, "claimset.json", claim_set)
-        bootstrap_meta["artifact_claimset_written"] = True
-        claim_count = len(claim_set.claims)
-        _update_claimset_readiness(bootstrap_meta, paper_id, claim_count)
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-            
-        await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
+        claim_set, reader_agent = read_result
 
         # 5. Verify (Optional)
+        stats_report = None
         if run_verify:
-            if await is_cancelled():
+            verify_result = await run_verify_stage(
+                job_id=job_id,
+                doc_artifact=doc_artifact,
+                claim_set=claim_set,
+                artifact_dir=artifact_dir,
+                bootstrap_meta=bootstrap_meta,
+                emit=emit,
+                is_cancelled=is_cancelled,
+                write_artifact_model=_write_artifact_model,
+                write_bootstrap_meta=_write_bootstrap_meta,
+                stats_agent_cls=StatsVerificationAgent,
+            )
+            if verify_result.get("cancelled"):
                 return {"status": "cancelled", "run_id": run_id}
-            await emit("verify", 80, "Stats Verification Agent running...")
-            try:
-                stats_agent = StatsVerificationAgent()
-                stats_report = stats_agent.run(
-                    job_id=job_id,
-                    doc=doc_artifact,
-                    claims=claim_set
-                )
-                
-                # Save Report
-                _write_artifact_model(artifact_dir, "stats_report.json", stats_report)
-                bootstrap_meta["verifier_status"] = "completed"
-                bootstrap_meta["stats_report_written"] = True
-                bootstrap_meta["artifact_stats_written"] = True
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                    
-                await emit("verify", 95, f"Verified {len(stats_report.checks)} checks")
-                
-            except Exception as e:
-                logger.error(f"Verification Failed: {e}")
-                bootstrap_meta["verifier_status"] = "failed"
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
+            stats_report = verify_result.get("stats_report")
 
         # 6. Complete
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
             note_path = _resolve_note_path_for_paper(config, paper_id)
             if note_path:
-                stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
+                stats_md = build_stats_markdown(stats_report) if stats_report is not None else ""
                 deepread_md = build_deepread_markdown(
                     model_name=getattr(reader_agent, "model_name", "reader"),
                     claims_set=claim_set,
