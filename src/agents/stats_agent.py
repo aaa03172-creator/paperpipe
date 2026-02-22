@@ -1,17 +1,25 @@
-import json
 import logging
 from typing import TypedDict, List, Optional, Any, Dict
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.schemas.agent_artifacts import (
-    DocumentArtifact, ClaimSet, StatsReport, StatCheckEntry, VerificationStatus,
-    TableData, EvidenceSpan
+    DocumentArtifact,
+    ClaimSet,
+    StatsReport,
 )
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
-from src.contracts.artifact_views import get_artifact_header
 from src.sandbox.docker_runner import DockerSandbox
 from src.agents.adapter import OllamaModelAdapter
+from src.agents.stats_agent_workflow import (
+    build_dataframes_code,
+    build_stats_report,
+    extract_stats_via_model,
+    generate_python_code_via_model,
+    parse_reflection_entries,
+    plan_verification_via_model,
+    run_sandbox_code,
+    should_retry_from_state,
+)
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -106,206 +114,74 @@ class StatsVerificationAgent:
         """Convert tables to Pandas DataFrame reconstruction code."""
         tables = state["doc"].tables
         logger.info(f"📊 [Node: Parse] Converting {len(tables)} tables to Pandas code...")
-        code_lines = ["import pandas as pd", "import numpy as np", ""]
-        
-        for t in tables:
-            # Simple list-of-lists to DataFrame conversion
-            # Handle potential header issues in a real impl, simpler here.
-            try:
-                if not t.data:
-                    continue
-                headers = t.data[0]
-                rows = t.data[1:]
-                # Sanitize strings
-                import json
-                headers_json = json.dumps(headers)
-                rows_json = json.dumps(rows)
-                
-                code_lines.append(f"# Table {t.table_id}: {t.caption[:50]}...")
-                code_lines.append(f"columns_{t.table_id} = {headers_json}")
-                code_lines.append(f"data_{t.table_id} = {rows_json}")
-                code_lines.append(f"df_{t.table_id} = pd.DataFrame(data_{t.table_id}, columns=columns_{t.table_id})")
-                code_lines.append("")
-            except Exception as e:
-                logger.warning(f"Failed to parse table {t.table_id}: {e}")
-        
-        state["dataframes_code"] = "\n".join(code_lines)
+        state["dataframes_code"] = build_dataframes_code(tables)
         return state
 
     def node_extract_stats(self, state: StatsAgentState) -> StatsAgentState:
         """Extract reported stats from claims to verify."""
         logger.info(f"🔍 [Node: Extract] Identifying statistical claims from text...")
-        # Using LLM to extract structured stats from the text of claims
-        claims_text = "\n".join([f"- {c.statement}" for c in state["claims"].claims])
-        
-        prompt = f"""
-        Extract statistical claims from the following list. 
-        For each claim that contains statistical results (p-values, test names, sample sizes, means, SDs), extract them into a JSON list.
-        
-        Claims:
-        {claims_text}
-        
-        Output JSON format:
-        [
-          {{
-            "claim_text": "...",
-            "test_type": "t-test/ANOVA/etc",
-            "reported_p": "0.05",
-            "variables": ["group A", "group B"],
-            "values": {{ "mean_a": 10.2, "sd_a": 1.1, ... }}
-          }}
-        ]
-        """
-        response = self.model.generate(prompt, format="json")
-        try:
-            state["extraction_result"] = json.loads(response.text)
-            logger.info(f"   Model extracted {len(state['extraction_result'])} potential checks.")
-        except:
-            state["extraction_result"] = []
+        state["extraction_result"] = extract_stats_via_model(self.model, state["claims"])
+        logger.info(f"   Model extracted {len(state['extraction_result'])} potential checks.")
             
         return state
 
     def node_plan_verification(self, state: StatsAgentState) -> StatsAgentState:
         """Plan which tests to run based on extracted stats and available tables."""
         logger.info(f"🧠 [Node: Plan] Formulating verification strategy...")
-        # LLM Reasoning: Can we verify this claim using df_table_X?
-        prompt = f"""
-        You are a Statistical Verification Planner.
-        
-        Available Dataframes (Code):
-        {state['dataframes_code']}
-        
-        Extracted Claims:
-        {json.dumps(state['extraction_result'], indent=2)}
-        
-        Task: Create a plan to verify these claims using the dataframes. 
-        If data is missing for a claim, note it as UNVERIFIABLE.
-        Only plan for claims where data seems present in the tables.
-        
-        Output formatted text plan.
-        """
-        response = self.model.generate(prompt)
-        state["verification_plan"] = response.text
+        state["verification_plan"] = plan_verification_via_model(
+            self.model,
+            state["dataframes_code"],
+            state["extraction_result"],
+        )
         return state
 
     def node_generate_code(self, state: StatsAgentState) -> StatsAgentState:
         """Generate Python code to execute the plan."""
         logger.info(f"💻 [Node: Code] Generating Python verification script...")
-        prompt = f"""
-        generate a Python script to perform the statistical verification.
-        
-        Context:
-        - We have `import pandas as pd`, `import numpy as np`.
-        - We have the following DataFrame definitions (I will prepend them).
-        
-        Data Loading Code:
-        {state['dataframes_code']}
-        
-        Plan:
-        {state['verification_plan']}
-        
-        Requirements:
-        1. Perform the statistical tests (ttest_ind, etc.) using scipy.stats or statsmodels.
-        2. Print the results in a structured JSON format at the end.
-        3. The JSON should be printed to stdout.
-        4. Handle NaN or type conversions carefully (e.g. "10.2 (±1.1)" string parsing).
-        
-        Structure the output as a dictionary keyed by 'claim_id' or verification item.
-        Example Output:
-        {{
-           "check_1": {{ "computed_p": 0.04, "verdict": "consistent" }},
-           ...
-        }}
-        """
-        response = self.model.generate(prompt)
-        # simplistic extraction of code block
-        code = response.text
-        if "```python" in code:
-            code = code.split("```python")[1].split("```")[0]
-        elif "```" in code:
-            code = code.split("```")[0]
-            
-        state["python_code"] = state["dataframes_code"] + "\n\n" + code
+        state["python_code"] = generate_python_code_via_model(
+            self.model,
+            state["dataframes_code"],
+            state["verification_plan"],
+        )
         return state
 
     def node_execute_sandbox(self, state: StatsAgentState) -> StatsAgentState:
         """Run code in Docker."""
         logger.info(f"📦 [Node: Schema] Spinning up Docker MicroVM...")
-        sandbox = DockerSandbox(job_id=state["job_id"], work_dir=f"storage/sandbox/{state['job_id']}")
-        exit_code, stdout, stderr = sandbox.run_code(state["python_code"])
-        
-        logger.info(f"   Execution finished (Exit Code: {exit_code})")
-        state["execution_output"] = stdout + "\n" + stderr
-        if exit_code != 0:
-            state["execution_error"] = f"Exit Code {exit_code}\n{stderr}"
-        else:
-            state["execution_error"] = None
+        execution_output, execution_error = run_sandbox_code(
+            sandbox_cls=DockerSandbox,
+            job_id=state["job_id"],
+            python_code=state["python_code"],
+        )
+        logger.info(
+            "   Execution finished (Error: %s)",
+            "yes" if execution_error else "no",
+        )
+        state["execution_output"] = execution_output
+        state["execution_error"] = execution_error
             
         return state
 
     def node_reflect_analyze(self, state: StatsAgentState) -> StatsAgentState:
         """Analyze Sandbox output and generate final report."""
-        output = state["execution_output"]
-        
-        # If error and retries left, we might retry.
-        # For MVP, we'll try to parse results or mark as failed.
-        
-        # Parse the JSON output from the script
-        # This assumes the script printed valid JSON at the end.
-        # We might use an LLM to parse the messy stdout if needed.
-        
-        checks = []
-        
-        # Simple parsing logic (or use LLM to interpret output)
-        prompt = f"""
-        Analyze the execution output of the verification script.
-        
-        Output:
-        {output}
-        
-        Error (if any):
-        {state['execution_error']}
-        
-        Construct a list of StatCheckEntry objects (JSON).
-        Determine the 'verdict' (verified, partially_verified, inconsistent, unverifiable).
-        """
-        response = self.model.generate(prompt, format="json")
-        try:
-            entries_data = json.loads(response.text)
-            # Map back to Pydantic models
-            if isinstance(entries_data, list):
-                for e in entries_data:
-                    # Sanitize & Inject Context
-                    if "verdict" not in e: e["verdict"] = "unverifiable"
-                    # Inject code/output if missing (LLM usually omits these big fields)
-                    if "code" not in e: e["code"] = state["python_code"] if state["python_code"] else "N/A"
-                    if "outputs" not in e: e["outputs"] = state["execution_output"] if state["execution_output"] else "N/A"
-                    
-                    checks.append(StatCheckEntry(**e))
-            elif isinstance(entries_data, dict) and "checks" in entries_data:
-                 for e in entries_data["checks"]:
-                    # Sanitize & Inject Context
-                    if "verdict" not in e: e["verdict"] = "unverifiable"
-                    if "code" not in e: e["code"] = state["python_code"] if state["python_code"] else "N/A"
-                    if "outputs" not in e: e["outputs"] = state["execution_output"] if state["execution_output"] else "N/A"
-                    
-                    checks.append(StatCheckEntry(**e))
-        except Exception as e:
-            logger.error(f"Failed to parse reflexion: {e}")
-            # Fallback report
-            
-        report = StatsReport(
-            doc_id=get_artifact_header(state["doc"]).doc_id,
-            run_id=state["job_id"], # reusing job_id as run_id for now
-            checks=checks
+        checks = parse_reflection_entries(
+            model=self.model,
+            execution_output=state["execution_output"],
+            execution_error=state["execution_error"],
+            python_code=state["python_code"],
         )
-        
+        report = build_stats_report(
+            doc=state["doc"],
+            job_id=state["job_id"],
+            checks=checks,
+        )
         state["final_report"] = report
         state["retry_count"] += 1
         return state
 
     def should_retry(self, state: StatsAgentState) -> str:
         """Decide whether to retry code generation."""
-        if state["execution_error"] and state["retry_count"] < 2:
-            return "retry"
-        return "end"
+        return should_retry_from_state(
+            execution_error=state["execution_error"],
+            retry_count=state["retry_count"],
+        )
