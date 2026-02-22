@@ -1,6 +1,8 @@
 import subprocess
 from types import SimpleNamespace
 
+import pytest
+
 import scripts.test_phase3_integration as phase3_script
 
 
@@ -61,3 +63,38 @@ def test_terminate_process_kills_on_timeout():
     phase3_script._terminate_process(proc)
     assert proc.terminated is True
     assert proc.killed is True
+
+
+def test_wait_for_job_terminal_status_returns_completed(monkeypatch):
+    responses = iter(
+        [
+            {"status": "queued", "progress": 0},
+            {"status": "running", "progress": 50},
+            {"status": "completed", "progress": 100},
+        ]
+    )
+
+    def _mock_get(*_args, **_kwargs):
+        return SimpleNamespace(json=lambda: next(responses))
+
+    monkeypatch.setattr(phase3_script.requests, "get", _mock_get)
+    monkeypatch.setattr(phase3_script.time, "sleep", lambda *_args, **_kwargs: None)
+
+    result = phase3_script._wait_for_job_terminal_status(
+        "http://x", "job-1", max_polls=5, interval_seconds=0.0
+    )
+
+    assert result["status"] == "completed"
+
+
+def test_wait_for_job_terminal_status_raises_timeout(monkeypatch):
+    def _mock_get(*_args, **_kwargs):
+        return SimpleNamespace(json=lambda: {"status": "running", "progress": 10})
+
+    monkeypatch.setattr(phase3_script.requests, "get", _mock_get)
+    monkeypatch.setattr(phase3_script.time, "sleep", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(TimeoutError):
+        phase3_script._wait_for_job_terminal_status(
+            "http://x", "job-1", max_polls=2, interval_seconds=0.0
+        )

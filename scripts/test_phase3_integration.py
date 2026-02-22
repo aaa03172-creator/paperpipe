@@ -43,6 +43,26 @@ def _terminate_process(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
+def _wait_for_job_terminal_status(
+    api_url: str,
+    job_id: str,
+    max_polls: int = 15,
+    interval_seconds: float = 1.0,
+) -> dict:
+    last_status = {"status": "unknown", "progress": 0}
+    for _ in range(max_polls):
+        resp = requests.get(f"{api_url}/jobs/{job_id}", timeout=3)
+        status = resp.json()
+        last_status = status
+        print(f"   Status: {status['status']} | Progress: {status['progress']}%")
+
+        if status["status"] in {"completed", "failed", "cancelled"}:
+            return status
+        time.sleep(interval_seconds)
+
+    raise TimeoutError(f"Timed out waiting for terminal job status. Last status={last_status}")
+
+
 def test_api_worker_integration():
     print("🚀 Starting Integration Test...")
     
@@ -94,20 +114,10 @@ def test_api_worker_integration():
         print("👷 Worker Started...")
         
         # 5. Poll Status
-        for _ in range(15):
-            resp = requests.get(f"{API_URL}/jobs/{job_id}", timeout=3)
-            status = resp.json()
-            print(f"   Status: {status['status']} | Progress: {status['progress']}%")
-            
-            if status['status'] == 'completed':
-                print("✅ Job Completed!")
-                break
-            if status['status'] == 'failed':
-                print("❌ Job Failed!")
-                break
-            time.sleep(1)
-        else:
-            print("❌ Timeout waiting for job completion")
+        final_status = _wait_for_job_terminal_status(API_URL, job_id, max_polls=15, interval_seconds=1)
+        if final_status["status"] != "completed":
+            raise AssertionError(f"Job did not complete successfully: {final_status}")
+        print("✅ Job Completed!")
             
     finally:
         _terminate_process(server_proc)
