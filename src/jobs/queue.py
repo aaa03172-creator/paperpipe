@@ -58,7 +58,12 @@ class JobQueue:
                 _insert(conn)
             except sqlite3.OperationalError as exc:
                 err = str(exc)
-                if "no such table: jobs" not in err and "no such column: clean_reindex" not in err:
+                legacy_schema_error = (
+                    "no such table: jobs" in err
+                    or "no such column:" in err
+                    or "has no column named" in err
+                )
+                if not legacy_schema_error:
                     raise
                 conn.close()
                 init_db()
