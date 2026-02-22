@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import json
 import argparse
 from pypdf import PdfReader
 
@@ -12,6 +11,12 @@ from src.llm_provider import get_llm_provider, LLMProvider
 from src.fetch import get_fetchers
 from src.gates import GateEngine
 from src.schemas.gates import GateDecision
+from src.processor_steps import (
+    step_analyze,
+    step_fetch,
+    step_finalize,
+    step_gate,
+)
 from src.db_utils import (
     sync_zotero_to_db, 
     get_papers_by_status, 
@@ -19,7 +24,7 @@ from src.db_utils import (
     is_paper_processed,
     save_paper_state,
 )
-from src.schemas import Paper, PaperStatus, PaperTagging
+from src.schemas import Paper, PaperStatus
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
 from src.downloader import download_paper
@@ -147,142 +152,46 @@ class PaperProcessor:
     # --- Step Handlers ---
 
     def _step_fetch(self, row: Dict):
-        """Step 1: NEW -> FETCHED (Check PDF)"""
-        pid = row['paper_id']
-        pdf_path_str = row['pdf_path']
-        logger.info(f"   [Step 1: Fetch] {pid}")
-        
-        final_pdf_path = None
-        
-        # 1. Check existing DB path
-        if pdf_path_str:
-            p = Path(pdf_path_str)
-            if p.exists():
-                final_pdf_path = p
-        
-        # 2. Check Library/ symlink standard
-        if not final_pdf_path:
-            lib_path = Path(f"Library/{pid}.pdf")
-            if lib_path.exists():
-                final_pdf_path = lib_path
-                
-        if final_pdf_path:
-            # Update DB with verified path
-            update_paper_status(pid, STATE_FETCHED, {"pdf_path": str(final_pdf_path)})
-            logger.info(f"      -> Verified PDF at {final_pdf_path}")
-        else:
-            update_paper_status(pid, STATE_PDF_MISSING)
-            logger.warning(f"      -> PDF Missing for {pid}")
+        step_fetch(
+            row,
+            state_fetched=STATE_FETCHED,
+            state_pdf_missing=STATE_PDF_MISSING,
+            update_status_fn=update_paper_status,
+            logger=logger,
+        )
 
     def _step_analyze(self, row: Dict):
-        """Step 2: Analysis (FETCHED -> GATED)"""
-        pid = row['paper_id']
-        title = row['title']
-        pdf_path = row['pdf_path']
-        logger.info(f"   [Step 2: Analyze] {pid} ({title})")
-        
-        if not self.llm_provider or not self.llm_provider.is_available():
-            raise RuntimeError("LLM Provider not available")
-            
-        # 1. Construct Paper object (minimal)
-        summary = row.get('summary', '') or "Abstract not available."
-        full_text = None
-
-        if pdf_path:
-            p = Path(pdf_path)
-            if p.exists():
-                logger.info(f"      -> Extracting text from PDF: {p.name}")
-                full_text = extract_text_from_pdf(p, max_pages=5)
-        
-        paper_obj = {
-            "title": title,
-            "summary": summary,
-            "full_text": full_text,
-        }
-        
-        # 2. Run Hybrid Tagging (includes Confidence)
-        logger.info("      -> Running Hybrid Tagging & Extraction...")
-        tags_data = self.llm_provider.tag_paper(paper_obj)
-        
-        if not tags_data:
-            raise ValueError("Tagging returned None")
-            
-        # 3. Save result to DB
-        confidence = tags_data.get('confidence', 0.0)
-        
-        update_paper_status(pid, STATE_GATED, {
-            "confidence": confidence,
-            "feedback_json": json.dumps(tags_data) # Store analysis result here
-        })
-        logger.info(f"      -> Analysis Done. Confidence: {confidence}")
+        step_analyze(
+            row,
+            llm_provider=self.llm_provider,
+            state_gated=STATE_GATED,
+            extract_text_fn=extract_text_from_pdf,
+            update_status_fn=update_paper_status,
+            logger=logger,
+        )
 
     def _step_gate(self, row: Dict):
-        """Step 3: Gate (GATED -> APPROVED/QUARANTINED/PENDING)"""
-        pid = row['paper_id']
-        confidence = row.get('confidence', 0.0)
-        logger.info(f"   [Step 3: Gate] {pid} (Conf: {confidence})")
-
-        parse_ok = True
-        schema_ok = True
-        analysis: Dict[str, Any] = {}
-        feedback_json = row.get("feedback_json")
-        if feedback_json:
-            try:
-                parsed = json.loads(feedback_json)
-                if isinstance(parsed, dict):
-                    analysis = parsed
-                else:
-                    parse_ok = False
-            except Exception:
-                parse_ok = False
-
-        analysis.setdefault("confidence", confidence)
-        analysis.setdefault("soft_tags", [])
-        analysis.setdefault("hard_tags", {})
-
-        if parse_ok:
-            try:
-                PaperTagging.model_validate(analysis)
-            except Exception:
-                schema_ok = False
-
-        gate_result = self.gate_engine.evaluate(analysis, parse_ok=parse_ok, schema_ok=schema_ok)
-
         status_map = {
             GateDecision.APPROVED: STATE_APPROVED,
             GateDecision.PENDING_REVIEW: STATE_PENDING,
             GateDecision.QUARANTINED: STATE_QUARANTINED,
             GateDecision.FAILED: STATE_FAILED,
         }
-        status = status_map[gate_result.decision]
-        decision = gate_result.decision.value
-        reason = ",".join([rc.value for rc in gate_result.reason_codes]) or "NONE"
-
-        update_paper_status(pid, status, {
-            "gate_decision": decision,
-            "gate_reason": reason,
-        })
-        logger.info(f"      -> Gate Decision: {decision} ({reason})")
+        step_gate(
+            row,
+            gate_engine=self.gate_engine,
+            status_map=status_map,
+            update_status_fn=update_paper_status,
+            logger=logger,
+        )
 
     def _step_finalize(self, row: Dict):
-        """Step 4: Finalize (APPROVED -> INDEXED)"""
-        pid = row['paper_id']
-        logger.info(f"   [Step 4: Finalize] {pid}")
-        
-        # Placeholder for Embeddings / Vector DB
-        
-        # Also create Obsidian Note?
-        feedback_json = row['feedback_json']
-        if feedback_json:
-            try:
-                data = json.loads(feedback_json)
-                # Construct result_dict for Obsidian (Mock)
-                logger.info("      -> Prepared for Obsidian (Mock)")
-            except Exception as e:
-                logger.warning(f"      -> Failed to parse feedback_json for Obsidian: {e}")
-
-        update_paper_status(pid, STATE_INDEXED)
-        logger.info("      -> Status: INDEXED")
+        step_finalize(
+            row,
+            state_indexed=STATE_INDEXED,
+            update_status_fn=update_paper_status,
+            logger=logger,
+        )
 
 
 def process_paper(
