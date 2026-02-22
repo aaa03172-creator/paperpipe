@@ -1,5 +1,7 @@
 import subprocess
 from types import SimpleNamespace
+from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -98,3 +100,83 @@ def test_wait_for_job_terminal_status_raises_timeout(monkeypatch):
         phase3_script._wait_for_job_terminal_status(
             "http://x", "job-1", max_polls=2, interval_seconds=0.0
         )
+
+
+def test_ensure_test_pdf_for_paper_creates_when_missing(tmp_path, monkeypatch):
+    config = SimpleNamespace(paths=SimpleNamespace(library_dir=tmp_path))
+    monkeypatch.setattr(phase3_script, "load_config", lambda: config)
+
+    path, created = phase3_script._ensure_test_pdf_for_paper("paper_x")
+    assert created is True
+    assert path.exists()
+    assert path.suffix == ".pdf"
+
+    second_path, created_second = phase3_script._ensure_test_pdf_for_paper("paper_x")
+    assert created_second is False
+    assert second_path == path
+
+
+def test_tail_log_handles_missing_file(tmp_path):
+    missing = tmp_path / "nope.log"
+    out = phase3_script._tail_log(str(missing))
+    assert "missing log file" in out
+
+
+def _connect_with_row_factory(db_path: Path):
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def test_cleanup_stale_jobs_for_paper_cancels_matching_jobs(tmp_path, monkeypatch):
+    db_path = tmp_path / "state.db"
+    conn = _connect_with_row_factory(db_path)
+    conn.execute(
+        """
+        CREATE TABLE jobs (
+            job_id TEXT PRIMARY KEY,
+            paper_id TEXT,
+            status TEXT,
+            finished_at TEXT,
+            error_message TEXT
+        )
+        """
+    )
+    conn.execute("INSERT INTO jobs (job_id, paper_id, status) VALUES ('j1', 'test_paper_001', 'running')")
+    conn.execute("INSERT INTO jobs (job_id, paper_id, status) VALUES ('j2', 'test_paper_001', 'queued')")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(phase3_script, "get_db_connection", lambda: _connect_with_row_factory(db_path))
+
+    cleaned = phase3_script._cleanup_stale_jobs_for_paper("test_paper_001")
+    assert cleaned == 2
+
+    conn = _connect_with_row_factory(db_path)
+    rows = conn.execute("SELECT job_id, status FROM jobs ORDER BY job_id").fetchall()
+    conn.close()
+    assert [dict(r)["status"] for r in rows] == ["cancelled", "cancelled"]
+
+
+def test_cleanup_stale_jobs_for_paper_raises_on_other_running(tmp_path, monkeypatch):
+    db_path = tmp_path / "state.db"
+    conn = _connect_with_row_factory(db_path)
+    conn.execute(
+        """
+        CREATE TABLE jobs (
+            job_id TEXT PRIMARY KEY,
+            paper_id TEXT,
+            status TEXT,
+            finished_at TEXT,
+            error_message TEXT
+        )
+        """
+    )
+    conn.execute("INSERT INTO jobs (job_id, paper_id, status) VALUES ('j1', 'other-paper', 'running')")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(phase3_script, "get_db_connection", lambda: _connect_with_row_factory(db_path))
+
+    with pytest.raises(RuntimeError, match="other running jobs"):
+        phase3_script._cleanup_stale_jobs_for_paper("test_paper_001")

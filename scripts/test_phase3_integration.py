@@ -5,12 +5,14 @@ import sys
 import os
 from pathlib import Path
 import pytest
+import fitz
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.db_utils import init_db
+from src.config import load_config
+from src.db_utils import get_db_connection, init_db
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -43,10 +45,74 @@ def _terminate_process(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
+def _ensure_test_pdf_for_paper(paper_id: str) -> tuple[Path, bool]:
+    """
+    Ensure there is a valid PDF in library_dir discoverable by run_deepread_job.
+    Returns (pdf_path, created_now).
+    """
+    config = load_config()
+    library_dir = Path(config.paths.library_dir)
+    library_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = list(library_dir.rglob(f"*{paper_id}*.pdf"))
+    if existing:
+        return existing[0], False
+
+    pdf_path = library_dir / f"{paper_id}.pdf"
+    doc = fitz.open()
+    try:
+        page = doc.new_page()
+        page.insert_text((72, 72), f"Integration test PDF for {paper_id}")
+        doc.save(str(pdf_path))
+    finally:
+        doc.close()
+    return pdf_path, True
+
+
+def _cleanup_stale_jobs_for_paper(paper_id: str) -> int:
+    """
+    Cancel stale queued/running jobs for the same integration paper.
+    If another paper is currently running, abort integration to avoid interference.
+    """
+    conn = get_db_connection()
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT job_id, paper_id, status FROM jobs WHERE status IN ('queued','running')"
+            ).fetchall()
+        except Exception:
+            return 0
+
+        blocking = [
+            dict(r) for r in rows if r["status"] == "running" and str(r["paper_id"] or "") != paper_id
+        ]
+        if blocking:
+            raise RuntimeError(
+                f"Cannot run integration test while other running jobs exist: {[b['job_id'] for b in blocking]}"
+            )
+
+        targets = [dict(r) for r in rows if str(r["paper_id"] or "") == paper_id]
+        for row in targets:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'cancelled',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error_message = COALESCE(error_message, 'stale integration cleanup')
+                WHERE job_id = ?
+                """,
+                (row["job_id"],),
+            )
+        conn.commit()
+        return len(targets)
+    finally:
+        conn.close()
+
+
 def _wait_for_job_terminal_status(
     api_url: str,
     job_id: str,
-    max_polls: int = 15,
+    max_polls: int = 120,
     interval_seconds: float = 1.0,
 ) -> dict:
     last_status = {"status": "unknown", "progress": 0}
@@ -63,11 +129,29 @@ def _wait_for_job_terminal_status(
     raise TimeoutError(f"Timed out waiting for terminal job status. Last status={last_status}")
 
 
+def _tail_log(log_path: str | None, lines: int = 30) -> str:
+    if not log_path:
+        return "<no log_path>"
+    path = Path(log_path)
+    if not path.exists():
+        return f"<missing log file: {log_path}>"
+    try:
+        content = path.read_text(encoding="utf-8").splitlines()
+        return "\n".join(content[-lines:]) or "<empty log>"
+    except Exception as exc:
+        return f"<failed to read log tail: {exc}>"
+
+
 def test_api_worker_integration():
     print("🚀 Starting Integration Test...")
     
     # Ensure DB exists
     init_db()
+    paper_id = "test_paper_001"
+    prepared_pdf, created_pdf = _ensure_test_pdf_for_paper(paper_id)
+    cleaned = _cleanup_stale_jobs_for_paper(paper_id)
+    if cleaned:
+        print(f"🧹 Cleaned stale jobs for {paper_id}: {cleaned}")
 
     # 1. Start Server
     server_proc = subprocess.Popen(
@@ -98,12 +182,12 @@ def test_api_worker_integration():
         # 3. Enqueue Job
         resp = requests.post(
             f"{API_URL}/jobs/deepread",
-            json={"paper_id": "test_paper_001", "clean_reindex": True},
+            json={"paper_id": paper_id, "clean_reindex": True},
             timeout=5,
         )
         assert resp.status_code == 200
         job_id = resp.json()["job_id"]
-        print(f"✅ Job Enqueued: {job_id}")
+        print(f"✅ Job Enqueued: {job_id} (pdf={prepared_pdf})")
         
         # 4. Start Worker (in separate process)
         worker_proc = subprocess.Popen(
@@ -114,15 +198,27 @@ def test_api_worker_integration():
         print("👷 Worker Started...")
         
         # 5. Poll Status
-        final_status = _wait_for_job_terminal_status(API_URL, job_id, max_polls=15, interval_seconds=1)
+        max_polls = int(os.getenv("PHASE3_MAX_POLLS", "120"))
+        poll_interval = float(os.getenv("PHASE3_POLL_INTERVAL", "1"))
+        final_status = _wait_for_job_terminal_status(
+            API_URL,
+            job_id,
+            max_polls=max_polls,
+            interval_seconds=poll_interval,
+        )
         if final_status["status"] != "completed":
-            raise AssertionError(f"Job did not complete successfully: {final_status}")
+            log_tail = _tail_log(final_status.get("log_path"))
+            raise AssertionError(
+                f"Job did not complete successfully: {final_status}\n--- log tail ---\n{log_tail}"
+            )
         print("✅ Job Completed!")
             
     finally:
         _terminate_process(server_proc)
         if worker_proc is not None:
             _terminate_process(worker_proc)
+        if created_pdf:
+            prepared_pdf.unlink(missing_ok=True)
             
 if __name__ == "__main__":
     test_api_worker_integration()
