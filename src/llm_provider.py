@@ -6,7 +6,6 @@ import ollama
 
 from src.config import LLMConfig
 from src.schemas import TrialExtraction, PaperTagging
-from src.json_repair import repair_and_parse_json
 from src.llm_prompts import (
     build_deep_read_prompt,
     build_escalation_prompt,
@@ -18,6 +17,12 @@ from src.llm_prompts import (
 )
 from src.llm_transport import openai_chat_request, ollama_chat_request
 from src.llm_similarity import find_related_papers_by_cosine
+from src.llm_response_utils import (
+    escalation_result_from_payload,
+    extract_llm_json,
+    relevance_result_from_payload,
+    slot_prediction_from_payload,
+)
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -80,33 +85,7 @@ class LLMProvider:
             return None
 
         try:
-            parsed = repair_and_parse_json(response_content)
-            
-            # [Smart Unwrap Logic]
-            # If the LLM wrapped the response in "data", "response", "content", etc., unwrap it.
-            # We check if the expected keys are present.
-            expected_keys = ["hard_tags", "soft_tags", "evidence_span"]
-            
-            def find_keys(obj, keys):
-                if isinstance(obj, dict):
-                    # Check if this object has the keys we want
-                    if all(k in obj for k in keys):
-                        return obj
-                    # If not, check values (recursive descent)
-                    for v in obj.values():
-                        found = find_keys(v, keys)
-                        if found:
-                            return found
-                return None
-
-            # Try to find the schema if not at root
-            # Only do this if we are looking for a specific schema structure (inferred by context or generous check)
-            # For tagging, we expect hard_tags and soft_tags.
-            unwrapped = find_keys(parsed, ["hard_tags", "soft_tags"])
-            if unwrapped:
-                return unwrapped
-            
-            return parsed
+            return extract_llm_json(response_content)
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to extract JSON from content: {response_content[:100]}... ({e})")
         return None
@@ -181,8 +160,8 @@ class LLMProvider:
             try:
                 data = self._extract_json(response_content)
                 if data:
-                    predicted = data.get("predicted_slot")
-                    if predicted in ["Mechanism", "Clinical", "Methods"]:
+                    predicted = slot_prediction_from_payload(data)
+                    if predicted:
                         logger.info(f"   🤖 Slot Verified: {current_slot} -> {predicted}")
                         return predicted
             except Exception:
@@ -225,11 +204,7 @@ class LLMProvider:
             try:
                 data = self._extract_json(response_content)
                 if data:
-                    return {
-                        "approved": data.get("approved", False),
-                        "new_confidence": data.get("new_confidence", 0.0),
-                        "reason": data.get("reason", "No reason provided")
-                    }
+                    return escalation_result_from_payload(data)
             except Exception:
                 logger.warning("Failed to parse Escalation Judge response.")
         
@@ -245,11 +220,7 @@ class LLMProvider:
             try:
                 data = self._extract_json(response_content)
                 if data:
-                    return {
-                        "gap": data.get("gap", "N/A"),
-                        "insight": data.get("insight", "N/A"),
-                        "limitation": data.get("limitation", "N/A")
-                    }
+                    return relevance_result_from_payload(data)
             except Exception:
                 logger.warning("Failed to parse Relevance Analysis response.")
         
