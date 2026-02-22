@@ -10,7 +10,9 @@ from backend.services.job_runner import run_deepread_job
 from src.db_event_log import (
     create_run,
     finish_run,
+    flush_event_buffer,
     log_event,
+    log_event_buffered,
     update_job_status as update_job_status_eventlog,
 )
 
@@ -83,7 +85,7 @@ class Worker:
                     updates["error_message"] = event.get("message")
                 self.queue.update_job(job.job_id, updates)
                 try:
-                    log_event(
+                    log_event_buffered(
                         job.job_id,
                         str(event.get("level", "INFO")).lower(),
                         "step_progress",
@@ -128,6 +130,7 @@ class Worker:
                     update_job_status_eventlog(job.job_id, "cancelled")
                     log_event(job.job_id, "warning", "job_cancelled", "job cancelled during execution")
                     finish_run(run_record_id, "cancelled")
+                    flush_event_buffer()
                 except Exception as event_log_exc:
                     logger.warning("Event-log cancelled instrumentation skipped: %s", event_log_exc)
                 logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
@@ -154,6 +157,7 @@ class Worker:
                         {"artifact_dir": result.get("artifact_dir")},
                     )
                     finish_run(run_record_id, "succeeded")
+                    flush_event_buffer()
                 except Exception as event_log_exc:
                     logger.warning("Event-log completed instrumentation skipped: %s", event_log_exc)
                 logger.info(f"✅ Job {job.job_id} completed.")
@@ -178,6 +182,7 @@ class Worker:
                         error_message,
                     )
                     finish_run(run_record_id, "failed", metrics={"error_message": error_message})
+                    flush_event_buffer()
                 except Exception as event_log_exc:
                     logger.warning("Event-log failed instrumentation skipped: %s", event_log_exc)
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
@@ -199,6 +204,7 @@ class Worker:
                 )
                 log_event(job.job_id, "error", "worker_exception", str(e))
                 finish_run(run_record_id, "failed", metrics={"exception": str(e)})
+                flush_event_buffer()
             except Exception as event_log_exc:
                 logger.warning("Event-log exception instrumentation skipped: %s", event_log_exc)
 

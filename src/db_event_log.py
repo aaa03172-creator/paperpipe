@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import atexit
 import json
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from src.core.paper_identity import make_paper_key
 from src.db_utils import get_db_connection
+
+_EVENT_BUFFER: list[tuple[str, str, str, str, str, str | None, str | None]] = []
+_EVENT_BUFFER_LOCK = threading.Lock()
+_EVENT_BUFFER_LIMIT = 25
 
 
 def _now_iso() -> str:
@@ -169,19 +175,79 @@ def log_event(
     payload: Optional[dict[str, Any]] = None,
 ) -> str:
     event_id = str(uuid.uuid4())
+    _insert_events(
+        [
+            (
+                event_id,
+                job_id,
+                _now_iso(),
+                level,
+                event_type,
+                message,
+                _json_or_none(payload),
+            )
+        ]
+    )
+    return event_id
+
+
+def log_event_buffered(
+    job_id: str,
+    level: str,
+    event_type: str,
+    message: Optional[str] = None,
+    payload: Optional[dict[str, Any]] = None,
+) -> str:
+    event_id = str(uuid.uuid4())
+    record = (
+        event_id,
+        job_id,
+        _now_iso(),
+        level,
+        event_type,
+        message,
+        _json_or_none(payload),
+    )
+    should_flush = False
+    with _EVENT_BUFFER_LOCK:
+        _EVENT_BUFFER.append(record)
+        if len(_EVENT_BUFFER) >= _EVENT_BUFFER_LIMIT:
+            should_flush = True
+    if should_flush:
+        flush_event_buffer()
+    return event_id
+
+
+def flush_event_buffer() -> int:
+    with _EVENT_BUFFER_LOCK:
+        if not _EVENT_BUFFER:
+            return 0
+        batch = list(_EVENT_BUFFER)
+        _EVENT_BUFFER.clear()
+    _insert_events(batch)
+    return len(batch)
+
+
+def set_event_buffer_limit(limit: int) -> None:
+    global _EVENT_BUFFER_LIMIT
+    _EVENT_BUFFER_LIMIT = max(1, int(limit))
+
+
+def _insert_events(events: list[tuple[str, str, str, str, str, str | None, str | None]]) -> None:
+    if not events:
+        return
     conn = get_db_connection()
     try:
-        conn.execute(
+        conn.executemany(
             """
             INSERT INTO job_events (event_id, job_id, ts, level, event_type, message, payload_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (event_id, job_id, _now_iso(), level, event_type, message, _json_or_none(payload)),
+            events,
         )
         conn.commit()
     finally:
         conn.close()
-    return event_id
 
 
 def log_user_action(
@@ -225,3 +291,6 @@ def log_user_action(
     finally:
         conn.close()
     return action_id
+
+
+atexit.register(flush_event_buffer)
