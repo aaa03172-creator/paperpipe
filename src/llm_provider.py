@@ -2,7 +2,6 @@ import logging
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
 import json
-import numpy as np
 import ollama
 
 from src.config import LLMConfig
@@ -18,6 +17,7 @@ from src.llm_prompts import (
     build_trial_extraction_prompt,
 )
 from src.llm_transport import openai_chat_request, ollama_chat_request
+from src.llm_similarity import find_related_papers_by_cosine
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -263,35 +263,17 @@ class LLMProvider:
         if target_paper_id not in all_papers_vectors:
             logger.warning(f"Target paper ID '{target_paper_id}' not found in provided vectors.")
             return []
-        
-        target_vec = np.array(all_papers_vectors[target_paper_id])
-        
-        # Handle zero vector case
-        if np.linalg.norm(target_vec) == 0:
-            logger.warning(f"Target paper '{target_paper_id}' has a zero embedding vector. Cannot compute similarity.")
-            return []
 
-        results = []
-        
-        for pid, vec in all_papers_vectors.items():
-            if pid == target_paper_id:
-                continue
-            
-            current_vec = np.array(vec)
-            
-            # Handle zero vector case for current paper
-            norm_current_vec = np.linalg.norm(current_vec)
-            if norm_current_vec == 0:
-                logger.debug(f"Skipping paper '{pid}' due to zero embedding vector.")
-                continue
-
-            # Cosine similarity
-            similarity = np.dot(target_vec, current_vec) / (np.linalg.norm(target_vec) * norm_current_vec)
-            results.append((pid, similarity))
-        
-        # Sort desc
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+        related = find_related_papers_by_cosine(
+            target_paper_id=target_paper_id,
+            all_papers_vectors=all_papers_vectors,
+            top_k=top_k,
+        )
+        if not related:
+            logger.warning(
+                f"Target paper '{target_paper_id}' has missing/zero vectors. Cannot compute similarity."
+            )
+        return related
 
 
 class OpenAIProvider(LLMProvider):
