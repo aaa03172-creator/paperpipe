@@ -240,3 +240,53 @@ def test_run_deepread_job_can_cancel_after_artifact_init(tmp_path, monkeypatch):
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["claimset_readiness"] == "unknown"
     assert meta["claimset_readiness_reason"] == "not_evaluated"
+
+
+def test_run_deepread_job_not_ready_without_review_queue_flags_manual_action(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "not_ready_without_review_queue"
+    config = _make_config(tmp_path, paper_id)
+    pdf_path = config.paths.library_dir / f"{paper_id}.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    class FakeIngestAgent:
+        def process_v2(self, path: str):
+            return _make_doc_artifact(paper_id, path)
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class EmptyReaderAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def analyze(self, doc):
+            return ClaimSet(doc_id=doc.document_id, claims=[])
+
+    monkeypatch.setattr(job_runner_mod, "load_config", lambda: config)
+    monkeypatch.setattr(job_runner_mod, "_load_similar_feedback_top3", lambda query_text, limit=3: [])
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner_mod, "ReaderAgent", EmptyReaderAgent)
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job_not_ready_no_queue",
+            paper_id=paper_id,
+            run_id="run_not_ready_no_queue",
+            run_verify=False,
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_not_ready_no_queue"
+    meta_path = artifact_dir / "bootstrap_meta.json"
+    assert meta_path.exists()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["claimset_readiness"] == "not_ready"
+    assert meta["claimset_ready"] is False
+    assert meta["claimset_claim_count"] == 0
+    assert meta["claimset_ops_action"] == "manual_review_required"
+    assert meta["claimset_ops_alert"] is True
+    assert meta["claimset_ops_note"] == "queue_unavailable"
