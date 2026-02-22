@@ -14,6 +14,16 @@
   - No runtime code changes in the PR.
   - Reviewer sign-off required (Antigravity + Codex).
 
+## PR-DOC-Blueprint-Delta-Review
+- Title: `docs(blueprint): add v1-v2 delta review and execution gate`
+- Priority: High
+- Purpose: Prevent runtime policy drift by explicitly documenting what changed after baseline blueprint and where code currently stands.
+- Scope:
+  - `docs/Blueprint_Change_Review_2026-02-22.md`
+- Merge Gate:
+  - Docs-only PR (no runtime code).
+  - Reviewer sign-off required (Antigravity + Codex).
+
 ## PR-BE-JobContract-Hardening
 - Title: `fix(api-jobs): persist clean_reindex and harden startup/db paths`
 - Priority: High
