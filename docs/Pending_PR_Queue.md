@@ -13,6 +13,7 @@
 - `PR-BE-RunProfile-v1`
 - `PR-BE-Discover-Queue-v1`
 - `PR-BE-Stats-Trigger-v1`
+- `PR-BE-Observability-Rollup`
 
 ## PR-DOC-Blueprint-v2
 - Title: `docs(blueprint): review and promote pragmatic blueprint v2`
@@ -27,18 +28,6 @@
 - Merge Gate:
   - Docs-only PR (no runtime files).
   - Reviewer sign-off required (Antigravity + Codex).
-
-## PR-BE-Observability-Rollup
-- Title: `feat(obs): expose grounded ratio + stats cache rollup metrics`
-- Priority: High
-- Purpose: Surface runtime quality counters for operations dashboard without changing core execution semantics.
-- Scope (expected):
-  - `backend/main.py` (or dedicated metrics route)
-  - QA/report scripts
-  - tests for metric calculation and API response
-- Merge Gate:
-  - `evidence_grounded_ratio` and stats cache-hit rollup are queryable.
-  - `pytest -q` full suite green.
 
 ## PR-BE-V2-Identity-EventLog (Deferred)
 - Title: `feat(core): paper_key identity + event log tables`

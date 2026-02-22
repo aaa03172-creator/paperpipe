@@ -26,6 +26,8 @@
   - 참조: `src/fetch/openalex.py`, `src/discovery_queue.py`, `backend/routers/discover.py`
 - Stats는 선택 실행(`run_verify`) + 실행 프로파일(`run_profile`) + 태그 트리거(`#important`, `#action/stats_check`) + 캐시(`stats_cache_hit`) 구조를 갖고 있다.
   - 참조: `src/jobs/schemas.py`, `backend/services/job_runner.py`, `backend/services/stats_runtime.py`
+- 런타임 품질 관측치(`evidence_grounded_ratio`, cache-hit rollup)를 API에서 조회할 수 있다.
+  - 참조: `backend/main.py` (`/metrics/quality`)
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -210,8 +212,8 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: 운영 관측 지표 추가(`evidence_grounded_ratio`, `stats_cache_hit`)
-- 2순위: v2 전환 전 `paper_key`/event-log 도입 여부 결정
+- 1순위: v2 전환 전 `paper_key`/event-log 도입 여부 결정
+- 2순위: v2 docs 승인 후 identity/event-log migration 착수
 
 ---
 
