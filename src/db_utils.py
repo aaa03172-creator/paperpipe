@@ -34,11 +34,12 @@ def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    ensure_jobs_table(conn)
-    ensure_review_queue_open_unique_index(conn)
-    
-    conn.commit()
-    conn.close()
+    try:
+        ensure_jobs_table(conn)
+        ensure_review_queue_open_unique_index(conn)
+        conn.commit()
+    finally:
+        conn.close()
 
 def get_db_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -112,9 +113,11 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
         return 0
 
     conn = get_db_connection()
-    new_count = sync_zotero_to_db_with_connection(conn, zotero_json_path)
-    conn.commit()
-    conn.close()
+    try:
+        new_count = sync_zotero_to_db_with_connection(conn, zotero_json_path)
+        conn.commit()
+    finally:
+        conn.close()
     
     if new_count > 0:
         logger.info(f"📥 Synced {new_count} new papers from Zotero to DB.")
@@ -129,39 +132,47 @@ def get_papers_by_status(status_list: List[str], limit: int = 5) -> List[Dict[st
     Ordered by updated_at ASC (FIFO) to process oldest waiting first.
     """
     conn = get_db_connection()
-    rows = get_papers_by_status_with_connection(conn, status_list, limit=limit)
-    conn.close()
-    return rows
+    try:
+        return get_papers_by_status_with_connection(conn, status_list, limit=limit)
+    finally:
+        conn.close()
 
 def update_paper_status(paper_id: str, new_status: str, updates: Optional[Dict[str, Any]] = None):
     """
     Update paper status and other fields (e.g., confidence, feedback_json).
     """
     conn = get_db_connection()
-    update_paper_status_with_connection(conn, paper_id, new_status, updates=updates)
-    conn.commit()
-    conn.close()
+    try:
+        update_paper_status_with_connection(conn, paper_id, new_status, updates=updates)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_run_stats_table() -> None:
     conn = get_db_connection()
-    init_run_stats_table_with_connection(conn)
-    conn.commit()
-    conn.close()
+    try:
+        init_run_stats_table_with_connection(conn)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool) -> None:
     conn = get_db_connection()
-    log_run_stat_with_connection(conn, profile_id, items_fetched, limit_hit)
-    conn.commit()
-    conn.close()
+    try:
+        log_run_stat_with_connection(conn, profile_id, items_fetched, limit_hit)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_profile_stats(profile_id: str, days: int = 7) -> List[Dict[str, Any]]:
     conn = get_db_connection()
-    rows = get_profile_stats_with_connection(conn, profile_id, days=days)
-    conn.close()
-    return rows
+    try:
+        return get_profile_stats_with_connection(conn, profile_id, days=days)
+    finally:
+        conn.close()
 
 
 def reconcile_approved_decisions(dry_run: bool = True) -> Dict[str, Any]:
