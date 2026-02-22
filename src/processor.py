@@ -50,6 +50,12 @@ def last_consecutive_failures(current_streak, success_count, failure_count):
         return 0 
     return current_streak + failure_count
 
+
+def consume_budget(remaining_budget: int, success_count: int, failure_count: int) -> int:
+    """Consume run budget by attempted actions (success + failure)."""
+    attempted = max(0, success_count + failure_count)
+    return max(0, remaining_budget - attempted)
+
 class PaperProcessor:
     def __init__(self):
         self.config = load_config()
@@ -90,36 +96,40 @@ class PaperProcessor:
             if remaining_budget > 0:
                 candidates = get_papers_by_status([STATE_APPROVED], limit=remaining_budget)
                 processed, failed = self._process_step(candidates, self._step_finalize)
-                remaining_budget -= processed
+                remaining_budget = consume_budget(remaining_budget, processed, failed)
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
+                if processed > 0 or failed > 0:
+                    progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
                 
             # Step 3: Gate (GATED -> APPROVED/...)
             if remaining_budget > 0:
                 candidates = get_papers_by_status([STATE_GATED], limit=remaining_budget)
                 processed, failed = self._process_step(candidates, self._step_gate)
-                remaining_budget -= processed
+                remaining_budget = consume_budget(remaining_budget, processed, failed)
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
+                if processed > 0 or failed > 0:
+                    progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
 
             # Step 2: Analyze (FETCHED -> GATED)
             if remaining_budget > 0:
                 candidates = get_papers_by_status([STATE_FETCHED], limit=remaining_budget)
                 processed, failed = self._process_step(candidates, self._step_analyze)
-                remaining_budget -= processed
+                remaining_budget = consume_budget(remaining_budget, processed, failed)
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
+                if processed > 0 or failed > 0:
+                    progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
                 
             # Step 1: Fetch (NEW -> FETCHED)
             if remaining_budget > 0:
                 candidates = get_papers_by_status([STATE_NEW], limit=remaining_budget)
                 processed, failed = self._process_step(candidates, self._step_fetch)
-                remaining_budget -= processed
+                remaining_budget = consume_budget(remaining_budget, processed, failed)
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
+                if processed > 0 or failed > 0:
+                    progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
             
             if not progress_made:
