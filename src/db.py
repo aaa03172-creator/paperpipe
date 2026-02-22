@@ -77,7 +77,7 @@ def init_db():
     conn.close()
 
 
-def update_paper_status(identifier: str, status: str):
+def update_reading_status(identifier: str, status: str):
     """논문 읽기 상태 업데이트(Inbox -> Reading -> Done)."""
     conn = _connect()
     try:
@@ -85,6 +85,20 @@ def update_paper_status(identifier: str, status: str):
         conn.commit()
     finally:
         conn.close()
+
+
+def update_paper_status(identifier: str, status: str):
+    """
+    Deprecated compatibility alias.
+    NOTE: This updates reading_status, not pipeline status.
+    """
+    warnings.warn(
+        "src.db.update_paper_status updates reading_status only; "
+        "prefer src.db.update_reading_status or src.db_utils.update_paper_status.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    update_reading_status(identifier, status)
 
 
 def get_paper_status(identifier: str) -> str:

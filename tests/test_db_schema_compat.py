@@ -48,6 +48,35 @@ def test_save_paper_state_and_status_work_with_canonical_schema(tmp_path: Path):
         legacy_db.DB_PATH = original_db_path
 
 
+def test_update_reading_status_aliases_are_consistent(tmp_path: Path):
+    original_db_path = legacy_db.DB_PATH
+    legacy_db.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                doi TEXT,
+                title TEXT,
+                reading_status TEXT,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO papers (paper_id, doi, title, reading_status) VALUES (?, ?, ?, ?)",
+            ("10.1000/alias", "10.1000/alias", "Alias Test", "Inbox"),
+        )
+        conn.commit()
+        conn.close()
+
+        legacy_db.update_reading_status("10.1000/alias", "Reading")
+        assert legacy_db.get_paper_status("10.1000/alias") == "Reading"
+    finally:
+        legacy_db.DB_PATH = original_db_path
+
+
 def test_mark_as_retracted_works_without_existing_column(tmp_path: Path):
     original_db_path = legacy_db.DB_PATH
     legacy_db.DB_PATH = tmp_path / "state.db"
