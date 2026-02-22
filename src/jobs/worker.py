@@ -77,6 +77,16 @@ class Worker:
             )
 
             if result and result.get("status") == "cancelled":
+                current = self.queue.get_job(job.job_id)
+                if current and current.status != "cancelled":
+                    self.queue.update_job(
+                        job.job_id,
+                        {
+                            "status": "cancelled",
+                            "stage": "cancelled",
+                            "finished_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
                 logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
                 return
             elif result and result.get("status") == "succeeded":
