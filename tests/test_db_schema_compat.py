@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 import src.db as legacy_db
 
 
@@ -41,7 +43,8 @@ def test_save_paper_state_and_status_work_with_canonical_schema(tmp_path: Path):
         assert row[2] == "Canonical Paper"
         assert row[3] == "pubmed"
 
-        legacy_db.update_paper_status("10.1000/abc", "Reading")
+        with pytest.warns(DeprecationWarning):
+            legacy_db.update_paper_status("10.1000/abc", "Reading")
         assert legacy_db.get_paper_status("10.1000/abc") == "Reading"
         assert legacy_db.is_paper_processed("10.1000/abc") is True
     finally:
