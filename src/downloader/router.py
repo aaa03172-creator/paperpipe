@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -14,33 +12,20 @@ from src.downloader.providers.base import DownloadProvider, DownloadResult
 from src.downloader.providers.base import DownloadCandidate
 from src.downloader.providers.direct import DirectLinkProvider
 from src.downloader.providers.unpaywall import UnpaywallProvider
+from src.downloader.router_support import (
+    ProviderHttpPolicy,
+    build_provider_policies,
+    map_http_failure,
+    prune_candidate_cache,
+    sanitize_filename,
+)
 from src.schemas.core import DownloadAttempt, DownloadFailure, Paper
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ProviderHttpPolicy:
-    timeout_seconds: float = 30.0
-    headers: dict[str, str] = field(default_factory=dict)
-
-
-DEFAULT_PROVIDER_POLICIES: dict[str, ProviderHttpPolicy] = {
-    "direct_link": ProviderHttpPolicy(
-        timeout_seconds=20.0,
-        headers={"User-Agent": "PaperPipe/1.0 (+OA Downloader)"},
-    ),
-    "unpaywall": ProviderHttpPolicy(
-        timeout_seconds=25.0,
-        headers={"User-Agent": "PaperPipe/1.0 (+Unpaywall OA)"},
-    ),
-}
-
-
 def _sanitize_filename(name: str) -> str:
-    """Sanitize file names for safe writes."""
-    name = re.sub(r'[\\/:*?"<>|]', "_", name)
-    return name[:200]
+    return sanitize_filename(name)
 
 
 class DownloadRouter:
@@ -67,16 +52,10 @@ class DownloadRouter:
         self.candidate_cache_ttl_seconds = max(0.0, candidate_cache_ttl_seconds)
         self.candidate_cache_max_entries = max(1, candidate_cache_max_entries)
         self._candidate_cache: dict[str, tuple[float, Optional[DownloadCandidate]]] = {}
-        self._provider_policies: dict[str, ProviderHttpPolicy] = {
-            name: ProviderHttpPolicy(timeout_seconds=policy.timeout_seconds, headers=dict(policy.headers))
-            for name, policy in DEFAULT_PROVIDER_POLICIES.items()
-        }
-        for name, timeout in (provider_timeouts or {}).items():
-            policy = self._provider_policies.setdefault(name, ProviderHttpPolicy())
-            policy.timeout_seconds = max(0.1, float(timeout))
-        for name, headers in (provider_headers or {}).items():
-            policy = self._provider_policies.setdefault(name, ProviderHttpPolicy())
-            policy.headers.update({str(k): str(v) for k, v in (headers or {}).items()})
+        self._provider_policies = build_provider_policies(
+            provider_timeouts=provider_timeouts,
+            provider_headers=provider_headers,
+        )
 
     def execute(self, paper: Paper) -> Paper:
         """Backward-compatible API that updates and returns Paper."""
@@ -208,19 +187,12 @@ class DownloadRouter:
         return candidate
 
     def _prune_candidate_cache(self, now: float) -> None:
-        if not self._candidate_cache:
-            return
-        if self.candidate_cache_ttl_seconds > 0:
-            expired_keys = [
-                key
-                for key, (cached_at, _candidate) in self._candidate_cache.items()
-                if now - cached_at > self.candidate_cache_ttl_seconds
-            ]
-            for key in expired_keys:
-                self._candidate_cache.pop(key, None)
-        while len(self._candidate_cache) > self.candidate_cache_max_entries:
-            oldest_key = min(self._candidate_cache.items(), key=lambda item: item[1][0])[0]
-            self._candidate_cache.pop(oldest_key, None)
+        prune_candidate_cache(
+            candidate_cache=self._candidate_cache,
+            now=now,
+            ttl_seconds=self.candidate_cache_ttl_seconds,
+            max_entries=self.candidate_cache_max_entries,
+        )
 
     def _download_file_with_retries(
         self,
@@ -264,12 +236,7 @@ class DownloadRouter:
                 raise
 
     def _map_http_failure(self, error: requests.exceptions.HTTPError) -> DownloadFailure:
-        status_code = error.response.status_code if error.response else 0
-        if status_code == 429:
-            return DownloadFailure.RATE_LIMIT
-        if 400 <= status_code < 500:
-            return DownloadFailure.PERM_FAIL
-        return DownloadFailure.TEMP_FAIL
+        return map_http_failure(error)
 
     def _policy_for_provider(self, provider_name: str) -> ProviderHttpPolicy:
         return self._provider_policies.get(provider_name, ProviderHttpPolicy())
