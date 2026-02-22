@@ -3,11 +3,16 @@ from __future__ import annotations
 import csv
 import logging
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.obsidian_templates import extract_intervention_string
+from src.obsidian_index_csv import (
+    build_note_path,
+    index_headers,
+    is_same_slot_row,
+    merged_index_row,
+    now_date_str,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,35 +65,14 @@ def update_csv_index(
     """
     Date+Slot 기준으로 중복 방지(upsert).
     """
-    headers = [
-        "Date",
-        "Slot",
-        "Paper_ID",
-        "Title",
-        "DOI",
-        "Source",
-        "URL",
-        "Score",
-        "Status",
-        "Note_Path",
-        "Tags",
-        "Authors",
-    ]
-    if is_clinical:
-        headers.extend(["Population", "Intervention", "Outcome_Cognition", "Outcome_ADL"])
+    headers = index_headers(is_clinical)
 
     rows = []
     updated = False
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = now_date_str()
     paper_id = paper.get("doi") or paper.get("link") or "unknown_id"
 
-    if relative_note_path:
-        note_path = relative_note_path
-    else:
-        safe_title = "".join(
-            c for c in paper.get("title", "")[:50] if c.isalnum() or c in (" ", "-", "_")
-        ).strip()
-        note_path = f"Inbox/{today}/{paper.get('slot', 'Paper')}_{safe_title}.md"
+    note_path = build_note_path(paper, today=today, relative_note_path=relative_note_path)
 
     tags_val = ";".join(paper.get("tags", []))
     authors_val = ";".join(paper.get("authors", []))
@@ -97,42 +81,25 @@ def update_csv_index(
         with open(file_path, "r", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
-                is_same_slot = (row.get("Date") == today) and (
-                    row.get("Slot", "").lower() == paper.get("slot", "").lower()
+                same_slot = is_same_slot_row(
+                    row,
+                    today=today,
+                    paper_slot=paper.get("slot", ""),
+                    is_clinical=is_clinical,
                 )
-                if is_clinical and row.get("Date") == today:
-                    is_same_slot = True
 
-                if is_same_slot:
-                    row["Paper_ID"] = paper_id
-                    row["Date"] = today
-                    row["Title"] = paper.get("title", "")
-                    row["DOI"] = paper.get("doi", "")
-                    row["Source"] = paper.get("source", "")
-                    row["URL"] = paper.get("link", "")
-                    row["Note_Path"] = note_path
-                    row["Score"] = "Top1"
-                    row["Tags"] = tags_val
-                    row["Authors"] = authors_val
-
-                    if is_clinical and paper.get("trial_data"):
-                        td = paper["trial_data"]
-                        pop = td.get("population", {})
-                        pop_desc = "MCI-only" if pop.get("mci_only") else "Mixed"
-                        if not pop.get("mci_only"):
-                            notes = pop.get("comorbidity_notes")
-                            if notes:
-                                pop_desc += f" ({notes})"
-                        row["Population"] = pop_desc
-                        row["Intervention"] = extract_intervention_string(td)
-                        row["Outcome_Cognition"] = (
-                            "Reported" if td.get("outcomes", {}).get("cognition") else ""
+                if same_slot:
+                    row.update(
+                        merged_index_row(
+                            paper=paper,
+                            today=today,
+                            paper_id=paper_id,
+                            note_path=note_path,
+                            tags_val=tags_val,
+                            authors_val=authors_val,
+                            is_clinical=is_clinical,
                         )
-                        row["Outcome_ADL"] = (
-                            "Yes" if td.get("outcomes", {}).get("adl_function") else "No"
-                        )
-
-                    row["Status"] = paper.get("reading_status", "Inbox")
+                    )
                     updated = True
 
                 for header in headers:
@@ -140,39 +107,15 @@ def update_csv_index(
                 rows.append(row)
 
     if not updated:
-        pop_str, int_str, cog_str, adl_str = "", "", "", ""
-        if is_clinical and paper.get("trial_data"):
-            td = paper["trial_data"]
-            pop = td.get("population", {})
-            pop_str = "MCI-only" if pop.get("mci_only") else "Mixed"
-            if not pop.get("mci_only"):
-                notes = pop.get("comorbidity_notes")
-                if notes:
-                    pop_str += f" ({notes})"
-
-            int_str = extract_intervention_string(td)
-            cog_str = "Reported" if td.get("outcomes", {}).get("cognition") else ""
-            adl_str = "Yes" if td.get("outcomes", {}).get("adl_function") else "No"
-
-        new_row = {
-            "Date": today,
-            "Slot": paper.get("slot", "N/A"),
-            "Paper_ID": paper_id,
-            "Title": paper.get("title", ""),
-            "DOI": paper.get("doi", ""),
-            "Source": paper.get("source", ""),
-            "URL": paper.get("link", ""),
-            "Score": "Top1",
-            "Status": paper.get("reading_status", "Inbox"),
-            "Note_Path": note_path,
-            "Tags": tags_val,
-            "Authors": authors_val,
-        }
-        if is_clinical:
-            new_row["Population"] = pop_str
-            new_row["Intervention"] = int_str
-            new_row["Outcome_Cognition"] = cog_str
-            new_row["Outcome_ADL"] = adl_str
+        new_row = merged_index_row(
+            paper=paper,
+            today=today,
+            paper_id=paper_id,
+            note_path=note_path,
+            tags_val=tags_val,
+            authors_val=authors_val,
+            is_clinical=is_clinical,
+        )
         for header in headers:
             new_row.setdefault(header, "")
         rows.append(new_row)
