@@ -15,6 +15,7 @@ from src.indexer_store import select_index_rows
 
 DEFAULT_EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+VALID_BGE_QUERY_PREFIX_MODES = {"auto", "on", "off"}
 
 
 def _utc_now_iso() -> str:
@@ -70,7 +71,12 @@ class PaperIndexer:
         self.model_name = model_name
         self.collection_version = collection_version
         self.collection_name = collection_name or default_collection_name(model_name, collection_version)
-        self.bge_query_prefix = bge_query_prefix
+        mode = (bge_query_prefix or "auto").lower()
+        if mode not in VALID_BGE_QUERY_PREFIX_MODES:
+            raise ValueError(
+                "bge_query_prefix must be one of: auto, on, off."
+            )
+        self.bge_query_prefix = mode
         self._chroma_client = chroma_client
         self._embedder = embedder
         self._now_fn = now_fn
@@ -122,7 +128,7 @@ class PaperIndexer:
         return embeddings
 
     def _use_bge_query_prefix(self) -> bool:
-        mode = (self.bge_query_prefix or "auto").lower()
+        mode = self.bge_query_prefix
         if mode == "on":
             return True
         if mode == "off":
@@ -151,7 +157,7 @@ class PaperIndexer:
             pid = str(row.get("paper_id") or row.get("doi") or "")
             if not pid:
                 continue
-                
+
             feedback = _load_feedback(row.get("feedback_json"))
             tags = extract_tags(feedback)
             ids.append(pid)
@@ -173,6 +179,9 @@ class PaperIndexer:
                     "tags_count": len(tags),
                 }
             )
+
+        if not ids:
+            return IndexRunResult(collection_name=self.collection_name, indexed_count=0)
 
         embeddings = self._encode_texts(docs)
         collection = self._get_collection()

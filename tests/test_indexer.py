@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from src.indexer import DEFAULT_EMBEDDING_MODEL, PaperIndexer, default_collection_name
 
 
@@ -272,3 +274,28 @@ def test_bge_query_prefix_off_disables_prefix(tmp_path):
     encoded_query = embedder.calls[-1]["texts"][0]
     assert encoded_query == "biomarker"
     assert results["query_prefix_used"] is False
+
+
+def test_index_skips_rows_without_ids_without_encoding():
+    client = FakeChromaClient()
+    embedder = FakeEmbedder()
+
+    indexer = PaperIndexer(
+        db_path=":memory:",
+        chroma_client=client,
+        embedder=embedder,
+    )
+    indexer._select_rows = lambda include_all: [  # type: ignore[method-assign]
+        {"paper_id": None, "doi": None, "title": "Missing ID"}
+    ]
+
+    result = indexer.index(include_all=True)
+
+    assert result.indexed_count == 0
+    assert embedder.calls == []
+    assert client.collections == {}
+
+
+def test_invalid_bge_query_prefix_mode_raises():
+    with pytest.raises(ValueError, match="bge_query_prefix"):
+        PaperIndexer(db_path=":memory:", bge_query_prefix="invalid")
