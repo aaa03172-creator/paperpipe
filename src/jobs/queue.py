@@ -3,6 +3,7 @@ import json
 import logging
 import sqlite3
 import uuid
+import re
 from pathlib import Path
 from typing import Optional, Dict, List
 
@@ -115,9 +116,14 @@ class JobQueue:
     def update_job(self, job_id: str, updates: Dict) -> None:
         conn = get_db_connection()
         try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
             fields = []
             params = []
             for k, v in updates.items():
+                if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(k)):
+                    continue
+                if k not in cols or k == "job_id":
+                    continue
                 fields.append(f"{k} = ?")
                 params.append(v)
             
