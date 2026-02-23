@@ -44,6 +44,9 @@
   - Canonical ID helper start:
     - `src/core/ids.py` (`normalize_doi`, `make_paper_id`) 추가
     - Discovery/Zotero/PubMed 신규 입력 경로에서 canonical issuance 적용
+  - Replay read-model API start:
+    - `GET /runs/{run_id}`
+    - `GET /runs/{run_id}/timeline` (runs/jobs/events/user_actions 집계 조회)
 
 ## Decision Gate (Closed: 2026-02-23)
 1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.

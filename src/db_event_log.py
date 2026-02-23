@@ -28,6 +28,20 @@ def _json_or_none(payload: Any) -> str | None:
         return json.dumps(str(payload), ensure_ascii=False)
 
 
+def _load_json_field(raw: Any) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return text
+
+
 def create_run(
     paper_id: str,
     trigger_source: str,
@@ -291,6 +305,85 @@ def log_user_action(
     finally:
         conn.close()
     return action_id
+
+
+def get_run_record(run_id: str) -> Optional[dict[str, Any]]:
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM runs WHERE run_id = ? LIMIT 1", (run_id,)).fetchone()
+        if not row:
+            return None
+        payload = dict(row)
+        payload["params_json"] = _load_json_field(payload.get("params_json"))
+        payload["metrics_json"] = _load_json_field(payload.get("metrics_json"))
+        return payload
+    finally:
+        conn.close()
+
+
+def list_jobs_for_run(run_id: str) -> list[dict[str, Any]]:
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE run_id = ? ORDER BY created_at ASC, job_id ASC",
+            (run_id,),
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            payload["params_json"] = _load_json_field(payload.get("params_json"))
+            payload["metrics_json"] = _load_json_field(payload.get("metrics_json"))
+            items.append(payload)
+        return items
+    finally:
+        conn.close()
+
+
+def list_events_for_jobs(job_ids: list[str], limit: int = 500) -> list[dict[str, Any]]:
+    if not job_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in job_ids)
+    safe_limit = max(1, min(int(limit), 5000))
+    query = (
+        f"SELECT * FROM job_events WHERE job_id IN ({placeholders}) "
+        "ORDER BY ts ASC, event_id ASC LIMIT ?"
+    )
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(query, (*job_ids, safe_limit)).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            payload["payload_json"] = _load_json_field(payload.get("payload_json"))
+            items.append(payload)
+        return items
+    finally:
+        conn.close()
+
+
+def list_user_actions_for_paper(paper_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 1000))
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM user_actions
+            WHERE paper_id = ?
+            ORDER BY ts DESC, action_id DESC
+            LIMIT ?
+            """,
+            (paper_id, safe_limit),
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            payload["payload_json"] = _load_json_field(payload.get("payload_json"))
+            items.append(payload)
+        return items
+    finally:
+        conn.close()
 
 
 atexit.register(flush_event_buffer)

@@ -37,6 +37,6 @@
 - Priority: Medium
 - Purpose: Close residual hardening after baseline event-log rollout.
 - Merge Gate:
-  - Error taxonomy mapping is standardized across failure paths.
-  - Replay/read models for `runs -> jobs -> events` are query-ready for UI/ops.
+  - [done] Replay/read models for `runs -> jobs -> events` are query-ready for UI/ops (`/runs/{run_id}`, `/runs/{run_id}/timeline`).
+  - [next] Error taxonomy mapping is standardized across failure paths.
   - `pytest -q` full suite green.

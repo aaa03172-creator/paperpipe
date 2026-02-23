@@ -9,6 +9,12 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from src.db_utils import get_db_connection, init_db
+from src.db_event_log import (
+    get_run_record,
+    list_events_for_jobs,
+    list_jobs_for_run,
+    list_user_actions_for_paper,
+)
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
 from .routers import obsidian, feedback, discover
@@ -278,6 +284,38 @@ async def job_events(job_id: str, request: Request):
             await asyncio.sleep(1)
 
     return EventSourceResponse(event_generator())
+
+
+@app.get("/runs/{run_id}")
+def get_run_detail(run_id: str):
+    run = get_run_record(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    jobs = list_jobs_for_run(run_id)
+    return {"run": run, "jobs": jobs}
+
+
+@app.get("/runs/{run_id}/timeline")
+def get_run_timeline(run_id: str, limit: int = 500):
+    run = get_run_record(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    jobs = list_jobs_for_run(run_id)
+    job_ids = [str(item.get("job_id")) for item in jobs if item.get("job_id")]
+    events = list_events_for_jobs(job_ids, limit=limit)
+
+    user_actions = []
+    paper_id = run.get("paper_id")
+    if isinstance(paper_id, str) and paper_id.strip():
+        user_actions = list_user_actions_for_paper(paper_id, limit=100)
+
+    return {
+        "run": run,
+        "jobs": jobs,
+        "events": events,
+        "user_actions": user_actions,
+    }
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
