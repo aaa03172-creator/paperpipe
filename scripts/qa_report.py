@@ -5,6 +5,12 @@ import logging
 import os
 from pathlib import Path
 from datetime import datetime
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from src.db_utils import get_db_connection
 from src.config import load_config
 
@@ -164,6 +170,7 @@ def run_qa_check(include_test_fixtures: bool = False):
     cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
     active_feedback_rows = cursor.fetchall()
     missing_or_invalid_claimset = 0
+    missing_claimset_ids = []
     for row in active_feedback_rows:
         paper_id = row[0]
         feedback_json = row[1]
@@ -175,15 +182,18 @@ def run_qa_check(include_test_fixtures: bool = False):
         if _has_claimset_artifact(paper_id):
             continue
         missing_or_invalid_claimset += 1
+        missing_claimset_ids.append(paper_id)
     if include_test_fixtures:
         print(f"[DB] Missing/Invalid ClaimSet: {missing_or_invalid_claimset}")
     else:
         print(f"[DB] Missing/Invalid ClaimSet (Operational): {missing_or_invalid_claimset}")
+    if missing_claimset_ids:
+        print(f"   -> IDs: {missing_claimset_ids[:50]}")
     
     if missing_summary > 0:
         cursor.execute("SELECT paper_id FROM papers WHERE status IN ('APPROVED', 'INDEXED') AND (summary IS NULL OR summary = '' OR summary = 'Abstract not available.')")
         ids = [row[0] for row in cursor.fetchall()]
-        print(f"   -> IDs: {ids}")
+        print(f"[DB] Missing Summary IDs: {ids}")
         
     print("-" * 30)
     
