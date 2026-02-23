@@ -273,6 +273,53 @@ def test_qa_excludes_test_fixture_records_from_operational_claimset_count(tmp_pa
     assert result["missing_or_invalid_claimset"] == 1
 
 
+def test_qa_excludes_test_fixture_from_summary_and_file_counts(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "state.db"
+    vault = tmp_path / "vault"
+    inbox = vault / "Inbox" / "PaperPipe"
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT,
+            feedback_json TEXT,
+            pdf_path TEXT,
+            gate_reason TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
+        ("local--fixture", "fixture", "APPROVED", None, '{"claims":[{"statement":"x"}]}', "tests/integration_env/watch_folder/test_paper.pdf"),
+    )
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
+        ("real_ok", "real", "APPROVED", "summary", '{"claims":[{"statement":"x"}]}', "/tmp/real.pdf"),
+    )
+    conn.commit()
+    conn.close()
+
+    (inbox / "real_ok.md").write_text("## Critical Review (ClaimSet)\n", encoding="utf-8")
+
+    monkeypatch.setattr(db_utils, "DB_PATH", db_path)
+    monkeypatch.setattr(
+        qa_report,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=str(vault))),
+    )
+
+    result = qa_report.run_qa_check()
+    assert result["total_active"] == 1
+    assert result["missing_summary"] == 0
+    assert result["missing_files"] == 0
+    assert result["bad_content_files"] == 0
+
+
 def test_exporter_auto_skips_test_fixture_needs_reader():
     conn = sqlite3.connect(":memory:")
     _create_review_queue_table(conn)

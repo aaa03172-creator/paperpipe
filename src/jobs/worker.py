@@ -96,6 +96,22 @@ class Worker:
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                 })
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
+
+        except KeyboardInterrupt:
+            state = self.queue.get_job(job.job_id)
+            updates = {
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # If progress callback already wrote a terminal completed marker,
+            # keep completed status instead of leaving a stale running row.
+            if state and state.stage == "completed" and int(state.progress or 0) >= 100:
+                updates["status"] = "completed"
+            else:
+                updates["status"] = "cancelled"
+                updates["stage"] = "cancelled"
+                updates["error_message"] = "worker interrupted"
+            self.queue.update_job(job.job_id, updates)
+            raise
             
         except Exception as e:
             logger.error(f"Job failed: {e}")

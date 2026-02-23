@@ -31,6 +31,57 @@ FEEDBACK_FILE = Path("storage/feedback.jsonl")
 REVIEW_NEEDS_READER = "NEEDS_READER"
 
 
+def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
+    """
+    Resolve pdf_path using DB first so canonical paper_id changes
+    (e.g., zotero:/doi:) do not break local file discovery.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        aliases = [paper_id]
+        if ":" in paper_id:
+            aliases.append(paper_id.split(":", 1)[1])
+        seen: set[str] = set()
+        for alias in aliases:
+            alias = str(alias or "").strip()
+            if not alias or alias in seen:
+                continue
+            seen.add(alias)
+            row = conn.execute(
+                "SELECT pdf_path FROM papers WHERE paper_id = ? LIMIT 1",
+                (alias,),
+            ).fetchone()
+            if not row:
+                continue
+            raw = str(row["pdf_path"] or "").strip()
+            if not raw:
+                continue
+            candidate = Path(raw).expanduser()
+            if candidate.exists():
+                return candidate
+
+        if paper_id.startswith("doi:"):
+            doi = paper_id.split(":", 1)[1]
+            row = conn.execute(
+                "SELECT pdf_path FROM papers WHERE lower(coalesce(doi, '')) = lower(?) LIMIT 1",
+                (doi,),
+            ).fetchone()
+            if row:
+                raw = str(row["pdf_path"] or "").strip()
+                if raw:
+                    candidate = Path(raw).expanduser()
+                    if candidate.exists():
+                        return candidate
+    except Exception as exc:
+        logger.debug("DB pdf_path lookup failed for %s: %s", paper_id, exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    return None
+
+
 def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
     vault_path = config.paths.obsidian_vault
     idx_files = [config.paths.index_all, Path("00_Index/on_demand.csv")]
@@ -227,16 +278,19 @@ async def run_deepread_job(
         # For this MVP, let's assume paper_id is a citekey or we can find it in library
         await emit("init", 5, "Locating PDF...")
         
-        pdf_path = None
+        pdf_path = _resolve_pdf_path_from_db(paper_id)
+        if pdf_path:
+            logger.info(f"✅ Found PDF from DB path: {pdf_path}")
+
         # Simple heuristic: Look in Library root or subdirs
-        results = list(config.paths.library_dir.rglob(f"*{paper_id}*.pdf"))
-        # If ID is DOI, clean it
-        if not results and "/" in paper_id:
-             clean_id = paper_id.replace("/", "_")
-             results = list(config.paths.library_dir.rglob(f"*{clean_id}*.pdf"))
-        
-        if results:
-            pdf_path = results[0]
+        if not pdf_path:
+            results = list(config.paths.library_dir.rglob(f"*{paper_id}*.pdf"))
+            # If ID is DOI, clean it
+            if not results and "/" in paper_id:
+                clean_id = paper_id.replace("/", "_")
+                results = list(config.paths.library_dir.rglob(f"*{clean_id}*.pdf"))
+            if results:
+                pdf_path = results[0]
         
         if not pdf_path or not pdf_path.exists():
             logger.error(f"❌ PDF not found for {paper_id} in {config.paths.library_dir}")
