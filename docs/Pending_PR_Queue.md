@@ -28,6 +28,7 @@
 - `PR-BE-H2-Obsidian-Artifacts-API`
 - `PR-QA-Phase3-Stability-Gate`
 - `PR-BE-H0-PaperId-Migration-Audit-Plan`
+- `PR-BE-H0-ObsidianIndex-PaperId-Normalize`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -38,7 +39,8 @@
   - [done] Discovery/Zotero/PubMed entrypoints adopt shared helper without schema break.
   - [done] legacy/local PDF 진입점 canonical issuance 확대(`process_local_pdf_legacy`, `create_paper_from_pdf`).
   - [done] non-DB helper/legacy fallback 경로(`obsidian_index`, `llm_provider_tasks`)의 `paper_id` fallback canonical 정렬.
-  - [next] 기존 CSV/노트에 남은 legacy `Paper_ID` 값(plain DOI/link) 점진 마이그레이션 여부 결정.
+  - [done] 기존 CSV/노트 legacy `Paper_ID` 점검/정규화 도구 추가(`scripts/audit_obsidian_index_ids.py`, `scripts/normalize_obsidian_index_ids.py`).
+  - [next] 운영 vault CSV/노트에 대한 `--apply` 실행 여부를 릴리즈 체크포인트에서 결정.
 - Merge Gate:
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.
