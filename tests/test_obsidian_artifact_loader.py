@@ -32,3 +32,51 @@ def test_load_artifact_falls_back_to_legacy_dir(tmp_path, monkeypatch):
 
     loaded = obsidian._load_artifact(paper_id=paper_id, run_id=run_id, filename="claimset.json")
     assert loaded["doc_id"] == "from-legacy"
+
+
+def test_load_claimset_for_sync_prefers_resolved_contract(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "doi:10.1000/obsidian_resolved"
+    run_id = "run_obsidian_3"
+
+    resolved_file = build_artifact_dir(run_id=run_id, paper_id=paper_id) / "claimset.resolved.json"
+    resolved_file.parent.mkdir(parents=True, exist_ok=True)
+    resolved_file.write_text(
+        json.dumps(
+            {
+                "paper_id": paper_id,
+                "run_id": run_id,
+                "stage": "resolved",
+                "schema_version": "1.0",
+                "claims": [
+                    {
+                        "claim_id": "c1",
+                        "claim_fingerprint": "abc123",
+                        "text": "claim from resolved",
+                        "type": "efficacy",
+                        "evidence": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    legacy_file = build_artifact_dir(run_id=run_id, paper_id=paper_id) / "claimset.json"
+    legacy_file.write_text(json.dumps({"doc_id": "legacy", "claims": []}), encoding="utf-8")
+
+    loaded = obsidian._load_claimset_for_sync(paper_id=paper_id, run_id=run_id)
+    assert loaded["doc_id"] == paper_id
+    assert loaded["claims"][0]["statement"] == "claim from resolved"
+
+
+def test_load_claimset_for_sync_falls_back_to_legacy_claimset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "doi:10.1000/obsidian_sync_legacy"
+    run_id = "run_obsidian_4"
+
+    legacy_file = build_artifact_dir(run_id=run_id, paper_id=paper_id) / "claimset.json"
+    legacy_file.parent.mkdir(parents=True, exist_ok=True)
+    legacy_file.write_text(json.dumps({"doc_id": "legacy", "claims": []}), encoding="utf-8")
+
+    loaded = obsidian._load_claimset_for_sync(paper_id=paper_id, run_id=run_id)
+    assert loaded["doc_id"] == "legacy"

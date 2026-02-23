@@ -5,6 +5,10 @@ from pathlib import Path
 import json
 
 from src.config import load_config
+from src.contracts.output_contracts import (
+    ClaimSetContract,
+    claimset_contract_to_legacy_claimset,
+)
 from src.core.artifact_paths import resolve_existing_artifact_dir
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 
@@ -27,6 +31,22 @@ def _load_artifact(paper_id: str, run_id: str, filename: str):
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_claimset_for_sync(paper_id: str, run_id: str):
+    """
+    Prefer resolved contract (`claimset.resolved.json`) and bridge it
+    to legacy ClaimSet shape for existing markdown formatter.
+    """
+    resolved = _load_artifact(paper_id, run_id, "claimset.resolved.json")
+    if resolved:
+        try:
+            payload = ClaimSetContract(**resolved)
+            return claimset_contract_to_legacy_claimset(payload)
+        except Exception:
+            # Keep fail-safe behavior: fallback to legacy payload path.
+            pass
+    return _load_artifact(paper_id, run_id, "claimset.json")
 
 def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
     """Format Agent Output into verified Markdown."""
@@ -74,7 +94,7 @@ async def sync_to_obsidian(req: SyncRequest):
     vault_path = config.paths.obsidian_vault
     
     # 1. Load Artifacts
-    claim_set = _load_artifact(req.paper_id, req.run_id, "claimset.json")
+    claim_set = _load_claimset_for_sync(req.paper_id, req.run_id)
     stats_report = _load_artifact(req.paper_id, req.run_id, "stats_report.json")
     
     if not claim_set and not stats_report:
