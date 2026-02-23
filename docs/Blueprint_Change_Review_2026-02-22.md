@@ -53,6 +53,7 @@
   - job_runner 2차 모듈화:
     - ingest/index/read/verify stage를 `backend/services/job_stages/`로 분리
     - `backend/services/job_runner_stages.py`는 호환 브리지 유지
+    - helper 책임을 `backend/services/job_runner_helpers.py`로 분리(기존 monkeypatch 계약 유지)
   - H0 local PDF canonical gap closed:
     - `process_local_pdf_legacy`, `create_paper_from_pdf`가 `make_paper_id`로 결정론적 ID 발급
   - H2 read-model start:

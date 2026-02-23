@@ -24,6 +24,7 @@
 - `PR-BE-H0-LocalPdf-CanonicalIds`
 - `PR-BE-H0-NonDb-Fallback-CanonicalIds`
 - `PR-BE-H2-Obsidian-Resolved-Bridge`
+- `PR-BE-JobRunner-Helper-Split`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
