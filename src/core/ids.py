@@ -4,6 +4,8 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
+CANONICAL_PAPER_ID_PREFIXES = ("zotero:", "doi:", "pdfsha256:", "paper:")
+
 
 def normalize_doi(value: str | None) -> str:
     doi = str(value or "").strip()
@@ -24,6 +26,31 @@ def normalize_doi(value: str | None) -> str:
             break
 
     return doi.strip().lower().rstrip(").,;]>\"'")
+
+
+def is_canonical_paper_id(value: str | None) -> bool:
+    paper_id = str(value or "").strip()
+    if not paper_id:
+        return False
+    return paper_id.startswith(CANONICAL_PAPER_ID_PREFIXES)
+
+
+def classify_paper_id(value: str | None) -> str:
+    paper_id = str(value or "").strip()
+    if not paper_id:
+        return "empty"
+    if is_canonical_paper_id(paper_id):
+        prefix = paper_id.split(":", 1)[0]
+        return f"canonical:{prefix}"
+
+    lowered = paper_id.lower()
+    if lowered.startswith(("http://", "https://", "file://")):
+        return "legacy:url_like"
+    if lowered.startswith("10.") or "doi.org/" in lowered:
+        return "legacy:doi_like"
+    if lowered.startswith("local--") or lowered.startswith("local-") or lowered.startswith("localfile:"):
+        return "legacy:local_like"
+    return "legacy:other"
 
 
 def sha256_file(path: str | Path) -> str:
