@@ -46,7 +46,7 @@ python3 scripts/backfill_operational_outputs.py --apply --enqueue-claimset --lim
 ## Results (current)
 - QA:
   - `Missing Markdown Files: 0` (from 52)
-  - `Missing/Invalid ClaimSet (Operational): 36` (from 52 after three follow-up batches)
+  - `Missing/Invalid ClaimSet (Operational): 0` (from 52 after full batch drain)
   - `FAILED Papers: 0`
 - Jobs:
   - Initial queue seed(10) was processed immediately and failed with `PDF not found` (pre-fix behavior).
@@ -55,17 +55,29 @@ python3 scripts/backfill_operational_outputs.py --apply --enqueue-claimset --lim
     - `--allow-missing-pdf` must be explicit to bypass this guard
   - After `job_runner` hotfix, claimset backfill jobs proceed with DB path lookup and backlog reduction is observed.
   - Current job snapshot:
-    - `completed: 21`
-    - `failed: 12` (legacy pre-fix batch)
+    - `completed: 57`
+    - `failed: 0` (legacy failures archived)
     - `queued: 0` (batch processed)
   - Backfill execution progress:
     - first post-fix drain: queued `4` processed (`50 -> 46`)
     - second batch: enqueue `5`, process all (`46 -> 41`)
     - third batch: enqueue `5`, process all (`41 -> 36`)
+    - fourth/fifth drain: enqueue `10 + 10 + 6`, process all (`36 -> 0`)
   - Runtime note:
     - one PDF emitted non-fatal MuPDF warnings (`cmsOpenProfileFromMem failed`) but ingest completed and job finished as `completed`.
+  - Legacy failed job hygiene:
+    - archived `12` rows into `job_failures_archive` with backup snapshot
+    - reasons:
+      - `pdf_not_found_recovered`: 10
+      - `test_fixture_failed_legacy`: 2
+
+## Operational Policy Update
+- `scripts/qa_report.py` now excludes fixture records (`local--`, `integration_test_*`, `/tests/` paths) from default operational counters.
+- Current operational snapshot (default mode):
+  - `Total Active Papers (APPROVED/INDEXED): 52`
+  - `Missing Summary: 0`
+  - `Bad Content (No Summary): 0`
 
 ## Next Ops Step
-- Batch enqueue (`--enqueue-claimset --limit 5~10`) + worker run in controlled windows.
-- Re-run `scripts/qa_report.py` after each batch and track `Missing/Invalid ClaimSet` delta.
-- Optional housekeeping: if desired, archive/filter pre-fix `PDF not found` failed jobs from dashboard view.
+- Keep `scripts/backfill_operational_outputs.py` as recurring recovery path for new deltas.
+- Keep `scripts/archive_legacy_failed_jobs.py` for one-shot cleanup when recovered failures accumulate.
