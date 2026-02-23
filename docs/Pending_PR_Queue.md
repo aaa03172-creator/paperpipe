@@ -29,6 +29,7 @@
 - `PR-QA-Phase3-Stability-Gate`
 - `PR-BE-H0-PaperId-Migration-Audit-Plan`
 - `PR-BE-H0-ObsidianIndex-PaperId-Normalize`
+- `PR-OPS-Orphan-PaperRef-Cleanup`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -73,3 +74,13 @@
   - [done] `scripts/plan_paper_id_migration.py` 기반 apply 수행(52 mappings) + backup 생성.
   - [done] apply 전후 count/샘플/SQL 검증 문서화 (`docs/PaperId_Migration_Apply_2026-02-23.md`).
   - [done] rollback 리허설(backup vs current copy 검증) 1회 실행.
+
+## PR-OPS-Orphan-PaperRef-Cleanup (Next)
+- Title: `chore(ops): audit and cleanup orphan jobs/runs paper_id references`
+- Priority: Medium
+- Purpose: 운영 DB에서 `papers` 미존재 `paper_id`를 참조하는 `jobs/runs` test 흔적을 통제한다.
+- Merge Gate:
+  - [done] audit 스크립트 추가(`scripts/audit_orphan_paper_refs.py`).
+  - [done] cleanup 스크립트 추가(`scripts/cleanup_orphan_paper_refs.py`, dry-run default).
+  - [done] apply 시 backup + transaction + `orphan_cleanup_log` snapshot 기록.
+  - [done] 단위테스트 추가(`tests/test_orphan_paper_refs.py`).

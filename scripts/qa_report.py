@@ -4,6 +4,11 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from src.db_utils import get_db_connection
 from src.config import load_config
 from src.core.artifact_paths import iter_paper_dir_candidates
@@ -121,6 +126,45 @@ def _count_unmatched_files(config) -> int:
     except Exception:
         return 0
 
+
+def _collect_orphan_paper_ref_counters(cursor) -> dict:
+    counters = {
+        "orphan_jobs": 0,
+        "orphan_runs": 0,
+        "orphan_review_queue": 0,
+        "orphan_user_actions": 0,
+    }
+    queries = {
+        "orphan_jobs": """
+            SELECT COUNT(*) FROM jobs
+            WHERE paper_id IS NOT NULL AND TRIM(paper_id) != ''
+              AND paper_id NOT IN (SELECT paper_id FROM papers)
+        """,
+        "orphan_runs": """
+            SELECT COUNT(*) FROM runs
+            WHERE paper_id IS NOT NULL AND TRIM(paper_id) != ''
+              AND paper_id NOT IN (SELECT paper_id FROM papers)
+        """,
+        "orphan_review_queue": """
+            SELECT COUNT(*) FROM review_queue
+            WHERE paper_id NOT IN (SELECT paper_id FROM papers)
+        """,
+        "orphan_user_actions": """
+            SELECT COUNT(*) FROM user_actions
+            WHERE paper_id IS NOT NULL AND TRIM(paper_id) != ''
+              AND paper_id NOT IN (SELECT paper_id FROM papers)
+        """,
+    }
+    for key, query in queries.items():
+        try:
+            cursor.execute(query)
+            row = cursor.fetchone()
+            counters[key] = _safe_int(row[0] if row is not None else 0)
+        except sqlite3.OperationalError:
+            # Table may not exist in minimal schema.
+            counters[key] = 0
+    return counters
+
 def run_qa_check(include_test_fixtures: bool = False):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -152,10 +196,15 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"[DB] Missing Summary: {missing_summary}")
     print(f"[DB] Missing Feedback JSON: {missing_feedback}")
     institutional_counters = _collect_institutional_counters(cursor)
+    orphan_counters = _collect_orphan_paper_ref_counters(cursor)
     unmatched_files = _count_unmatched_files(config)
     print(f"[DB] manual_required: {institutional_counters['manual_required']}")
     print(f"[DB] downloaded_missing_path: {institutional_counters['downloaded_missing_path']}")
     print(f"[DB] unmatched_review_open: {institutional_counters['unmatched_review_open']}")
+    print(f"[DB] orphan_jobs: {orphan_counters['orphan_jobs']}")
+    print(f"[DB] orphan_runs: {orphan_counters['orphan_runs']}")
+    print(f"[DB] orphan_review_queue: {orphan_counters['orphan_review_queue']}")
+    print(f"[DB] orphan_user_actions: {orphan_counters['orphan_user_actions']}")
     print(f"[File] unmatched_files: {unmatched_files}")
 
     paper_columns = {row[1] for row in cursor.execute("PRAGMA table_info(papers)").fetchall()}
@@ -224,6 +273,10 @@ def run_qa_check(include_test_fixtures: bool = False):
             "unmatched": institutional_counters["unmatched_review_open"],
             "unmatched_files": unmatched_files,
             "unmatched_review_open": institutional_counters["unmatched_review_open"],
+            "orphan_jobs": orphan_counters["orphan_jobs"],
+            "orphan_runs": orphan_counters["orphan_runs"],
+            "orphan_review_queue": orphan_counters["orphan_review_queue"],
+            "orphan_user_actions": orphan_counters["orphan_user_actions"],
             "missing_critical_review_section": missing_critical_review_section,
             "missing_files": 0,
             "bad_content_files": 0,
@@ -244,6 +297,10 @@ def run_qa_check(include_test_fixtures: bool = False):
             "unmatched": institutional_counters["unmatched_review_open"],
             "unmatched_files": unmatched_files,
             "unmatched_review_open": institutional_counters["unmatched_review_open"],
+            "orphan_jobs": orphan_counters["orphan_jobs"],
+            "orphan_runs": orphan_counters["orphan_runs"],
+            "orphan_review_queue": orphan_counters["orphan_review_queue"],
+            "orphan_user_actions": orphan_counters["orphan_user_actions"],
              "missing_critical_review_section": missing_critical_review_section,
              "missing_files": 0,
              "bad_content_files": 0,
@@ -302,6 +359,10 @@ def run_qa_check(include_test_fixtures: bool = False):
         "unmatched": institutional_counters["unmatched_review_open"],
         "unmatched_files": unmatched_files,
         "unmatched_review_open": institutional_counters["unmatched_review_open"],
+        "orphan_jobs": orphan_counters["orphan_jobs"],
+        "orphan_runs": orphan_counters["orphan_runs"],
+        "orphan_review_queue": orphan_counters["orphan_review_queue"],
+        "orphan_user_actions": orphan_counters["orphan_user_actions"],
         "missing_critical_review_section": missing_critical_review_section,
         "missing_files": len(missing_files),
         "bad_content_files": len(bad_content_files),
