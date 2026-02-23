@@ -109,6 +109,27 @@ def _cleanup_stale_jobs_for_paper(paper_id: str) -> int:
         conn.close()
 
 
+def _ensure_test_paper_row(paper_id: str) -> None:
+    """
+    Ensure the integration test paper exists in papers table so jobs/runs
+    produced by this script do not become orphan references.
+    """
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, source, created_at, updated_at)
+            VALUES (?, ?, 'NEW', 'integration_test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(paper_id) DO UPDATE SET
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (paper_id, "Phase3 Integration Test Paper"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _wait_for_job_terminal_status(
     api_url: str,
     job_id: str,
@@ -148,6 +169,7 @@ def test_api_worker_integration():
     # Ensure DB exists
     init_db()
     paper_id = "test_paper_001"
+    _ensure_test_paper_row(paper_id)
     prepared_pdf, created_pdf = _ensure_test_pdf_for_paper(paper_id)
     cleaned = _cleanup_stale_jobs_for_paper(paper_id)
     if cleaned:

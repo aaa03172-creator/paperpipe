@@ -48,3 +48,8 @@ python3 scripts/cleanup_orphan_paper_refs.py --db storage/state.db --mode test_t
 - Apply 시 backup 생성:
   - 기본: `storage/state.db.orphan_cleanup.bak.<UTC timestamp>`
 - 삭제 레코드는 `orphan_cleanup_log`에 JSON snapshot으로 저장된다.
+
+## 재발 방지
+- `scripts/test_phase3_integration.py`에서 통합 테스트 실행 전
+  `papers`에 `test_paper_001` row를 upsert 하도록 보강했다.
+- 목적: integration 실행 결과(`jobs/runs`)가 orphan으로 누적되는 패턴 방지.
