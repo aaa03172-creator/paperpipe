@@ -23,6 +23,7 @@
 - `PR-BE-JobRunner-StageSplit-v2`
 - `PR-BE-H0-LocalPdf-CanonicalIds`
 - `PR-BE-H0-NonDb-Fallback-CanonicalIds`
+- `PR-BE-H2-Obsidian-Resolved-Bridge`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -46,3 +47,12 @@
   - [done] Replay/read models for `runs -> jobs -> events` are query-ready for UI/ops (`/runs/{run_id}`, `/runs/{run_id}/timeline`).
   - [done] Error taxonomy mapping is standardized across worker/job_runner failure paths.
   - [done] `pytest -q -k "not docker_sandbox"` + phase3 integration green.
+
+## PR-BE-H2-ReadModel-Expansion (Next)
+- Title: `feat(contracts): expand resolved/chunks read-model across API/UI paths`
+- Priority: Medium
+- Purpose: Reduce legacy `claimset.json` dependency and make contract-first reads the default.
+- Merge Gate:
+  - [done] Obsidian sync prefers `claimset.resolved.json` with legacy bridge fallback.
+  - [next] Remaining API/UI consumers document and adopt preferred contract path (`chunks.json`, `claimset.resolved.json`).
+  - [next] Contract-first path regression tests expanded for API endpoints.

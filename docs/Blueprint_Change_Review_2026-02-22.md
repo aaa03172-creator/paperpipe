@@ -55,6 +55,8 @@
     - `backend/services/job_runner_stages.py`는 호환 브리지 유지
   - H0 local PDF canonical gap closed:
     - `process_local_pdf_legacy`, `create_paper_from_pdf`가 `make_paper_id`로 결정론적 ID 발급
+  - H2 read-model start:
+    - Obsidian sync가 `claimset.resolved.json`을 우선 사용하고 legacy `claimset.json`으로 fallback
 
 ## Decision Gate (Closed: 2026-02-23)
 1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.
