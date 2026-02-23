@@ -25,6 +25,7 @@
 - `PR-BE-H0-NonDb-Fallback-CanonicalIds`
 - `PR-BE-H2-Obsidian-Resolved-Bridge`
 - `PR-BE-JobRunner-Helper-Split`
+- `PR-BE-H2-Obsidian-Artifacts-API`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -55,5 +56,6 @@
 - Purpose: Reduce legacy `claimset.json` dependency and make contract-first reads the default.
 - Merge Gate:
   - [done] Obsidian sync prefers `claimset.resolved.json` with legacy bridge fallback.
+  - [done] Obsidian artifact API added: `GET /obsidian/artifacts?paper_id=...&run_id=...` (resolved/chunks/stats bundle).
   - [next] Remaining API/UI consumers document and adopt preferred contract path (`chunks.json`, `claimset.resolved.json`).
   - [next] Contract-first path regression tests expanded for API endpoints.
