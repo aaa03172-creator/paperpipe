@@ -27,6 +27,7 @@
 - `PR-BE-JobRunner-Helper-Split`
 - `PR-BE-H2-Obsidian-Artifacts-API`
 - `PR-QA-Phase3-Stability-Gate`
+- `PR-BE-H0-PaperId-Migration-Audit-Plan`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
