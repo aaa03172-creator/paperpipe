@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from src.core.ids import make_paper_id
 from src.obsidian_index_csv import (
     build_note_path,
     index_headers,
@@ -15,6 +16,17 @@ from src.obsidian_index_csv import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_paper_id(paper: Dict[str, Any]) -> str:
+    existing = str(paper.get("paper_id") or paper.get("id") or "").strip()
+    if existing:
+        return existing
+    return make_paper_id(
+        doi=paper.get("doi"),
+        pdf_path=paper.get("pdf_path") or paper.get("local_pdf_path"),
+        fallback=str(paper.get("link") or "paper:unknown"),
+    )
 
 
 def find_related_papers(current_paper: Dict[str, Any], config) -> str:
@@ -28,13 +40,18 @@ def find_related_papers(current_paper: Dict[str, Any], config) -> str:
 
     related_links = []
     current_tags = set(current_paper.get("tags", []))
-    current_id = current_paper.get("doi") or current_paper.get("link")
+    current_id = _resolve_paper_id(current_paper)
+    current_aliases = {current_id}
+    for key in ("paper_id", "id", "doi", "link"):
+        value = str(current_paper.get(key) or "").strip()
+        if value:
+            current_aliases.add(value)
 
     try:
         with open(index_path, "r", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
-                if row.get("Paper_ID") == current_id:
+                if row.get("Paper_ID") in current_aliases:
                     continue
 
                 row_tags = set(row.get("Tags", "").split(";"))
@@ -70,7 +87,7 @@ def update_csv_index(
     rows = []
     updated = False
     today = now_date_str()
-    paper_id = paper.get("doi") or paper.get("link") or "unknown_id"
+    paper_id = _resolve_paper_id(paper)
 
     note_path = build_note_path(paper, today=today, relative_note_path=relative_note_path)
 

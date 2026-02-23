@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.core.ids import make_paper_id
 from src.llm_prompts import (
     build_deep_read_prompt,
     build_escalation_prompt,
@@ -54,7 +55,16 @@ def extract_trial_data_with_provider(
                 continue
 
             if not data.get("paper_id"):
-                data["paper_id"] = paper.get("doi") or paper.get("link") or paper.get("title") or "unknown_id"
+                data["paper_id"] = make_paper_id(
+                    doi=paper.get("doi"),
+                    pdf_path=paper.get("pdf_path") or paper.get("local_pdf_path"),
+                    fallback=str(
+                        paper.get("paper_id")
+                        or paper.get("id")
+                        or paper.get("link")
+                        or "paper:unknown"
+                    ),
+                )
 
             if not data.get("citation"):
                 data["citation"] = {
