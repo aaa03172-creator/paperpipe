@@ -3,6 +3,7 @@ from src.core.ids import (
     is_canonical_paper_id,
     make_paper_id,
     normalize_doi,
+    propose_canonical_paper_id,
 )
 
 
@@ -32,3 +33,13 @@ def test_classify_paper_id_supports_operational_audit():
     assert classify_paper_id("https://example.org/paper") == "legacy:url_like"
     assert classify_paper_id("local--1234") == "legacy:local_like"
     assert classify_paper_id("PMID:12345") == "legacy:other"
+
+
+def test_propose_canonical_paper_id_promotes_noncanonical_when_possible(tmp_path):
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nx\n")
+
+    assert propose_canonical_paper_id("10.1000/abc", doi="10.1000/abc") == "doi:10.1000/abc"
+    assert propose_canonical_paper_id("legacy:id", pdf_path=pdf_path).startswith("pdfsha256:")
+    assert propose_canonical_paper_id("doi:10.1000/abc", doi="10.1000/xyz") == "doi:10.1000/abc"
+    assert propose_canonical_paper_id("legacy:id") == "legacy:id"

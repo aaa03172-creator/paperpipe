@@ -53,6 +53,22 @@ def classify_paper_id(value: str | None) -> str:
     return "legacy:other"
 
 
+def propose_canonical_paper_id(
+    current_paper_id: str | None,
+    *,
+    doi: str | None = None,
+    pdf_path: str | Path | None = None,
+) -> str:
+    current = str(current_paper_id or "").strip()
+    if is_canonical_paper_id(current):
+        return current
+
+    proposed = make_paper_id(doi=doi, pdf_path=pdf_path)
+    if proposed == "paper:unknown":
+        return current
+    return proposed
+
+
 def sha256_file(path: str | Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as f:
