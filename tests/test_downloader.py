@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from src.config import AppConfig, PathsConfig, SystemConfig
-from src.downloader import ArxivProvider, DownloadRouter, DirectLinkProvider, PmcProvider, UnpaywallProvider
+from src.downloader import ArxivProvider, DownloadRouter, DirectLinkProvider, PmcProvider, UnpaywallProvider, _fetch_oa_link
 from src.downloader.providers.base import DownloadCandidate, DownloadProvider
 from src.schemas.core import DownloadFailure, Paper
 
@@ -39,7 +39,7 @@ def dummy_paper():
 
 def test_provider_ordering_default(mock_config):
     router = DownloadRouter(mock_config)
-    assert [provider.provider_name for provider in router.providers] == ["direct_link", "unpaywall"]
+    assert [provider.provider_name for provider in router.providers] == ["direct_link", "arxiv", "pmc", "unpaywall"]
 
 
 def test_direct_link_provider_resolves():
@@ -91,9 +91,13 @@ def test_router_sequence_unpaywall_fallback(mock_get, mock_download, mock_config
 
     assert result.local_pdf_path is not None
     assert result.pdf_link == "http://unpaywall.org/test.pdf"
-    assert len(result.download_attempts) == 1
+    assert len(result.download_attempts) == 3
     assert result.download_attempts[0].provider == "direct_link"
     assert result.download_attempts[0].status == DownloadFailure.NO_LINK
+    assert result.download_attempts[1].provider == "arxiv"
+    assert result.download_attempts[1].status == DownloadFailure.NO_LINK
+    assert result.download_attempts[2].provider == "pmc"
+    assert result.download_attempts[2].status == DownloadFailure.NO_LINK
 
 
 @patch("src.downloader.router.DownloadRouter._download_file")
@@ -107,11 +111,15 @@ def test_router_bad_content_handling(mock_download, mock_config, dummy_paper):
         result = router.execute(dummy_paper)
 
     assert result.local_pdf_path is None
-    assert len(result.download_attempts) == 2
+    assert len(result.download_attempts) == 4
     assert result.download_attempts[0].provider == "direct_link"
     assert result.download_attempts[0].status == DownloadFailure.BAD_CONTENT
-    assert result.download_attempts[1].provider == "unpaywall"
+    assert result.download_attempts[1].provider == "arxiv"
     assert result.download_attempts[1].status == DownloadFailure.NO_LINK
+    assert result.download_attempts[2].provider == "pmc"
+    assert result.download_attempts[2].status == DownloadFailure.NO_LINK
+    assert result.download_attempts[3].provider == "unpaywall"
+    assert result.download_attempts[3].status == DownloadFailure.NO_LINK
 
 
 class _BlockedProvider(DownloadProvider):
@@ -345,3 +353,19 @@ def test_rate_limit_retry_is_bounded(mock_download, _mock_sleep, mock_config, du
     assert all(attempt.status == DownloadFailure.RATE_LIMIT for attempt in result.download_attempts)
     assert [attempt.retry_no for attempt in result.download_attempts] == [0, 1, 2]
     assert [attempt.will_retry for attempt in result.download_attempts] == [True, True, False]
+
+
+@patch("src.downloader.providers.unpaywall.requests.get")
+def test_fetch_oa_link_compat_helper(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"best_oa_location": {"url_for_pdf": "http://unpaywall.org/compat.pdf"}}
+    mock_get.return_value = mock_resp
+
+    link = _fetch_oa_link("https://doi.org/10.1038/s41586-020-2165-8", "test@example.com")
+
+    assert link == "http://unpaywall.org/compat.pdf"
+
+
+def test_fetch_oa_link_compat_helper_without_email():
+    assert _fetch_oa_link("10.1038/s41586-020-2165-8", None) is None
