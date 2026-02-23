@@ -38,13 +38,11 @@
   - Runtime artifact writes now use `storage/artifacts/{paper_key}/{run_id}`.
   - Read paths keep compatibility fallback to legacy `storage/artifacts/{paper_id}/{run_id}`.
 
-## Decision Gate (Before v2 Adoption)
-1. Confirm whether v2 (`PR-H0..H2`) replaces v1 (`PR-0..PR-4`) as SSOT execution order.
-2. If yes, run docs-only approval PR first:
-   - no runtime code change
-   - explicit migration note for open v1 tickets
-3. If no, continue v1 order and cherry-pick v2-compatible pieces only.
+## Decision Gate (Closed: 2026-02-23)
+1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.
+2. v1 (`PR-0..PR-4`) 라벨은 이력 추적용으로만 유지한다.
+3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. Keep current refactor line (done): worker/job_runner modular hardening.
-2. Continue with docs-only v2 promotion and adoption gate (`PR-DOC-Blueprint-v2`).
+1. `PR-H2` 잔여 범위: output contract 분리(`chunks.json`, `claimset.raw/resolved.json`) + 브리지 어댑터.
+2. `PR-H0` 잔여 범위: canonical `paper_id` issuance/normalization 유틸 정리.

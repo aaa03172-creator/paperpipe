@@ -1,5 +1,8 @@
 # PaperPipe v3 Pragmatic Blueprint v2 (2026-02-22)
 
+> Status (2026-02-23): Promoted to baseline.  
+> Active baseline: `docs/PaperPipe_v3_Pragmatic_Blueprint_2026-02-22.md`
+
 ## 0. Purpose
 - This document defines the implementation blueprint for memory-ready hooks while preserving current research-agent velocity.
 - Scope is fixed to three foundational PRs:

@@ -17,26 +17,36 @@
 - `PR-BE-V2-Identity-EventLog`
 - `PR-BE-EventWriter-Buffered`
 - `PR-BE-ArtifactPath-PaperKey`
+- `PR-DOC-Blueprint-v2`
 
-## PR-DOC-Blueprint-v2
-- Title: `docs(blueprint): review and promote pragmatic blueprint v2`
-- Priority: Medium
-- Purpose: Keep v2 blueprint adoption isolated from runtime changes and formally approve migration strategy.
-- Source Draft: `docs/drafts/PaperPipe_v3_Pragmatic_Blueprint_v2_2026-02-22.md`
-- Current Baseline: `docs/PaperPipe_v3_Pragmatic_Blueprint_2026-02-22.md`
-- Scope (docs-only):
-  - Compare v1/v2 sections and resolve policy conflicts.
-  - Decide replacement strategy for baseline file.
-  - Add migration note for post-v1 execution order.
+## PR-BE-H2-Output-Contracts (Next)
+- Title: `feat(contracts): split chunk/claim artifacts and add bridge adapters`
+- Priority: High
+- Purpose: Close remaining `PR-H2` contract gap after v2 blueprint promotion.
+- Scope (runtime + tests):
+  - Introduce `chunks.json`, `claimset.raw.json`, `claimset.resolved.json` write path.
+  - Bridge adapters for existing renderer/consumer compatibility.
+  - Resolver test expansion for exact/normalized/failed matching.
 - Merge Gate:
-  - Docs-only PR (no runtime files).
-  - Reviewer sign-off required (Antigravity + Codex).
+  - Existing API/Obsidian consumer behavior remains backward-compatible.
+  - `pytest -q -k "not docker_sandbox"` green.
 
-## PR-BE-V2-Identity-EventLog (Deferred)
-- Title: `feat(core): paper_key identity + event log tables`
+## PR-BE-H0-Canonical-PaperID (After H2)
+- Title: `feat(core): canonical paper_id issuance and normalization utilities`
 - Priority: Medium
-- Purpose: v2-only migration (`paper_key`, `runs/jobs/job_events/user_actions`) after docs approval.
+- Purpose: Close remaining `PR-H0` identity gap.
+- Scope:
+  - `normalize_doi`, canonical `paper_id` issuance (`zotero:/doi:/pdfsha256`) policy module.
+  - Ingestion/discovery entrypoints adopt shared helper without schema break.
 - Merge Gate:
-  - Runtime bootstrap includes paper_key backfill and event tables.
-  - Worker lifecycle emits event logs without breaking fail-safe path.
+  - Existing records remain readable and untouched.
+  - New records follow canonical issuance policy deterministically.
+
+## PR-BE-V2-EventLog-Followups (Deferred)
+- Title: `chore(event-log): harden taxonomy/replay and ops observability`
+- Priority: Medium
+- Purpose: Close residual hardening after baseline event-log rollout.
+- Merge Gate:
+  - Error taxonomy mapping is standardized across failure paths.
+  - Replay/read models for `runs -> jobs -> events` are query-ready for UI/ops.
   - `pytest -q` full suite green.

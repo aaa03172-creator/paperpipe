@@ -1,4 +1,4 @@
-# PaperPipe v3 Pragmatic Blueprint (2026-02-22)
+# PaperPipe v3 Pragmatic Blueprint v2 (2026-02-22, promoted 2026-02-23)
 
 ## 0. 목적
 - 본 문서는 PaperPipe를 `Discover -> Grounded Citation -> Triggered Stats` 흐름으로 안정적으로 고도화하기 위한 실행 명세서다.
@@ -32,6 +32,22 @@
   - `paper_key` 생성/백필, `runs` 확장, `job_events`, `user_actions`
   - worker 경로에서 `job_events` buffered write + flush
   - 참조: `src/db_bootstrap.py`, `src/db_event_log.py`, `src/core/paper_identity.py`
+
+### 2.1 v2 승격 결정 (2026-02-23)
+- 본 문서는 `docs/drafts/PaperPipe_v3_Pragmatic_Blueprint_v2_2026-02-22.md`의 실행 프레임(`PR-H0..H2`)을 기준선으로 승격한다.
+- 단, 런타임은 이미 v1 라인(`PR-0..PR-4`)의 상당 부분이 선반영되어 있으므로, 본 문서에서는 v1 라벨을 "이력 추적용"으로 병기한다.
+- 운영 원칙은 동일하다: Fail-safe, API-first, 계약 우선, Idempotent upsert.
+
+### 2.2 H-series 상태 스냅샷 (코드 기준)
+- `PR-H0` (Stable IDs + Artifact Key)
+  - 완료: `paper_key` 백필, artifact write를 `{paper_key}/{run_id}`로 전환, legacy `{paper_id}/{run_id}` 읽기 fallback.
+  - 잔여: `paper_id` 발급 정책(`zotero:/doi:/pdfsha256`) 및 `ids.py` 표준 유틸 통합.
+- `PR-H1` (Runs/Jobs/Events/User Actions)
+  - 완료: `runs/jobs/job_events/user_actions` ensure + worker lifecycle/event log + buffered writer.
+  - 잔여: 에러 taxonomy 매핑의 전면 표준화 및 리플레이 조회 UX 강화.
+- `PR-H2` (Output Schema Contract)
+  - 완료: deterministic `chunk_id`, evidence resolver 적용, grounded ratio 관측.
+  - 잔여: `chunks.json`/`claimset.raw/resolved.json` 분리 계약과 브리지 어댑터의 정식 도입.
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -132,6 +148,8 @@
 
 ## 8. PR 분해 및 AC
 
+> 참고: 본 절의 `PR-0..PR-4` 라벨은 기존 실행 이력을 보존하기 위한 표기다. v2 기준 라벨은 `PR-H0..PR-H2`이며, 매핑은 `docs/Blueprint_Change_Review_2026-02-22.md`를 따른다.
+
 ### PR-0: EVIDENCE_CONTRACT_V1
 - 변경
   - 결정론적 `chunk_id` 생성
@@ -217,10 +235,11 @@
 
 ## 12. 즉시 착수 순서
 - 1순위(완료): artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
-- 2순위: v2 문서 승인 시 `runs/jobs/events/actions` 재구성(리플레이 품질 보강)
+- 2순위: `PR-H2` 잔여 범위(artifacts output contract 분리 + bridge adapter) 착수
+- 3순위: `PR-H0` 잔여 범위(`paper_id` canonical issuance/normalization 유틸) 정리
 
 ---
 
-문서 버전: `blueprint.pragmatic.2026-02-22.v1`  
+문서 버전: `blueprint.pragmatic.2026-02-22.v2`  
 소유: PaperPipe Core  
 리뷰 기준: "계약 강제 -> 링크 UX -> 선택 검증" 순서 준수
