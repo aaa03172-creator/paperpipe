@@ -2,11 +2,11 @@
 import sqlite3
 import json
 import logging
-import os
 from pathlib import Path
 from datetime import datetime
 from src.db_utils import get_db_connection
 from src.config import load_config
+from src.core.artifact_paths import iter_paper_dir_candidates
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -23,23 +23,17 @@ def _is_test_fixture_record(paper_id: str, pdf_path: str | None) -> bool:
         or "/tests/" in path
     )
 
-def _claimset_artifacts_root() -> Path:
-    env_root = os.getenv("PAPERPIPE_ARTIFACTS_DIR")
-    if env_root:
-        return Path(env_root).expanduser()
-    return Path(__file__).resolve().parents[1] / "storage" / "artifacts"
-
-def _has_claimset_artifact(paper_id: str) -> bool:
-    paper_dir = _claimset_artifacts_root() / paper_id
-    if not paper_dir.exists():
-        return False
-    for candidate in sorted(paper_dir.glob("*/claimset.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            parsed = json.loads(candidate.read_text(encoding="utf-8"))
-        except Exception:
+def _has_claimset_artifact(paper_id: str, paper_key: str | None = None) -> bool:
+    for paper_dir in iter_paper_dir_candidates(paper_id=paper_id, paper_key=paper_key):
+        if not paper_dir.exists():
             continue
-        if isinstance(parsed, dict) and isinstance(parsed.get("claims"), list):
-            return True
+        for candidate in sorted(paper_dir.glob("*/claimset.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                parsed = json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(parsed, dict) and isinstance(parsed.get("claims"), list):
+                return True
     return False
 
 def _has_valid_claimset(feedback_json: str | None) -> bool:
@@ -161,18 +155,26 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"[DB] unmatched_review_open: {institutional_counters['unmatched_review_open']}")
     print(f"[File] unmatched_files: {unmatched_files}")
 
-    cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
+    paper_columns = {row[1] for row in cursor.execute("PRAGMA table_info(papers)").fetchall()}
+    select_fields = ["paper_id", "feedback_json", "pdf_path"]
+    has_paper_key = "paper_key" in paper_columns
+    if has_paper_key:
+        select_fields.append("paper_key")
+    cursor.execute(
+        f"SELECT {', '.join(select_fields)} FROM papers WHERE status IN ('APPROVED', 'INDEXED')"
+    )
     active_feedback_rows = cursor.fetchall()
     missing_or_invalid_claimset = 0
     for row in active_feedback_rows:
         paper_id = row[0]
         feedback_json = row[1]
         pdf_path = row[2]
+        paper_key = row[3] if has_paper_key and len(row) > 3 else None
         if not include_test_fixtures and _is_test_fixture_record(paper_id, pdf_path):
             continue
         if _has_valid_claimset(feedback_json):
             continue
-        if _has_claimset_artifact(paper_id):
+        if _has_claimset_artifact(paper_id=paper_id, paper_key=paper_key):
             continue
         missing_or_invalid_claimset += 1
     if include_test_fixtures:

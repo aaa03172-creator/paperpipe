@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from scripts import qa_report
 from src import db_utils
+from src.core.paper_identity import make_paper_key
 from src.exporter import (
     _auto_skip_test_fixture_followups,
     _is_test_fixture_paper,
@@ -271,6 +272,58 @@ def test_qa_excludes_test_fixture_records_from_operational_claimset_count(tmp_pa
 
     result = qa_report.run_qa_check()
     assert result["missing_or_invalid_claimset"] == 1
+
+
+def test_qa_claimset_artifact_lookup_supports_paper_key_dir(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "state.db"
+    vault = tmp_path / "vault"
+    (vault / "Inbox" / "PaperPipe").mkdir(parents=True, exist_ok=True)
+
+    paper_id = "doi:10.1000/keydir"
+    paper_key = make_paper_key(paper_id)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT,
+            feedback_json TEXT,
+            pdf_path TEXT,
+            paper_key TEXT,
+            gate_reason TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, paper_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (paper_id, "keydir", "APPROVED", "s", '{"soft_tags":["#A"]}', "/tmp/keydir.pdf", paper_key),
+    )
+    conn.commit()
+    conn.close()
+
+    artifacts_root = tmp_path / "artifacts"
+    claimset_file = artifacts_root / paper_key / "run_001" / "claimset.json"
+    claimset_file.parent.mkdir(parents=True, exist_ok=True)
+    claimset_file.write_text(
+        '{"doc_id":"d","claims":[{"claim_id":"c1","statement":"s","evidence_spans":[{"page":1,"quote":"q"}],"limitations":[],"confidence":0.7}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+
+    (vault / "Inbox" / "PaperPipe" / "doi101000keydir.md").write_text("no section", encoding="utf-8")
+
+    monkeypatch.setattr(db_utils, "DB_PATH", db_path)
+    monkeypatch.setattr(
+        qa_report,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=str(vault))),
+    )
+
+    result = qa_report.run_qa_check()
+    assert result["missing_or_invalid_claimset"] == 0
 
 
 def test_exporter_auto_skips_test_fixture_needs_reader():

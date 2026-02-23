@@ -126,7 +126,7 @@
   - Deep Read, Related Works, ClaimSet 섹션은 marker 기반 업서트
   - 동일 입력 재실행 시 문서 중복 블록이 생기지 않아야 한다.
 - Artifacts
-  - 경로: `storage/artifacts/{paper_id}/{run_id}/`
+  - 경로: `storage/artifacts/{paper_key}/{run_id}/` (legacy fallback: `{paper_id}/{run_id}`)
   - 최소 산출물: `document_artifact.json`, `index_artifact.json`, `claimset.json`
   - 조건 산출물: `stats_report.json`
 
@@ -216,7 +216,7 @@
   - stats 실행/캐시 히트율 모니터링
 
 ## 12. 즉시 착수 순서
-- 1순위: artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
+- 1순위(완료): artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
 - 2순위: v2 문서 승인 시 `runs/jobs/events/actions` 재구성(리플레이 품질 보강)
 
 ---

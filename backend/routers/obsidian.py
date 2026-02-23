@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 from src.config import load_config
+from src.core.artifact_paths import resolve_existing_artifact_dir
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 
 logger = logging.getLogger("paperpipe.backend")
@@ -18,10 +19,13 @@ MARKER_START = "<!-- AI_AGENT_START -->"
 MARKER_END = "<!-- AI_AGENT_END -->"
 
 def _load_artifact(paper_id: str, run_id: str, filename: str):
-    path = Path(f"storage/artifacts/{paper_id}/{run_id}/{filename}")
+    artifact_dir = resolve_existing_artifact_dir(run_id=run_id, paper_id=paper_id)
+    if artifact_dir is None:
+        return None
+    path = artifact_dir / filename
     if not path.exists():
         return None
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:

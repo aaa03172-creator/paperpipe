@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import backend.services.job_runner as job_runner_mod
 import src.db_utils as db_utils
+from src.core.artifact_paths import build_artifact_dir, build_paper_artifact_dir
 
 from src.contracts.document_artifact_v2 import (
     ArtifactMetaV2,
@@ -91,7 +92,7 @@ def test_run_deepread_job_fails_fast_when_pdf_missing(tmp_path, monkeypatch):
     assert result["status"] == "failed"
     assert "PDF not found" in result["error"]
     assert any(e.get("level") == "ERROR" for e in events)
-    assert not (tmp_path / "storage" / "artifacts" / paper_id).exists()
+    assert not build_paper_artifact_dir(paper_id).exists()
 
 
 def test_run_deepread_job_sets_runtime_error_meta_on_reader_exception(tmp_path, monkeypatch):
@@ -134,7 +135,7 @@ def test_run_deepread_job_sets_runtime_error_meta_on_reader_exception(tmp_path, 
     assert result["status"] == "failed"
     assert "reader exploded" in result["error"]
 
-    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_reader_failure"
+    artifact_dir = build_artifact_dir(run_id="run_reader_failure", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -203,7 +204,7 @@ def test_run_deepread_job_keeps_success_when_verifier_fails(tmp_path, monkeypatc
 
     assert result["status"] == "succeeded"
 
-    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_verifier_failure"
+    artifact_dir = build_artifact_dir(run_id="run_verifier_failure", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -240,7 +241,7 @@ def test_run_deepread_job_can_cancel_after_artifact_init(tmp_path, monkeypatch):
     )
 
     assert result["status"] == "cancelled"
-    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_cancel_case"
+    artifact_dir = build_artifact_dir(run_id="run_cancel_case", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -286,7 +287,7 @@ def test_run_deepread_job_not_ready_without_review_queue_flags_manual_action(tmp
     )
 
     assert result["status"] == "succeeded"
-    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_not_ready_no_queue"
+    artifact_dir = build_artifact_dir(run_id="run_not_ready_no_queue", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -337,7 +338,7 @@ def test_run_deepread_job_fast_ingest_skips_reader_and_verify(tmp_path, monkeypa
     )
 
     assert result["status"] == "succeeded"
-    artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / "run_fast_ingest"
+    artifact_dir = build_artifact_dir(run_id="run_fast_ingest", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -439,7 +440,7 @@ def test_run_deepread_job_tag_trigger_runs_verify_and_reuses_stats_cache(tmp_pat
         assert first["status"] == "succeeded"
         assert CountingStatsAgent.calls == 1
         meta1 = json.loads(
-            (tmp_path / "storage" / "artifacts" / paper_id / "run_tag_cache_1" / "bootstrap_meta.json").read_text(
+            (build_artifact_dir(run_id="run_tag_cache_1", paper_id=paper_id) / "bootstrap_meta.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -461,7 +462,7 @@ def test_run_deepread_job_tag_trigger_runs_verify_and_reuses_stats_cache(tmp_pat
         assert second["status"] == "succeeded"
         assert CountingStatsAgent.calls == 1
         meta2 = json.loads(
-            (tmp_path / "storage" / "artifacts" / paper_id / "run_tag_cache_2" / "bootstrap_meta.json").read_text(
+            (build_artifact_dir(run_id="run_tag_cache_2", paper_id=paper_id) / "bootstrap_meta.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -543,7 +544,7 @@ def test_run_deepread_job_records_evidence_grounded_ratio(tmp_path, monkeypatch)
 
     assert result["status"] == "succeeded"
     meta = json.loads(
-        (tmp_path / "storage" / "artifacts" / paper_id / "run_grounded_ratio" / "bootstrap_meta.json").read_text(
+        (build_artifact_dir(run_id="run_grounded_ratio", paper_id=paper_id) / "bootstrap_meta.json").read_text(
             encoding="utf-8"
         )
     )

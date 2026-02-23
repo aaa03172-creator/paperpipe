@@ -15,6 +15,7 @@ from anthropic import AsyncAnthropic
 # Import Pydantic Models for Validation
 from src.schemas.agent_artifacts import ClaimSet, ScientificClaim, EvidenceSpan, FeedbackCase
 from src.config import load_config
+from src.core.artifact_paths import resolve_existing_artifact_dir
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -73,8 +74,9 @@ async def run_student_job(paper_id: str) -> Dict[str, Any]:
     for i in range(max_retries):
         await asyncio.sleep(2)
         # Check if artifacts exist
-        artifact_path = Path(f"storage/artifacts/{paper_id}/{run_id}/claimset.json")
-        if artifact_path.exists():
+        artifact_dir = resolve_existing_artifact_dir(run_id=run_id, paper_id=paper_id)
+        artifact_path = (artifact_dir / "claimset.json") if artifact_dir is not None else None
+        if artifact_path is not None and artifact_path.exists():
             logger.info("   Student finished. Artifacts found.")
             return {"run_id": run_id, "artifact_path": artifact_path}
             

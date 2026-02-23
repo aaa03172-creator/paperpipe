@@ -1,6 +1,9 @@
 # bootstrap_meta.json Schema
 
 This file is written per deepread run at:
+`storage/artifacts/<paper_key>/<run_id>/bootstrap_meta.json`
+
+Legacy compatibility lookup is preserved for:
 `storage/artifacts/<paper_id>/<run_id>/bootstrap_meta.json`
 
 ## Purpose
@@ -11,6 +14,8 @@ This file is written per deepread run at:
 - `job_id` (string): Queue job identifier.
 - `run_id` (string): Run identifier for artifact directory.
 - `paper_id` (string): Paper ID used for the run.
+- `paper_key` (string): Filesystem-safe deterministic key for artifact storage.
+- `artifact_paper_dir` (string): Absolute/relative parent dir for this run's artifacts.
 - `persona_id` (string): Requested persona profile id.
 - `persona_applied` (bool): Whether any persona/feedback hint was actually applied to reader prompt.
 - `similar_feedback_count` (int): Number of injected similar feedback examples.
@@ -40,6 +45,8 @@ This file is written per deepread run at:
   "job_id": "c826...",
   "run_id": "0d59...",
   "paper_id": "paper_chain_001",
+  "paper_key": "paper_chain_001_3d64b1a2",
+  "artifact_paper_dir": "storage/artifacts/paper_chain_001_3d64b1a2",
   "persona_id": "smoke-persona",
   "persona_applied": true,
   "similar_feedback_count": 2,

@@ -16,6 +16,7 @@
 - `PR-BE-Observability-Rollup`
 - `PR-BE-V2-Identity-EventLog`
 - `PR-BE-EventWriter-Buffered`
+- `PR-BE-ArtifactPath-PaperKey`
 
 ## PR-DOC-Blueprint-v2
 - Title: `docs(blueprint): review and promote pragmatic blueprint v2`
@@ -39,15 +40,3 @@
   - Runtime bootstrap includes paper_key backfill and event tables.
   - Worker lifecycle emits event logs without breaking fail-safe path.
   - `pytest -q` full suite green.
-
-## PR-BE-ArtifactPath-PaperKey
-- Title: `refactor(artifacts): migrate path key from paper_id to paper_key`
-- Priority: Medium
-- Purpose: Align artifact storage with deterministic filesystem-safe identity.
-- Scope (expected):
-  - `backend/services/job_runner.py`
-  - path resolver helpers + backward compatibility lookup
-  - tests for legacy artifact path fallback
-- Merge Gate:
-  - Existing artifact lookup remains compatible.
-  - New runs write under `{paper_key}/{run_id}`.

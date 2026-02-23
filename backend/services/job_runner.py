@@ -23,6 +23,7 @@ from src.services.deepread_note_writer import (
 )
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.core.paper_identity import make_paper_key
+from src.core.artifact_paths import build_artifact_dir
 from src.core.evidence_resolver import resolve_claimset_evidence
 from backend.services.stats_runtime import resolve_stats_trigger_for_paper
 from backend.services.job_runner_stages import (
@@ -235,9 +236,11 @@ def _create_artifact_context(
     persona_id: str,
     run_verify: bool,
 ) -> tuple[Path, Dict[str, Any]]:
-    artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+    paper_key = make_paper_key(paper_id)
+    artifact_dir = build_artifact_dir(run_id=run_id, paper_id=paper_id, paper_key=paper_key)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     bootstrap_meta = _build_bootstrap_meta(job_id, run_id, paper_id, persona_id, run_verify)
+    bootstrap_meta["artifact_paper_dir"] = str(artifact_dir.parent)
     _write_bootstrap_meta(artifact_dir, bootstrap_meta)
     return artifact_dir, bootstrap_meta
 
