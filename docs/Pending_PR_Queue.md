@@ -41,7 +41,7 @@
   - [done] legacy/local PDF 진입점 canonical issuance 확대(`process_local_pdf_legacy`, `create_paper_from_pdf`).
   - [done] non-DB helper/legacy fallback 경로(`obsidian_index`, `llm_provider_tasks`)의 `paper_id` fallback canonical 정렬.
   - [done] 기존 CSV/노트 legacy `Paper_ID` 점검/정규화 도구 추가(`scripts/audit_obsidian_index_ids.py`, `scripts/normalize_obsidian_index_ids.py`).
-  - [next] 운영 vault CSV/노트에 대한 `--apply` 실행 여부를 릴리즈 체크포인트에서 결정.
+  - [done] 릴리즈 체크포인트(2026-02-23)에서 운영 vault CSV 재감사 완료: `canonical_ratio=1.0`, `migratable_candidates=0`, normalize dry-run `candidates=0`으로 추가 `--apply` 불필요 결정.
 - Merge Gate:
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.

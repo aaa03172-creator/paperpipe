@@ -32,6 +32,16 @@
   - `canonical_count=1`
   - `migratable_candidates=0`
 
+## Release Checkpoint Recheck (2026-02-23)
+- Command:
+  - `python3 scripts/audit_obsidian_index_ids.py --index obsidian/00_Index/paper_collection.csv --db storage/state.db --sample-limit 10`
+  - `python3 scripts/normalize_obsidian_index_ids.py --index obsidian/00_Index/paper_collection.csv --db storage/state.db --print-sample 10`
+- Result:
+  - audit: `canonical_ratio=1.0`, `migratable_candidates=0`
+  - normalize dry-run: `candidates=0`
+- Decision:
+  - 운영 vault CSV에 대한 추가 `--apply`는 불필요(no-op)로 확정.
+
 ## Regression
 - `pytest -q tests/test_obsidian_index_id_normalization.py tests/test_obsidian_index_ids.py tests/test_core_ids.py tests/test_paper_id_migration_plan.py tests/test_paper_id_migration_apply.py`
   - `18 passed`
