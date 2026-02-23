@@ -87,7 +87,7 @@
   - [done] apply 시 backup + transaction + `orphan_cleanup_log` snapshot 기록.
   - [done] 단위테스트 추가(`tests/test_orphan_paper_refs.py`).
 
-## PR-OPS-Backfill-Outputs (In Progress)
+## PR-OPS-Backfill-Outputs (Completed)
 - Title: `chore(ops): backfill markdown outputs and seed claimset recovery queue`
 - Priority: High
 - Purpose: 운영 backlog에서 markdown 누락을 제거하고 claimset 누락을 배치 처리 경로로 전환.
@@ -98,6 +98,16 @@
   - [done] claimset recovery queue seed(`+10`) 및 실패 원인 확인(`PDF not found`).
   - [done] backfill enqueue guard 강화(`pdf_ready` default required, `--allow-missing-pdf` opt-in).
   - [done] `job_runner` DB pdf_path 우선 탐색 hotfix로 canonical ID 경로 실패 해소.
-  - [done] claimset backfill batch 처리(`52 -> 36`, 16건 추가 완료).
+  - [done] claimset backfill batch 처리(`52 -> 0`, 총 52건 처리 완료).
   - [done] queued drain 완료(`queued: 0`, `running: 0` at checkpoint).
-  - [next] 동일 배치 절차로 `36 -> 0`까지 축소 지속.
+  - [done] 운영 QA 기준 clean 상태(`Missing Markdown Files=0`, `Missing/Invalid ClaimSet=0`).
+
+## PR-OPS-LegacyFailedJobs-Archive (Completed)
+- Title: `chore(ops): archive legacy failed jobs after recovery`
+- Priority: Medium
+- Purpose: pre-fix 실패 이력을 `jobs` 운영 뷰에서 분리하고 보존 테이블로 아카이브.
+- Merge Gate:
+  - [done] `scripts/archive_legacy_failed_jobs.py` 추가 (dry-run default, backup + apply).
+  - [done] 아카이브 테이블 생성(`job_failures_archive`) + 원본 row_json 보존.
+  - [done] 운영 DB 적용: `failed 12 -> 0`, archive rows `12`.
+  - [done] 회귀 테스트 추가(`tests/test_archive_legacy_failed_jobs.py`).

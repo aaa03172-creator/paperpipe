@@ -142,19 +142,43 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"Time: {datetime.now()}")
     print("-" * 30)
 
-    # 1. DB Integrity Check
-    cursor.execute("""
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN summary IS NULL OR summary = '' OR summary = 'Abstract not available.' THEN 1 ELSE 0 END) as missing_summary,
-            SUM(CASE WHEN feedback_json IS NULL OR feedback_json = '' THEN 1 ELSE 0 END) as missing_feedback
-        FROM papers 
+    # 1. DB Integrity Check (operational view excludes test fixtures by default)
+    cursor.execute(
+        """
+        SELECT paper_id, title, summary, feedback_json, pdf_path
+        FROM papers
         WHERE status IN ('APPROVED', 'INDEXED')
-    """)
-    stats = cursor.fetchone()
-    total = stats[0]
-    missing_summary = stats[1]
-    missing_feedback = stats[2]
+        """
+    )
+    active_rows = [
+        {
+            "paper_id": row[0],
+            "title": row[1],
+            "summary": row[2],
+            "feedback_json": row[3],
+            "pdf_path": row[4],
+        }
+        for row in cursor.fetchall()
+    ]
+    filtered_rows = []
+    for row in active_rows:
+        if not include_test_fixtures and _is_test_fixture_record(row["paper_id"], row["pdf_path"]):
+            continue
+        filtered_rows.append(row)
+
+    total = len(filtered_rows)
+    missing_summary_ids = [
+        str(row["paper_id"])
+        for row in filtered_rows
+        if row["summary"] is None or row["summary"] == "" or row["summary"] == "Abstract not available."
+    ]
+    missing_feedback_ids = [
+        str(row["paper_id"])
+        for row in filtered_rows
+        if row["feedback_json"] is None or row["feedback_json"] == ""
+    ]
+    missing_summary = len(missing_summary_ids)
+    missing_feedback = len(missing_feedback_ids)
     
     print(f"[DB] Total Active Papers (APPROVED/INDEXED): {total}")
     print(f"     (Definition: status IN ('APPROVED', 'INDEXED'))")
@@ -167,16 +191,11 @@ def run_qa_check(include_test_fixtures: bool = False):
     print(f"[DB] unmatched_review_open: {institutional_counters['unmatched_review_open']}")
     print(f"[File] unmatched_files: {unmatched_files}")
 
-    cursor.execute("SELECT paper_id, feedback_json, pdf_path FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
-    active_feedback_rows = cursor.fetchall()
     missing_or_invalid_claimset = 0
     missing_claimset_ids = []
-    for row in active_feedback_rows:
-        paper_id = row[0]
-        feedback_json = row[1]
-        pdf_path = row[2]
-        if not include_test_fixtures and _is_test_fixture_record(paper_id, pdf_path):
-            continue
+    for row in filtered_rows:
+        paper_id = row["paper_id"]
+        feedback_json = row["feedback_json"]
         if _has_valid_claimset(feedback_json):
             continue
         if _has_claimset_artifact(paper_id):
@@ -190,10 +209,8 @@ def run_qa_check(include_test_fixtures: bool = False):
     if missing_claimset_ids:
         print(f"   -> IDs: {missing_claimset_ids[:50]}")
     
-    if missing_summary > 0:
-        cursor.execute("SELECT paper_id FROM papers WHERE status IN ('APPROVED', 'INDEXED') AND (summary IS NULL OR summary = '' OR summary = 'Abstract not available.')")
-        ids = [row[0] for row in cursor.fetchall()]
-        print(f"[DB] Missing Summary IDs: {ids}")
+    if missing_summary_ids:
+        print(f"[DB] Missing Summary IDs: {missing_summary_ids}")
         
     print("-" * 30)
     
@@ -256,14 +273,11 @@ def run_qa_check(include_test_fixtures: bool = False):
 
     print(f"[File] Checking exports in: {inbox_dir}")
     
-    cursor.execute("SELECT paper_id, title FROM papers WHERE status IN ('APPROVED', 'INDEXED')")
-    papers = cursor.fetchall()
-    
     missing_files = []
     bad_content_files = []
     
-    for row in papers:
-        pid = row[0]
+    for row in filtered_rows:
+        pid = str(row["paper_id"])
         # Heuristic for filename: same logic as exporter
         safe_filename = "".join([c for c in pid if c.isalnum() or c in (' ', '-', '_')]).strip()
         if not safe_filename: safe_filename = "paper"
