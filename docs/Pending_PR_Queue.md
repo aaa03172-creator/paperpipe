@@ -31,7 +31,7 @@
 - `PR-BE-H0-ObsidianIndex-PaperId-Normalize`
 - `PR-OPS-Orphan-PaperRef-Cleanup`
 
-## PR-BE-H0-Canonical-PaperID (Next)
+## PR-BE-H0-Canonical-PaperID (Completed)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
 - Priority: Medium
 - Purpose: Close remaining `PR-H0` identity gap.
@@ -55,7 +55,7 @@
   - [done] Error taxonomy mapping is standardized across worker/job_runner failure paths.
   - [done] `pytest -q -k "not docker_sandbox"` + phase3 integration green.
 
-## PR-BE-H2-ReadModel-Expansion (Next)
+## PR-BE-H2-ReadModel-Expansion (Completed)
 - Title: `feat(contracts): expand resolved/chunks read-model across API/UI paths`
 - Priority: Medium
 - Purpose: Reduce legacy `claimset.json` dependency and make contract-first reads the default.
@@ -65,7 +65,7 @@
   - [done] Remaining runtime consumers(`backend/routers/obsidian.py`, `src/exporter_claimset.py`) contract-first path adopted.
   - [done] Contract-first path regression tests expanded for API endpoints.
 
-## PR-BE-H0-PaperId-Migration-Apply (Next)
+## PR-BE-H0-PaperId-Migration-Apply (Completed)
 - Title: `chore(ids): apply paper_id canonical migration with fallback-safe mapping`
 - Priority: Medium
 - Purpose: Move DB `papers.paper_id` from legacy values to canonical IDs using dry-run output.
@@ -75,7 +75,7 @@
   - [done] apply 전후 count/샘플/SQL 검증 문서화 (`docs/PaperId_Migration_Apply_2026-02-23.md`).
   - [done] rollback 리허설(backup vs current copy 검증) 1회 실행.
 
-## PR-OPS-Orphan-PaperRef-Cleanup (Next)
+## PR-OPS-Orphan-PaperRef-Cleanup (Completed)
 - Title: `chore(ops): audit and cleanup orphan jobs/runs paper_id references`
 - Priority: Medium
 - Purpose: 운영 DB에서 `papers` 미존재 `paper_id`를 참조하는 `jobs/runs` test 흔적을 통제한다.
