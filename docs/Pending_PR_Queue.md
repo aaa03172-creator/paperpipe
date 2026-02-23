@@ -68,6 +68,6 @@
 - Purpose: Move DB `papers.paper_id` from legacy values to canonical IDs using dry-run output.
 - Merge Gate:
   - [done] `scripts/apply_paper_id_migration.py` 추가 (default dry-run, `--apply` 시 backup+transaction).
-  - [next] `scripts/plan_paper_id_migration.py` 결과를 기반으로 충돌/중복 없는 apply 대상 최종 확정.
-  - [next] apply 전후 count 및 샘플 검증(SQL) 문서화.
-  - [next] rollback SQL(혹은 snapshot 복구) 경로 포함.
+  - [done] `scripts/plan_paper_id_migration.py` 기반 apply 수행(52 mappings) + backup 생성.
+  - [done] apply 전후 count/샘플/SQL 검증 문서화 (`docs/PaperId_Migration_Apply_2026-02-23.md`).
+  - [next] rollback 리허설(backup 복원 후 smoke) 1회 실행.
