@@ -59,6 +59,8 @@
   - H2 read-model start:
     - Obsidian sync가 `claimset.resolved.json`을 우선 사용하고 legacy `claimset.json`으로 fallback
     - Obsidian artifact bundle API 추가: `GET /obsidian/artifacts`(query: `paper_id`, `run_id`)
+  - 운영 안정성 게이트:
+    - `scripts/run_phase3_stability_gate.py --runs 3` 결과 `PASS 3/3`
 
 ## Decision Gate (Closed: 2026-02-23)
 1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.
