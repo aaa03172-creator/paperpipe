@@ -62,5 +62,5 @@
 3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. `PR-H0` 후속 감사(audit): non-DB helper/legacy 경로의 `paper_id` fallback 정책 정리(`obsidian_index`, `llm_provider_tasks` 등).
-2. `PR-H2` 후속: API/UI read-model 전 구간에서 `claimset.resolved`/`chunks` 계약 사용을 우선 경로로 승격(legacy payload 의존 축소).
+1. `PR-H2` 후속: API/UI read-model 전 구간에서 `claimset.resolved`/`chunks` 계약 사용을 우선 경로로 승격(legacy payload 의존 축소).
+2. H0 운영 후속: 기존 CSV/노트의 legacy `Paper_ID`(plain DOI/link) 마이그레이션 필요성 검토 및 정책 결정.

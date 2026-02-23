@@ -22,6 +22,7 @@
 - `PR-BE-V2-EventLog-Taxonomy-ReplayTyping`
 - `PR-BE-JobRunner-StageSplit-v2`
 - `PR-BE-H0-LocalPdf-CanonicalIds`
+- `PR-BE-H0-NonDb-Fallback-CanonicalIds`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -31,7 +32,8 @@
   - [done] `normalize_doi`, canonical `paper_id` issuance helper module(`src/core/ids.py`).
   - [done] Discovery/Zotero/PubMed entrypoints adopt shared helper without schema break.
   - [done] legacy/local PDF 진입점 canonical issuance 확대(`process_local_pdf_legacy`, `create_paper_from_pdf`).
-  - [next] non-DB helper/legacy fallback 경로(`obsidian_index`, `llm_provider_tasks`)의 `paper_id` 사용을 운영 계약 관점에서 감사(audit) 후 정리.
+  - [done] non-DB helper/legacy fallback 경로(`obsidian_index`, `llm_provider_tasks`)의 `paper_id` fallback canonical 정렬.
+  - [next] 기존 CSV/노트에 남은 legacy `Paper_ID` 값(plain DOI/link) 점진 마이그레이션 여부 결정.
 - Merge Gate:
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.
