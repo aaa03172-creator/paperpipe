@@ -53,6 +53,7 @@ storage/state.db.pre_rollback_*
 storage/state.db.orphan_cleanup.bak.*
 storage/*.db-shm
 storage/*.db-wal
+storage/backups/
 obsidian/00_Index/*.bak.*
 Library/
 *.zip
