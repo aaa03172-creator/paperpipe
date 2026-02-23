@@ -30,6 +30,7 @@
 - `PR-BE-H0-PaperId-Migration-Audit-Plan`
 - `PR-BE-H0-ObsidianIndex-PaperId-Normalize`
 - `PR-OPS-Orphan-PaperRef-Cleanup`
+- `PR-BE-V2-EventLog-Followups`
 
 ## PR-BE-H0-Canonical-PaperID (Completed)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -46,7 +47,7 @@
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.
 
-## PR-BE-V2-EventLog-Followups (Deferred)
+## PR-BE-V2-EventLog-Followups (Completed)
 - Title: `chore(event-log): harden taxonomy/replay and ops observability`
 - Priority: Medium
 - Purpose: Close residual hardening after baseline event-log rollout.
