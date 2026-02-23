@@ -67,6 +67,7 @@
 - Priority: Medium
 - Purpose: Move DB `papers.paper_id` from legacy values to canonical IDs using dry-run output.
 - Merge Gate:
-  - `scripts/plan_paper_id_migration.py` 결과를 기반으로 충돌/중복 없는 apply plan 확정.
-  - apply 전후 count 및 샘플 검증(SQL) 문서화.
-  - rollback SQL(혹은 snapshot 복구) 경로 포함.
+  - [done] `scripts/apply_paper_id_migration.py` 추가 (default dry-run, `--apply` 시 backup+transaction).
+  - [next] `scripts/plan_paper_id_migration.py` 결과를 기반으로 충돌/중복 없는 apply 대상 최종 확정.
+  - [next] apply 전후 count 및 샘플 검증(SQL) 문서화.
+  - [next] rollback SQL(혹은 snapshot 복구) 경로 포함.

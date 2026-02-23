@@ -70,5 +70,5 @@
 3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. H0 운영 후속: dry-run 결과 기반 `paper_id` canonical migration apply/rollback 경로 확정.
+1. H0 운영 후속: dry-run 결과 기반 `paper_id` canonical migration apply 실행(스크립트 준비 완료) 및 rollback 리허설.
 2. `PR-H2` 유지보수: contract-first read model 확장을 신규 API/화면 추가 시 기본 규칙으로 지속 적용.
