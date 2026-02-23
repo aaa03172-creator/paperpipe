@@ -12,7 +12,9 @@ import requests
 from src.config import AppConfig
 from src.downloader.providers.base import DownloadProvider, DownloadResult
 from src.downloader.providers.base import DownloadCandidate
+from src.downloader.providers.arxiv import ArxivProvider
 from src.downloader.providers.direct import DirectLinkProvider
+from src.downloader.providers.pmc import PmcProvider
 from src.downloader.providers.unpaywall import UnpaywallProvider
 from src.schemas.core import DownloadAttempt, DownloadFailure, Paper
 
@@ -33,6 +35,14 @@ DEFAULT_PROVIDER_POLICIES: dict[str, ProviderHttpPolicy] = {
     "unpaywall": ProviderHttpPolicy(
         timeout_seconds=25.0,
         headers={"User-Agent": "PaperPipe/1.0 (+Unpaywall OA)"},
+    ),
+    "arxiv": ProviderHttpPolicy(
+        timeout_seconds=20.0,
+        headers={"User-Agent": "PaperPipe/1.0 (+arXiv OA)"},
+    ),
+    "pmc": ProviderHttpPolicy(
+        timeout_seconds=20.0,
+        headers={"User-Agent": "PaperPipe/1.0 (+PMC OA)"},
     ),
 }
 
@@ -60,6 +70,8 @@ class DownloadRouter:
         self.config = config
         self.providers: list[DownloadProvider] = providers or [
             DirectLinkProvider(),
+            ArxivProvider(),
+            PmcProvider(),
             UnpaywallProvider(email=config.system.unpaywall_email),
         ]
         self.max_rate_limit_retries = max(0, max_rate_limit_retries)
