@@ -27,7 +27,10 @@ def _has_claimset_artifact(paper_id: str, paper_key: str | None = None) -> bool:
     for paper_dir in iter_paper_dir_candidates(paper_id=paper_id, paper_key=paper_key):
         if not paper_dir.exists():
             continue
-        for candidate in sorted(paper_dir.glob("*/claimset.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        candidates = []
+        candidates.extend(paper_dir.glob("*/claimset.resolved.json"))
+        candidates.extend(paper_dir.glob("*/claimset.json"))
+        for candidate in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 parsed = json.loads(candidate.read_text(encoding="utf-8"))
             except Exception:

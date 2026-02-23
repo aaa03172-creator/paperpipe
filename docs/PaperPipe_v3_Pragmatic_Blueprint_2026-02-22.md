@@ -46,8 +46,8 @@
   - 완료: `runs/jobs/job_events/user_actions` ensure + worker lifecycle/event log + buffered writer.
   - 잔여: 에러 taxonomy 매핑의 전면 표준화 및 리플레이 조회 UX 강화.
 - `PR-H2` (Output Schema Contract)
-  - 완료: deterministic `chunk_id`, evidence resolver 적용, grounded ratio 관측.
-  - 잔여: `chunks.json`/`claimset.raw/resolved.json` 분리 계약과 브리지 어댑터의 정식 도입.
+  - 완료: deterministic `chunk_id`, evidence resolver 적용, grounded ratio 관측, `chunks.json` + `claimset.raw/resolved.json` 산출물 분리, legacy bridge 유지.
+  - 잔여: 신규 contract를 UI/API read-model 전 구간으로 확장(legacy payload 의존 최소화).
 
 ## 3. 목표 아키텍처 (v1)
 - Fast mode: `fast_ingest`
@@ -235,8 +235,9 @@
 
 ## 12. 즉시 착수 순서
 - 1순위(완료): artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
-- 2순위: `PR-H2` 잔여 범위(artifacts output contract 분리 + bridge adapter) 착수
+- 2순위(완료): `PR-H2` 핵심 범위(artifacts output contract 분리 + bridge adapter)
 - 3순위: `PR-H0` 잔여 범위(`paper_id` canonical issuance/normalization 유틸) 정리
+- 4순위: event-log 후속 hardening(taxonomy/replay)
 
 ---
 

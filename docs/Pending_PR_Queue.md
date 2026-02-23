@@ -18,20 +18,9 @@
 - `PR-BE-EventWriter-Buffered`
 - `PR-BE-ArtifactPath-PaperKey`
 - `PR-DOC-Blueprint-v2`
+- `PR-BE-H2-Output-Contracts`
 
-## PR-BE-H2-Output-Contracts (Next)
-- Title: `feat(contracts): split chunk/claim artifacts and add bridge adapters`
-- Priority: High
-- Purpose: Close remaining `PR-H2` contract gap after v2 blueprint promotion.
-- Scope (runtime + tests):
-  - Introduce `chunks.json`, `claimset.raw.json`, `claimset.resolved.json` write path.
-  - Bridge adapters for existing renderer/consumer compatibility.
-  - Resolver test expansion for exact/normalized/failed matching.
-- Merge Gate:
-  - Existing API/Obsidian consumer behavior remains backward-compatible.
-  - `pytest -q -k "not docker_sandbox"` green.
-
-## PR-BE-H0-Canonical-PaperID (After H2)
+## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
 - Priority: Medium
 - Purpose: Close remaining `PR-H0` identity gap.

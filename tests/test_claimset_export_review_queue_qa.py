@@ -157,6 +157,28 @@ def test_claimset_fallback_from_artifact_avoids_needs_reader(tmp_path: Path, mon
     assert count_reader == 0
     assert "NEEDS_READER" not in inserted
 
+
+def test_claimset_fallback_accepts_resolved_contract_artifact(tmp_path: Path, monkeypatch):
+    artifacts_root = tmp_path / "artifacts"
+    claimset_file = artifacts_root / "p_resolved" / "run_001" / "claimset.resolved.json"
+    claimset_file.parent.mkdir(parents=True, exist_ok=True)
+    claimset_file.write_text(
+        '{"paper_id":"p_resolved","run_id":"run_001","stage":"resolved","schema_version":"1.0",'
+        '"claims":[{"claim_id":"c1","claim_fingerprint":"abc","text":"s","type":"efficacy",'
+        '"evidence":[{"chunk_id":"p01_c01","quote":"q","page":1,"grounded":true,"resolution":"OK"}]}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+
+    paper = {"paper_id": "p_resolved"}
+    feedback = {"soft_tags": ["#X"]}  # no claims in feedback_json
+    claims = resolve_claimset_claims(paper, feedback)
+
+    assert claims is not None
+    assert len(claims) == 1
+    assert claims[0]["statement"] == "s"
+    assert claims[0]["evidence_spans"][0]["chunk_id"] == "p01_c01"
+
 def test_resolve_review_followups_clears_stale_needs_reader():
     conn = sqlite3.connect(":memory:")
     _create_review_queue_table(conn)

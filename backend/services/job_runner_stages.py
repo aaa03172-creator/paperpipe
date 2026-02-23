@@ -4,6 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
+from src.contracts.output_contracts import (
+    build_chunkset_contract,
+    build_claimset_contract,
+)
 from backend.services.stats_runtime import (
     build_stats_cache_key,
     load_cached_stats_report,
@@ -43,6 +47,8 @@ async def run_ingest_stage(
 
 async def run_index_stage(
     *,
+    paper_id: str,
+    run_id: str,
     doc_artifact: Any,
     artifact_dir: Path,
     bootstrap_meta: dict[str, Any],
@@ -59,7 +65,14 @@ async def run_index_stage(
     index_artifact = indexer_agent.process(doc_artifact)
 
     write_artifact_model(artifact_dir, "index_artifact.json", index_artifact)
+    chunks_contract = build_chunkset_contract(
+        paper_id=paper_id,
+        run_id=run_id,
+        index_artifact=index_artifact,
+    )
+    write_artifact_model(artifact_dir, "chunks.json", chunks_contract)
     bootstrap_meta["artifact_index_written"] = True
+    bootstrap_meta["artifact_chunks_written"] = True
     write_bootstrap_meta(artifact_dir, bootstrap_meta)
     await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks", "INFO")
     return index_artifact
@@ -67,6 +80,7 @@ async def run_index_stage(
 
 async def run_read_stage(
     *,
+    run_id: str,
     paper_id: str,
     persona_id: str,
     config: Any,
@@ -116,11 +130,27 @@ async def run_read_stage(
     except TypeError:
         reader_agent = reader_agent_cls()
 
-    claim_set = reader_agent.analyze(doc_artifact)
-    if not claim_set:
+    raw_claim_set = reader_agent.analyze(doc_artifact)
+    if not raw_claim_set:
         raise Exception("Reader Agent failed to produce claims")
 
-    claim_set = resolve_claimset_evidence(claim_set, index_artifact)
+    if hasattr(raw_claim_set, "model_copy"):
+        raw_claim_set_copy = raw_claim_set.model_copy(deep=True)
+    else:
+        raw_claim_set_copy = raw_claim_set
+
+    raw_contract = build_claimset_contract(
+        paper_id=paper_id,
+        run_id=run_id,
+        claim_set=raw_claim_set_copy,
+        stage="raw",
+        model=main_model,
+    )
+    write_artifact_model(artifact_dir, "claimset.raw.json", raw_contract)
+    bootstrap_meta["artifact_claimset_raw_written"] = True
+    write_bootstrap_meta(artifact_dir, bootstrap_meta)
+
+    claim_set = resolve_claimset_evidence(raw_claim_set, index_artifact)
     total_spans = 0
     grounded_spans = 0
     for claim in claim_set.claims:
@@ -129,8 +159,17 @@ async def run_read_stage(
             if getattr(span, "grounded", None) is True:
                 grounded_spans += 1
 
+    resolved_contract = build_claimset_contract(
+        paper_id=paper_id,
+        run_id=run_id,
+        claim_set=claim_set,
+        stage="resolved",
+        model=main_model,
+    )
+    write_artifact_model(artifact_dir, "claimset.resolved.json", resolved_contract)
     write_artifact_model(artifact_dir, "claimset.json", claim_set)
     bootstrap_meta["artifact_claimset_written"] = True
+    bootstrap_meta["artifact_claimset_resolved_written"] = True
     bootstrap_meta["evidence_spans_total"] = total_spans
     bootstrap_meta["evidence_spans_grounded"] = grounded_spans
     bootstrap_meta["evidence_grounded_ratio"] = (

@@ -342,6 +342,9 @@ def test_run_deepread_job_fast_ingest_skips_reader_and_verify(tmp_path, monkeypa
     meta_path = artifact_dir / "bootstrap_meta.json"
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert (artifact_dir / "chunks.json").exists()
+    assert not (artifact_dir / "claimset.raw.json").exists()
+    assert not (artifact_dir / "claimset.resolved.json").exists()
     assert meta["run_profile"] == "fast_ingest"
     assert meta["run_verify"] is False
     assert meta["artifact_document_written"] is True

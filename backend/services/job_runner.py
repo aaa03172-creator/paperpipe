@@ -393,6 +393,8 @@ async def run_deepread_job(
 
         # 3. Index
         index_artifact = await run_index_stage(
+            paper_id=paper_id,
+            run_id=run_id,
             doc_artifact=doc_artifact,
             artifact_dir=artifact_dir,
             bootstrap_meta=bootstrap_meta,
@@ -415,6 +417,7 @@ async def run_deepread_job(
 
         # 4. Read (Claim Extraction)
         read_result = await run_read_stage(
+            run_id=run_id,
             paper_id=paper_id,
             persona_id=persona_id,
             config=config,

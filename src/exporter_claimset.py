@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.core.artifact_paths import iter_paper_dir_candidates
+
 
 def extract_claimset_claims(feedback: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     if not isinstance(feedback, dict):
@@ -48,24 +50,61 @@ def extract_claimset_claims_from_file(path: Path) -> Optional[List[Dict[str, Any
         return None
     claims = data.get("claims")
     if isinstance(claims, list):
+        if claims and isinstance(claims[0], dict) and "statement" in claims[0]:
+            return claims
+
+        # Contract bridge: claimset.resolved.json stores {"text", "evidence"}.
+        bridged: List[Dict[str, Any]] = []
+        for item in claims:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("statement") or item.get("text")
+            if not text:
+                continue
+            evidence_spans: List[Dict[str, Any]] = []
+            evidence = item.get("evidence")
+            if isinstance(evidence, list):
+                for ev in evidence:
+                    if not isinstance(ev, dict):
+                        continue
+                    evidence_spans.append(
+                        {
+                            "chunk_id": ev.get("chunk_id"),
+                            "quote": ev.get("quote"),
+                            "page": ev.get("page"),
+                            "grounded": ev.get("grounded"),
+                            "resolution": ev.get("resolution"),
+                        }
+                    )
+            bridged.append(
+                {
+                    "claim_id": item.get("claim_id") or "unknown",
+                    "type": item.get("type") or "unknown",
+                    "statement": text,
+                    "evidence_spans": evidence_spans,
+                }
+            )
+        if bridged:
+            return bridged
         return claims
     return None
 
 
-def extract_claimset_claims_from_artifacts(paper_id: str) -> Optional[List[Dict[str, Any]]]:
-    root = claimset_artifacts_root()
-    paper_dir = root / paper_id
-    if not paper_dir.exists():
-        return None
-    candidates = sorted(
-        paper_dir.glob("*/claimset.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for candidate in candidates:
-        claims = extract_claimset_claims_from_file(candidate)
-        if claims is not None:
-            return claims
+def extract_claimset_claims_from_artifacts(
+    paper_id: str,
+    paper_key: Optional[str] = None,
+) -> Optional[List[Dict[str, Any]]]:
+    for paper_dir in iter_paper_dir_candidates(paper_id=paper_id, paper_key=paper_key):
+        if not paper_dir.exists():
+            continue
+        candidates = []
+        candidates.extend(paper_dir.glob("*/claimset.resolved.json"))
+        candidates.extend(paper_dir.glob("*/claimset.json"))
+        candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
+        for candidate in candidates:
+            claims = extract_claimset_claims_from_file(candidate)
+            if claims is not None:
+                return claims
     return None
 
 
@@ -76,7 +115,10 @@ def resolve_claimset_claims(paper: Dict[str, Any], feedback: Dict[str, Any]) -> 
     paper_id = paper.get("paper_id")
     if not paper_id:
         return None
-    return extract_claimset_claims_from_artifacts(str(paper_id))
+    return extract_claimset_claims_from_artifacts(
+        paper_id=str(paper_id),
+        paper_key=str(paper.get("paper_key") or "").strip() or None,
+    )
 
 
 def resolve_evidence_link(paper: Dict[str, Any], page_num: Optional[int]) -> Optional[str]:

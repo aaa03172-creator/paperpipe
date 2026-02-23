@@ -37,6 +37,10 @@
 - Newly closed (this update):
   - Runtime artifact writes now use `storage/artifacts/{paper_key}/{run_id}`.
   - Read paths keep compatibility fallback to legacy `storage/artifacts/{paper_id}/{run_id}`.
+  - Output contract split start:
+    - `chunks.json`, `claimset.raw.json`, `claimset.resolved.json` written per run
+    - legacy `claimset.json` remains for backward compatibility
+    - exporter artifact lookup supports resolved-contract bridge
 
 ## Decision Gate (Closed: 2026-02-23)
 1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.
@@ -44,5 +48,5 @@
 3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. `PR-H2` 잔여 범위: output contract 분리(`chunks.json`, `claimset.raw/resolved.json`) + 브리지 어댑터.
-2. `PR-H0` 잔여 범위: canonical `paper_id` issuance/normalization 유틸 정리.
+1. `PR-H0` 잔여 범위: canonical `paper_id` issuance/normalization 유틸 정리.
+2. Event-log 후속 hardening: taxonomy 표준화 + replay 조회 모델 강화.
