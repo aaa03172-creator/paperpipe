@@ -559,3 +559,52 @@ def test_run_deepread_job_records_evidence_grounded_ratio(tmp_path, monkeypatch)
     assert meta["evidence_spans_total"] == 2
     assert meta["evidence_spans_grounded"] == 1
     assert meta["evidence_grounded_ratio"] == 0.5
+
+
+def test_run_deepread_job_allows_empty_reader_output_as_not_ready(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "reader_none_case"
+    config = _make_config(tmp_path, paper_id)
+    pdf_path = config.paths.library_dir / f"{paper_id}.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    class FakeIngestAgent:
+        def process_v2(self, path: str):
+            return _make_doc_artifact(paper_id, path)
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class NoneReaderAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def analyze(self, doc):
+            return None
+
+    monkeypatch.setattr(job_runner_mod, "load_config", lambda: config)
+    monkeypatch.setattr(job_runner_mod, "_load_similar_feedback_top3", lambda query_text, limit=3: [])
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner_mod, "ReaderAgent", NoneReaderAgent)
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job_reader_none",
+            paper_id=paper_id,
+            run_id="run_reader_none",
+            run_verify=False,
+            run_profile="grounded_read",
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    meta = json.loads(
+        (build_artifact_dir(run_id="run_reader_none", paper_id=paper_id) / "bootstrap_meta.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert meta["artifact_claimset_written"] is True
+    assert meta["claimset_readiness"] == "not_ready"
+    assert meta["claimset_readiness_reason"] == "empty_claims"

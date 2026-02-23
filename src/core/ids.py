@@ -56,6 +56,7 @@ def classify_paper_id(value: str | None) -> str:
 def propose_canonical_paper_id(
     current_paper_id: str | None,
     *,
+    zotero_key: str | None = None,
     doi: str | None = None,
     pdf_path: str | Path | None = None,
 ) -> str:
@@ -63,7 +64,7 @@ def propose_canonical_paper_id(
     if is_canonical_paper_id(current):
         return current
 
-    proposed = make_paper_id(doi=doi, pdf_path=pdf_path)
+    proposed = make_paper_id(zotero_key=zotero_key, doi=doi, pdf_path=pdf_path)
     if proposed == "paper:unknown":
         return current
     return proposed

@@ -40,6 +40,10 @@ def test_propose_canonical_paper_id_promotes_noncanonical_when_possible(tmp_path
     pdf_path.write_bytes(b"%PDF-1.4\nx\n")
 
     assert propose_canonical_paper_id("10.1000/abc", doi="10.1000/abc") == "doi:10.1000/abc"
+    assert (
+        propose_canonical_paper_id("legacy:id", zotero_key="legacyKey", doi="10.1000/abc")
+        == "zotero:legacyKey"
+    )
     assert propose_canonical_paper_id("legacy:id", pdf_path=pdf_path).startswith("pdfsha256:")
     assert propose_canonical_paper_id("doi:10.1000/abc", doi="10.1000/xyz") == "doi:10.1000/abc"
     assert propose_canonical_paper_id("legacy:id") == "legacy:id"

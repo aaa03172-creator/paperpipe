@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from src.contracts.output_contracts import build_claimset_contract
+from src.schemas.agent_artifacts import ClaimSet
 
 
 async def run_read_stage(
@@ -60,7 +61,12 @@ async def run_read_stage(
 
     raw_claim_set = reader_agent.analyze(doc_artifact)
     if not raw_claim_set:
-        raise Exception("Reader Agent failed to produce claims")
+        # Keep pipeline fail-safe: empty claims are allowed as NOT_READY output.
+        raw_claim_set = ClaimSet(
+            doc_id=str(getattr(doc_artifact, "document_id", paper_id)),
+            claims=[],
+        )
+        await emit("read", 74, "Reader returned empty claims; continued as NOT_READY", "WARNING")
 
     if hasattr(raw_claim_set, "model_copy"):
         raw_claim_set_copy = raw_claim_set.model_copy(deep=True)
