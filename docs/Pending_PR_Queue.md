@@ -31,6 +31,7 @@
 - `PR-BE-H0-ObsidianIndex-PaperId-Normalize`
 - `PR-OPS-Orphan-PaperRef-Cleanup`
 - `PR-BE-V2-EventLog-Followups`
+- `PR-OPS-Backfill-Outputs`
 
 ## PR-BE-H0-Canonical-PaperID (Completed)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -85,3 +86,18 @@
   - [done] cleanup 스크립트 추가(`scripts/cleanup_orphan_paper_refs.py`, dry-run default).
   - [done] apply 시 backup + transaction + `orphan_cleanup_log` snapshot 기록.
   - [done] 단위테스트 추가(`tests/test_orphan_paper_refs.py`).
+
+## PR-OPS-Backfill-Outputs (In Progress)
+- Title: `chore(ops): backfill markdown outputs and seed claimset recovery queue`
+- Priority: High
+- Purpose: 운영 backlog에서 markdown 누락을 제거하고 claimset 누락을 배치 처리 경로로 전환.
+- Merge Gate:
+  - [done] `scripts/qa_report.py` direct run 안정화 + claimset 출력 개선.
+  - [done] `scripts/backfill_operational_outputs.py` 추가 (dry-run default).
+  - [done] markdown 누락 backfill 실행 (`Missing Markdown Files: 52 -> 0`).
+  - [done] claimset recovery queue seed(`+10`) 및 실패 원인 확인(`PDF not found`).
+  - [done] backfill enqueue guard 강화(`pdf_ready` default required, `--allow-missing-pdf` opt-in).
+  - [done] `job_runner` DB pdf_path 우선 탐색 hotfix로 canonical ID 경로 실패 해소.
+  - [done] claimset backfill batch 처리(`52 -> 36`, 16건 추가 완료).
+  - [done] queued drain 완료(`queued: 0`, `running: 0` at checkpoint).
+  - [next] 동일 배치 절차로 `36 -> 0`까지 축소 지속.
