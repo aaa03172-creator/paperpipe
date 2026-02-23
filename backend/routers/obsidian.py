@@ -3,14 +3,17 @@ from pydantic import BaseModel
 import logging
 from pathlib import Path
 import json
+from typing import Any
 
 from src.config import load_config
 from src.contracts.output_contracts import (
+    ChunkSetContract,
     ClaimSetContract,
     claimset_contract_to_legacy_claimset,
 )
 from src.core.artifact_paths import resolve_existing_artifact_dir
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
+from src.schemas.obsidian_api import ObsidianArtifactBundle
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
@@ -33,7 +36,10 @@ def _load_artifact(paper_id: str, run_id: str, filename: str):
         return json.load(f)
 
 
-def _load_claimset_for_sync(paper_id: str, run_id: str):
+def _load_claimset_bundle(
+    paper_id: str,
+    run_id: str,
+) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
     """
     Prefer resolved contract (`claimset.resolved.json`) and bridge it
     to legacy ClaimSet shape for existing markdown formatter.
@@ -42,11 +48,34 @@ def _load_claimset_for_sync(paper_id: str, run_id: str):
     if resolved:
         try:
             payload = ClaimSetContract(**resolved)
-            return claimset_contract_to_legacy_claimset(payload)
+            return (
+                "resolved",
+                claimset_contract_to_legacy_claimset(payload),
+                payload.model_dump(),
+            )
         except Exception:
             # Keep fail-safe behavior: fallback to legacy payload path.
             pass
-    return _load_artifact(paper_id, run_id, "claimset.json")
+    legacy = _load_artifact(paper_id, run_id, "claimset.json")
+    if legacy:
+        return ("legacy", legacy, None)
+    return ("missing", None, None)
+
+
+def _load_claimset_for_sync(paper_id: str, run_id: str):
+    _, claimset_legacy, _ = _load_claimset_bundle(paper_id, run_id)
+    return claimset_legacy
+
+
+def _load_chunks_for_bundle(paper_id: str, run_id: str) -> dict[str, Any] | None:
+    data = _load_artifact(paper_id, run_id, "chunks.json")
+    if not data:
+        return None
+    try:
+        payload = ChunkSetContract(**data)
+        return payload.model_dump()
+    except Exception:
+        return data
 
 def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
     """Format Agent Output into verified Markdown."""
@@ -147,3 +176,23 @@ async def sync_to_obsidian(req: SyncRequest):
     except Exception as e:
         logger.error(f"Failed to write markdown: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/artifacts", response_model=ObsidianArtifactBundle)
+async def get_obsidian_artifacts(paper_id: str, run_id: str):
+    claimset_source, claimset_legacy, claimset_resolved = _load_claimset_bundle(paper_id, run_id)
+    chunks = _load_chunks_for_bundle(paper_id, run_id)
+    stats_report = _load_artifact(paper_id, run_id, "stats_report.json")
+
+    if not claimset_legacy and not chunks and not stats_report:
+        raise HTTPException(status_code=404, detail="No artifacts found for this run.")
+
+    return ObsidianArtifactBundle(
+        paper_id=paper_id,
+        run_id=run_id,
+        claimset_source=claimset_source,
+        claimset_legacy=claimset_legacy,
+        claimset_resolved=claimset_resolved,
+        chunks=chunks,
+        stats_report=stats_report,
+    )
