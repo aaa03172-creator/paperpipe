@@ -15,6 +15,14 @@ from src.db_event_log import (
     log_event_buffered,
     update_job_status as update_job_status_eventlog,
 )
+from src.jobs.error_taxonomy import (
+    PIPELINE_FAILED,
+    USER_CANCELLED,
+    WORKER_EXCEPTION,
+    classify_failure,
+    taxonomy_category,
+    taxonomy_retryable,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -123,11 +131,22 @@ class Worker:
                         {
                             "status": "cancelled",
                             "stage": "cancelled",
+                            "error_code": "CANCELLED",
+                            "error_taxonomy_code": USER_CANCELLED,
                             "finished_at": datetime.now(timezone.utc).isoformat(),
                         },
                     )
                 try:
-                    update_job_status_eventlog(job.job_id, "cancelled")
+                    update_job_status_eventlog(
+                        job.job_id,
+                        "cancelled",
+                        error_code="CANCELLED",
+                        error_taxonomy_code=USER_CANCELLED,
+                        metrics={
+                            "taxonomy_category": taxonomy_category(USER_CANCELLED),
+                            "retryable": taxonomy_retryable(USER_CANCELLED),
+                        },
+                    )
                     log_event(job.job_id, "warning", "job_cancelled", "job cancelled during execution")
                     finish_run(run_record_id, "cancelled")
                     flush_event_buffer()
@@ -163,8 +182,15 @@ class Worker:
                 logger.info(f"✅ Job {job.job_id} completed.")
             else:
                 error_message = (result or {}).get("error", "Deep Read pipeline failed")
+                error_code = (result or {}).get("error_code", "PIPELINE_FAILED")
+                taxonomy_code = (result or {}).get("error_taxonomy_code") or classify_failure(
+                    error_message,
+                    default=PIPELINE_FAILED,
+                )
                 self.queue.update_job(job.job_id, {
                     "status": "failed",
+                    "error_code": error_code,
+                    "error_taxonomy_code": taxonomy_code,
                     "error_message": error_message,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                 })
@@ -172,8 +198,13 @@ class Worker:
                     update_job_status_eventlog(
                         job.job_id,
                         "failed",
-                        error_code="PIPELINE_FAILED",
+                        error_code=error_code,
+                        error_taxonomy_code=taxonomy_code,
                         error_detail=error_message,
+                        metrics={
+                            "taxonomy_category": taxonomy_category(taxonomy_code),
+                            "retryable": taxonomy_retryable(taxonomy_code),
+                        },
                     )
                     log_event(
                         job.job_id,
@@ -181,7 +212,15 @@ class Worker:
                         "job_failed",
                         error_message,
                     )
-                    finish_run(run_record_id, "failed", metrics={"error_message": error_message})
+                    finish_run(
+                        run_record_id,
+                        "failed",
+                        metrics={
+                            "error_message": error_message,
+                            "error_taxonomy_code": taxonomy_code,
+                            "taxonomy_category": taxonomy_category(taxonomy_code),
+                        },
+                    )
                     flush_event_buffer()
                 except Exception as event_log_exc:
                     logger.warning("Event-log failed instrumentation skipped: %s", event_log_exc)
@@ -190,8 +229,11 @@ class Worker:
         except Exception as e:
             logger.error(f"Job failed: {e}")
             traceback.print_exc()
+            taxonomy_code = WORKER_EXCEPTION
             self.queue.update_job(job.job_id, {
                 "status": "failed",
+                "error_code": "WORKER_EXCEPTION",
+                "error_taxonomy_code": taxonomy_code,
                 "error_message": str(e),
                 "finished_at": datetime.now(timezone.utc).isoformat()
             })
@@ -200,10 +242,23 @@ class Worker:
                     job.job_id,
                     "failed",
                     error_code="WORKER_EXCEPTION",
+                    error_taxonomy_code=taxonomy_code,
                     error_detail=str(e),
+                    metrics={
+                        "taxonomy_category": taxonomy_category(taxonomy_code),
+                        "retryable": taxonomy_retryable(taxonomy_code),
+                    },
                 )
                 log_event(job.job_id, "error", "worker_exception", str(e))
-                finish_run(run_record_id, "failed", metrics={"exception": str(e)})
+                finish_run(
+                    run_record_id,
+                    "failed",
+                    metrics={
+                        "exception": str(e),
+                        "error_taxonomy_code": taxonomy_code,
+                        "taxonomy_category": taxonomy_category(taxonomy_code),
+                    },
+                )
                 flush_event_buffer()
             except Exception as event_log_exc:
                 logger.warning("Event-log exception instrumentation skipped: %s", event_log_exc)

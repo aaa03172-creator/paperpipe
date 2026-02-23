@@ -23,6 +23,8 @@ class JobStatus(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
+    error_code: Optional[str] = None
+    error_taxonomy_code: Optional[str] = None
     error_message: Optional[str]
     artifact_dir: Optional[str]
     log_path: Optional[str]
@@ -50,6 +52,77 @@ class JobStatus(BaseModel):
     claimset_ops_note: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RunRecord(BaseModel):
+    run_id: str
+    date: Optional[str] = None
+    paper_id: Optional[str] = None
+    trigger_source: Optional[str] = None
+    pipeline_profile: Optional[str] = None
+    status: Optional[str] = None
+    processed_count: Optional[int] = None
+    created_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    last_run_at: Optional[str] = None
+    params_json: Optional[dict | list | str] = None
+    metrics_json: Optional[dict | list | str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RunJobRecord(BaseModel):
+    job_id: str
+    run_id: Optional[str] = None
+    paper_id: Optional[str] = None
+    job_type: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    result_ref: Optional[str] = None
+    error_code: Optional[str] = None
+    error_taxonomy_code: Optional[str] = None
+    error_detail: Optional[str] = None
+    params_json: Optional[dict | list | str] = None
+    metrics_json: Optional[dict | list | str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class JobEventRecord(BaseModel):
+    event_id: str
+    job_id: str
+    ts: str
+    level: str
+    event_type: str
+    message: Optional[str] = None
+    payload_json: Optional[dict | list | str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class UserActionRecord(BaseModel):
+    action_id: str
+    ts: str
+    paper_id: Optional[str] = None
+    action_type: str
+    source: str
+    payload_json: Optional[dict | list | str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RunDetailResponse(BaseModel):
+    run: RunRecord
+    jobs: List[RunJobRecord] = Field(default_factory=list)
+
+
+class RunTimelineResponse(BaseModel):
+    run: RunRecord
+    jobs: List[RunJobRecord] = Field(default_factory=list)
+    events: List[JobEventRecord] = Field(default_factory=list)
+    user_actions: List[UserActionRecord] = Field(default_factory=list)
 
 
 class JobBootstrapMeta(BaseModel):

@@ -16,6 +16,7 @@ from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
 from src.profiles.profile_store import load_profiles
+from src.jobs.error_taxonomy import INPUT_PDF_NOT_FOUND, RUNTIME_EXCEPTION
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
     build_stats_markdown,
@@ -360,7 +361,13 @@ async def run_deepread_job(
         if not pdf_path or not pdf_path.exists():
             logger.error(f"❌ PDF not found for {paper_id} in {config.paths.library_dir}")
             await emit("init", 0, f"PDF not found for {paper_id}", level="ERROR")
-            return {"status": "failed", "error": f"PDF not found for {paper_id}", "run_id": run_id}
+            return {
+                "status": "failed",
+                "error": f"PDF not found for {paper_id}",
+                "error_code": "PDF_NOT_FOUND",
+                "error_taxonomy_code": INPUT_PDF_NOT_FOUND,
+                "run_id": run_id,
+            }
             
         logger.info(f"✅ Found PDF: {pdf_path}")
 
@@ -494,6 +501,12 @@ async def run_deepread_job(
         await emit("error", 0, str(e), level="ERROR")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
-        return {"status": "failed", "error": str(e), "run_id": run_id}
+        return {
+            "status": "failed",
+            "error": str(e),
+            "error_code": type(e).__name__,
+            "error_taxonomy_code": RUNTIME_EXCEPTION,
+            "run_id": run_id,
+        }
     finally:
         pass

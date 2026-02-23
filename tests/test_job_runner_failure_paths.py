@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import backend.services.job_runner as job_runner_mod
 import src.db_utils as db_utils
 from src.core.artifact_paths import build_artifact_dir, build_paper_artifact_dir
+from src.jobs.error_taxonomy import INPUT_PDF_NOT_FOUND, RUNTIME_EXCEPTION
 
 from src.contracts.document_artifact_v2 import (
     ArtifactMetaV2,
@@ -91,6 +92,8 @@ def test_run_deepread_job_fails_fast_when_pdf_missing(tmp_path, monkeypatch):
 
     assert result["status"] == "failed"
     assert "PDF not found" in result["error"]
+    assert result["error_code"] == "PDF_NOT_FOUND"
+    assert result["error_taxonomy_code"] == INPUT_PDF_NOT_FOUND
     assert any(e.get("level") == "ERROR" for e in events)
     assert not build_paper_artifact_dir(paper_id).exists()
 
@@ -134,6 +137,8 @@ def test_run_deepread_job_sets_runtime_error_meta_on_reader_exception(tmp_path, 
 
     assert result["status"] == "failed"
     assert "reader exploded" in result["error"]
+    assert result["error_code"] == "RuntimeError"
+    assert result["error_taxonomy_code"] == RUNTIME_EXCEPTION
 
     artifact_dir = build_artifact_dir(run_id="run_reader_failure", paper_id=paper_id)
     meta_path = artifact_dir / "bootstrap_meta.json"

@@ -16,7 +16,13 @@ from src.db_event_log import (
     list_user_actions_for_paper,
 )
 from src.jobs.queue import JobQueue
-from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
+from src.jobs.schemas import (
+    JobCreate,
+    JobStatus,
+    JobBootstrapMeta,
+    RunDetailResponse,
+    RunTimelineResponse,
+)
 from .routers import obsidian, feedback, discover
 
 
@@ -286,7 +292,7 @@ async def job_events(job_id: str, request: Request):
     return EventSourceResponse(event_generator())
 
 
-@app.get("/runs/{run_id}")
+@app.get("/runs/{run_id}", response_model=RunDetailResponse)
 def get_run_detail(run_id: str):
     run = get_run_record(run_id)
     if not run:
@@ -295,7 +301,7 @@ def get_run_detail(run_id: str):
     return {"run": run, "jobs": jobs}
 
 
-@app.get("/runs/{run_id}/timeline")
+@app.get("/runs/{run_id}/timeline", response_model=RunTimelineResponse)
 def get_run_timeline(run_id: str, limit: int = 500):
     run = get_run_record(run_id)
     if not run:
