@@ -47,6 +47,14 @@
   - Replay read-model API start:
     - `GET /runs/{run_id}`
     - `GET /runs/{run_id}/timeline` (runs/jobs/events/user_actions 집계 조회)
+  - Event-log taxonomy hardening:
+    - worker/job_runner failure paths emit `error_code` + `error_taxonomy_code`
+    - `/runs/*` 응답 모델 typed contract(`RunDetailResponse`, `RunTimelineResponse`) 적용
+  - job_runner 2차 모듈화:
+    - ingest/index/read/verify stage를 `backend/services/job_stages/`로 분리
+    - `backend/services/job_runner_stages.py`는 호환 브리지 유지
+  - H0 local PDF canonical gap closed:
+    - `process_local_pdf_legacy`, `create_paper_from_pdf`가 `make_paper_id`로 결정론적 ID 발급
 
 ## Decision Gate (Closed: 2026-02-23)
 1. v2 (`PR-H0..H2`)를 기준 실행 프레임으로 승격한다.
@@ -54,5 +62,5 @@
 3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. `PR-H0` 잔여 범위: canonical `paper_id` issuance/normalization 유틸 정리.
-2. Event-log 후속 hardening: taxonomy 표준화 + replay 조회 모델 강화.
+1. `PR-H0` 후속 감사(audit): non-DB helper/legacy 경로의 `paper_id` fallback 정책 정리(`obsidian_index`, `llm_provider_tasks` 등).
+2. `PR-H2` 후속: API/UI read-model 전 구간에서 `claimset.resolved`/`chunks` 계약 사용을 우선 경로로 승격(legacy payload 의존 축소).

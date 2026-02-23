@@ -19,6 +19,9 @@
 - `PR-BE-ArtifactPath-PaperKey`
 - `PR-DOC-Blueprint-v2`
 - `PR-BE-H2-Output-Contracts`
+- `PR-BE-V2-EventLog-Taxonomy-ReplayTyping`
+- `PR-BE-JobRunner-StageSplit-v2`
+- `PR-BE-H0-LocalPdf-CanonicalIds`
 
 ## PR-BE-H0-Canonical-PaperID (Next)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
@@ -27,7 +30,8 @@
 - Scope:
   - [done] `normalize_doi`, canonical `paper_id` issuance helper module(`src/core/ids.py`).
   - [done] Discovery/Zotero/PubMed entrypoints adopt shared helper without schema break.
-  - [next] legacy/local PDF 진입점까지 canonical issuance 확대.
+  - [done] legacy/local PDF 진입점 canonical issuance 확대(`process_local_pdf_legacy`, `create_paper_from_pdf`).
+  - [next] non-DB helper/legacy fallback 경로(`obsidian_index`, `llm_provider_tasks`)의 `paper_id` 사용을 운영 계약 관점에서 감사(audit) 후 정리.
 - Merge Gate:
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.
@@ -38,5 +42,5 @@
 - Purpose: Close residual hardening after baseline event-log rollout.
 - Merge Gate:
   - [done] Replay/read models for `runs -> jobs -> events` are query-ready for UI/ops (`/runs/{run_id}`, `/runs/{run_id}/timeline`).
-  - [next] Error taxonomy mapping is standardized across failure paths.
-  - `pytest -q` full suite green.
+  - [done] Error taxonomy mapping is standardized across worker/job_runner failure paths.
+  - [done] `pytest -q -k "not docker_sandbox"` + phase3 integration green.
