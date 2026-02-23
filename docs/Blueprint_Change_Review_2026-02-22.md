@@ -60,7 +60,7 @@
     - Obsidian sync가 `claimset.resolved.json`을 우선 사용하고 legacy `claimset.json`으로 fallback
     - Obsidian artifact bundle API 추가: `GET /obsidian/artifacts`(query: `paper_id`, `run_id`)
   - 운영 안정성 게이트:
-    - `scripts/run_phase3_stability_gate.py --runs 3` 결과 `PASS 3/3`
+    - `scripts/run_phase3_stability_gate.py --runs 3` 결과 최종 `PASS 3/3` (reader empty-claim fallback 반영 후)
   - H0 migration prep:
     - `scripts/audit_paper_id_policy.py` + `scripts/plan_paper_id_migration.py`로 비파괴(dry-run) 마이그레이션 후보 산출
 
@@ -70,5 +70,5 @@
 3. 승격은 docs-only로 처리하며, 런타임 정책은 기존 Fail-safe/API-first/Idempotent 원칙을 유지한다.
 
 ## Recommended Next Execution Order (Current Safe Path)
-1. H0 운영 후속: `paper_id` canonical migration apply 완료 기준으로 rollback 리허설 1회 수행.
-2. `PR-H2` 유지보수: contract-first read model 확장을 신규 API/화면 추가 시 기본 규칙으로 지속 적용.
+1. `PR-H2` 유지보수: contract-first read model 확장을 신규 API/화면 추가 시 기본 규칙으로 지속 적용.
+2. 운영 품질: phase3 stability gate를 릴리즈 직전 표준 체크로 고정.

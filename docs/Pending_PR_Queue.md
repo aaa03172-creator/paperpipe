@@ -70,4 +70,4 @@
   - [done] `scripts/apply_paper_id_migration.py` 추가 (default dry-run, `--apply` 시 backup+transaction).
   - [done] `scripts/plan_paper_id_migration.py` 기반 apply 수행(52 mappings) + backup 생성.
   - [done] apply 전후 count/샘플/SQL 검증 문서화 (`docs/PaperId_Migration_Apply_2026-02-23.md`).
-  - [next] rollback 리허설(backup 복원 후 smoke) 1회 실행.
+  - [done] rollback 리허설(backup vs current copy 검증) 1회 실행.
