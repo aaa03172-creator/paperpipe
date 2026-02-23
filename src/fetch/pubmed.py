@@ -6,6 +6,7 @@ from typing import List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.fetch.base import BaseFetcher
+from src.core.ids import make_paper_id, normalize_doi
 from src.schemas import Paper
 from src.config import AppConfig
 
@@ -129,12 +130,13 @@ class PubMedFetcher(BaseFetcher):
                 if doi_tag is not None:
                     doi = doi_tag.text
         
-        paper_id = doi if doi else f"PMID:{pmid}"
+        normalized_doi = normalize_doi(doi)
+        paper_id = make_paper_id(doi=normalized_doi, fallback=f"PMID:{pmid}")
         published_date = self._parse_date(article_data)
         
         return Paper(
             id=paper_id,
-            doi=doi if doi else None,
+            doi=normalized_doi if normalized_doi else None,
             title=title,
             authors=authors_list,
             link=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.config import load_config
+from src.core.ids import make_paper_id
 from src.db_paper_read_ops import get_paper_columns
 from src.db_utils import get_db_connection
 from src.exporter_helpers import expected_obsidian_relpath_for_paper_id
@@ -141,7 +142,7 @@ def _build_reason(item: Dict[str, Any], score: float) -> str:
 def _make_candidate_paper_id(item: Dict[str, Any]) -> str:
     doi = str(item.get("doi") or "").strip().lower()
     if doi:
-        return f"doi:{doi}"
+        return make_paper_id(doi=doi)
 
     openalex_id = str(item.get("openalex_id") or "").strip()
     if openalex_id:

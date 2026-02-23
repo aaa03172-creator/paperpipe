@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 import sqlite3
 
+from src.core.ids import make_paper_id
 from src.db_paper_read_ops import get_paper_columns, paper_lookup_conditions
 
 
@@ -183,9 +184,13 @@ def sync_zotero_to_db_with_connection(conn: sqlite3.Connection, zotero_json_path
     cursor = conn.cursor()
 
     for item in items:
-        paper_id = item.get("citationKey")
-        if not paper_id:
+        legacy_key = str(item.get("citationKey") or "").strip()
+        if not legacy_key:
             continue
+        paper_id = make_paper_id(
+            zotero_key=legacy_key,
+            doi=item.get("DOI") or item.get("doi"),
+        )
 
         title = item.get("title", "Unknown Title")
         summary = item.get("abstractNote", "")
@@ -196,7 +201,10 @@ def sync_zotero_to_db_with_connection(conn: sqlite3.Connection, zotero_json_path
                 pdf_path = attachment["path"]
                 break
 
-        cursor.execute("SELECT paper_id, pdf_path, summary FROM papers WHERE paper_id = ?", (paper_id,))
+        cursor.execute(
+            "SELECT paper_id, pdf_path, summary FROM papers WHERE paper_id = ? OR paper_id = ? LIMIT 1",
+            (paper_id, legacy_key),
+        )
         row = cursor.fetchone()
 
         if row:
@@ -211,7 +219,7 @@ def sync_zotero_to_db_with_connection(conn: sqlite3.Connection, zotero_json_path
                 params.append(summary)
 
             if updates:
-                params.append(paper_id)
+                params.append(row["paper_id"])
                 cursor.execute(f"UPDATE papers SET {', '.join(updates)} WHERE paper_id = ?", params)
         else:
             try:

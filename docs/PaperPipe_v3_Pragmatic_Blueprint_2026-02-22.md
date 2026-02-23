@@ -40,8 +40,8 @@
 
 ### 2.2 H-series 상태 스냅샷 (코드 기준)
 - `PR-H0` (Stable IDs + Artifact Key)
-  - 완료: `paper_key` 백필, artifact write를 `{paper_key}/{run_id}`로 전환, legacy `{paper_id}/{run_id}` 읽기 fallback.
-  - 잔여: `paper_id` 발급 정책(`zotero:/doi:/pdfsha256`) 및 `ids.py` 표준 유틸 통합.
+  - 완료: `paper_key` 백필, artifact write를 `{paper_key}/{run_id}`로 전환, legacy `{paper_id}/{run_id}` 읽기 fallback, `ids.py`(`normalize_doi`, `make_paper_id`) 도입 및 Zotero/Discovery/PubMed 진입점 적용.
+  - 잔여: 로컬 PDF/기타 레거시 진입점까지 canonical issuance 적용 범위 확장.
 - `PR-H1` (Runs/Jobs/Events/User Actions)
   - 완료: `runs/jobs/job_events/user_actions` ensure + worker lifecycle/event log + buffered writer.
   - 잔여: 에러 taxonomy 매핑의 전면 표준화 및 리플레이 조회 UX 강화.
@@ -236,7 +236,7 @@
 ## 12. 즉시 착수 순서
 - 1순위(완료): artifact 경로를 `{paper_id}`에서 `{paper_key}`로 점진 전환(호환 fallback 유지)
 - 2순위(완료): `PR-H2` 핵심 범위(artifacts output contract 분리 + bridge adapter)
-- 3순위: `PR-H0` 잔여 범위(`paper_id` canonical issuance/normalization 유틸) 정리
+- 3순위: `PR-H0` 잔여 범위(legacy 진입점 전면 적용 + 회귀 테스트 보강) 정리
 - 4순위: event-log 후속 hardening(taxonomy/replay)
 
 ---

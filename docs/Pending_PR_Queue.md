@@ -25,8 +25,9 @@
 - Priority: Medium
 - Purpose: Close remaining `PR-H0` identity gap.
 - Scope:
-  - `normalize_doi`, canonical `paper_id` issuance (`zotero:/doi:/pdfsha256`) policy module.
-  - Ingestion/discovery entrypoints adopt shared helper without schema break.
+  - [done] `normalize_doi`, canonical `paper_id` issuance helper module(`src/core/ids.py`).
+  - [done] Discovery/Zotero/PubMed entrypoints adopt shared helper without schema break.
+  - [next] legacy/local PDF 진입점까지 canonical issuance 확대.
 - Merge Gate:
   - Existing records remain readable and untouched.
   - New records follow canonical issuance policy deterministically.
