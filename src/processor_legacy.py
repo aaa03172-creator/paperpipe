@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,6 +14,7 @@ from src.llm_provider import LLMProvider, get_llm_provider
 from src.obsidian import save_paper_to_obsidian
 from src.schemas import Paper, PaperStatus
 from src.zotero import export_to_ris
+from src.core.ids import make_paper_id
 
 
 def process_paper_legacy(
@@ -43,7 +43,10 @@ def process_local_pdf_legacy(file_path: Path, config: Optional[AppConfig] = None
         pass
 
     paper = Paper(
-        id=f"local--{int(time.time())}",
+        id=make_paper_id(
+            pdf_path=file_path,
+            fallback=f"localfile:{file_path.name}",
+        ),
         title=title,
         authors=[],
         published=datetime.now().strftime("%Y-%m-%d"),

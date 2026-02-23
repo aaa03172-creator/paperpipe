@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from src.schemas import Paper
+from src.core.ids import make_paper_id
 
 def clean_filename(text: str) -> str:
     """
@@ -73,6 +74,7 @@ def create_paper_from_pdf(pdf_path: Path) -> Paper:
         meta = reader.metadata
         if meta:
             title = meta.get('/Title')
+            doi = meta.get('/DOI') or meta.get('/doi')
             # Try to find date in metadata
             # creation_date = meta.get('/CreationDate') 
     except Exception as e:
@@ -82,8 +84,11 @@ def create_paper_from_pdf(pdf_path: Path) -> Paper:
     if not title or title.strip() == "":
         title = pdf_path.stem.replace("_", " ").replace("-", " ")
     
-    # Simple ID generation
-    paper_id = f"local-{hash(title)}"
+    paper_id = make_paper_id(
+        doi=doi,
+        pdf_path=pdf_path,
+        fallback=f"localfile:{clean_filename(title).lower()}",
+    )
     
     published_date = datetime.now().strftime("%Y-%m-%d")
     
@@ -94,6 +99,7 @@ def create_paper_from_pdf(pdf_path: Path) -> Paper:
         published=published_date,
         authors=["Unknown"], # Hard to extract reliably without DOI
         summary="",
+        doi=doi,
         link=f"file://{pdf_path.absolute()}",
         local_pdf_path=pdf_path
     )
