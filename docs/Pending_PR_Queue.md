@@ -59,5 +59,14 @@
 - Merge Gate:
   - [done] Obsidian sync prefers `claimset.resolved.json` with legacy bridge fallback.
   - [done] Obsidian artifact API added: `GET /obsidian/artifacts?paper_id=...&run_id=...` (resolved/chunks/stats bundle).
-  - [next] Remaining API/UI consumers document and adopt preferred contract path (`chunks.json`, `claimset.resolved.json`).
-  - [next] Contract-first path regression tests expanded for API endpoints.
+  - [done] Remaining runtime consumers(`backend/routers/obsidian.py`, `src/exporter_claimset.py`) contract-first path adopted.
+  - [done] Contract-first path regression tests expanded for API endpoints.
+
+## PR-BE-H0-PaperId-Migration-Apply (Next)
+- Title: `chore(ids): apply paper_id canonical migration with fallback-safe mapping`
+- Priority: Medium
+- Purpose: Move DB `papers.paper_id` from legacy values to canonical IDs using dry-run output.
+- Merge Gate:
+  - `scripts/plan_paper_id_migration.py` 결과를 기반으로 충돌/중복 없는 apply plan 확정.
+  - apply 전후 count 및 샘플 검증(SQL) 문서화.
+  - rollback SQL(혹은 snapshot 복구) 경로 포함.
