@@ -33,7 +33,7 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
-## PR-QA-Jobs-SSE-Boundary (In Progress)
+## PR-QA-Jobs-SSE-Boundary (Completed)
 - Title: `test(api): harden /jobs/{id}/events boundary behavior`
 - Priority: Medium
 - Purpose: Expand SSE runtime regression guard for cancel/not-found/reconnect terminal scenarios.
@@ -41,6 +41,7 @@
   - [done] cancelled job stream emits terminal `done` event.
   - [done] unknown job stream emits `error` event and exits.
   - [done] terminal job stream is replayable across reconnect calls.
+  - [done] merged via PR #54 (`ac4e8c8`).
 
 ## PR-QA-Jobs-Events-Persistence (Completed)
 - Title: `test(api): add jobs events stream + queue persistence regression guards`

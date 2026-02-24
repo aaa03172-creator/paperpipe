@@ -30,3 +30,17 @@
 ## Next Feature Start Point
 - Working branch prepared: `codex/post-merge-next-step`
 - Use this branch for subsequent feature work to keep `master` clean.
+
+## Update (2026-02-24)
+- PR #50 merged: downloader runtime chain attach + CLI compatibility helper restore.
+- PR #51 merged: CLI `test-unpaywall` smoke regression + queue status sync.
+- PR #52 merged: `/jobs/{id}/events` + `JobQueue` persistence regression guards.
+- PR #53 merged: queue close update for PR #52.
+- PR #54 merged: SSE boundary guards (cancel/not-found/reconnect terminal replay).
+
+## Handoff (5 lines)
+- Runtime baseline remains `worker -> job_runner` with API-first job surfaces.
+- `/papers` and `/jobs` contract smoke/regression are green on local `master`.
+- Downloader defaults now include `direct_link -> arxiv -> pmc -> unpaywall`.
+- SSE consumers can rely on terminal `done` for completed/cancelled + not-found `error`.
+- Next improvement: strengthen strict PR hygiene (separate docs/code scopes consistently).
