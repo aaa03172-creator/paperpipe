@@ -2,7 +2,13 @@ import typer
 import os
 import shutil
 import logging
+import socket
+import subprocess
+import sys
+import time
+import webbrowser
 from pathlib import Path
+import requests
 from rich.console import Console
 from src.config import load_config
 from src.db_utils import (
@@ -46,6 +52,43 @@ def bootstrap_database() -> Path:
     init_jobs_db()
     init_run_stats_table()
     return DB_UTILS_PATH
+
+
+def _is_port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def _wait_for_health(base_url: str, timeout_s: int) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            response = requests.get(f"{base_url}/health", timeout=1.0)
+            if response.status_code == 200:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(0.25)
+    return False
+
+
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 # 0. Main Entry
@@ -138,6 +181,87 @@ def doctor():
 
     console.print("[bold green]All systems go![/bold green]")
     logger.info("Doctor check completed.")
+
+
+@app.command()
+def start(
+    host: str = typer.Option("127.0.0.1", "--host", help="Backend bind host"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535, help="Backend bind port"),
+    ui_url: str = typer.Option("", "--ui-url", help="UI URL to open. Empty means /docs."),
+    health_timeout: int = typer.Option(15, "--health-timeout", min=3, max=120, help="Healthcheck timeout in seconds."),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not auto-open browser."),
+):
+    """
+    Start local backend runtime and open Lattice UI/docs.
+    """
+    console.print("[bold green]🚀 Starting Lattice runtime...[/bold green]")
+
+    try:
+        load_config()
+        db_path = bootstrap_database()
+        console.print("   - Preflight config: ✅")
+        console.print(f"   - Runtime DB: ✅ ({db_path})")
+    except Exception as exc:
+        console.print(f"[bold red]❌ Preflight failed: {exc}[/bold red]")
+        raise typer.Exit(code=1)
+
+    if not _is_port_available(host, port):
+        console.print(f"[bold red]❌ Port already in use: {host}:{port}[/bold red]")
+        console.print("   Try another port: --port 8001")
+        raise typer.Exit(code=1)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "backend.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+
+    try:
+        proc = subprocess.Popen(cmd)
+    except Exception as exc:
+        console.print(f"[bold red]❌ Failed to start backend: {exc}[/bold red]")
+        raise typer.Exit(code=1)
+
+    base_url = f"http://{host}:{port}"
+    if not _wait_for_health(base_url, health_timeout):
+        _terminate_process(proc)
+        console.print(
+            f"[bold red]❌ Healthcheck timeout after {health_timeout}s: {base_url}/health[/bold red]"
+        )
+        raise typer.Exit(code=1)
+
+    entry_url = ui_url.strip() or f"{base_url}/docs"
+    console.print(f"   - Backend: ✅ {base_url}")
+    console.print(f"   - Entry: {entry_url}")
+
+    if not no_open:
+        try:
+            webbrowser.open(entry_url, new=2)
+        except Exception as exc:
+            console.print(f"[yellow]⚠️ Failed to open browser automatically: {exc}[/yellow]")
+
+    console.print("   (Press Ctrl+C to stop)")
+
+    try:
+        while True:
+            return_code = proc.poll()
+            if return_code is None:
+                time.sleep(0.5)
+                continue
+            if return_code == 0:
+                console.print("[yellow]⚠️ Backend exited.[/yellow]")
+                raise typer.Exit(code=0)
+            console.print(f"[bold red]❌ Backend exited with code {return_code}[/bold red]")
+            raise typer.Exit(code=return_code)
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]🛑 Stopping Lattice runtime...[/bold yellow]")
+    finally:
+        _terminate_process(proc)
 
 
 # 2. Simple Fetch Test
@@ -913,5 +1037,9 @@ def profiles_audit(
         console.print("\n[bold green]✅ All profiles healthy![/bold green]")
 
 
-if __name__ == "__main__":
+def entrypoint():
     app()
+
+
+if __name__ == "__main__":
+    entrypoint()

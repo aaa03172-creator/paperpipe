@@ -37,6 +37,16 @@
 - `PR-QA-Top3-Feedback-Injection-Regression`
 - `PR-BE-Downloader-Ops-Metrics-API`
 
+## PR-CLI-Start-Entrypoint (In Progress)
+- Title: `feat(cli): add local start command and project script entrypoints`
+- Priority: Medium
+- Purpose: Improve local runtime launch UX by adding a single command to preflight/start backend and open docs/UI.
+- Scope:
+  - [done] `src/cli.py`에 `start` 커맨드 추가 (preflight + healthcheck + browser open + graceful stop).
+  - [done] `entrypoint()` 분리로 console script 진입점 안정화.
+  - [done] `pyproject.toml`에 script entrypoints 추가 (`paperpipe`, `lattice`).
+  - [done] 기존 CLI/API 회귀 세트 통과 (`tests/test_cli_deepread_upsert.py`, `tests/test_jobs_api_smoke.py`, `tests/test_papers_api.py`).
+
 ## PR-BE-Downloader-Ops-Metrics-API (Completed)
 - Title: `feat(ops): expose downloader metrics via API and shared service module`
 - Priority: Medium
