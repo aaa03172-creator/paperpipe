@@ -471,26 +471,26 @@ Auditor 프롬프트에 다음 규칙을 명시:
 ### 15.1 Phase별 DoD (Milestones)
 
 #### Phase 1 (API & Zotero)
-- [ ] `/papers` 목록 반환
-- [ ] `/papers/{id}`에서 `pdf_exists` 포함
-- [ ] 누락 PDF는 명확히 상태 표시
+- [x] `/papers` 목록 반환
+- [x] `/papers/{id}`에서 `pdf_exists` 포함
+- [x] 누락 PDF는 명확히 상태 표시
 
 #### Phase 2 (Agent & SSE)
-- [ ] Job 큐 기반 실행(워커 분리)
-- [ ] `/jobs/{id}/events` SSE 스트림
-- [ ] 서버 재시작 후에도 job 상태/로그 보존
+- [x] Job 큐 기반 실행(워커 분리)
+- [x] `/jobs/{id}/events` SSE 스트림
+- [x] 서버 재시작 후에도 job 상태/로그 보존
 
 #### Phase 3 (Control UI)
 - [ ] UI에서 논문 선택→deepread 실행→artifact 렌더링
 - [ ] persona 선택이 YAML 기반으로 반영(코드 수정 없이)
 
 #### Phase 4 (HITL & Verification)
-- [ ] 교정 UI → feedback DB 저장
+- [x] 교정 UI → feedback DB 저장
 - [ ] 다음 실행에서 유사 사례 Top‑3 동적 주입(로그로 확인)
-- [ ] StatsReport에 code+outputs+verdict가 저장됨
+- [x] StatsReport에 code+outputs+verdict가 저장됨
 
 #### Phase 5 (Obsidian Integration)
-- [ ] `{CiteKey}.md` 업데이트가 idempotent(중복 폭증 없음)
+- [x] `{CiteKey}.md` 업데이트가 idempotent(중복 폭증 없음)
 - [ ] related papers/근거 링크 섹션 생성
 
 ---
