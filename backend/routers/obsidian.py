@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 import logging
 from pathlib import Path
@@ -6,6 +6,7 @@ import json
 
 from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
+from src.schemas.ops import ArtifactFileEntry, ObsidianArtifactsResponse
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
@@ -23,6 +24,67 @@ def _load_artifact(paper_id: str, run_id: str, filename: str):
         return None
     with open(path, "r") as f:
         return json.load(f)
+
+
+def _load_claimset_for_obsidian(paper_id: str, run_id: str) -> dict | None:
+    for filename in ("claimset.resolved.json", "claimset.json"):
+        data = _load_artifact(paper_id, run_id, filename)
+        if data:
+            return data
+    return None
+
+
+def _artifact_entry(path: Path) -> ArtifactFileEntry:
+    if not path.exists():
+        return ArtifactFileEntry(exists=False, path=None, data=None)
+    data = None
+    if path.suffix == ".json":
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            data = {"_parse_error": str(exc)}
+    return ArtifactFileEntry(exists=True, path=str(path), data=data)
+
+
+def _chunks_entry(path: Path) -> ArtifactFileEntry:
+    if not path.exists():
+        return ArtifactFileEntry(exists=False, path=None, data=None)
+    lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    preview: list[dict | str] = []
+    for raw in lines[:5]:
+        try:
+            preview.append(json.loads(raw))
+        except Exception:
+            preview.append(raw)
+    return ArtifactFileEntry(
+        exists=True,
+        path=str(path),
+        data={"line_count": len(lines), "preview": preview},
+    )
+
+
+@router.get("/artifacts", response_model=ObsidianArtifactsResponse)
+async def get_obsidian_artifacts(
+    paper_id: str = Query(..., min_length=1),
+    run_id: str = Query(..., min_length=1),
+):
+    run_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Artifacts not found for paper_id={paper_id}, run_id={run_id}")
+
+    resolved_path = run_dir / "claimset.resolved.json"
+    legacy_path = run_dir / "claimset.json"
+    claimset_path = resolved_path if resolved_path.exists() else legacy_path
+    claimset_source = claimset_path.name if claimset_path.exists() else None
+
+    return ObsidianArtifactsResponse(
+        paper_id=paper_id,
+        run_id=run_id,
+        claimset_source=claimset_source,
+        claimset=_artifact_entry(claimset_path),
+        chunks=_chunks_entry(run_dir / "chunks.jsonl"),
+        stats_report=_artifact_entry(run_dir / "stats_report.json"),
+    )
 
 def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
     """Format Agent Output into verified Markdown."""
@@ -70,7 +132,7 @@ async def sync_to_obsidian(req: SyncRequest):
     vault_path = config.paths.obsidian_vault
     
     # 1. Load Artifacts
-    claim_set = _load_artifact(req.paper_id, req.run_id, "claimset.json")
+    claim_set = _load_claimset_for_obsidian(req.paper_id, req.run_id)
     stats_report = _load_artifact(req.paper_id, req.run_id, "stats_report.json")
     
     if not claim_set and not stats_report:

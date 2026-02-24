@@ -1,0 +1,170 @@
+import json
+
+from fastapi.testclient import TestClient
+
+import src.db_utils as db_utils
+from backend import main as api_main
+from src.jobs.queue import JobQueue
+
+
+def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_old",
+                "run_old",
+                "paper_artifacts_001",
+                "completed",
+                100,
+                "completed",
+                "2026-02-24 00:00:00",
+                "2026-02-24 00:00:05",
+                str(tmp_path / "storage" / "artifacts" / "paper_artifacts_001" / "run_old"),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_new",
+                "run_new",
+                "paper_artifacts_001",
+                "completed",
+                100,
+                "completed",
+                "2026-02-24 00:01:00",
+                "2026-02-24 00:01:05",
+                str(tmp_path / "storage" / "artifacts" / "paper_artifacts_001" / "run_new"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        old_dir = tmp_path / "storage" / "artifacts" / "paper_artifacts_001" / "run_old"
+        old_dir.mkdir(parents=True, exist_ok=True)
+        (old_dir / "document_artifact.json").write_text(json.dumps({"doc_id": "old"}), encoding="utf-8")
+
+        new_dir = tmp_path / "storage" / "artifacts" / "paper_artifacts_001" / "run_new"
+        new_dir.mkdir(parents=True, exist_ok=True)
+        (new_dir / "document_artifact.json").write_text(json.dumps({"doc_id": "new"}), encoding="utf-8")
+        (new_dir / "claimset.json").write_text(json.dumps({"claims": []}), encoding="utf-8")
+        (new_dir / "bootstrap_meta.json").write_text(
+            json.dumps({"claimset_readiness_badge": "READY"}), encoding="utf-8"
+        )
+
+        client = TestClient(api_main.app)
+
+        latest = client.get("/artifacts/paper_artifacts_001/latest")
+        assert latest.status_code == 200
+        latest_payload = latest.json()
+        assert latest_payload["run_id"] == "run_new"
+        assert latest_payload["files"]["document_artifact"]["exists"] is True
+        assert latest_payload["files"]["document_artifact"]["data"]["doc_id"] == "new"
+
+        old = client.get("/artifacts/paper_artifacts_001/run_old")
+        assert old.status_code == 200
+        old_payload = old.json()
+        assert old_payload["run_id"] == "run_old"
+        assert old_payload["files"]["document_artifact"]["data"]["doc_id"] == "old"
+
+        claimset = client.get("/artifacts/paper_artifacts_001/run_new/claimset")
+        assert claimset.status_code == 200
+        claimset_payload = claimset.json()
+        assert claimset_payload["exists"] is True
+        assert claimset_payload["data"]["claims"] == []
+
+        stats_missing = client.get("/artifacts/paper_artifacts_001/run_new/stats")
+        assert stats_missing.status_code == 404
+
+        unknown_artifact = client.get("/artifacts/paper_artifacts_001/run_new/nope")
+        assert unknown_artifact.status_code == 404
+
+        missing = client.get("/artifacts/paper_artifacts_001/run_missing")
+        assert missing.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_runs_status_and_timeline_from_job_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_runs_001")
+        run_id = queue.get_job(job_id).run_id
+
+        log_path = tmp_path / "logs" / "jobs" / f"{job_id}.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "job_id": job_id,
+                            "run_id": run_id,
+                            "stage": "read",
+                            "progress": 70,
+                            "message": "analysis running",
+                            "level": "INFO",
+                            "timestamp": "2026-02-24T00:00:01Z",
+                        }
+                    ),
+                    "plain text line",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "log_path": str(log_path),
+                "finished_at": "2026-02-24T00:00:03+00:00",
+            },
+        )
+
+        client = TestClient(api_main.app)
+
+        run_status = client.get(f"/runs/{run_id}")
+        assert run_status.status_code == 200
+        run_payload = run_status.json()
+        assert run_payload["job_id"] == job_id
+        assert run_payload["run_id"] == run_id
+        assert run_payload["status"] == "completed"
+
+        timeline = client.get(f"/runs/{run_id}/timeline", params={"limit": 10})
+        assert timeline.status_code == 200
+        timeline_payload = timeline.json()
+        assert timeline_payload["run_id"] == run_id
+        assert timeline_payload["job_id"] == job_id
+        assert len(timeline_payload["events"]) >= 2
+        assert any(evt["event"] == "log" and evt.get("message") == "analysis running" for evt in timeline_payload["events"])
+        assert any(evt["event"] == "done" and evt.get("message") == "completed" for evt in timeline_payload["events"])
+
+        no_run = client.get("/runs/no_such_run")
+        assert no_run.status_code == 404
+        no_timeline = client.get("/runs/no_such_run/timeline")
+        assert no_timeline.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path

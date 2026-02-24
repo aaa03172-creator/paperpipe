@@ -223,6 +223,7 @@ async def run_deepread_job(
     paper_id: str,
     persona_id: str = "default",
     run_verify: bool = False,
+    clean_reindex: bool = False,
     run_id: str = None,
     progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     cancel_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
@@ -311,6 +312,9 @@ async def run_deepread_job(
             "similar_feedback_count": 0,
             "similar_feedback_paper_ids": [],
             "run_verify": bool(run_verify),
+            "clean_reindex_requested": bool(clean_reindex),
+            "clean_reindex_applied": False,
+            "clean_reindex_removed_chunks": 0,
             "reader_model": None,
             "verifier_used": bool(run_verify),
             "verifier_status": "not_run",
@@ -355,6 +359,16 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
+        if clean_reindex:
+            doc_id = str(getattr(doc_artifact, "document_id", "") or getattr(doc_artifact, "doc_id", "") or paper_id)
+            if hasattr(indexer_agent, "reset_doc_index"):
+                removed = int(indexer_agent.reset_doc_index(doc_id))
+                bootstrap_meta["clean_reindex_applied"] = True
+                bootstrap_meta["clean_reindex_removed_chunks"] = removed
+                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                await emit("index", 33, f"Clean reindex applied: removed {removed} chunks")
+            else:
+                await emit("index", 33, "Clean reindex requested but index reset hook unavailable", level="WARNING")
         index_artifact = indexer_agent.process(doc_artifact)
         
         # Save Index Artifact

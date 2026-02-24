@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 import json
 import logging
 from datetime import datetime, timezone
@@ -44,3 +44,42 @@ async def submit_feedback(feedback: FeedbackCase):
     except Exception as e:
         logger.error(f"Failed to save feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("", response_model=list[FeedbackCase])
+async def list_feedback(
+    paper_id: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    if not FEEDBACK_FILE.exists():
+        return []
+
+    try:
+        rows = [
+            line.strip()
+            for line in FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except Exception as e:
+        logger.error(f"Failed to read feedback file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    out: list[FeedbackCase] = []
+    for raw in reversed(rows):
+        try:
+            payload = json.loads(raw)
+            case = FeedbackCase.model_validate(payload)
+        except Exception:
+            continue
+
+        if paper_id and case.paper_id != paper_id:
+            continue
+        if run_id and case.run_id != run_id:
+            continue
+
+        out.append(case)
+        if len(out) >= limit:
+            break
+
+    return out

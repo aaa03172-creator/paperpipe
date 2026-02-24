@@ -8,12 +8,20 @@ class JobCreate(BaseModel):
     run_verify: bool = False
     persona_id: str = "default"
 
+
+class JobEnqueueResponse(BaseModel):
+    job_id: str
+    run_id: Optional[str] = None
+    status: Literal["queued"] = "queued"
+
+
 class JobStatus(BaseModel):
     job_id: str
     paper_id: Optional[str]
     run_id: Optional[str]
     persona_id: Optional[str]
     run_verify: Optional[int]
+    clean_reindex: Optional[int] = None
     status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']
     progress: int
     stage: Optional[str]
@@ -51,6 +59,9 @@ class JobBootstrapMeta(BaseModel):
     similar_feedback_count: Optional[int] = None
     similar_feedback_paper_ids: List[str] = []
     run_verify: Optional[bool] = None
+    clean_reindex_requested: Optional[bool] = None
+    clean_reindex_applied: Optional[bool] = None
+    clean_reindex_removed_chunks: Optional[int] = None
     reader_model: Optional[str] = None
     verifier_used: Optional[bool] = None
     verifier_status: Optional[str] = None

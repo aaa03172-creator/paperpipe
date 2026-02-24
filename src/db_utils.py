@@ -38,6 +38,7 @@ def init_db():
             paper_id TEXT,
             persona_id TEXT DEFAULT 'default',
             run_verify INTEGER DEFAULT 0,
+            clean_reindex INTEGER DEFAULT 0,
             status TEXT DEFAULT 'queued',
             progress INTEGER DEFAULT 0,
             stage TEXT,
@@ -58,6 +59,8 @@ def init_db():
         cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
     if "run_verify" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
+    if "clean_reindex" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN clean_reindex INTEGER DEFAULT 0")
 
     # Lightweight papers migration used by downloader metrics/dashboard.
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='papers'")
