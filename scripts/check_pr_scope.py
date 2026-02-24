@@ -15,6 +15,7 @@ from src.services.pr_scope_guard import (
     DEFAULT_ALLOWED_DOCS_WITH_CODE,
     ScopeReport,
     classify_scope,
+    classify_title_scope,
 )
 
 
@@ -39,6 +40,14 @@ def _format_scope(report: ScopeReport) -> str:
         lines.append(f"[PR-SCOPE] allowed_docs_with_code={', '.join(report.allowed_doc_files)}")
     if report.blocked_doc_files:
         lines.append(f"[PR-SCOPE] blocked_docs_with_code={', '.join(report.blocked_doc_files)}")
+    return "\n".join(lines)
+
+
+def _format_title_scope(report) -> str:
+    lines: list[str] = []
+    lines.append(f"[PR-TITLE-SCOPE] policy={report.policy}")
+    if report.violating_files:
+        lines.append(f"[PR-TITLE-SCOPE] violating_files={', '.join(report.violating_files)}")
     return "\n".join(lines)
 
 
@@ -68,6 +77,11 @@ def main() -> int:
             "Repeat for multiple files. Default: docs/Pending_PR_Queue.md"
         ),
     )
+    parser.add_argument(
+        "--title",
+        default="",
+        help="Optional PR title for title-scope policy checks (docs*/test* prefixes).",
+    )
     args = parser.parse_args()
 
     allowed_docs = _parse_allowed_docs(args.allowed_docs)
@@ -84,14 +98,20 @@ def main() -> int:
 
     if not report.has_mixed_scope:
         print("[PR-SCOPE] PASS: single-scope change set")
-        return 0
-
-    if report.is_allowed:
+    elif report.is_allowed:
         print("[PR-SCOPE] PASS: mixed scope allowed by docs-with-code allowlist")
-        return 0
+    else:
+        print("[PR-SCOPE] FAIL: mixed code/docs scope with blocked doc files")
+        return 2
 
-    print("[PR-SCOPE] FAIL: mixed code/docs scope with blocked doc files")
-    return 2
+    title_report = classify_title_scope(args.title, files, allowed_docs_with_code=allowed_docs)
+    print(_format_title_scope(title_report))
+    if not title_report.is_allowed:
+        print(f"[PR-TITLE-SCOPE] FAIL: {title_report.message}")
+        return 2
+
+    print("[PR-TITLE-SCOPE] PASS")
+    return 0
 
 
 if __name__ == "__main__":
