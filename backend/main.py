@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -6,9 +6,12 @@ import json
 import os
 from pathlib import Path
 
+import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import JobQueue
 from src.jobs.schemas import JobCreate, JobStatus, JobBootstrapMeta
+from src.schemas.ops import DownloaderOpsMetricsResponse
+from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from .routers import obsidian, feedback
 
 app = FastAPI(title="PaperPipe API", version="3.1.0")
@@ -77,6 +80,25 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
+
+
+@app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
+def get_downloader_metrics(
+    hours: int = Query(default=24, ge=1, le=24 * 30),
+    rate_limit_warn: int = Query(default=3, ge=1),
+    temp_fail_warn: int = Query(default=5, ge=1),
+    bad_content_warn: int = Query(default=3, ge=1),
+    policy_block_warn: int = Query(default=1, ge=1),
+):
+    thresholds = Thresholds(
+        rate_limit_warn=rate_limit_warn,
+        temp_fail_warn=temp_fail_warn,
+        bad_content_warn=bad_content_warn,
+        policy_block_warn=policy_block_warn,
+    )
+    metrics = collect_metrics(db_utils.DB_PATH, hours)
+    alerts = evaluate_alerts(metrics, thresholds)
+    return DownloaderOpsMetricsResponse(metrics=metrics, alerts=alerts)
 
 @app.get("/papers")
 def list_papers():
