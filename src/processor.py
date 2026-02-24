@@ -367,6 +367,15 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                 else:
                     status = PaperStatus.PENDING_REVIEW
 
+                serialized_attempts: list[dict[str, Any]] = []
+                for attempt in (paper.download_attempts or []):
+                    if hasattr(attempt, "model_dump"):
+                        serialized_attempts.append(attempt.model_dump(mode="json"))
+                    elif isinstance(attempt, dict):
+                        serialized_attempts.append(attempt)
+                    else:
+                        serialized_attempts.append({"message": str(attempt)})
+
                 row = {
                     "id": paper.id,
                     "paper_id": paper.id,
@@ -382,6 +391,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     "processing_status": status,
                     "pdf_path": str(paper.local_pdf_path) if paper.local_pdf_path else None,
                     "local_pdf_path": str(paper.local_pdf_path) if paper.local_pdf_path else None,
+                    "download_attempts": serialized_attempts,
                 }
                 
                 if not row["pdf_path"]:
@@ -406,6 +416,10 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                         row["title"],
                         row["source"],
                         datetime.now().strftime("%Y-%m-%d"),
+                        local_pdf_path=row.get("pdf_path"),
+                        feedback_json=row.get("feedback_json"),
+                        download_attempts=row.get("download_attempts"),
+                        status=row["processing_status"].value if hasattr(row["processing_status"], "value") else str(row["processing_status"]),
                     )
                 except Exception:
                     pass
