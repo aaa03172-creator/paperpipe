@@ -33,6 +33,15 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
+## PR-DOC-DoD-Milestone-Sync (In Progress)
+- Title: `docs(spec): sync Phase DoD checkboxes with implemented runtime evidence`
+- Priority: Medium
+- Purpose: Align milestone checkboxes in v3 master specs with current merged behavior/tests.
+- Scope:
+  - [done] Phase 1 API milestones checked (`/papers`, `pdf_exists`, missing-path signaling).
+  - [done] Phase 2 job/SSE/restart milestones checked.
+  - [done] Phase 4/5 중 검증 근거 있는 항목만 conservative하게 체크.
+
 ## PR-QA-PR-Scope-Guard (Completed)
 - Title: `chore(ci): enforce docs/code PR scope split guard`
 - Priority: Medium
