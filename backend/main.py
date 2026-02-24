@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 queue = JobQueue()
+FRONTEND_INDEX_PATH = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
 
 ARTIFACT_FILE_MAP: dict[str, str] = {
     "document_artifact": "document_artifact.json",
@@ -355,6 +357,13 @@ def list_personas(include_disabled: bool = Query(default=False)):
         return PersonaListResponse(personas=_persona_options(include_disabled=include_disabled))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load persona profiles: {exc}")
+
+
+@app.get("/ui", include_in_schema=False)
+def ui_shell():
+    if not FRONTEND_INDEX_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"UI shell not found: {FRONTEND_INDEX_PATH}")
+    return FileResponse(FRONTEND_INDEX_PATH)
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)

@@ -187,7 +187,7 @@ def doctor():
 def start(
     host: str = typer.Option("127.0.0.1", "--host", help="Backend bind host"),
     port: int = typer.Option(8000, "--port", min=1, max=65535, help="Backend bind port"),
-    ui_url: str = typer.Option("", "--ui-url", help="UI URL to open. Empty means /docs."),
+    ui_url: str = typer.Option("", "--ui-url", help="UI URL to open. Empty means /ui."),
     health_timeout: int = typer.Option(15, "--health-timeout", min=3, max=120, help="Healthcheck timeout in seconds."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not auto-open browser."),
 ):
@@ -235,7 +235,7 @@ def start(
         )
         raise typer.Exit(code=1)
 
-    entry_url = ui_url.strip() or f"{base_url}/docs"
+    entry_url = ui_url.strip() or f"{base_url}/ui"
     console.print(f"   - Backend: ✅ {base_url}")
     console.print(f"   - Entry: {entry_url}")
 
