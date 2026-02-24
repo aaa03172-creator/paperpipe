@@ -24,7 +24,7 @@ def _paper_lookup_conditions(columns: set[str]) -> list[str]:
     return conditions
 
 def init_db():
-    """Initialize job-related tables without altering existing papers schema."""
+    """Initialize runtime tables and apply lightweight compatibility migrations."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -58,6 +58,16 @@ def init_db():
         cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
     if "run_verify" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
+
+    # Lightweight papers migration used by downloader metrics/dashboard.
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='papers'")
+    if cursor.fetchone():
+        try:
+            paper_cols = _get_paper_columns(cursor)
+            if "download_attempts" not in paper_cols:
+                cursor.execute("ALTER TABLE papers ADD COLUMN download_attempts TEXT")
+        except sqlite3.OperationalError:
+            pass
 
     # Enforce one open review item per (paper_id, decision) when review_queue exists.
     # This complements app-level idempotency checks and protects concurrent writers.
@@ -148,7 +158,17 @@ def is_paper_processed(identifier: str) -> bool:
         conn.close()
 
 
-def save_paper_state(identifier: str, title: str, source: str, processed_date: str) -> None:
+def save_paper_state(
+    identifier: str,
+    title: str,
+    source: str,
+    processed_date: str,
+    *,
+    local_pdf_path: Optional[str | Path] = None,
+    feedback_json: Optional[str] = None,
+    download_attempts: Optional[List[Dict[str, Any]]] = None,
+    status: Optional[str] = None,
+) -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -156,9 +176,23 @@ def save_paper_state(identifier: str, title: str, source: str, processed_date: s
         if not columns:
             return
 
+        if download_attempts is not None and "download_attempts" not in columns:
+            try:
+                cursor.execute("ALTER TABLE papers ADD COLUMN download_attempts TEXT")
+                columns.add("download_attempts")
+            except sqlite3.OperationalError:
+                pass
+
         insert_cols: list[str] = []
         insert_vals: list[Any] = []
         update_set: list[str] = []
+
+        attempts_payload: Optional[str] = None
+        if download_attempts is not None:
+            try:
+                attempts_payload = json.dumps(download_attempts, ensure_ascii=False, default=str)
+            except Exception:
+                attempts_payload = "[]"
 
         if "paper_id" in columns:
             insert_cols.append("paper_id")
@@ -176,6 +210,10 @@ def save_paper_state(identifier: str, title: str, source: str, processed_date: s
             insert_cols.append("source")
             insert_vals.append(source)
             update_set.append("source=excluded.source")
+        if "status" in columns and status is not None:
+            insert_cols.append("status")
+            insert_vals.append(status)
+            update_set.append("status=excluded.status")
         if "processed_date" in columns:
             insert_cols.append("processed_date")
             insert_vals.append(processed_date)
@@ -195,6 +233,18 @@ def save_paper_state(identifier: str, title: str, source: str, processed_date: s
             insert_cols.append("is_retracted")
             insert_vals.append(0)
             update_set.append("is_retracted=COALESCE(papers.is_retracted, 0)")
+        if "pdf_path" in columns and local_pdf_path is not None:
+            insert_cols.append("pdf_path")
+            insert_vals.append(str(local_pdf_path))
+            update_set.append("pdf_path=excluded.pdf_path")
+        if "feedback_json" in columns and feedback_json is not None:
+            insert_cols.append("feedback_json")
+            insert_vals.append(feedback_json)
+            update_set.append("feedback_json=excluded.feedback_json")
+        if "download_attempts" in columns and attempts_payload is not None:
+            insert_cols.append("download_attempts")
+            insert_vals.append(attempts_payload)
+            update_set.append("download_attempts=excluded.download_attempts")
 
         if not insert_cols:
             return
