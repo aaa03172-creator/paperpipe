@@ -11,7 +11,7 @@ from typing import Any
 
 import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
-from src.jobs.queue import JobQueue
+from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.schemas.ops import (
     ArtifactBundleResponse,
@@ -484,12 +484,35 @@ def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
 
 @app.post("/jobs/deepread", response_model=JobEnqueueResponse)
 def enqueue_job(job_req: JobCreate):
-    job_id = queue.enqueue(
-        job_req.paper_id,
-        job_req.clean_reindex,
-        job_req.run_verify,
-        job_req.persona_id,
-    )
+    try:
+        job_id = queue.enqueue(
+            job_req.paper_id,
+            job_req.clean_reindex,
+            job_req.run_verify,
+            job_req.persona_id,
+        )
+    except DuplicateOpenJobError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "JOB_ALREADY_OPEN",
+                "message": f"Open job already exists for paper_id={exc.paper_id}",
+                "paper_id": exc.paper_id,
+                "job_id": exc.job_id,
+                "run_id": exc.run_id,
+                "status": exc.status,
+            },
+        )
+    except QueueBackpressureError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error_code": "QUEUE_FULL",
+                "message": "Queued jobs limit reached",
+                "queued_count": exc.queued_count,
+                "limit": exc.limit,
+            },
+        )
     job = queue.get_job(job_id)
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
 

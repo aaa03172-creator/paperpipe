@@ -278,6 +278,9 @@
 - `POST /jobs/deepread`  
   - body: `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`)
   - response: `{job_id, run_id, status:"queued"}`
+  - 충돌/백프레셔:
+    - `409 JOB_ALREADY_OPEN` (동일 `paper_id` 열린 job 존재)
+    - `429 QUEUE_FULL` (`LATTICE_MAX_QUEUED_JOBS` 상한 초과)
   - `clean_reindex=true`일 때, 기존 `doc_id` 벡터를 purge 후 재인덱싱
 - `GET /jobs/{job_id}`  
   - `{status, progress, started_at, finished_at, run_id, error?}`
@@ -645,6 +648,10 @@ paperpipe/
 - 동시 실행 제한(예: `max_concurrent_jobs=1~N`)을 config로 제공
 - 같은 `paper_id`에 대해 동시에 2개 deepread 실행 금지(락/세마포어)
 - 큐 길이 상한 및 “거절(429)” 정책 명시
+- 현재 구현(2026-02-25):
+  - worker claim 시 동시 실행 상한 `LATTICE_MAX_CONCURRENT_JOBS`(legacy: `PAPERPIPE_MAX_CONCURRENT_JOBS`, 기본값 `1`) 적용
+  - `POST /jobs/deepread`는 같은 `paper_id`의 열린 job(`queued|running`)이 존재하면 `409 JOB_ALREADY_OPEN` 반환
+  - 큐 상한은 `LATTICE_MAX_QUEUED_JOBS`(legacy: `PAPERPIPE_MAX_QUEUED_JOBS`)로 제어, 초과 시 `429 QUEUE_FULL`
 
 ### 18.3 취소(Cancel) 의미론 — 필수
 - `POST /jobs/{id}/cancel`은 “요청 접수”일 뿐, 즉시 중단이 아님  
@@ -684,6 +691,9 @@ paperpipe/
 - 파일 락(동시 업데이트 방지)
 - 섹션 replace는 “명확한 마커”로 구간을 잡아 덮어쓰기:
   - 예: `<!-- BEGIN CLAIMS --> ... <!-- END CLAIMS -->`
+- 현재 구현(2026-02-25):
+  - `POST /obsidian/sync`에서 노트 단위 락(`.<note>.lock`) 후 atomic rename(`os.replace`) 적용
+  - 기존 AI 블록(`<!-- AI_AGENT_START --> ... <!-- AI_AGENT_END -->`)은 append 대신 구간 교체
 
 ### 18.8 비용 관리(로컬 자원) — 권장
 - Ollama 모델별 메모리/VRAM 요구사항을 문서화
@@ -717,6 +727,9 @@ paperpipe/
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)
+  - `POST /obsidian/sync` (note-level lock + atomic write + marker-block replace)
+  - `POST /jobs/deepread` duplicate guard (`paper_id` open job 충돌 시 409)
+  - `POST /jobs/deepread` queue backpressure (`LATTICE_MAX_QUEUED_JOBS` 초과 시 429)
 - 추적 필요(후속):
   - 없음(현 시점 기준 API/런타임 패리티 항목 소진)
 

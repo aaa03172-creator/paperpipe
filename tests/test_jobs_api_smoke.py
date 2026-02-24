@@ -349,3 +349,93 @@ def test_jobs_bootstrap_meta_endpoint_returns_404_when_not_available(tmp_path, m
         assert resp.json()["detail"] == "bootstrap_meta not available"
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_rejects_duplicate_open_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        first = client.post("/jobs/deepread", json={"paper_id": "paper_duplicate_001"})
+        assert first.status_code == 200
+        first_job_id = first.json()["job_id"]
+
+        second = client.post("/jobs/deepread", json={"paper_id": "paper_duplicate_001"})
+        assert second.status_code == 409
+        detail = second.json()["detail"]
+        assert detail["error_code"] == "JOB_ALREADY_OPEN"
+        assert detail["paper_id"] == "paper_duplicate_001"
+        assert detail["job_id"] == first_job_id
+        assert detail["status"] == "queued"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_rejects_when_queue_is_full(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MAX_QUEUED_JOBS", "1")
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        first = client.post("/jobs/deepread", json={"paper_id": "paper_queue_full_001"})
+        assert first.status_code == 200
+
+        second = client.post("/jobs/deepread", json={"paper_id": "paper_queue_full_002"})
+        assert second.status_code == 429
+        detail = second.json()["detail"]
+        assert detail["error_code"] == "QUEUE_FULL"
+        assert detail["limit"] == 1
+        assert detail["queued_count"] == 1
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_job_queue_allows_reenqueue_after_terminal_status(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+
+        first_job_id = queue.enqueue(paper_id="paper_reenqueue_001")
+        queue.update_job(first_job_id, {"status": "completed"})
+
+        second_job_id = queue.enqueue(paper_id="paper_reenqueue_001")
+        assert second_job_id != first_job_id
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_job_queue_claim_respects_configurable_max_concurrency(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MAX_CONCURRENT_JOBS", "2")
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        first = queue.enqueue(paper_id="paper_concurrency_001")
+        second = queue.enqueue(paper_id="paper_concurrency_002")
+
+        claimed_first = queue.claim_next_job()
+        claimed_second = queue.claim_next_job()
+        claimed_third = queue.claim_next_job()
+
+        assert claimed_first is not None
+        assert claimed_first.job_id == first
+        assert claimed_second is not None
+        assert claimed_second.job_id == second
+        assert claimed_third is None
+    finally:
+        db_utils.DB_PATH = original_db_path
