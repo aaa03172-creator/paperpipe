@@ -486,7 +486,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 
 #### Phase 4 (HITL & Verification)
 - [x] 교정 UI → feedback DB 저장
-- [ ] 다음 실행에서 유사 사례 Top‑3 동적 주입(로그로 확인)
+- [x] 다음 실행에서 유사 사례 Top‑3 동적 주입(로그로 확인)
 - [x] StatsReport에 code+outputs+verdict가 저장됨
 
 #### Phase 5 (Obsidian Integration)
