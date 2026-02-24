@@ -577,7 +577,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 - [x] 서버 재시작 후에도 job 상태/로그 보존
 
 #### Phase 3 (Control UI)
-- [ ] UI에서 논문 선택→deepread 실행→artifact 렌더링
+- [x] UI에서 논문 선택→deepread 실행→artifact 렌더링(`GET /ui` + `GET /papers/{paper_id}/pdf`)
 - [x] persona 선택이 YAML 기반으로 반영(코드 수정 없이, `GET /personas` + `persona_id`)
 
 #### Phase 4 (HITL & Verification)
@@ -700,6 +700,7 @@ paperpipe/
 
 ### 17.1 구현-명세 패리티 점검 (2026-02-24)
 - 반영 완료:
+  - `GET /papers/{paper_id}/pdf` (Control UI PDF renderer source)
   - `GET /personas` (UI persona selector, YAML registry)
   - `GET /artifacts/{paper_id}/latest`
   - `GET /artifacts/{paper_id}/{run_id}`
@@ -710,6 +711,7 @@ paperpipe/
   - `POST /jobs/deepread` 응답에 `run_id` 포함
   - `clean_reindex` 런타임 연결(큐 플래그 -> worker -> index reset)
   - SSE `Last-Event-ID` 기반 로그 replay(`log-*`), terminal replay(`done-*`)
+  - SSE `retry` 힌트(2s) + heartbeat ping(20s)
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)

@@ -541,12 +541,12 @@ async def job_events(job_id: str, request: Request):
                 
             job = queue.get_job(job_id)
             if not job:
-                yield {"event": "error", "data": "Job not found"}
+                yield {"event": "error", "data": "Job not found", "retry": 2000}
                 break
             
             # Send status update
             enriched = _with_bootstrap_meta_path(job)
-            yield {"event": "status", "data": json.dumps(enriched.model_dump(), default=str)}
+            yield {"event": "status", "data": json.dumps(enriched.model_dump(), default=str), "retry": 2000}
 
             if not artifact_announced and job.artifact_dir and Path(job.artifact_dir).exists():
                 yield {
@@ -558,6 +558,7 @@ async def job_events(job_id: str, request: Request):
                             "artifact_dir": job.artifact_dir,
                         }
                     ),
+                    "retry": 2000,
                 }
                 artifact_announced = True
 
@@ -572,21 +573,21 @@ async def job_events(job_id: str, request: Request):
 
             if replay_cursor < total_logs:
                 for idx in range(replay_cursor + 1, total_logs + 1):
-                    yield {"id": f"log-{idx}", "event": "log", "data": log_lines[idx - 1]}
+                    yield {"id": f"log-{idx}", "event": "log", "data": log_lines[idx - 1], "retry": 2000}
                 replay_cursor = total_logs
                 replay_kind = "log"
 
             if job.status in TERMINAL_JOB_STATUSES:
                 terminal_seq = total_logs + 1
                 if replay_cursor < terminal_seq:
-                    yield {"id": f"done-{terminal_seq}", "event": "done", "data": job.status}
+                    yield {"id": f"done-{terminal_seq}", "event": "done", "data": job.status, "retry": 2000}
                     replay_cursor = terminal_seq
                     replay_kind = "done"
                 break
 
             await asyncio.sleep(1)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=20)
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
