@@ -35,8 +35,9 @@
 - `PR-DOC-DoD-Milestone-Sync`
 - `PR-BE-Exporter-Related-Papers`
 - `PR-QA-Top3-Feedback-Injection-Regression`
+- `PR-BE-Downloader-Ops-Metrics-API`
 
-## PR-BE-Downloader-Ops-Metrics-API (In Progress)
+## PR-BE-Downloader-Ops-Metrics-API (Completed)
 - Title: `feat(ops): expose downloader metrics via API and shared service module`
 - Priority: Medium
 - Purpose: Provide runtime/API surface for downloader failure/retry metrics while keeping CLI dashboard and API on one shared metrics logic.
@@ -46,6 +47,7 @@
   - [done] Pydantic response contract 추가 (`src/schemas/ops.py` + `src/schemas/__init__.py` export).
   - [done] dashboard script가 공용 서비스 로직을 재사용하도록 정리 (`scripts/downloader_ops_dashboard.py`).
   - [done] API 회귀 테스트 추가 (`tests/test_downloader_ops_api.py`) + 관련 테스트 통과.
+  - [done] merged via PR #67 (`06c9c74`).
 
 ## PR-DOC-DoD-Milestone-Sync (Completed)
 - Title: `docs(spec): sync Phase DoD checkboxes with implemented runtime evidence`
