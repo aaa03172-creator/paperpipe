@@ -33,7 +33,7 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
-## PR-QA-PR-Scope-Guard (In Progress)
+## PR-QA-PR-Scope-Guard (Completed)
 - Title: `chore(ci): enforce docs/code PR scope split guard`
 - Priority: Medium
 - Purpose: Reduce mixed-scope PRs by default; allow only minimal queue-sync doc file in code PRs.
@@ -42,6 +42,7 @@
   - [done] `src/services/pr_scope_guard.py` 분류/판정 로직 추가.
   - [done] `tests/test_pr_scope_guard.py` 회귀 테스트 추가.
   - [done] `.github/workflows/pr-scope-guard.yml` PR 자동 가드 추가.
+  - [done] merged via PR #60 (`22c75c3`).
 
 ## PR-QA-Jobs-Restart-Persistence (Completed)
 - Title: `test(api): verify jobs status/events survive backend reload`
