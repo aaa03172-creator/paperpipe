@@ -33,6 +33,15 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
+## PR-QA-Papers-API-Contract (In Progress)
+- Title: `test(api): expand /papers contract regression coverage`
+- Priority: Medium
+- Purpose: Guard list/detail contract behavior (`pdf_exists`, missing-status signaling, updated_at ordering, list limit).
+- Scope:
+  - [done] list/detail response keeps `pdf_exists` semantics.
+  - [done] missing local pdf path is surfaced as `pdf_status='missing'`.
+  - [done] list endpoint ordering (`updated_at DESC`) and `LIMIT 50` verified by regression test.
+
 ## PR-QA-Jobs-SSE-Boundary (Completed)
 - Title: `test(api): harden /jobs/{id}/events boundary behavior`
 - Priority: Medium
