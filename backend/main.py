@@ -26,11 +26,23 @@ from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from .routers import obsidian, feedback
 
+def _resolve_cors_allow_origins() -> list[str]:
+    raw = (
+        os.getenv("LATTICE_CORS_ALLOW_ORIGINS")
+        or os.getenv("PAPERPIPE_CORS_ALLOW_ORIGINS")
+        or ""
+    ).strip()
+    if not raw:
+        return ["http://127.0.0.1:8000", "http://localhost:8000"]
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_resolve_cors_allow_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

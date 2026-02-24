@@ -670,6 +670,7 @@ paperpipe/
 - 옵션: 간단한 **API Key 헤더 인증**(예: `X-API-Key`) 지원
 - CORS는 `frontend` 오리진만 허용(와일드카드 금지)
 - 로그/응답에 로컬 파일 절대경로를 그대로 노출하지 않도록 마스킹 옵션 제공
+- 현재 기본값: `http://127.0.0.1:8000`, `http://localhost:8000` (환경변수로 확장 가능)
 
 ### 18.6 SSE 안정성 — 권장
 - 15~30초 간격 `ping` 이벤트로 커넥션 유지(프록시 타임아웃 방지)
@@ -712,6 +713,7 @@ paperpipe/
   - `clean_reindex` 런타임 연결(큐 플래그 -> worker -> index reset)
   - SSE `Last-Event-ID` 기반 로그 replay(`log-*`), terminal replay(`done-*`)
   - SSE `retry` 힌트(2s) + heartbeat ping(20s)
+  - CORS 기본 정책 localhost 제한 + 환경변수 확장(`LATTICE_CORS_ALLOW_ORIGINS`)
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)
