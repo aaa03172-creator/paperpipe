@@ -39,6 +39,17 @@
 - `PR-CLI-Start-Entrypoint`
 - `PR-QA-CLI-Start-Regression-Coverage`
 
+## PR-OPS-Summary-Quality-Normalize (In Progress)
+- Title: `chore(ops): normalize papers.summary quality and regenerate notes`
+- Priority: High
+- Purpose: Remove translation/prompt artifacts from DB summary text and keep note one-line summaries concise/consistent.
+- Scope:
+  - [done] 공용 정제 로직 추가 (`src/services/summary_normalizer.py`).
+  - [done] 배치 스크립트 추가 (`scripts/normalize_summaries.py`, dry-run default + backup/apply + subset paper_id).
+  - [done] 회귀 테스트 추가 (`tests/test_summary_normalizer.py`, `tests/test_normalize_summaries_script.py`).
+  - [done] 운영 DB 적용: `updated=51`, backup 생성(`storage/backups/state_before_summary_normalize_20260224_125053.db`).
+  - [done] 노트 재생성 실행(`run_export(overwrite=True)`), 사후 품질 리포트 저장(`storage/reports/note_regen_audit_post_summary_*.md`).
+
 ## PR-CLI-Start-Entrypoint (Completed)
 - Title: `feat(cli): add local start command and project script entrypoints`
 - Priority: Medium
