@@ -209,3 +209,73 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_ops_alert"] is False
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_bootstrap_meta_endpoint_handles_malformed_json_boundary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_boot_meta_broken")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_boot_meta_broken" / "run_1"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        broken_meta = artifact_dir / "bootstrap_meta.json"
+        broken_meta.write_text("{invalid_json", encoding="utf-8")
+
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "artifact_dir": str(artifact_dir),
+                "progress": 100,
+                "stage": "completed",
+            },
+        )
+
+        # /jobs/{id} should stay resilient even if bootstrap_meta parsing fails.
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["bootstrap_meta_path"] == str(broken_meta)
+        assert payload["similar_feedback_count"] is None
+        assert payload["persona_applied"] is None
+        assert payload["claimset_readiness"] is None
+        assert payload["claimset_readiness_badge"] is None
+
+        # /bootstrap-meta should surface parse error clearly.
+        meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
+        assert meta_resp.status_code == 500
+        assert "Failed to parse bootstrap_meta" in meta_resp.json()["detail"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_bootstrap_meta_endpoint_returns_404_for_unknown_job():
+    client = TestClient(api_main.app)
+    resp = client.get("/jobs/no_such_job/bootstrap-meta")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Job not found"
+
+
+def test_jobs_bootstrap_meta_endpoint_returns_404_when_not_available(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_boot_meta_unavailable")
+
+        # artifact_dir is absent for queued jobs, so bootstrap-meta must be unavailable.
+        resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "bootstrap_meta not available"
+    finally:
+        db_utils.DB_PATH = original_db_path

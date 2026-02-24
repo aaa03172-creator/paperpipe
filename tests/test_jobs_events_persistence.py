@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -5,6 +6,24 @@ from fastapi.testclient import TestClient
 import src.db_utils as db_utils
 from backend import main as api_main
 from src.jobs.queue import JobQueue
+
+
+def _parse_sse_events(raw: str) -> list[dict]:
+    events: list[dict] = []
+    current: dict[str, str] = {}
+    for line in raw.splitlines():
+        if not line.strip():
+            if current:
+                events.append(current)
+                current = {}
+            continue
+        if line.startswith("event:"):
+            current["event"] = line.split(":", 1)[1].strip()
+        elif line.startswith("data:"):
+            current["data"] = line.split(":", 1)[1].strip()
+    if current:
+        events.append(current)
+    return events
 
 
 def test_jobs_events_stream_emits_status_log_and_done_for_terminal_job(tmp_path, monkeypatch):
@@ -34,12 +53,19 @@ def test_jobs_events_stream_emits_status_log_and_done_for_terminal_job(tmp_path,
 
         assert response.status_code == 200
         assert response.headers.get("content-type", "").startswith("text/event-stream")
-        assert "event: status" in response.text
-        assert '"status": "completed"' in response.text
-        assert "event: log" in response.text
-        assert "line one" in response.text
-        assert "event: done" in response.text
-        assert "data: completed" in response.text
+        events = _parse_sse_events(response.text)
+        names = [e.get("event") for e in events]
+        assert "status" in names
+        assert "log" in names
+        assert names.count("done") == 1
+
+        status_payload = json.loads(next(e["data"] for e in events if e.get("event") == "status"))
+        assert status_payload["status"] == "completed"
+        assert status_payload["progress"] == 100
+        assert "bootstrap_meta_path" in status_payload
+
+        assert any(e.get("event") == "log" and e.get("data") == "line one" for e in events)
+        assert any(e.get("event") == "done" and e.get("data") == "completed" for e in events)
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -116,8 +142,10 @@ def test_jobs_events_stream_returns_error_event_for_unknown_job():
 
     assert response.status_code == 200
     assert response.headers.get("content-type", "").startswith("text/event-stream")
-    assert "event: error" in response.text
-    assert "Job not found" in response.text
+    events = _parse_sse_events(response.text)
+    assert events[0]["event"] == "error"
+    assert "Job not found" in events[0]["data"]
+    assert all(e["event"] != "done" for e in events)
 
 
 def test_jobs_events_stream_reconnect_replays_terminal_state(tmp_path, monkeypatch):
@@ -137,9 +165,63 @@ def test_jobs_events_stream_reconnect_replays_terminal_state(tmp_path, monkeypat
 
         assert first.status_code == 200
         assert second.status_code == 200
-        assert "event: done" in first.text
-        assert "data: completed" in first.text
-        assert "event: done" in second.text
-        assert "data: completed" in second.text
+        first_events = _parse_sse_events(first.text)
+        second_events = _parse_sse_events(second.text)
+        assert any(e.get("event") == "done" and e.get("data") == "completed" for e in first_events)
+        assert any(e.get("event") == "done" and e.get("data") == "completed" for e in second_events)
+        assert sum(1 for e in first_events if e.get("event") == "done") == 1
+        assert sum(1 for e in second_events if e.get("event") == "done") == 1
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_events_stream_status_includes_bootstrap_meta_fields(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_bootstrap_events_001")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_bootstrap_events_001" / "run_1"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "bootstrap_meta.json").write_text(
+            json.dumps(
+                {
+                    "similar_feedback_count": 3,
+                    "persona_applied": True,
+                    "claimset_readiness": "ready",
+                    "claimset_readiness_reason": "claims_present",
+                    "claimset_ops_alert": False,
+                }
+            ),
+            encoding="utf-8",
+        )
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "artifact_dir": str(artifact_dir),
+            },
+        )
+
+        client = TestClient(api_main.app)
+        response = client.get(f"/jobs/{job_id}/events")
+        assert response.status_code == 200
+
+        status_payload = json.loads(
+            next(e["data"] for e in _parse_sse_events(response.text) if e.get("event") == "status")
+        )
+        assert status_payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert status_payload["similar_feedback_count"] == 3
+        assert status_payload["persona_applied"] is True
+        assert status_payload["claimset_readiness"] == "ready"
+        assert status_payload["claimset_readiness_reason"] == "claims_present"
+        assert status_payload["claimset_readiness_badge"] == "READY"
+        assert status_payload["claimset_ops_alert"] is False
     finally:
         db_utils.DB_PATH = original_db_path
