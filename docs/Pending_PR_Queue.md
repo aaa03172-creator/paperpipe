@@ -40,6 +40,19 @@
 - `PR-QA-CLI-Start-Regression-Coverage`
 - `PR-OPS-Summary-Quality-Normalize`
 
+## PR-OPS-Teacher-Quality-Loop (In Progress)
+- Title: `feat(quality): add teacher candidate/gate/goldset/eval promotion loop`
+- Priority: High
+- Purpose: Reduce ongoing manual/Codex dependency by making local quality iteration reproducible and measurable.
+- Scope:
+  - [done] SSOT runtime path resolver 추가 (`src/services/runtime_paths.py`) with env override + repo-relative fallback.
+  - [done] 후보 추출 스크립트 추가 (`scripts/extract_teacher_candidates.py`) with reproducible `manifest.json`.
+  - [done] 게이트 검증/라우팅 추가 (`src/quality/gates.py`, `scripts/verify_teacher_output.py`) with `reason_codes[]`.
+  - [done] deterministic split 빌더 추가 (`scripts/build_goldset.py`) with paper_id hash rule and overlap guard.
+  - [done] quality eval 모드 추가 (`scripts/eval/run_eval.py --mode quality`) for 4 core metrics.
+  - [done] baseline/new 비교 + 승격 게이트 추가 (`scripts/eval/compare_eval.py`).
+  - [done] 회귀 테스트 추가 (`tests/test_extract_teacher_candidates.py`, `tests/test_teacher_gate_verifier.py`, `tests/test_build_goldset.py`, `tests/test_eval_quality_compare.py`).
+
 ## PR-OPS-Summary-Quality-Normalize (Completed)
 - Title: `chore(ops): normalize papers.summary quality and regenerate notes`
 - Priority: High
