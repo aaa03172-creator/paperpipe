@@ -423,6 +423,25 @@ def get_paper(paper_id: str):
     return item
 
 
+@app.get("/papers/{paper_id}/pdf")
+def get_paper_pdf(paper_id: str):
+    conn = get_db_connection()
+    row = conn.execute("SELECT paper_id, pdf_path FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    raw_pdf_path = str(row["pdf_path"] or "").strip()
+    if not raw_pdf_path:
+        raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+
+    pdf_path = Path(raw_pdf_path).expanduser()
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="PDF file not found")
+
+    return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
+
+
 @app.get("/artifacts/{paper_id}/latest", response_model=ArtifactBundleResponse)
 def get_latest_artifacts(paper_id: str):
     run_id = _latest_run_id_for_paper(paper_id)

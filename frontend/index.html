@@ -73,9 +73,10 @@
               <dt>Path</dt>
               <dd id="pdfPath">-</dd>
             </dl>
-            <p class="pp-note">
-              현재 UI는 메타데이터 중심 미리보기입니다. 실제 PDF 파일 렌더는 보안/경로 정책 정리 후 iframe 뷰로 확장합니다.
-            </p>
+            <p class="pp-note" id="pdfHint">PDF를 로드하면 이 영역에 렌더링됩니다.</p>
+            <div class="pp-pdf-wrap">
+              <iframe id="pdfFrame" class="pp-pdf-frame" title="PDF renderer" loading="lazy"></iframe>
+            </div>
           </div>
         </section>
 
@@ -168,6 +169,8 @@
         paperId: document.getElementById("paperId"),
         pdfState: document.getElementById("pdfState"),
         pdfPath: document.getElementById("pdfPath"),
+        pdfHint: document.getElementById("pdfHint"),
+        pdfFrame: document.getElementById("pdfFrame"),
         runId: document.getElementById("runId"),
         jobId: document.getElementById("jobId"),
         jobStatus: document.getElementById("jobStatus"),
@@ -235,6 +238,19 @@
         ids.paperTitle.textContent = p?.title || "논문을 선택하세요";
         ids.pdfState.textContent = p ? (p.pdf_exists ? "available" : "missing") : "-";
         ids.pdfPath.textContent = p?.pdf_path || "-";
+        if (p && p.pdf_exists && state.selectedPaper) {
+          ids.pdfFrame.style.display = "block";
+          ids.pdfFrame.src = `/papers/${encodeURIComponent(state.selectedPaper)}/pdf`;
+          ids.pdfHint.textContent = "PDF renderer active.";
+        } else if (p) {
+          ids.pdfFrame.style.display = "none";
+          ids.pdfFrame.src = "about:blank";
+          ids.pdfHint.textContent = "등록된 PDF가 없습니다.";
+        } else {
+          ids.pdfFrame.style.display = "none";
+          ids.pdfFrame.src = "about:blank";
+          ids.pdfHint.textContent = "PDF를 로드하면 이 영역에 렌더링됩니다.";
+        }
       }
 
       function renderPaperList(items) {

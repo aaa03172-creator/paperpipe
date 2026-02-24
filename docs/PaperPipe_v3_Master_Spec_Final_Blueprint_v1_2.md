@@ -266,6 +266,8 @@
   - 목록: `{paper_id, citekey, title, year, pdf_exists, last_run_status?}`
 - `GET /papers/{paper_id}`  
   - 상세 메타 + pdf_path + preflight 결과
+- `GET /papers/{paper_id}/pdf`
+  - 등록된 원문 PDF 바이너리 스트림 반환(`application/pdf`)
 
 #### Personas (YAML registry)
 - `GET /personas?include_disabled=false`
@@ -308,6 +310,7 @@
 | UI Surface | API | Request Contract | Response Contract |
 | :--- | :--- | :--- | :--- |
 | Navigation Rail 논문 목록 | `GET /papers` | query 없음 | papers 배열 (`paper_id`, `citekey`, `title`, `pdf_exists`, `last_run_status?`) |
+| PDF Renderer 패널 | `GET /papers/{paper_id}/pdf` | path `paper_id` | PDF binary (`application/pdf`) |
 | Persona 선택 드롭다운 | `GET /personas` | query `include_disabled?` | `PersonaListResponse` (`default` + YAML persona) |
 | Run 버튼(Deep Read 시작) | `POST /jobs/deepread` | `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`) | `JobEnqueueResponse` (`job_id`, `run_id`, `status`) |
 | Job 상태 배지/진행률 | `GET /jobs/{job_id}` | path `job_id` | `JobStatus` |
