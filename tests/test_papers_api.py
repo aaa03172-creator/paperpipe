@@ -82,6 +82,63 @@ def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypa
         rows = listing.json()
         by_id = {row["paper_id"]: row for row in rows}
         assert by_id["p_missing_pdf"]["pdf_exists"] is False
+        assert by_id["p_missing_pdf"]["pdf_status"] == "missing"
         assert by_id["p_has_pdf"]["pdf_exists"] is True
+        assert by_id["p_has_pdf"]["pdf_status"] is None
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_list_is_limited_and_sorted_by_updated_at(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                pdf_status TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        for idx in range(60):
+            conn.execute(
+                """
+                INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"p_{idx:02d}",
+                    f"Paper {idx:02d}",
+                    "INDEXED",
+                    None,
+                    "summary",
+                    f"2026-02-01 00:{idx % 60:02d}:00",
+                    f"2026-02-01 00:{idx % 60:02d}:00",
+                ),
+            )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert len(rows) == 50
+        assert rows[0]["paper_id"] == "p_59"
+        assert rows[-1]["paper_id"] == "p_10"
+        assert rows[0]["pdf_exists"] is False
+        assert rows[0]["pdf_status"] is None
     finally:
         db_utils.DB_PATH = original_db_path
