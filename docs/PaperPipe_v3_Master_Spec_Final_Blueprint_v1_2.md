@@ -1,8 +1,9 @@
-# PaperPipe v3.0 Master Spec (Final Blueprint)
-부제: **자율 진화형 통합 연구 시스템** — 로컬 LLM(Ollama) + effGen + FastAPI + Obsidian
+# Lattice v3.0 Master Spec (Final Blueprint)
+부제: **지식의 구조화를 위한 자율 진화형 통합 연구 시스템** — 로컬 LLM(Ollama) + effGen + FastAPI + Obsidian
 
 > 이 문서는 사용자가 작성한 “[PaperPipe v3.0] Final Blueprint”를 **구현 가능한 마스터 스펙**으로 재정리한 버전입니다.  
 > 목표는 “Antigravity(코딩 에이전트)에게 그대로 전달해도 흔들리지 않게” **계약(스키마/상태머신/API/DoD)** 을 명확히 하는 것입니다.
+> 제품 공식 명칭은 **Lattice**이며, 코드/패키지 경로의 `paperpipe` 표기는 하위 호환(legacy namespace)으로 유지합니다.
 
 ---
 
@@ -31,6 +32,11 @@
 - **Zotero(DB Layer)**: PDF 원문 및 메타데이터의 유일한 원본(SoT)  
 - **Obsidian(Knowledge Layer)**: 검증된 결과물(Artifact)의 영구 지식화(SoK)
 
+### 1.3 명칭 정책 (Brand Contract)
+- 사용자 노출(UI/문서/로그 라벨)의 제품명은 `Lattice`를 사용한다.
+- 코드 경로/CLI의 하위 호환 명령(`paperpipe`)은 유지하고, 동등 alias(`lattice`)를 제공한다.
+- 대외 문서에서 `PaperPipe`가 등장하면 `legacy` 맥락임을 명시한다.
+
 ---
 
 ## 2. 5‑Tier Decoupled Architecture
@@ -46,7 +52,7 @@
 - SSE 이벤트 스트림 제공  
 - Artifact 조회/피드백 저장/Obsidian 반영 트리거
 
-3) **Engine Layer: PaperPipe + effGen (src/)**  
+3) **Engine Layer: Lattice Engine (legacy package: PaperPipe + effGen) (src/)**  
 - Ingest → Index → Read → Verify 워커  
 - Ollama adapter로 로컬 LLM 호출  
 - (옵션) effGen tool-use 기반 에이전트
@@ -59,6 +65,18 @@
 5) **Knowledge Layer: Obsidian**  
 - `{CiteKey}.md` 생성/업데이트(idempotent)  
 - Related papers 링크/근거/요약/검증 결과 보존
+
+### 2.2 Runtime Launcher Contract (필수)
+- 런처 명령은 아래 2개를 **동일 동작**으로 보장한다.
+  - `paperpipe start`
+  - `lattice start`
+- 런처 성공 조건:
+  - 프로세스 기동 후 `GET /health`가 `200`으로 응답
+  - 기본 타임아웃 내(권장 15초) 헬스체크 통과 실패 시 non-zero exit
+- 런처 실패 조건:
+  - 포트 충돌, 설정 로드 실패, DB bootstrap 실패 시 즉시 non-zero exit
+- 런처 회귀 테스트:
+  - 최소 `tests/test_cli_start_command.py`에서 명령 진입점/헬스체크/실패 코드를 검증
 
 ---
 
@@ -221,6 +239,7 @@
 - SSE 재연결 지원:
   - `event_id` 포함
   - 클라이언트가 `Last-Event-ID`로 재요청 시 replay 지원(로그 저장소 기반)
+  - `Last-Event-ID`가 현재 로그 길이를 초과하면(rotate/truncate) cursor를 0으로 보정하고 head부터 재생
 
 ### 7.4 Dynamic Few‑shot Injection (동적 프롬프트 주입)
 - 피드백은 YAML에 Append하지 않는다.
@@ -248,10 +267,16 @@
 - `GET /papers/{paper_id}`  
   - 상세 메타 + pdf_path + preflight 결과
 
+#### Personas (YAML registry)
+- `GET /personas?include_disabled=false`
+  - response: `PersonaListResponse`
+  - 기본 `default` persona + `config/profiles.yaml` 기반 persona 목록 반환
+
 #### Jobs (비동기 실행)
 - `POST /jobs/deepread`  
-  - body: `{paper_id, persona_id, options:{run_index, run_verify, ...}}`
+  - body: `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`)
   - response: `{job_id, run_id, status:"queued"}`
+  - `clean_reindex=true`일 때, 기존 `doc_id` 벡터를 purge 후 재인덱싱
 - `GET /jobs/{job_id}`  
   - `{status, progress, started_at, finished_at, run_id, error?}`
 - `POST /jobs/{job_id}/cancel`  
@@ -262,7 +287,8 @@
 #### Artifacts
 - `GET /artifacts/{paper_id}/latest`  
 - `GET /artifacts/{paper_id}/{run_id}`  
-- `GET /artifacts/{paper_id}/{run_id}/claimset` 등 세분화(선택)
+- `GET /artifacts/{paper_id}/{run_id}/{artifact_name}` (세분화 조회)
+  - 지원 alias 예: `claimset`, `document`, `index`, `stats`, `bootstrap_meta`, `run_meta`, `chunks`
 
 #### Feedback (HITL)
 - `POST /feedback`  
@@ -273,6 +299,71 @@
 - `POST /obsidian/sync`  
   - body: `{paper_id, run_id}`
   - 결과를 `{CiteKey}.md`에 반영(idempotent)
+  - claimset 입력은 `claimset.resolved.json` 우선, 없으면 `claimset.json` fallback
+- `GET /obsidian/artifacts?paper_id=...&run_id=...`
+  - Obsidian 렌더용 artifact 묶음(claimset/chunks/stats) 조회
+  - claimset은 `claimset.resolved.json` 우선, 없으면 `claimset.json` fallback
+
+### 8.3 UI Surface ↔ API 매핑 (구현 오해 방지용)
+| UI Surface | API | Request Contract | Response Contract |
+| :--- | :--- | :--- | :--- |
+| Navigation Rail 논문 목록 | `GET /papers` | query 없음 | papers 배열 (`paper_id`, `citekey`, `title`, `pdf_exists`, `last_run_status?`) |
+| Persona 선택 드롭다운 | `GET /personas` | query `include_disabled?` | `PersonaListResponse` (`default` + YAML persona) |
+| Run 버튼(Deep Read 시작) | `POST /jobs/deepread` | `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`) | `JobEnqueueResponse` (`job_id`, `run_id`, `status`) |
+| Job 상태 배지/진행률 | `GET /jobs/{job_id}` | path `job_id` | `JobStatus` |
+| Run 중심 상태 조회 | `GET /runs/{run_id}` | path `run_id` | `JobStatus` |
+| 타임라인 패널 | `GET /runs/{run_id}/timeline` | path `run_id`, query `limit` | `RunTimelineResponse` (`events[]`) |
+| 실시간 로그 스트림 | `GET /jobs/{job_id}/events` (SSE) | path `job_id`, header `Last-Event-ID?` | SSE events (`status`, `artifact_ready`, `log`, `done`, `error`) |
+| Artifact 렌더러 | `GET /artifacts/{paper_id}/latest` | path `paper_id` | `ArtifactBundleResponse` |
+| Artifact 버전 고정 조회 | `GET /artifacts/{paper_id}/{run_id}` | path `paper_id`, `run_id` | `ArtifactBundleResponse` |
+| Artifact 단일 파일 조회 | `GET /artifacts/{paper_id}/{run_id}/{artifact_name}` | path `paper_id`, `run_id`, `artifact_name` | `ArtifactFileEntry` |
+| HITL 피드백 저장 | `POST /feedback` | `FeedbackCase` | `{status, message}` |
+| HITL 피드백 조회 | `GET /feedback` | query `paper_id?`, `run_id?`, `limit?` | `FeedbackCase[]` |
+| Obsidian 렌더 번들 조회 | `GET /obsidian/artifacts` | query `paper_id`, `run_id` | `ObsidianArtifactsResponse` |
+| Obsidian 반영 | `POST /obsidian/sync` | `{paper_id, run_id}` | `{status, file, message}` |
+
+### 8.4 핵심 엔드포인트 스키마 예시
+1) `POST /jobs/deepread` request
+```json
+{
+  "paper_id": "paper_001",
+  "persona_id": "senior_postdoc",
+  "clean_reindex": false,
+  "run_verify": true
+}
+```
+2) `POST /jobs/deepread` response
+```json
+{
+  "job_id": "4e4f4f77-6f5c-4f4a-90cf-ccf0fb7a9f8a",
+  "run_id": "run_20260224_120001",
+  "status": "queued"
+}
+```
+3) `GET /artifacts/{paper_id}/{run_id}` response (요약)
+```json
+{
+  "paper_id": "paper_001",
+  "run_id": "run_20260224_120001",
+  "files": {
+    "document_artifact": {"exists": true, "path": "storage/artifacts/.../document_artifact.json", "data": {}},
+    "claimset": {"exists": true, "path": "storage/artifacts/.../claimset.json", "data": {}},
+    "stats_report": {"exists": false, "path": null, "data": null}
+  }
+}
+```
+4) `GET /runs/{run_id}/timeline` response (요약)
+```json
+{
+  "run_id": "run_20260224_120001",
+  "job_id": "4e4f4f77-6f5c-4f4a-90cf-ccf0fb7a9f8a",
+  "paper_id": "paper_001",
+  "events": [
+    {"event": "log", "source": "job_log", "stage": "read", "progress": 70, "message": "analysis running"},
+    {"event": "done", "source": "synthetic", "stage": "completed", "progress": 100, "message": "completed"}
+  ]
+}
+```
 
 ---
 
@@ -310,6 +401,8 @@
 ### 10.2 로그 저장(필수)
 - `logs/jobs/{job_id}.jsonl` 에 구조화 저장  
 - SSE는 “저장된 로그를 tail”하는 형태로 구현(재연결/replay 지원)
+- `Last-Event-ID=done-{n}`가 현재 terminal seq와 같으면 `done` 이벤트를 중복 재전송하지 않음(상태 스냅샷만 전달)
+- `done-*` cursor가 비정상(비터미널/길이 초과)이면 cursor를 head로 보정해 replay
 
 ---
 
@@ -482,7 +575,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 
 #### Phase 3 (Control UI)
 - [ ] UI에서 논문 선택→deepread 실행→artifact 렌더링
-- [ ] persona 선택이 YAML 기반으로 반영(코드 수정 없이)
+- [x] persona 선택이 YAML 기반으로 반영(코드 수정 없이, `GET /personas` + `persona_id`)
 
 #### Phase 4 (HITL & Verification)
 - [x] 교정 UI → feedback DB 저장
@@ -492,6 +585,16 @@ Auditor 프롬프트에 다음 규칙을 명시:
 #### Phase 5 (Obsidian Integration)
 - [x] `{CiteKey}.md` 업데이트가 idempotent(중복 폭증 없음)
 - [x] related papers/근거 링크 섹션 생성
+
+### 15.2 정량 Acceptance Criteria (권장값, UI/운영 공통)
+- API `POST /jobs/deepread` 응답시간: p95 <= 500ms (로컬 기준, 큐 적재만 수행)
+- API `GET /runs/{run_id}` 응답시간: p95 <= 200ms
+- API `GET /runs/{run_id}/timeline?limit=500` 응답시간: p95 <= 350ms
+- API `GET /artifacts/{paper_id}/latest` 응답시간: p95 <= 500ms (artifact 총 5MB 이하)
+- SSE 재연결 목표: 네트워크 단절 후 2초 이내 복구, 중복 허용/유실 0건 목표
+- UI 가상 스크롤 성능: 2,000 rows 렌더 시 55 FPS 이상(중앙값 기준)
+- UI 첫 상호작용 가능 시간(TTI): 1.5초 이내(로컬 개발 빌드, warm start)
+- 런처 신뢰성: `paperpipe start`/`lattice start` 20회 반복 실행 시 성공률 100%
 
 ---
 
@@ -585,13 +688,30 @@ paperpipe/
 
 
 
-
 ## 17. Open Questions (결정 필요 항목)
 - Job 큐/워커 프레임워크 선택(Celery/RQ/Arq 등)
 - Zotero export 업데이트 감지 방식(폴링 vs 파일 watch)
 - PDF 경로 깨짐 대응(대체 경로 탐색 정책)
 - ClaimSet/StatsReport의 “최소 근거 단위”(chunk_id vs page/offset)
 - UI에서 교정 가능한 필드 범위(ClaimSet만? Tags 포함?)
+
+### 17.1 구현-명세 패리티 점검 (2026-02-24)
+- 반영 완료:
+  - `GET /personas` (UI persona selector, YAML registry)
+  - `GET /artifacts/{paper_id}/latest`
+  - `GET /artifacts/{paper_id}/{run_id}`
+  - `GET /artifacts/{paper_id}/{run_id}/{artifact_name}`
+  - `GET /runs/{run_id}`
+  - `GET /runs/{run_id}/timeline`
+  - `GET /feedback` (filter: `paper_id`, `run_id`, `limit`)
+  - `POST /jobs/deepread` 응답에 `run_id` 포함
+  - `clean_reindex` 런타임 연결(큐 플래그 -> worker -> index reset)
+  - SSE `Last-Event-ID` 기반 로그 replay(`log-*`), terminal replay(`done-*`)
+  - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
+  - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
+  - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)
+- 추적 필요(후속):
+  - 없음(현 시점 기준 API/런타임 패리티 항목 소진)
 
 ---
 
