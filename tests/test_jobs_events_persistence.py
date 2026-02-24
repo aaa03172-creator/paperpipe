@@ -19,6 +19,8 @@ def _parse_sse_events(raw: str) -> list[dict]:
             continue
         if line.startswith("event:"):
             current["event"] = line.split(":", 1)[1].strip()
+        elif line.startswith("id:"):
+            current["id"] = line.split(":", 1)[1].strip()
         elif line.startswith("data:"):
             current["data"] = line.split(":", 1)[1].strip()
     if current:
@@ -70,6 +72,42 @@ def test_jobs_events_stream_emits_status_log_and_done_for_terminal_job(tmp_path,
         db_utils.DB_PATH = original_db_path
 
 
+def test_jobs_events_stream_emits_artifact_ready_when_artifact_dir_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_events_artifact_001")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_events_artifact_001" / "run_ready"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "document_artifact.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "artifact_dir": str(artifact_dir),
+            },
+        )
+
+        client = TestClient(api_main.app)
+        response = client.get(f"/jobs/{job_id}/events")
+
+        assert response.status_code == 200
+        events = _parse_sse_events(response.text)
+        artifact_evt = next(e for e in events if e.get("event") == "artifact_ready")
+        payload = json.loads(artifact_evt["data"])
+        assert payload["artifact_dir"] == str(artifact_dir)
+        assert payload["paper_id"] == "paper_events_artifact_001"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_job_queue_state_persists_across_instances(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
@@ -92,6 +130,7 @@ def test_job_queue_state_persists_across_instances(tmp_path, monkeypatch):
         assert queued.paper_id == "paper_persist_001"
         assert queued.persona_id == "persist-persona"
         assert queued.run_verify == 1
+        assert queued.clean_reindex == 0
 
         queue_b.update_job(
             job_id,
@@ -171,6 +210,118 @@ def test_jobs_events_stream_reconnect_replays_terminal_state(tmp_path, monkeypat
         assert any(e.get("event") == "done" and e.get("data") == "completed" for e in second_events)
         assert sum(1 for e in first_events if e.get("event") == "done") == 1
         assert sum(1 for e in second_events if e.get("event") == "done") == 1
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_events_stream_last_event_id_replays_only_new_logs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_last_event_id_001")
+
+        log_path = tmp_path / "job_last_event.log"
+        log_path.write_text("line one\nline two\nline three\n", encoding="utf-8")
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "log_path": str(log_path),
+            },
+        )
+
+        client = TestClient(api_main.app)
+
+        first = client.get(f"/jobs/{job_id}/events")
+        assert first.status_code == 200
+        first_events = _parse_sse_events(first.text)
+        first_logs = [e for e in first_events if e.get("event") == "log"]
+        assert [e.get("data") for e in first_logs] == ["line one", "line two", "line three"]
+        assert [e.get("id") for e in first_logs] == ["log-1", "log-2", "log-3"]
+        assert any(e.get("event") == "done" and e.get("id") == "done-4" for e in first_events)
+
+        resumed = client.get(f"/jobs/{job_id}/events", headers={"Last-Event-ID": "log-1"})
+        assert resumed.status_code == 200
+        resumed_events = _parse_sse_events(resumed.text)
+        resumed_logs = [e for e in resumed_events if e.get("event") == "log"]
+        assert [e.get("data") for e in resumed_logs] == ["line two", "line three"]
+        assert [e.get("id") for e in resumed_logs] == ["log-2", "log-3"]
+        assert any(e.get("event") == "done" and e.get("id") == "done-4" for e in resumed_events)
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_events_stream_stale_last_event_id_replays_from_head(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_stale_cursor_001")
+
+        log_path = tmp_path / "job_stale_cursor.log"
+        log_path.write_text("line one\nline two\n", encoding="utf-8")
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "log_path": str(log_path),
+            },
+        )
+
+        client = TestClient(api_main.app)
+        response = client.get(f"/jobs/{job_id}/events", headers={"Last-Event-ID": "log-99"})
+        assert response.status_code == 200
+        events = _parse_sse_events(response.text)
+
+        logs = [e for e in events if e.get("event") == "log"]
+        assert [e.get("data") for e in logs] == ["line one", "line two"]
+        assert [e.get("id") for e in logs] == ["log-1", "log-2"]
+        assert any(e.get("event") == "done" and e.get("id") == "done-3" for e in events)
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_events_stream_done_cursor_does_not_replay_done(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_done_cursor_001")
+
+        log_path = tmp_path / "job_done_cursor.log"
+        log_path.write_text("line one\nline two\n", encoding="utf-8")
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "stage": "completed",
+                "log_path": str(log_path),
+            },
+        )
+
+        client = TestClient(api_main.app)
+        response = client.get(f"/jobs/{job_id}/events", headers={"Last-Event-ID": "done-3"})
+        assert response.status_code == 200
+        events = _parse_sse_events(response.text)
+
+        assert any(e.get("event") == "status" for e in events)
+        assert all(e.get("event") != "log" for e in events)
+        assert all(e.get("event") != "done" for e in events)
     finally:
         db_utils.DB_PATH = original_db_path
 

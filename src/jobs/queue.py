@@ -30,9 +30,9 @@ class JobQueue:
         conn = get_db_connection()
         try:
             conn.execute("""
-                INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
-            """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify))))
+                INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, clean_reindex, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
+            """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify)), int(bool(clean_reindex))))
             conn.commit()
             logger.info(f"Enqueued job {job_id} for paper {paper_id}")
             return job_id

@@ -29,3 +29,45 @@ def test_feedback_post_persists_generated_feedback_id(tmp_path, monkeypatch):
     assert saved["run_id"] == payload["run_id"]
     assert isinstance(saved.get("feedback_id"), str)
     assert len(saved["feedback_id"]) > 0
+
+
+def test_feedback_get_filters_and_limits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(api_main.app)
+
+    payloads = [
+        {
+            "paper_id": "paper_feedback_002",
+            "run_id": "run_feedback_older",
+            "user_correction": "first correction",
+            "accepted": False,
+        },
+        {
+            "paper_id": "paper_feedback_002",
+            "run_id": "run_feedback_newer",
+            "user_correction": "second correction",
+            "accepted": True,
+        },
+        {
+            "paper_id": "paper_feedback_other",
+            "run_id": "run_feedback_other",
+            "user_correction": "third correction",
+            "accepted": True,
+        },
+    ]
+    for payload in payloads:
+        resp = client.post("/feedback", json=payload)
+        assert resp.status_code == 200
+
+    paper_filtered = client.get("/feedback", params={"paper_id": "paper_feedback_002", "limit": 1})
+    assert paper_filtered.status_code == 200
+    items = paper_filtered.json()
+    assert len(items) == 1
+    # latest-first
+    assert items[0]["run_id"] == "run_feedback_newer"
+
+    run_filtered = client.get("/feedback", params={"run_id": "run_feedback_older"})
+    assert run_filtered.status_code == 200
+    run_items = run_filtered.json()
+    assert len(run_items) == 1
+    assert run_items[0]["paper_id"] == "paper_feedback_002"

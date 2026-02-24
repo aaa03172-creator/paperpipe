@@ -33,6 +33,25 @@ class IndexerAgent:
         self.chroma_client = chromadb.PersistentClient(path=self.persist_path)
         self.collection = self.chroma_client.get_or_create_collection(name=collection_name)
 
+    def reset_doc_index(self, doc_id: str) -> int:
+        """
+        Remove existing vectors for a document before re-indexing.
+        Returns number of deleted chunk ids.
+        """
+        if not doc_id:
+            return 0
+        try:
+            existing = self.collection.get(where={"doc_id": doc_id}, include=["metadatas"])
+            ids = existing.get("ids") or []
+            if not ids:
+                return 0
+            self.collection.delete(ids=ids)
+            logger.info("Clean reindex removed %s chunks for %s", len(ids), doc_id)
+            return len(ids)
+        except Exception as exc:
+            logger.error("Failed to reset index for %s: %s", doc_id, exc)
+            raise
+
     def process(self, doc: DocumentArtifact | DocumentArtifactV2) -> IndexArtifact:
         """
         Chunks and indexes the document.
