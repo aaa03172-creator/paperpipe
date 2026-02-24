@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lattice Analysis Workbench</title>
+    <link rel="stylesheet" href="/ui-assets/styles/pp-theme.css" />
+  </head>
+  <body>
+    <div class="pp-app">
+      <header class="pp-topbar">
+        <div>
+          <div class="pp-brand">Lattice</div>
+          <div class="pp-brand-sub">Structured Knowledge Workbench</div>
+        </div>
+
+        <ol class="pp-stepper" id="stepper">
+          <li class="pp-step" data-step="ingest">Ingest</li>
+          <li class="pp-step" data-step="index">Index</li>
+          <li class="pp-step" data-step="read">Deep Read</li>
+          <li class="pp-step" data-step="verify">Stats Verify</li>
+          <li class="pp-step" data-step="completed">Finalize</li>
+        </ol>
+
+        <label class="pp-theme-toggle">
+          <input id="themeToggle" type="checkbox" />
+          Dark
+        </label>
+      </header>
+
+      <main class="pp-shell">
+        <aside class="pp-card">
+          <div class="pp-pane-head">
+            <div class="pp-pane-title">Navigation Rail</div>
+          </div>
+          <div class="pp-pane-body">
+            <label class="pp-label" for="personaSelect">Persona</label>
+            <select class="pp-select" id="personaSelect"></select>
+
+            <button id="runButton" class="pp-primary" type="button" style="margin-top: 10px">Deep Read Run</button>
+            <button id="refreshButton" class="pp-secondary" type="button" style="margin-top: 8px">Artifacts Refresh</button>
+
+            <details class="pp-advanced">
+              <summary>Advanced options</summary>
+              <label class="pp-switch-row"><input id="runVerify" type="checkbox" checked /> Stats Verify</label>
+              <label class="pp-switch-row"><input id="cleanReindex" type="checkbox" /> Clean Reindex</label>
+            </details>
+
+            <div style="margin-top: 14px">
+              <p class="pp-label" style="margin: 0 0 6px">Papers</p>
+              <p class="pp-note" id="paperCountNote">loading...</p>
+            </div>
+
+            <div id="paperList" class="pp-paper-list"></div>
+          </div>
+        </aside>
+
+        <section class="pp-card">
+          <div class="pp-pane-head">
+            <div class="pp-pane-title">PDF Renderer</div>
+          </div>
+          <div class="pp-pane-body">
+            <h3 id="paperTitle" style="margin: 0 0 8px; font-size: 16px">논문을 선택하세요</h3>
+            <dl class="pp-kv">
+              <dt>Paper ID</dt>
+              <dd id="paperId">-</dd>
+            </dl>
+            <dl class="pp-kv">
+              <dt>PDF</dt>
+              <dd id="pdfState">-</dd>
+            </dl>
+            <dl class="pp-kv">
+              <dt>Path</dt>
+              <dd id="pdfPath">-</dd>
+            </dl>
+            <p class="pp-note">
+              현재 UI는 메타데이터 중심 미리보기입니다. 실제 PDF 파일 렌더는 보안/경로 정책 정리 후 iframe 뷰로 확장합니다.
+            </p>
+          </div>
+        </section>
+
+        <section class="pp-card">
+          <div class="pp-pane-head">
+            <div class="pp-pane-title">Main Stage</div>
+            <span id="jobStatus" class="pp-status">idle</span>
+          </div>
+          <div class="pp-pane-body">
+            <dl class="pp-kv">
+              <dt>Run ID</dt>
+              <dd id="runId">-</dd>
+            </dl>
+            <dl class="pp-kv">
+              <dt>Job ID</dt>
+              <dd id="jobId">-</dd>
+            </dl>
+            <div class="pp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+              <div id="progressBar" class="pp-progress-bar"></div>
+            </div>
+
+            <div class="pp-summary-grid">
+              <article class="pp-metric">
+                <h4>Claimset source</h4>
+                <p id="metricClaimsetSource">-</p>
+              </article>
+              <article class="pp-metric">
+                <h4>Claims</h4>
+                <p id="metricClaims">0</p>
+              </article>
+              <article class="pp-metric">
+                <h4>Stats checks</h4>
+                <p id="metricStats">0</p>
+              </article>
+              <article class="pp-metric">
+                <h4>Chunks</h4>
+                <p id="metricChunks">0</p>
+              </article>
+            </div>
+
+            <h4 class="pp-label" style="margin: 12px 0 6px">Claims Preview</h4>
+            <ul class="pp-list" id="claimsList">
+              <li><p class="pp-note">아직 claimset이 없습니다.</p></li>
+            </ul>
+
+            <h4 class="pp-label" style="margin: 12px 0 6px">Stats Preview</h4>
+            <ul class="pp-list" id="statsList">
+              <li><p class="pp-note">아직 stats report가 없습니다.</p></li>
+            </ul>
+
+            <details class="pp-json">
+              <summary>Raw artifact JSON</summary>
+              <pre id="rawJson">{}</pre>
+            </details>
+          </div>
+        </section>
+
+        <aside class="pp-card pp-terminal">
+          <div class="pp-pane-head">
+            <div class="pp-pane-title">Terminal Drawer</div>
+          </div>
+          <div class="pp-pane-body">
+            <pre id="logBox" class="pp-log"></pre>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      const STAGE_ORDER = ["ingest", "index", "read", "verify", "completed"];
+      const state = {
+        selectedPaper: null,
+        selectedPaperMeta: null,
+        runId: null,
+        jobId: null,
+        source: null,
+      };
+
+      const ids = {
+        themeToggle: document.getElementById("themeToggle"),
+        stepper: document.getElementById("stepper"),
+        personaSelect: document.getElementById("personaSelect"),
+        runVerify: document.getElementById("runVerify"),
+        cleanReindex: document.getElementById("cleanReindex"),
+        runButton: document.getElementById("runButton"),
+        refreshButton: document.getElementById("refreshButton"),
+        paperCountNote: document.getElementById("paperCountNote"),
+        paperList: document.getElementById("paperList"),
+        paperTitle: document.getElementById("paperTitle"),
+        paperId: document.getElementById("paperId"),
+        pdfState: document.getElementById("pdfState"),
+        pdfPath: document.getElementById("pdfPath"),
+        runId: document.getElementById("runId"),
+        jobId: document.getElementById("jobId"),
+        jobStatus: document.getElementById("jobStatus"),
+        progressBar: document.getElementById("progressBar"),
+        metricClaimsetSource: document.getElementById("metricClaimsetSource"),
+        metricClaims: document.getElementById("metricClaims"),
+        metricStats: document.getElementById("metricStats"),
+        metricChunks: document.getElementById("metricChunks"),
+        claimsList: document.getElementById("claimsList"),
+        statsList: document.getElementById("statsList"),
+        rawJson: document.getElementById("rawJson"),
+        logBox: document.getElementById("logBox"),
+      };
+
+      function appendLog(message, level = "INFO") {
+        const line = `[${new Date().toISOString()}][${level}] ${message}`;
+        ids.logBox.textContent += `${line}\n`;
+        ids.logBox.scrollTop = ids.logBox.scrollHeight;
+      }
+
+      function mapStage(stage, status) {
+        const raw = String(stage || status || "").toLowerCase();
+        if (raw.includes("ingest")) return "ingest";
+        if (raw.includes("index")) return "index";
+        if (raw.includes("read")) return "read";
+        if (raw.includes("verify")) return "verify";
+        if (raw.includes("complete") || raw.includes("done")) return "completed";
+        if (raw.includes("fail") || raw.includes("error") || raw.includes("cancel")) return "completed";
+        return "ingest";
+      }
+
+      function setStepper(stageKey) {
+        const currentIdx = STAGE_ORDER.indexOf(stageKey);
+        for (const node of ids.stepper.querySelectorAll(".pp-step")) {
+          const idx = STAGE_ORDER.indexOf(node.dataset.step);
+          node.classList.remove("is-done", "is-current");
+          if (idx < currentIdx) node.classList.add("is-done");
+          if (idx === currentIdx) node.classList.add("is-current");
+        }
+      }
+
+      function setStatusPill(status) {
+        const normalized = String(status || "idle").toLowerCase();
+        ids.jobStatus.className = "pp-status";
+        if (normalized === "running" || normalized === "queued") ids.jobStatus.classList.add("is-running");
+        if (normalized === "completed") ids.jobStatus.classList.add("is-completed");
+        if (normalized === "failed" || normalized === "cancelled") ids.jobStatus.classList.add(`is-${normalized}`);
+        ids.jobStatus.textContent = normalized;
+      }
+
+      async function fetchJson(url, options = undefined) {
+        const res = await fetch(url, options);
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return res.json();
+      }
+
+      function updateMeta() {
+        ids.paperId.textContent = state.selectedPaper || "-";
+        ids.runId.textContent = state.runId || "-";
+        ids.jobId.textContent = state.jobId || "-";
+      }
+
+      function updatePaperPane() {
+        const p = state.selectedPaperMeta;
+        ids.paperTitle.textContent = p?.title || "논문을 선택하세요";
+        ids.pdfState.textContent = p ? (p.pdf_exists ? "available" : "missing") : "-";
+        ids.pdfPath.textContent = p?.pdf_path || "-";
+      }
+
+      function renderPaperList(items) {
+        ids.paperList.innerHTML = "";
+        ids.paperCountNote.textContent = `${items.length} papers`;
+        for (const p of items) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "pp-paper-item";
+          button.innerHTML = `
+            <p class="pp-paper-title">${p.title || p.paper_id}</p>
+            <p class="pp-paper-meta">${p.paper_id}</p>
+          `;
+          button.addEventListener("click", () => {
+            state.selectedPaper = p.paper_id;
+            state.selectedPaperMeta = p;
+            updateMeta();
+            updatePaperPane();
+            for (const node of ids.paperList.querySelectorAll(".pp-paper-item")) {
+              node.classList.remove("is-active");
+            }
+            button.classList.add("is-active");
+          });
+          ids.paperList.appendChild(button);
+        }
+      }
+
+      async function loadPapers() {
+        const papers = await fetchJson("/papers");
+        renderPaperList(papers);
+        if (!state.selectedPaper && papers.length) {
+          ids.paperList.querySelector(".pp-paper-item")?.click();
+        }
+      }
+
+      async function loadPersonas() {
+        const data = await fetchJson("/personas");
+        ids.personaSelect.innerHTML = "";
+        for (const persona of data.personas || []) {
+          const option = document.createElement("option");
+          option.value = persona.id;
+          option.textContent = persona.id === "default" ? "default (recommended)" : persona.title;
+          ids.personaSelect.appendChild(option);
+        }
+      }
+
+      function stopEvents() {
+        if (state.source) {
+          state.source.close();
+          state.source = null;
+        }
+      }
+
+      function handleStatusPayload(payload) {
+        const status = payload.status || "running";
+        const progress = Number(payload.progress || 0);
+        const stageKey = mapStage(payload.stage, status);
+
+        setStatusPill(status);
+        setStepper(stageKey);
+        ids.progressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+        if (payload.run_id) state.runId = payload.run_id;
+        updateMeta();
+      }
+
+      function connectEvents(jobId) {
+        stopEvents();
+        state.source = new EventSource(`/jobs/${encodeURIComponent(jobId)}/events`);
+
+        state.source.addEventListener("status", (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            handleStatusPayload(payload);
+          } catch {
+            setStatusPill("running");
+          }
+        });
+
+        state.source.addEventListener("log", (event) => {
+          let msg = event.data;
+          try {
+            const payload = JSON.parse(event.data);
+            msg = payload.message || event.data;
+          } catch {}
+          appendLog(msg, "LOG");
+        });
+
+        state.source.addEventListener("artifact_ready", (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.run_id) {
+              state.runId = payload.run_id;
+              updateMeta();
+              refreshArtifacts();
+            }
+            appendLog(`artifact_ready run=${payload.run_id || "unknown"}`, "INFO");
+          } catch {
+            appendLog("artifact_ready", "INFO");
+          }
+        });
+
+        state.source.addEventListener("done", async (event) => {
+          const terminal = String(event.data || "completed").toLowerCase();
+          setStatusPill(terminal);
+          setStepper("completed");
+          appendLog(`terminal=${terminal}`, "INFO");
+          await refreshArtifacts();
+          stopEvents();
+        });
+
+        state.source.addEventListener("error", () => {
+          appendLog("sse connection issue (auto-retry by EventSource)", "WARNING");
+        });
+      }
+
+      function renderClaims(claims) {
+        if (!claims.length) {
+          ids.claimsList.innerHTML = "<li><p class='pp-note'>아직 claimset이 없습니다.</p></li>";
+          return;
+        }
+        ids.claimsList.innerHTML = claims
+          .slice(0, 5)
+          .map((claim) => {
+            const conf = Number(claim.confidence || 0).toFixed(2);
+            return `
+              <li>
+                <p class="pp-claim">${claim.statement || "(no statement)"}</p>
+                <p class="pp-sub">type=${claim.type || "unknown"} · confidence=${conf}</p>
+              </li>
+            `;
+          })
+          .join("");
+      }
+
+      function renderStats(checks) {
+        if (!checks.length) {
+          ids.statsList.innerHTML = "<li><p class='pp-note'>아직 stats report가 없습니다.</p></li>";
+          return;
+        }
+        ids.statsList.innerHTML = checks
+          .slice(0, 5)
+          .map((check) => {
+            return `
+              <li>
+                <p class="pp-claim">${check.test_type || "test"} · ${check.verdict || "unknown"}</p>
+                <p class="pp-sub">${check.notes || ""}</p>
+              </li>
+            `;
+          })
+          .join("");
+      }
+
+      function renderArtifactSummary(data) {
+        const claims = data?.claimset?.data?.claims || [];
+        const checks = data?.stats_report?.data?.checks || [];
+        const chunkLines = Number(data?.chunks?.data?.line_count || 0);
+
+        ids.metricClaimsetSource.textContent = data?.claimset_source || "-";
+        ids.metricClaims.textContent = String(claims.length);
+        ids.metricStats.textContent = String(checks.length);
+        ids.metricChunks.textContent = String(chunkLines);
+        ids.rawJson.textContent = JSON.stringify(data || {}, null, 2);
+        renderClaims(claims);
+        renderStats(checks);
+      }
+
+      async function refreshArtifacts() {
+        if (!state.selectedPaper || !state.runId) {
+          renderArtifactSummary({});
+          return;
+        }
+        try {
+          const payload = await fetchJson(
+            `/obsidian/artifacts?paper_id=${encodeURIComponent(state.selectedPaper)}&run_id=${encodeURIComponent(state.runId)}`
+          );
+          renderArtifactSummary(payload);
+          appendLog(`artifacts loaded run=${state.runId}`, "INFO");
+        } catch (err) {
+          appendLog(`artifact fetch failed: ${err}`, "WARNING");
+          renderArtifactSummary({});
+        }
+      }
+
+      async function runDeepRead() {
+        if (!state.selectedPaper) {
+          appendLog("paper selection is required", "WARNING");
+          return;
+        }
+        ids.logBox.textContent = "";
+        ids.progressBar.style.width = "0%";
+        setStatusPill("queued");
+        setStepper("ingest");
+
+        const req = {
+          paper_id: state.selectedPaper,
+          persona_id: ids.personaSelect.value || "default",
+          clean_reindex: ids.cleanReindex.checked,
+          run_verify: ids.runVerify.checked,
+        };
+
+        const queued = await fetchJson("/jobs/deepread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        });
+
+        state.jobId = queued.job_id;
+        state.runId = queued.run_id || null;
+        updateMeta();
+        appendLog(`queued job=${state.jobId} run=${state.runId || "-"}`, "INFO");
+        connectEvents(state.jobId);
+      }
+
+      function loadTheme() {
+        const saved = localStorage.getItem("pp-theme");
+        if (saved === "dark") {
+          document.documentElement.classList.add("pp-dark");
+          ids.themeToggle.checked = true;
+        }
+      }
+
+      function bindTheme() {
+        ids.themeToggle.addEventListener("change", () => {
+          const dark = ids.themeToggle.checked;
+          document.documentElement.classList.toggle("pp-dark", dark);
+          localStorage.setItem("pp-theme", dark ? "dark" : "light");
+        });
+      }
+
+      async function init() {
+        loadTheme();
+        bindTheme();
+        renderArtifactSummary({});
+        try {
+          await Promise.all([loadPapers(), loadPersonas()]);
+          appendLog("ui ready", "INFO");
+        } catch (err) {
+          appendLog(`init failed: ${err}`, "ERROR");
+        }
+      }
+
+      ids.runButton.addEventListener("click", () => runDeepRead().catch((err) => appendLog(String(err), "ERROR")));
+      ids.refreshButton.addEventListener("click", () => refreshArtifacts().catch((err) => appendLog(String(err), "ERROR")));
+
+      init();
+    </script>
+  </body>
+</html>

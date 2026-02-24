@@ -260,6 +260,7 @@
 ### 8.2 엔드포인트 목록(필수)
 #### Health
 - `GET /health` → OK
+- `GET /ui` → Control UI shell(논문 선택/실행/로그/artifact 렌더링)
 
 #### Papers (Zotero export)
 - `GET /papers`  
@@ -437,6 +438,15 @@
   - extraction focus(한계점/이질성/공백/근거 필수)
   - style(출력은 schema를 만족)
 
+### 12.3 UI Theme Token Policy (Control UI)
+- Control UI 테마 토큰은 `--pp-*` 네임스페이스를 사용한다.
+- zip/외부 샘플의 일반 토큰(`--background`, `--primary` 등)은 직접 사용하지 않고,
+  `--pp-*`로 재매핑 후 적용한다.
+- 금지 시각 톤:
+  - glassmorphism 중심 배경
+  - 과도한 glow/blur
+  - 단계 판단을 방해하는 강한 모션
+
 ---
 
 ## 13. Logging 정책 (logs/)
@@ -574,7 +584,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 - [x] 서버 재시작 후에도 job 상태/로그 보존
 
 #### Phase 3 (Control UI)
-- [ ] UI에서 논문 선택→deepread 실행→artifact 렌더링
+- [x] UI에서 논문 선택→deepread 실행→artifact 렌더링(`GET /ui`)
 - [x] persona 선택이 YAML 기반으로 반영(코드 수정 없이, `GET /personas` + `persona_id`)
 
 #### Phase 4 (HITL & Verification)
@@ -697,6 +707,7 @@ paperpipe/
 
 ### 17.1 구현-명세 패리티 점검 (2026-02-24)
 - 반영 완료:
+  - `GET /ui` (Control UI shell)
   - `GET /personas` (UI persona selector, YAML registry)
   - `GET /artifacts/{paper_id}/latest`
   - `GET /artifacts/{paper_id}/{run_id}`

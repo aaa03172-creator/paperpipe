@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
@@ -64,6 +66,11 @@ ARTIFACT_ALIAS_MAP: dict[str, str] = {
 }
 
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
+
+if FRONTEND_DIR.exists():
+    app.mount("/ui-assets", StaticFiles(directory=str(FRONTEND_DIR)), name="ui-assets")
 
 
 def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
@@ -347,6 +354,13 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
+
+
+@app.get("/ui", include_in_schema=False)
+def ui_shell():
+    if not FRONTEND_INDEX_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"UI shell not found: {FRONTEND_INDEX_PATH}")
+    return FileResponse(FRONTEND_INDEX_PATH)
 
 
 @app.get("/personas", response_model=PersonaListResponse)
