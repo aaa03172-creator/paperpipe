@@ -321,3 +321,101 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert row[2] is None
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        library_dir = tmp_path / "Library"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        vault_dir = tmp_path / "Vault"
+        (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+        (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+        paper_id = "paper_clean_idx_001"
+        (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        (vault_dir / "Inbox" / "paper_clean_idx_001.md").write_text("# Paper\n", encoding="utf-8")
+        (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+            "Paper_ID,DOI,Title,Note_Path\n"
+            "paper_clean_idx_001,10.1000/test,Smoke Title,Inbox/paper_clean_idx_001.md\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            job_runner_mod,
+            "load_config",
+            lambda: SimpleNamespace(
+                paths=SimpleNamespace(
+                    library_dir=library_dir,
+                    obsidian_vault=vault_dir,
+                    index_all=Path("00_Index/paper_collection.csv"),
+                )
+            ),
+        )
+
+        class FakeIngestAgent:
+            def process_v2(self, pdf_path: str):
+                return DocumentArtifactV2(
+                    document_id=paper_id,
+                    meta=ArtifactMetaV2(title="Smoke Title", authors=["A"], source_ref=pdf_path),
+                    pages=[
+                        PageV2(
+                            page_index=0,
+                            width=595.0,
+                            height=842.0,
+                            blocks=[BlockV2(block_id="b1", lines=[LineV2(line_id="l1", text="x", spans=[SpanV2(span_id="s1", text="x")])])],
+                        )
+                    ],
+                    tables=[],
+                )
+
+        reset_calls: list[str] = []
+
+        class FakeIndexerAgent:
+            def reset_doc_index(self, doc_id: str) -> int:
+                reset_calls.append(doc_id)
+                return 3
+
+            def process(self, doc):
+                return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+        class FakeReaderAgent:
+            def analyze(self, doc):
+                return ClaimSet(
+                    doc_id=doc.document_id,
+                    claims=[ScientificClaim(claim_id="c1", type="efficacy", statement="claim", confidence=0.9)],
+                )
+
+        monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+        monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+        monkeypatch.setattr(job_runner_mod, "ReaderAgent", FakeReaderAgent)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id=paper_id,
+            clean_reindex=True,
+            run_verify=False,
+            persona_id="default",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        assert done.clean_reindex == 1
+        assert reset_calls == [paper_id]
+
+        artifact_dir = Path(done.artifact_dir)
+        meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        assert meta["clean_reindex_requested"] is True
+        assert meta["clean_reindex_applied"] is True
+        assert meta["clean_reindex_removed_chunks"] == 3
+    finally:
+        db_utils.DB_PATH = original_db_path
