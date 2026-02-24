@@ -33,7 +33,7 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
-## PR-QA-Jobs-Events-Persistence (In Progress)
+## PR-QA-Jobs-Events-Persistence (Completed)
 - Title: `test(api): add jobs events stream + queue persistence regression guards`
 - Priority: Medium
 - Purpose: Lock API runtime guarantees for `/jobs/{id}/events` terminal delivery and DB-backed queue state persistence across queue instances.
@@ -41,6 +41,7 @@
   - [done] `tests/test_jobs_events_persistence.py` 추가.
   - [done] SSE endpoint response includes `status/log/done` events for completed jobs.
   - [done] `JobQueue` state persistence across new queue objects (`queued -> running`) 회귀 확인.
+  - [done] merged via PR #52 (`ef56dbb`).
 
 ## PR-BE-Downloader-Router-Runtime-Attach (Completed)
 - Title: `feat(downloader): runtime-safe provider chain attach + CLI compatibility`
