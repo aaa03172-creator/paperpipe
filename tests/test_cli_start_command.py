@@ -85,4 +85,5 @@ def test_start_returns_zero_when_backend_exits_cleanly(monkeypatch, tmp_path: Pa
 
     assert result.exit_code == 0
     assert "Backend:" in result.output
+    assert "/ui" in result.output
     assert terminate_calls["count"] == 1
