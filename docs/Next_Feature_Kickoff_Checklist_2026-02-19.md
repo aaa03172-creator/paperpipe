@@ -1,8 +1,8 @@
 # Next Feature Kickoff Checklist (2026-02-19)
 
 Status Update (2026-02-24):
-- post-merge runtime/QA batches through PR #54 are merged on `master`.
-- remaining hygiene item: keep code/docs PR split stricter (PR #51 had mixed scope).
+- post-merge runtime/QA batches through PR #60 are merged on `master`.
+- PR hygiene guard added: mixed code/docs PRs are blocked by default via `pr-scope-guard` workflow.
 
 ## 1) Baseline Sync
 - [x] 현재 브랜치 확인: `codex/*` 작업 브랜치 정책으로 운영
@@ -27,7 +27,7 @@ Status Update (2026-02-24):
 - [x] 런타임 경로 영향 시 `worker -> job_runner` 스모크 재실행
 
 ## 5) PR Hygiene
-- [ ] 코드 PR과 문서 PR 분리
+- [x] 코드 PR과 문서 PR 분리
 - [x] PR 본문에 Scope / AC / Test Commands / Artifact Paths 포함
 - [x] 비관련 변경 파일 제외 후 스테이징
 
