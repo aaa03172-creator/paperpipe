@@ -56,6 +56,16 @@
   - [done] exporter 관련 테스트 세트 통과 (`17 passed`).
   - [done] merged via PR #63 (`51df851`).
 
+## PR-QA-Top3-Feedback-Injection-Regression (In Progress)
+- Title: `test(job-runner): verify Top-3 feedback injection is applied to persona context`
+- Priority: Medium
+- Purpose: Provide direct regression evidence for Phase 4 milestone (`Top-3` dynamic injection + log visibility).
+- Scope:
+  - [done] `tests/test_job_runner_persona.py`에 runtime-style regression 추가.
+  - [done] ReaderAgent `persona_hint`에 `Similar feedback examples (Top-3)` 주입 확인.
+  - [done] progress event 로그(`Similar feedback injected: N`)와 `bootstrap_meta`(`similar_feedback_count`, `similar_feedback_paper_ids`) 확인.
+  - [done] 관련 회귀 세트 통과 (`9 passed`).
+
 ## PR-QA-PR-Scope-Guard (Completed)
 - Title: `chore(ci): enforce docs/code PR scope split guard`
 - Priority: Medium
