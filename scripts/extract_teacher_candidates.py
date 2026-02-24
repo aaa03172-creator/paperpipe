@@ -71,7 +71,9 @@ def _is_test_fixture_record(paper_id: str, pdf_path: str | None) -> bool:
     pid = str(paper_id or "")
     path = str(pdf_path or "").replace("\\", "/")
     return (
-        "_test_" in pid
+        pid.startswith("test_")
+        or pid.startswith("fixture_")
+        or "_test_" in pid
         or pid.startswith("integration_test_")
         or pid == "phase0_test"
         or "/tests/" in path
