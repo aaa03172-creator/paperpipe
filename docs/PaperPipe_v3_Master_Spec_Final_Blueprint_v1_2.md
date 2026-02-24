@@ -491,7 +491,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 
 #### Phase 5 (Obsidian Integration)
 - [x] `{CiteKey}.md` 업데이트가 idempotent(중복 폭증 없음)
-- [ ] related papers/근거 링크 섹션 생성
+- [x] related papers/근거 링크 섹션 생성
 
 ---
 
