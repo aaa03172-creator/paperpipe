@@ -31,14 +31,18 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert resp.status_code == 200
         payload = resp.json()
         job_id = payload["job_id"]
+        run_id = payload["run_id"]
         assert payload["status"] == "queued"
+        assert run_id is not None
 
         queued = client.get(f"/jobs/{job_id}")
         assert queued.status_code == 200
         queued_data = queued.json()
         assert queued_data["status"] == "queued"
+        assert queued_data["run_id"] == run_id
         assert queued_data["persona_id"] == "smoke-persona"
         assert queued_data["run_verify"] == 1
+        assert queued_data["clean_reindex"] == 0
         assert queued_data["bootstrap_meta_path"] is None
         assert queued_data["similar_feedback_count"] is None
         assert queued_data["persona_applied"] is None
@@ -55,6 +59,13 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["claimset_ops_alert"] is None
         assert queued_data["claimset_ops_note"] is None
 
+        run_queued = client.get(f"/runs/{run_id}")
+        assert run_queued.status_code == 200
+        run_queued_data = run_queued.json()
+        assert run_queued_data["job_id"] == job_id
+        assert run_queued_data["run_id"] == run_id
+        assert run_queued_data["clean_reindex"] == 0
+
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
         queue = JobQueue()
         claimed = queue.claim_next_job()
@@ -67,10 +78,12 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             paper_id: str,
             persona_id: str = "default",
             run_verify: bool = False,
+            clean_reindex: bool = False,
             run_id: str = None,
             progress_callback=None,
             cancel_check=None,
         ):
+            assert clean_reindex is False
             if progress_callback:
                 await progress_callback(
                     {
@@ -207,6 +220,63 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_clean_reindex_flag_reaches_worker(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        resp = client.post(
+            "/jobs/deepread",
+            json={
+                "paper_id": "paper_clean_reindex_001",
+                "clean_reindex": True,
+                "run_verify": False,
+                "persona_id": "default",
+            },
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+        run_id = resp.json()["run_id"]
+
+        queue = JobQueue()
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        assert claimed.clean_reindex == 1
+
+        async def fake_run_deepread_job(
+            job_id: str,
+            paper_id: str,
+            persona_id: str = "default",
+            run_verify: bool = False,
+            clean_reindex: bool = False,
+            run_id: str | None = None,
+            progress_callback=None,
+            cancel_check=None,
+        ):
+            assert clean_reindex is True
+            return {
+                "status": "succeeded",
+                "run_id": run_id,
+                "artifact_dir": f"storage/artifacts/{paper_id}/{run_id}",
+            }
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["status"] == "completed"
+        assert payload["run_id"] == run_id
+        assert payload["clean_reindex"] == 1
     finally:
         db_utils.DB_PATH = original_db_path
 
