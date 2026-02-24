@@ -32,8 +32,10 @@
 - `PR-OPS-Orphan-PaperRef-Cleanup`
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
+- `PR-DOC-DoD-Milestone-Sync`
+- `PR-BE-Exporter-Related-Papers`
 
-## PR-DOC-DoD-Milestone-Sync (In Progress)
+## PR-DOC-DoD-Milestone-Sync (Completed)
 - Title: `docs(spec): sync Phase DoD checkboxes with implemented runtime evidence`
 - Priority: Medium
 - Purpose: Align milestone checkboxes in v3 master specs with current merged behavior/tests.
@@ -41,8 +43,9 @@
   - [done] Phase 1 API milestones checked (`/papers`, `pdf_exists`, missing-path signaling).
   - [done] Phase 2 job/SSE/restart milestones checked.
   - [done] Phase 4/5 중 검증 근거 있는 항목만 conservative하게 체크.
+  - [done] merged via PR #62 (`ab06d53`).
 
-## PR-BE-Exporter-Related-Papers (In Progress)
+## PR-BE-Exporter-Related-Papers (Completed)
 - Title: `feat(exporter): add related papers block using shared tags on run_export`
 - Priority: Medium
 - Purpose: Close Phase 5 UX gap so exported notes show immediate local navigation context.
@@ -51,6 +54,7 @@
   - [done] 기존 claim evidence 링크/critical review 섹션 동작 유지.
   - [done] `tests/test_exporter_obsidian_path.py` 회귀 테스트 추가(related block 렌더링 검증).
   - [done] exporter 관련 테스트 세트 통과 (`17 passed`).
+  - [done] merged via PR #63 (`51df851`).
 
 ## PR-QA-PR-Scope-Guard (Completed)
 - Title: `chore(ci): enforce docs/code PR scope split guard`
