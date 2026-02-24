@@ -85,6 +85,91 @@ def _sanitize_frontmatter_tag(tag: Any) -> Optional[str]:
     value = re.sub(r"_+", "_", value).strip("_")
     return value or None
 
+def _parse_feedback_payload(raw_feedback: Any) -> Dict[str, Any]:
+    if isinstance(raw_feedback, dict):
+        return raw_feedback
+    if isinstance(raw_feedback, str):
+        try:
+            parsed = json.loads(raw_feedback)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+def _extract_obsidian_tags(feedback: Dict[str, Any]) -> List[str]:
+    tags: List[str] = []
+    hard_tags = feedback.get("hard_tags", {}) if isinstance(feedback, dict) else {}
+    study_type = hard_tags.get("study_type") if isinstance(hard_tags, dict) else None
+    if study_type:
+        safe_study_type = _sanitize_frontmatter_tag(study_type)
+        if safe_study_type:
+            tags.append(f"Type/{safe_study_type}")
+    soft_tags = feedback.get("soft_tags", []) if isinstance(feedback, dict) else []
+    if isinstance(soft_tags, list):
+        for raw_tag in soft_tags:
+            safe_tag = _sanitize_frontmatter_tag(raw_tag)
+            if safe_tag:
+                tags.append(safe_tag)
+    return tags
+
+def _candidate_obsidian_relpath(candidate: Dict[str, Any]) -> str:
+    relpath = str(candidate.get("obsidian_path") or "").strip()
+    if relpath:
+        return relpath.replace("\\", "/")
+    paper_id = str(candidate.get("paper_id") or "").strip()
+    if not paper_id:
+        return "Inbox/PaperPipe/paper.md"
+    return _expected_obsidian_relpath_for_paper_id(paper_id)
+
+def _build_related_papers_block(
+    paper: Dict[str, Any],
+    feedback: Dict[str, Any],
+    related_candidates: Optional[List[Dict[str, Any]]],
+) -> str:
+    if not related_candidates:
+        return ""
+
+    current_paper_id = str(paper.get("paper_id") or "").strip()
+    current_tags = set(_extract_obsidian_tags(feedback))
+    if not current_tags:
+        return ""
+
+    related_rows: List[tuple[int, str, str]] = []
+    for candidate in related_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(candidate.get("paper_id") or "").strip()
+        if not candidate_id or candidate_id == current_paper_id:
+            continue
+        candidate_status = str(candidate.get("status") or "").upper()
+        if candidate_status and candidate_status not in {"APPROVED", "INDEXED"}:
+            continue
+
+        candidate_feedback = _parse_feedback_payload(candidate.get("feedback_json"))
+        candidate_tags = set(_extract_obsidian_tags(candidate_feedback))
+        if not candidate_tags:
+            continue
+
+        overlap = sorted(current_tags.intersection(candidate_tags))
+        if not overlap:
+            continue
+
+        title = str(candidate.get("title") or candidate_id).strip() or candidate_id
+        note_relpath = _candidate_obsidian_relpath(candidate)
+        if note_relpath.endswith(".md"):
+            note_relpath = note_relpath[:-3]
+        overlap_label = ", ".join(overlap[:3])
+        line = f"- [[{note_relpath}|{title}]] (shared tags: {overlap_label})"
+        related_rows.append((len(overlap), title.lower(), line))
+
+    if not related_rows:
+        return ""
+
+    related_rows.sort(key=lambda item: (-item[0], item[1]))
+    lines = ["## 🔗 Related Papers"]
+    lines.extend(item[2] for item in related_rows[:5])
+    return "\n".join(lines) + "\n"
+
 def _extract_claimset_claims(feedback: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     if not isinstance(feedback, dict):
         return None
@@ -361,7 +446,12 @@ def _auto_skip_test_fixture_followups(conn: sqlite3.Connection, paper: Dict[str,
     )
     return cur.rowcount
 
-def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite: bool = False) -> bool:
+def export_paper_to_markdown(
+    paper: Dict[str, Any],
+    vault_path: Path,
+    overwrite: bool = False,
+    related_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
     """
     Exports a single paper to an Obsidian Markdown file.
     Returns True if exported, False if skipped (exists and not overwrite).
@@ -379,7 +469,6 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
         feedback = {}
         
     hard_tags = feedback.get('hard_tags', {})
-    soft_tags = feedback.get('soft_tags', [])
     confidence = paper.get('confidence') # Use top-level confidence if available, else feedback
     if confidence is None:
         confidence = feedback.get('confidence', 0.0)
@@ -389,18 +478,8 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
     # Tags
     obsidian_tags = []
     
-    # Hard Tags as Type/Value
-    study_type = hard_tags.get('study_type')
-    if study_type:
-        # Sanitize space -> _ or just remove
-        safe_type = str(study_type).replace(" ", "_")
-        obsidian_tags.append(f"Type/{safe_type}")
-        
-    # Soft Tags
-    for tag in soft_tags:
-        safe_tag = _sanitize_frontmatter_tag(tag)
-        if safe_tag:
-            obsidian_tags.append(safe_tag)
+    # Hard/soft tags from feedback_json (YAML-safe frontmatter format).
+    obsidian_tags.extend(_extract_obsidian_tags(feedback))
             
     # Verdict text
     verdict = "❓ Unknown"
@@ -441,6 +520,7 @@ def export_paper_to_markdown(paper: Dict[str, Any], vault_path: Path, overwrite:
     institutional_block = _build_institutional_download_block(paper, feedback)
     claimset_claims = resolve_claimset_claims(paper, feedback)
     claimset_block = _format_claimset_section(paper, claimset_claims)
+    related_papers_block = _build_related_papers_block(paper, feedback, related_candidates)
 
     # Date
     today = datetime.now().strftime("%Y-%m-%d")
@@ -469,6 +549,7 @@ status: {paper['status']}
 {findings_list}
 
 {claimset_block}
+{related_papers_block}
 
 ## 🔗 References
 {references_block}
@@ -583,7 +664,7 @@ def run_export(overwrite: bool = True):
             # Backward compatibility for legacy test schemas without pdf_status.
             pass
 
-        if export_paper_to_markdown(p, vault_path, overwrite):
+        if export_paper_to_markdown(p, vault_path, overwrite, related_candidates=papers):
             count += 1
             try:
                 cursor.execute(

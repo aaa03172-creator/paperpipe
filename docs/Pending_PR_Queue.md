@@ -42,6 +42,16 @@
   - [done] Phase 2 job/SSE/restart milestones checked.
   - [done] Phase 4/5 중 검증 근거 있는 항목만 conservative하게 체크.
 
+## PR-BE-Exporter-Related-Papers (In Progress)
+- Title: `feat(exporter): add related papers block using shared tags on run_export`
+- Priority: Medium
+- Purpose: Close Phase 5 UX gap so exported notes show immediate local navigation context.
+- Scope:
+  - [done] `export_paper_to_markdown`에 `## 🔗 Related Papers` 블록 생성(공유 태그 기준, 최대 5개).
+  - [done] 기존 claim evidence 링크/critical review 섹션 동작 유지.
+  - [done] `tests/test_exporter_obsidian_path.py` 회귀 테스트 추가(related block 렌더링 검증).
+  - [done] exporter 관련 테스트 세트 통과 (`17 passed`).
+
 ## PR-QA-PR-Scope-Guard (Completed)
 - Title: `chore(ci): enforce docs/code PR scope split guard`
 - Priority: Medium
