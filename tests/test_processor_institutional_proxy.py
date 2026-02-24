@@ -14,6 +14,7 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
         summary="s",
         link="https://publisher.example/paper",
         local_pdf_path=None,
+        download_attempts=[],
     )
 
     fake_slot = SimpleNamespace(query="memory")
@@ -36,7 +37,8 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
     monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
     monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_: None)
     monkeypatch.setattr(processor, "export_to_ris", lambda *_: None)
-    monkeypatch.setattr(processor, "save_paper_state", lambda *_: None)
+    saved_calls = []
+    monkeypatch.setattr(processor, "save_paper_state", lambda *args, **kwargs: saved_calls.append((args, kwargs)))
 
     rows = processor.process_daily_slots(ignore_db=True)
     assert len(rows) == 1
@@ -45,4 +47,6 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
     assert "feedback_json" in row
     assert "institutional_proxy_url" in row["feedback_json"]
     assert "libproxy.knu.ac.kr" in row["feedback_json"]
-
+    assert len(saved_calls) == 1
+    assert "download_attempts" in saved_calls[0][1]
+    assert saved_calls[0][1]["download_attempts"] == []
