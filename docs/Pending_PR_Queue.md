@@ -36,8 +36,10 @@
 - `PR-BE-Exporter-Related-Papers`
 - `PR-QA-Top3-Feedback-Injection-Regression`
 - `PR-BE-Downloader-Ops-Metrics-API`
+- `PR-CLI-Start-Entrypoint`
+- `PR-QA-CLI-Start-Regression-Coverage`
 
-## PR-CLI-Start-Entrypoint (In Progress)
+## PR-CLI-Start-Entrypoint (Completed)
 - Title: `feat(cli): add local start command and project script entrypoints`
 - Priority: Medium
 - Purpose: Improve local runtime launch UX by adding a single command to preflight/start backend and open docs/UI.
@@ -46,6 +48,16 @@
   - [done] `entrypoint()` 분리로 console script 진입점 안정화.
   - [done] `pyproject.toml`에 script entrypoints 추가 (`paperpipe`, `lattice`).
   - [done] 기존 CLI/API 회귀 세트 통과 (`tests/test_cli_deepread_upsert.py`, `tests/test_jobs_api_smoke.py`, `tests/test_papers_api.py`).
+  - [done] merged via PR #69 (`f42d969`).
+
+## PR-QA-CLI-Start-Regression-Coverage (Completed)
+- Title: `test(cli): add start command regression coverage`
+- Priority: Medium
+- Purpose: Lock launcher fail-safe behavior after `start` command rollout and prevent runtime startup regressions.
+- Scope:
+  - [done] `tests/test_cli_start_command.py` 추가 (port in-use, healthcheck timeout, clean exit).
+  - [done] CLI 회귀 세트 통과 (`tests/test_cli_start_command.py`, `tests/test_cli_smoke_db_paths.py`, `tests/test_cli_unpaywall_smoke.py`, `tests/test_cli_deepread_upsert.py`).
+  - [done] merged via PR #70 (`286a2a4`).
 
 ## PR-BE-Downloader-Ops-Metrics-API (Completed)
 - Title: `feat(ops): expose downloader metrics via API and shared service module`
