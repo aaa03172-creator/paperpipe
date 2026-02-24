@@ -33,6 +33,14 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
+## PR-QA-Jobs-Restart-Persistence (In Progress)
+- Title: `test(api): verify jobs status/events survive backend reload`
+- Priority: Medium
+- Purpose: Add regression guard for the Phase-2 DoD item "server restart preserves job status/logs".
+- Scope:
+  - [done] backend module reload scenario keeps `/jobs/{id}` status/progress/stage/log_path readable.
+  - [done] post-reload `/jobs/{id}/events` still emits `status/log/done` for terminal jobs.
+
 ## PR-QA-Papers-API-Contract (Completed)
 - Title: `test(api): expand /papers contract regression coverage`
 - Priority: Medium
