@@ -33,7 +33,7 @@
 - `PR-BE-V2-EventLog-Followups`
 - `PR-OPS-Backfill-Outputs`
 
-## PR-BE-Downloader-Router-Runtime-Attach (In Progress)
+## PR-BE-Downloader-Router-Runtime-Attach (Completed)
 - Title: `feat(downloader): runtime-safe provider chain attach + CLI compatibility`
 - Priority: High
 - Purpose: Make downloader router defaults fully active in runtime while preserving existing CLI smoke command compatibility.
@@ -42,6 +42,7 @@
   - [done] provider HTTP policy defaults now include `arxiv` and `pmc`.
   - [done] compatibility helper `_fetch_oa_link` re-exposed via `src.downloader` for `src/cli.py:test_unpaywall`.
   - [done] downloader regression tests updated/expanded (provider order + compatibility helper).
+  - [done] merged via PR #50 (`f874dc7`).
 
 ## PR-BE-H0-Canonical-PaperID (Completed)
 - Title: `feat(core): canonical paper_id issuance and normalization utilities`
