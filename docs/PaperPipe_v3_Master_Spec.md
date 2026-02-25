@@ -266,6 +266,8 @@
   - 목록: `{paper_id, citekey, title, year, pdf_exists, last_run_status?}`
 - `GET /papers/{paper_id}`  
   - 상세 메타 + pdf_path + preflight 결과
+- `GET /papers/{paper_id}/pdf`
+  - 등록된 원문 PDF 바이너리 스트림 반환(`application/pdf`)
 
 #### Personas (YAML registry)
 - `GET /personas?include_disabled=false`
@@ -276,6 +278,9 @@
 - `POST /jobs/deepread`  
   - body: `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`)
   - response: `{job_id, run_id, status:"queued"}`
+  - 충돌/백프레셔:
+    - `409 JOB_ALREADY_OPEN` (동일 `paper_id` 열린 job 존재)
+    - `429 QUEUE_FULL` (`LATTICE_MAX_QUEUED_JOBS` 상한 초과)
   - `clean_reindex=true`일 때, 기존 `doc_id` 벡터를 purge 후 재인덱싱
 - `GET /jobs/{job_id}`  
   - `{status, progress, started_at, finished_at, run_id, error?}`
@@ -308,6 +313,7 @@
 | UI Surface | API | Request Contract | Response Contract |
 | :--- | :--- | :--- | :--- |
 | Navigation Rail 논문 목록 | `GET /papers` | query 없음 | papers 배열 (`paper_id`, `citekey`, `title`, `pdf_exists`, `last_run_status?`) |
+| PDF Renderer 패널 | `GET /papers/{paper_id}/pdf` | path `paper_id` | PDF binary (`application/pdf`) |
 | Persona 선택 드롭다운 | `GET /personas` | query `include_disabled?` | `PersonaListResponse` (`default` + YAML persona) |
 | Run 버튼(Deep Read 시작) | `POST /jobs/deepread` | `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`) | `JobEnqueueResponse` (`job_id`, `run_id`, `status`) |
 | Job 상태 배지/진행률 | `GET /jobs/{job_id}` | path `job_id` | `JobStatus` |
@@ -574,7 +580,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 - [x] 서버 재시작 후에도 job 상태/로그 보존
 
 #### Phase 3 (Control UI)
-- [ ] UI에서 논문 선택→deepread 실행→artifact 렌더링
+- [x] UI에서 논문 선택→deepread 실행→artifact 렌더링(`GET /ui` + `GET /papers/{paper_id}/pdf`)
 - [x] persona 선택이 YAML 기반으로 반영(코드 수정 없이, `GET /personas` + `persona_id`)
 
 #### Phase 4 (HITL & Verification)
@@ -642,6 +648,10 @@ paperpipe/
 - 동시 실행 제한(예: `max_concurrent_jobs=1~N`)을 config로 제공
 - 같은 `paper_id`에 대해 동시에 2개 deepread 실행 금지(락/세마포어)
 - 큐 길이 상한 및 “거절(429)” 정책 명시
+- 현재 구현(2026-02-25):
+  - worker claim 시 동시 실행 상한 `LATTICE_MAX_CONCURRENT_JOBS`(legacy: `PAPERPIPE_MAX_CONCURRENT_JOBS`, 기본값 `1`) 적용
+  - `POST /jobs/deepread`는 같은 `paper_id`의 열린 job(`queued|running`)이 존재하면 `409 JOB_ALREADY_OPEN` 반환
+  - 큐 상한은 `LATTICE_MAX_QUEUED_JOBS`(legacy: `PAPERPIPE_MAX_QUEUED_JOBS`)로 제어, 초과 시 `429 QUEUE_FULL`
 
 ### 18.3 취소(Cancel) 의미론 — 필수
 - `POST /jobs/{id}/cancel`은 “요청 접수”일 뿐, 즉시 중단이 아님  
@@ -659,6 +669,10 @@ paperpipe/
 - `llm_params`(temperature, top_p, num_ctx 등)
 - `embed_params`(chunking, embed model)
 - `tool_policy_version`(샌드박스/도구 호출 제한 버전)
+- 현재 구현(2026-02-25):
+  - worker가 `storage/artifacts/{paper_id}/{run_id}/run_meta.json` 생성
+  - `pdf_sha256`, `pdf_mtime`, `llm_params`, `embed_params`, `models_used`, `tool_policy_version` 기록
+  - `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 `config.yaml`, `config/profiles.yaml` 스냅샷(존재 시) 저장
 
 > 권장: run 시작 시점에 `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 config/prompt를 복사해 “나중에 바뀌어도 과거 run 재현 가능”하게 한다.
 
@@ -667,6 +681,7 @@ paperpipe/
 - 옵션: 간단한 **API Key 헤더 인증**(예: `X-API-Key`) 지원
 - CORS는 `frontend` 오리진만 허용(와일드카드 금지)
 - 로그/응답에 로컬 파일 절대경로를 그대로 노출하지 않도록 마스킹 옵션 제공
+- 현재 기본값: `http://127.0.0.1:8000`, `http://localhost:8000` (환경변수로 확장 가능)
 
 ### 18.6 SSE 안정성 — 권장
 - 15~30초 간격 `ping` 이벤트로 커넥션 유지(프록시 타임아웃 방지)
@@ -680,6 +695,9 @@ paperpipe/
 - 파일 락(동시 업데이트 방지)
 - 섹션 replace는 “명확한 마커”로 구간을 잡아 덮어쓰기:
   - 예: `<!-- BEGIN CLAIMS --> ... <!-- END CLAIMS -->`
+- 현재 구현(2026-02-25):
+  - `POST /obsidian/sync`에서 노트 단위 락(`.<note>.lock`) 후 atomic rename(`os.replace`) 적용
+  - 기존 AI 블록(`<!-- AI_AGENT_START --> ... <!-- AI_AGENT_END -->`)은 append 대신 구간 교체
 
 ### 18.8 비용 관리(로컬 자원) — 권장
 - Ollama 모델별 메모리/VRAM 요구사항을 문서화
@@ -697,6 +715,7 @@ paperpipe/
 
 ### 17.1 구현-명세 패리티 점검 (2026-02-24)
 - 반영 완료:
+  - `GET /papers/{paper_id}/pdf` (Control UI PDF renderer source)
   - `GET /personas` (UI persona selector, YAML registry)
   - `GET /artifacts/{paper_id}/latest`
   - `GET /artifacts/{paper_id}/{run_id}`
@@ -706,10 +725,16 @@ paperpipe/
   - `GET /feedback` (filter: `paper_id`, `run_id`, `limit`)
   - `POST /jobs/deepread` 응답에 `run_id` 포함
   - `clean_reindex` 런타임 연결(큐 플래그 -> worker -> index reset)
+  - `run_meta.json` 재현성 필드 기록 + snapshots 복사(config/profiles)
   - SSE `Last-Event-ID` 기반 로그 replay(`log-*`), terminal replay(`done-*`)
+  - SSE `retry` 힌트(2s) + heartbeat ping(20s)
+  - CORS 기본 정책 localhost 제한 + 환경변수 확장(`LATTICE_CORS_ALLOW_ORIGINS`)
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)
+  - `POST /obsidian/sync` (note-level lock + atomic write + marker-block replace)
+  - `POST /jobs/deepread` duplicate guard (`paper_id` open job 충돌 시 409)
+  - `POST /jobs/deepread` queue backpressure (`LATTICE_MAX_QUEUED_JOBS` 초과 시 429)
 - 추적 필요(후속):
   - 없음(현 시점 기준 API/런타임 패리티 항목 소진)
 
