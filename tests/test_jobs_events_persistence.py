@@ -60,6 +60,7 @@ def test_jobs_events_stream_emits_status_log_and_done_for_terminal_job(tmp_path,
         assert "status" in names
         assert "log" in names
         assert names.count("done") == 1
+        assert "retry: 2000" in response.text
 
         status_payload = json.loads(next(e["data"] for e in events if e.get("event") == "status"))
         assert status_payload["status"] == "completed"

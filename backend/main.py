@@ -11,7 +11,7 @@ from typing import Any
 
 import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
-from src.jobs.queue import JobQueue
+from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.schemas.ops import (
     ArtifactBundleResponse,
@@ -26,11 +26,23 @@ from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from .routers import obsidian, feedback
 
+def _resolve_cors_allow_origins() -> list[str]:
+    raw = (
+        os.getenv("LATTICE_CORS_ALLOW_ORIGINS")
+        or os.getenv("PAPERPIPE_CORS_ALLOW_ORIGINS")
+        or ""
+    ).strip()
+    if not raw:
+        return ["http://127.0.0.1:8000", "http://localhost:8000"]
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_resolve_cors_allow_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -38,6 +50,7 @@ app.add_middleware(
 queue = JobQueue()
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
+UI_SHELL_PATH = FRONTEND_DIR / "ui-shell.html"
 
 if FRONTEND_DIR.exists():
     app.mount("/ui-assets", StaticFiles(directory=str(FRONTEND_DIR)), name="ui-assets")
@@ -213,6 +226,30 @@ def _job_for_run_id(run_id: str) -> JobStatus | None:
         conn.close()
 
 
+def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[JobStatus]:
+    conn = get_db_connection()
+    try:
+        where: list[str] = []
+        params: list[Any] = []
+        if paper_id:
+            where.append("paper_id = ?")
+            params.append(paper_id)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+
+        query = "SELECT * FROM jobs"
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY COALESCE(finished_at, started_at, created_at) DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [_with_bootstrap_meta_path(JobStatus(**dict(row))) for row in rows]
+    finally:
+        conn.close()
+
+
 def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEvent]:
     events: list[RunTimelineEvent] = []
     if job.log_path and Path(job.log_path).exists():
@@ -366,9 +403,11 @@ def list_personas(include_disabled: bool = Query(default=False)):
 
 @app.get("/ui", include_in_schema=False)
 def ui_shell():
-    if not FRONTEND_INDEX_PATH.exists():
-        raise HTTPException(status_code=404, detail=f"UI shell not found: {FRONTEND_INDEX_PATH}")
-    return FileResponse(FRONTEND_INDEX_PATH)
+    if UI_SHELL_PATH.exists():
+        return FileResponse(UI_SHELL_PATH)
+    if FRONTEND_INDEX_PATH.exists():
+        return FileResponse(FRONTEND_INDEX_PATH)
+    raise HTTPException(status_code=404, detail=f"UI shell not found: {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}")
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
@@ -423,6 +462,25 @@ def get_paper(paper_id: str):
     return item
 
 
+@app.get("/papers/{paper_id}/pdf")
+def get_paper_pdf(paper_id: str):
+    conn = get_db_connection()
+    row = conn.execute("SELECT paper_id, pdf_path FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    raw_pdf_path = str(row["pdf_path"] or "").strip()
+    if not raw_pdf_path:
+        raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+
+    pdf_path = Path(raw_pdf_path).expanduser()
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="PDF file not found")
+
+    return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
+
+
 @app.get("/artifacts/{paper_id}/latest", response_model=ArtifactBundleResponse)
 def get_latest_artifacts(paper_id: str):
     run_id = _latest_run_id_for_paper(paper_id)
@@ -453,14 +511,47 @@ def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
 
 @app.post("/jobs/deepread", response_model=JobEnqueueResponse)
 def enqueue_job(job_req: JobCreate):
-    job_id = queue.enqueue(
-        job_req.paper_id,
-        job_req.clean_reindex,
-        job_req.run_verify,
-        job_req.persona_id,
-    )
+    try:
+        job_id = queue.enqueue(
+            job_req.paper_id,
+            job_req.clean_reindex,
+            job_req.run_verify,
+            job_req.persona_id,
+        )
+    except DuplicateOpenJobError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "JOB_ALREADY_OPEN",
+                "message": f"Open job already exists for paper_id={exc.paper_id}",
+                "paper_id": exc.paper_id,
+                "job_id": exc.job_id,
+                "run_id": exc.run_id,
+                "status": exc.status,
+            },
+        )
+    except QueueBackpressureError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error_code": "QUEUE_FULL",
+                "message": "Queued jobs limit reached",
+                "queued_count": exc.queued_count,
+                "limit": exc.limit,
+            },
+        )
     job = queue.get_job(job_id)
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
+
+
+@app.get("/jobs", response_model=list[JobStatus])
+def list_jobs(
+    paper_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    return _list_jobs(paper_id=paper_id, status=status, limit=limit)
+
 
 @app.get("/jobs/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str):
@@ -522,12 +613,12 @@ async def job_events(job_id: str, request: Request):
                 
             job = queue.get_job(job_id)
             if not job:
-                yield {"event": "error", "data": "Job not found"}
+                yield {"event": "error", "data": "Job not found", "retry": 2000}
                 break
             
             # Send status update
             enriched = _with_bootstrap_meta_path(job)
-            yield {"event": "status", "data": json.dumps(enriched.model_dump(), default=str)}
+            yield {"event": "status", "data": json.dumps(enriched.model_dump(), default=str), "retry": 2000}
 
             if not artifact_announced and job.artifact_dir and Path(job.artifact_dir).exists():
                 yield {
@@ -539,6 +630,7 @@ async def job_events(job_id: str, request: Request):
                             "artifact_dir": job.artifact_dir,
                         }
                     ),
+                    "retry": 2000,
                 }
                 artifact_announced = True
 
@@ -553,21 +645,21 @@ async def job_events(job_id: str, request: Request):
 
             if replay_cursor < total_logs:
                 for idx in range(replay_cursor + 1, total_logs + 1):
-                    yield {"id": f"log-{idx}", "event": "log", "data": log_lines[idx - 1]}
+                    yield {"id": f"log-{idx}", "event": "log", "data": log_lines[idx - 1], "retry": 2000}
                 replay_cursor = total_logs
                 replay_kind = "log"
 
             if job.status in TERMINAL_JOB_STATUSES:
                 terminal_seq = total_logs + 1
                 if replay_cursor < terminal_seq:
-                    yield {"id": f"done-{terminal_seq}", "event": "done", "data": job.status}
+                    yield {"id": f"done-{terminal_seq}", "event": "done", "data": job.status, "retry": 2000}
                     replay_cursor = terminal_seq
                     replay_kind = "done"
                 break
 
             await asyncio.sleep(1)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=20)
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
