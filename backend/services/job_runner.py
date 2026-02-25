@@ -5,6 +5,8 @@ import logging
 import traceback
 import csv
 import sqlite3
+import hashlib
+import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Awaitable, Optional, List
@@ -15,7 +17,7 @@ from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
-from src.profiles.profile_store import load_profiles
+from src.profiles.profile_store import DEFAULT_PROFILE_PATH, load_profiles
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
     build_stats_markdown,
@@ -180,6 +182,61 @@ def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
         logger.warning("Failed to write bootstrap_meta.json: %s", exc)
 
 
+def _write_run_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
+    try:
+        with open(artifact_dir / "run_meta.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to write run_meta.json: %s", exc)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _snapshot_copy(source: Path, target: Path) -> Optional[str]:
+    if not source.exists():
+        return None
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return str(target)
+    except Exception as exc:
+        logger.warning("Snapshot copy failed (%s -> %s): %s", source, target, exc)
+        return None
+
+
+def _collect_llm_params(config: Any) -> Dict[str, Any]:
+    llm = getattr(config, "llm", None)
+    local = getattr(llm, "local", None) if llm is not None else None
+    cloud = getattr(llm, "cloud", None) if llm is not None else None
+    return {
+        "mode": getattr(llm, "mode", None),
+        "timeout_seconds": getattr(llm, "timeout_seconds", None),
+        "max_retries": getattr(llm, "max_retries", None),
+        "provider_local": getattr(local, "provider", None) if local is not None else None,
+        "provider_cloud": getattr(cloud, "provider", None) if cloud is not None else None,
+    }
+
+
+def _collect_embed_params(config: Any) -> Dict[str, Any]:
+    llm = getattr(config, "llm", None)
+    local = getattr(llm, "local", None) if llm is not None else None
+    models = getattr(local, "models", None) if local is not None else None
+    embed_model = models.get("embedder") if isinstance(models, dict) else None
+    return {
+        "chunking": None,
+        "embed_model": embed_model,
+    }
+
+
 def _enqueue_needs_reader_followup(paper_id: str, reason: str) -> str:
     """
     Best-effort operational follow-up for not-ready claimsets.
@@ -239,6 +296,7 @@ async def run_deepread_job(
     queue = JOB_QUEUES.get(job_id)
     artifact_dir: Optional[Path] = None
     bootstrap_meta: Optional[Dict[str, Any]] = None
+    run_meta: Optional[Dict[str, Any]] = None
 
     async def is_cancelled() -> bool:
         if not cancel_check:
@@ -265,6 +323,16 @@ async def run_deepread_job(
         if progress_callback:
             await progress_callback(event)
         return event
+
+    def _mark_run_meta(status: str, **extra: Any) -> None:
+        if artifact_dir is None or run_meta is None:
+            return
+        run_meta["status"] = status
+        run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if status in {"succeeded", "failed", "cancelled"}:
+            run_meta["finished_at"] = run_meta["updated_at"]
+        run_meta.update(extra)
+        _write_run_meta(artifact_dir, run_meta)
 
     try:
         if await is_cancelled():
@@ -303,6 +371,31 @@ async def run_deepread_job(
         # Prepare Artifact Storage
         artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
         artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        snapshots_dir = artifact_dir / "snapshots"
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        run_meta = {
+            "job_id": job_id,
+            "run_id": run_id,
+            "paper_id": paper_id,
+            "persona_id": persona_id,
+            "run_verify": bool(run_verify),
+            "clean_reindex_requested": bool(clean_reindex),
+            "pdf_path": str(pdf_path),
+            "pdf_sha256": _sha256_file(pdf_path),
+            "pdf_mtime": datetime.fromtimestamp(pdf_path.stat().st_mtime, timezone.utc).isoformat(),
+            "config_snapshot": _snapshot_copy(Path("config.yaml"), snapshots_dir / "config.yaml"),
+            "prompts_snapshot": _snapshot_copy(DEFAULT_PROFILE_PATH, snapshots_dir / "profiles.yaml"),
+            "models_used": {"reader": None, "verifier": None},
+            "llm_params": _collect_llm_params(config),
+            "embed_params": _collect_embed_params(config),
+            "tool_policy_version": "v1",
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_run_meta(artifact_dir, run_meta)
+
         bootstrap_meta = {
             "job_id": job_id,
             "run_id": run_id,
@@ -337,6 +430,7 @@ async def run_deepread_job(
         
         # 2. Ingest
         if await is_cancelled():
+            _mark_run_meta("cancelled")
             return {"status": "cancelled", "run_id": run_id}
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
@@ -356,6 +450,7 @@ async def run_deepread_job(
 
         # 3. Index
         if await is_cancelled():
+            _mark_run_meta("cancelled")
             return {"status": "cancelled", "run_id": run_id}
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
@@ -381,6 +476,7 @@ async def run_deepread_job(
 
         # 4. Read (Claim Extraction)
         if await is_cancelled():
+            _mark_run_meta("cancelled")
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
         persona_hint = _resolve_persona_hint(persona_id)
@@ -405,6 +501,10 @@ async def run_deepread_job(
         main_model = _resolve_main_model(config)
         bootstrap_meta["reader_model"] = main_model
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["models_used"]["reader"] = main_model
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         try:
             reader_agent = ReaderAgent(
                 model_name=main_model,
@@ -455,10 +555,15 @@ async def run_deepread_job(
         # 5. Verify (Optional)
         if run_verify:
             if await is_cancelled():
+                _mark_run_meta("cancelled")
                 return {"status": "cancelled", "run_id": run_id}
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
                 stats_agent = StatsVerificationAgent()
+                if run_meta is not None:
+                    run_meta["models_used"]["verifier"] = stats_agent.__class__.__name__
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
                 # StatsVerificationAgent.run signature:
                 # run(job_id: str, doc: DocumentArtifact|DocumentArtifactV2, claims: ClaimSet)
                 stats_report = stats_agent.run(
@@ -474,6 +579,10 @@ async def run_deepread_job(
                 bootstrap_meta["stats_report_written"] = True
                 bootstrap_meta["artifact_stats_written"] = True
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                if run_meta is not None:
+                    run_meta["verification_status"] = "completed"
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
                     
                 await emit("verify", 95, f"Verified {len(stats_report.checks)} checks")
                 
@@ -481,6 +590,11 @@ async def run_deepread_job(
                 logger.error(f"Verification Failed: {e}")
                 bootstrap_meta["verifier_status"] = "failed"
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                if run_meta is not None:
+                    run_meta["verification_status"] = "failed"
+                    run_meta["verification_error"] = str(e)
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
 
         # 6. Complete
@@ -502,6 +616,7 @@ async def run_deepread_job(
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
+        _mark_run_meta("succeeded")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
         return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
@@ -509,6 +624,7 @@ async def run_deepread_job(
     except Exception as e:
         logger.error(f"Job Failed: {e}")
         traceback.print_exc() # Print trace to stdout for debugging
+        _mark_run_meta("failed", error=str(e), error_type=type(e).__name__)
         if artifact_dir is not None and bootstrap_meta is not None:
             bootstrap_meta["claimset_readiness"] = "unknown"
             bootstrap_meta["claimset_ready"] = None

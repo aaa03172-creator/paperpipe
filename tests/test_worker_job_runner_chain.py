@@ -164,8 +164,18 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "claimset.json").exists()
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
+        assert (artifact_dir / "run_meta.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         assert meta["paper_id"] == paper_id
+        assert run_meta["paper_id"] == paper_id
+        assert run_meta["status"] == "succeeded"
+        assert isinstance(run_meta.get("pdf_sha256"), str)
+        assert len(run_meta["pdf_sha256"]) == 64
+        assert "models_used" in run_meta
+        assert "llm_params" in run_meta
+        assert "embed_params" in run_meta
+        assert run_meta["tool_policy_version"] == "v1"
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
         assert meta["run_verify"] is True
