@@ -4,13 +4,13 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
 
   await page.locator("tbody tr").first().click();
   await expect(page).toHaveURL(/\/workbench\//);
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
 
   await expect(page.locator('iframe[title="Paper PDF"]')).toBeVisible();
   await expect(page.getByText("Cell 1 Claim")).toBeVisible();
@@ -27,6 +27,6 @@ test("encoded paper id route does not crash in workbench", async ({ page }) => {
   await page.goto("/workbench/paper%25id");
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
   await expect(page.getByText("Invalid paper id.")).toHaveCount(0);
 });
