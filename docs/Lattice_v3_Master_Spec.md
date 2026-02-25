@@ -687,6 +687,7 @@ paperpipe/
   - `X-API-Key` 헤더 불일치/누락 시 `401 UNAUTHORIZED`
   - 보호 대상: `POST /jobs/deepread`, `POST /jobs/{id}/cancel`, `POST /feedback`, `POST /obsidian/sync`
   - 응답 경로 마스킹 옵션: `LATTICE_MASK_LOCAL_PATHS=true` (legacy: `PAPERPIPE_MASK_LOCAL_PATHS`)
+  - 운영 예시 문서: `docs/runtime_security_env.md`
 
 ### 18.6 SSE 안정성 — 권장
 - 15~30초 간격 `ping` 이벤트로 커넥션 유지(프록시 타임아웃 방지)
