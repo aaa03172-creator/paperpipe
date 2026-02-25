@@ -50,6 +50,7 @@ app.add_middleware(
 queue = JobQueue()
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
+UI_SHELL_PATH = FRONTEND_DIR / "ui-shell.html"
 
 if FRONTEND_DIR.exists():
     app.mount("/ui-assets", StaticFiles(directory=str(FRONTEND_DIR)), name="ui-assets")
@@ -225,6 +226,30 @@ def _job_for_run_id(run_id: str) -> JobStatus | None:
         conn.close()
 
 
+def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[JobStatus]:
+    conn = get_db_connection()
+    try:
+        where: list[str] = []
+        params: list[Any] = []
+        if paper_id:
+            where.append("paper_id = ?")
+            params.append(paper_id)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+
+        query = "SELECT * FROM jobs"
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY COALESCE(finished_at, started_at, created_at) DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [_with_bootstrap_meta_path(JobStatus(**dict(row))) for row in rows]
+    finally:
+        conn.close()
+
+
 def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEvent]:
     events: list[RunTimelineEvent] = []
     if job.log_path and Path(job.log_path).exists():
@@ -378,9 +403,11 @@ def list_personas(include_disabled: bool = Query(default=False)):
 
 @app.get("/ui", include_in_schema=False)
 def ui_shell():
-    if not FRONTEND_INDEX_PATH.exists():
-        raise HTTPException(status_code=404, detail=f"UI shell not found: {FRONTEND_INDEX_PATH}")
-    return FileResponse(FRONTEND_INDEX_PATH)
+    if UI_SHELL_PATH.exists():
+        return FileResponse(UI_SHELL_PATH)
+    if FRONTEND_INDEX_PATH.exists():
+        return FileResponse(FRONTEND_INDEX_PATH)
+    raise HTTPException(status_code=404, detail=f"UI shell not found: {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}")
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
@@ -515,6 +542,16 @@ def enqueue_job(job_req: JobCreate):
         )
     job = queue.get_job(job_id)
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
+
+
+@app.get("/jobs", response_model=list[JobStatus])
+def list_jobs(
+    paper_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    return _list_jobs(paper_id=paper_id, status=status, limit=limit)
+
 
 @app.get("/jobs/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str):

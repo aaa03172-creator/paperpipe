@@ -1,0 +1,44 @@
+@import "./styles/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: var(--pp-font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--pp-accent) 10%, transparent), transparent 52%),
+    radial-gradient(circle at bottom left, color-mix(in srgb, var(--pp-accent) 9%, transparent), transparent 50%),
+    var(--pp-canvas);
+  color: var(--pp-text-primary);
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-[var(--pp-radius-lg)] border border-[var(--pp-border)] bg-[var(--pp-surface)] shadow-[var(--pp-shadow)];
+  }
+
+  .pp-hatch {
+    background-image: linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 6px,
+      color-mix(in srgb, var(--pp-border) 28%, transparent) 6px,
+      color-mix(in srgb, var(--pp-border) 28%, transparent) 12px
+    );
+    background-size: 16px 16px;
+  }
+}
