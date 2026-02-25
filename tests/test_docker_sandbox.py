@@ -1,6 +1,7 @@
 import unittest
 import os
 import shutil
+import docker
 from src.sandbox.docker_runner import DockerSandbox
 
 class TestDockerSandbox(unittest.TestCase):
@@ -10,7 +11,10 @@ class TestDockerSandbox(unittest.TestCase):
         if os.path.exists(self.work_dir):
             shutil.rmtree(self.work_dir)
         os.makedirs(self.work_dir, exist_ok=True)
-        self.sandbox = DockerSandbox(self.job_id, self.work_dir)
+        try:
+            self.sandbox = DockerSandbox(self.job_id, self.work_dir)
+        except docker.errors.DockerException as exc:
+            self.skipTest(f"Docker daemon unavailable: {exc}")
 
     def tearDown(self):
         if os.path.exists(self.work_dir):

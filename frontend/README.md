@@ -38,6 +38,14 @@ VITE_API_BASE_URL=http://localhost:8000
   - Artifact(JSON) + Notebook 셀
   - PDF 패널(`public/sample.pdf`)
 
+## 강제 Mock 모드
+- 백엔드 연결 상태와 무관하게 항상 mock 데이터만 사용하려면 아래 환경변수를 추가하세요.
+```bash
+VITE_FORCE_MOCK=1
+```
+- 허용 값: `1`, `true`, `yes`, `on` (대소문자 무시)
+- E2E `e2e:mock`는 이 값을 자동으로 켜고 실행됩니다.
+
 ## E2E 스모크 테스트 (Playwright)
 - mock fallback 시나리오:
 ```bash
