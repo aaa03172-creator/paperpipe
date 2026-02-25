@@ -39,7 +39,19 @@
 - `PR-CLI-Start-Entrypoint`
 - `PR-QA-CLI-Start-Regression-Coverage`
 - `PR-OPS-Summary-Quality-Normalize`
+- `PR-QA-Local-Pytest-Stability-20260225`
 - `PR-DOC-ReleaseNotes-2026-02-25-UI-Mock-Test-Stability`
+
+## PR-QA-Local-Pytest-Stability-20260225 (Completed)
+- Title: `test/docs: stabilize local pytest and document forced mock mode`
+- Priority: Medium
+- Purpose: Keep local full-suite test runs deterministic after UI/mock changes and reduce environment-specific false failures.
+- Scope:
+  - [done] `tests/test_api_key_auth.py` DB_PATH cleanup leak fixed (`finally` restore).
+  - [done] `tests/test_docker_sandbox.py` now skips when Docker daemon is unavailable.
+  - [done] frontend forced mock mode docs added (`frontend/README.md`).
+  - [done] local full test recheck at merge: `pytest -q -> 254 passed, 5 skipped`.
+  - [done] merged via PR #85 (`bd9582d`).
 
 ## PR-OPS-Teacher-Quality-Loop (In Progress)
 - Title: `feat(quality): add teacher candidate/gate/goldset/eval promotion loop`

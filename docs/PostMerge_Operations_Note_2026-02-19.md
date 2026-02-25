@@ -39,6 +39,15 @@
 - PR #54 merged: SSE boundary guards (cancel/not-found/reconnect terminal replay).
 - PR #60 merged: downloader attempt persistence + PR scope guard workflow.
 
+## Update (2026-02-25)
+- PR #85 merged: local pytest stability hardening + forced mock mode README documentation.
+  - restored DB path cleanup in API key auth tests to prevent cross-test contamination.
+  - Docker sandbox tests now skip when Docker daemon is unavailable in local environments.
+  - full local regression result at merge time: `pytest -q -> 254 passed, 5 skipped`.
+- PR #86 merged: release notes update for UI/mock/test stabilization.
+  - added `docs/release_notes_2026-02-25_ui_mock_test_stability.md`.
+  - synced `docs/Pending_PR_Queue.md` completed list marker.
+
 ## Handoff (5 lines)
 - Runtime baseline remains `worker -> job_runner` with API-first job surfaces.
 - `/papers` and `/jobs` contract smoke/regression are green on local `master`.
