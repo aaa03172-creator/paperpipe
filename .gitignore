@@ -69,3 +69,4 @@ run_manual_injection.py
 # User Data
 brain/
 .gemini/
+.codex_trash/
