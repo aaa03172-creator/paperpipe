@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,24 @@ def _resolve_cors_allow_origins() -> list[str]:
     return origins or ["http://127.0.0.1:8000", "http://localhost:8000"]
 
 
+def _resolve_api_key() -> str:
+    return (
+        os.getenv("LATTICE_API_KEY")
+        or os.getenv("PAPERPIPE_API_KEY")
+        or ""
+    ).strip()
+
+
+def _requires_api_key(method: str, path: str) -> bool:
+    if method.upper() != "POST":
+        return False
+
+    normalized = path.rstrip("/") or "/"
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync"}:
+        return True
+    return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
 
 app.add_middleware(
@@ -46,6 +65,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    expected_key = _resolve_api_key()
+    if not expected_key:
+        return await call_next(request)
+    if not _requires_api_key(request.method, request.url.path):
+        return await call_next(request)
+
+    supplied_key = (request.headers.get("x-api-key") or "").strip()
+    if supplied_key != expected_key:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error_code": "UNAUTHORIZED",
+                "message": "Missing or invalid X-API-Key",
+            },
+        )
+    return await call_next(request)
 
 queue = JobQueue()
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
