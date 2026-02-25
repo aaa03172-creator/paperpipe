@@ -45,7 +45,7 @@ function buildIdleJob(paperId: string): JobStatus {
 export function AnalysisWorkbench() {
   const params = useParams<{ paperId: string }>();
   const navigate = useNavigate();
-  const paperId = decodeURIComponent(params.paperId ?? "");
+  const paperId = params.paperId ?? "";
 
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [paper, setPaper] = useState<PaperDetail | null>(null);

@@ -40,17 +40,14 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
     return connectMockStream(options, handlers);
   }
 
-  const endpoints = [
-    apiPath(`/sse/jobs/${encodeURIComponent(options.jobId)}`),
-    apiPath(`/jobs/${encodeURIComponent(options.jobId)}/events`),
-  ];
+  const endpoint = apiPath(`/jobs/${encodeURIComponent(options.jobId)}/events`);
 
   let closed = false;
   let source: EventSource | null = null;
-  let endpointIndex = 0;
   let reconnectAttempt = 0;
   let reconnectTimer: number | null = null;
   let hasReceivedData = false;
+  let mockSubscription: StreamSubscription | null = null;
 
   const stop = () => {
     closed = true;
@@ -61,6 +58,10 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
       source.close();
       source = null;
     }
+    if (mockSubscription) {
+      mockSubscription.close();
+      mockSubscription = null;
+    }
   };
 
   const connect = () => {
@@ -68,7 +69,6 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
       return;
     }
 
-    const endpoint = endpoints[Math.min(endpointIndex, endpoints.length - 1)];
     source = new EventSource(endpoint);
 
     source.onopen = () => {
@@ -139,13 +139,9 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
 
       reconnectAttempt += 1;
 
-      if (!hasReceivedData && endpointIndex < endpoints.length - 1) {
-        endpointIndex += 1;
-      }
-
-      if (!hasReceivedData && reconnectAttempt >= endpoints.length + 1) {
+      if (!hasReceivedData && reconnectAttempt >= 2) {
         handlers.onModeChange?.(true, "sse unavailable, switched to mock stream");
-        connectMockStream(options, handlers);
+        mockSubscription = connectMockStream(options, handlers);
         closed = true;
         return;
       }
