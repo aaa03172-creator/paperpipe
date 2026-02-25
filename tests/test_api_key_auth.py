@@ -73,12 +73,15 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
 
 def test_read_endpoints_do_not_require_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
-    _init_temp_db(tmp_path, monkeypatch)
-    client = TestClient(api_main.app)
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        client = TestClient(api_main.app)
 
-    health = client.get("/health")
-    assert health.status_code == 200
-    assert health.json()["status"] == "ok"
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["status"] == "ok"
+    finally:
+        db_utils.DB_PATH = original_db_path
 
 
 def test_legacy_api_key_env_is_supported(tmp_path, monkeypatch):
