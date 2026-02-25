@@ -25,6 +25,7 @@ from src.schemas.ops import (
 )
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
+from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from .routers import obsidian, feedback
 
 def _resolve_cors_allow_origins() -> list[str]:
@@ -125,6 +126,14 @@ ARTIFACT_ALIAS_MAP: dict[str, str] = {
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
+def _public_path(path_value: str | None) -> str | None:
+    if path_value is None:
+        return None
+    if not is_path_masking_enabled():
+        return path_value
+    return mask_local_path(path_value)
+
+
 def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
     artifact_dir = getattr(job, "artifact_dir", None)
     if not artifact_dir:
@@ -158,7 +167,9 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             badge = "UNKNOWN"
     return job.model_copy(
         update={
-            "bootstrap_meta_path": meta_path,
+            "artifact_dir": _public_path(getattr(job, "artifact_dir", None)),
+            "log_path": _public_path(getattr(job, "log_path", None)),
+            "bootstrap_meta_path": _public_path(meta_path),
             "similar_feedback_count": meta.get("similar_feedback_count"),
             "persona_applied": meta.get("persona_applied"),
             "artifact_document_written": meta.get("artifact_document_written"),
@@ -196,7 +207,10 @@ def _build_artifact_bundle(paper_id: str, run_id: str) -> ArtifactBundleResponse
     files: dict[str, ArtifactFileEntry] = {}
     for key, filename in ARTIFACT_FILE_MAP.items():
         path = run_dir / filename
-        entry = ArtifactFileEntry(exists=path.exists(), path=str(path) if path.exists() else None)
+        entry = ArtifactFileEntry(
+            exists=path.exists(),
+            path=_public_path(str(path)) if path.exists() else None,
+        )
         if path.exists() and path.suffix == ".json":
             entry.data = _safe_read_json(path)
         files[key] = entry
@@ -478,6 +492,7 @@ def list_papers():
         pdf_path = item.get("pdf_path")
         pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
         item["pdf_exists"] = pdf_exists
+        item["pdf_path"] = _public_path(pdf_path)
         if not pdf_exists and pdf_path:
             item["pdf_status"] = "missing"
         out.append(item)
@@ -496,6 +511,7 @@ def get_paper(paper_id: str):
     pdf_path = item.get("pdf_path")
     pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
     item["pdf_exists"] = pdf_exists
+    item["pdf_path"] = _public_path(pdf_path)
     if not pdf_exists and pdf_path:
         item["pdf_status"] = "missing"
     return item
@@ -666,7 +682,7 @@ async def job_events(job_id: str, request: Request):
                         {
                             "paper_id": job.paper_id,
                             "run_id": job.run_id,
-                            "artifact_dir": job.artifact_dir,
+                            "artifact_dir": _public_path(job.artifact_dir),
                         }
                     ),
                     "retry": 2000,

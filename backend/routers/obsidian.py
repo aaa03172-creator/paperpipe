@@ -12,6 +12,7 @@ from typing import Iterator
 from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 from src.schemas.ops import ArtifactFileEntry, ObsidianArtifactsResponse
+from src.services.path_masking import is_path_masking_enabled, mask_local_path
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
@@ -38,6 +39,14 @@ def _load_artifact(paper_id: str, run_id: str, filename: str):
         return None
     with open(path, "r") as f:
         return json.load(f)
+
+
+def _public_path(path_value: str | None) -> str | None:
+    if path_value is None:
+        return None
+    if not is_path_masking_enabled():
+        return path_value
+    return mask_local_path(path_value)
 
 
 def _load_claimset_for_obsidian(paper_id: str, run_id: str) -> dict | None:
@@ -98,7 +107,7 @@ def _artifact_entry(path: Path) -> ArtifactFileEntry:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
             data = {"_parse_error": str(exc)}
-    return ArtifactFileEntry(exists=True, path=str(path), data=data)
+    return ArtifactFileEntry(exists=True, path=_public_path(str(path)), data=data)
 
 
 def _chunks_entry(path: Path) -> ArtifactFileEntry:
@@ -113,7 +122,7 @@ def _chunks_entry(path: Path) -> ArtifactFileEntry:
             preview.append(raw)
     return ArtifactFileEntry(
         exists=True,
-        path=str(path),
+        path=_public_path(str(path)),
         data={"line_count": len(lines), "preview": preview},
     )
 
@@ -229,7 +238,7 @@ async def sync_to_obsidian(req: SyncRequest):
             final_content = _merge_agent_block(original_content, new_content)
             _atomic_write_text(target_file, final_content)
             
-        return {"status": "synced", "file": str(target_file), "message": "Obsidian note updated."}
+        return {"status": "synced", "file": _public_path(str(target_file)), "message": "Obsidian note updated."}
         
     except Exception as e:
         logger.error(f"Failed to write markdown: {e}")
