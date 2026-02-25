@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from pathlib import Path
@@ -10,6 +11,45 @@ from src.db_utils import get_db_connection
 from src.jobs.schemas import JobStatus
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateOpenJobError(Exception):
+    def __init__(self, *, paper_id: str, job_id: str, run_id: str | None, status: str):
+        super().__init__(f"Open job already exists for paper_id={paper_id}: {job_id} ({status})")
+        self.paper_id = paper_id
+        self.job_id = job_id
+        self.run_id = run_id
+        self.status = status
+
+
+class QueueBackpressureError(Exception):
+    def __init__(self, *, queued_count: int, limit: int):
+        super().__init__(f"Queued jobs limit reached: {queued_count}/{limit}")
+        self.queued_count = queued_count
+        self.limit = limit
+
+
+def _resolve_max_queued_jobs() -> int:
+    raw = (os.getenv("LATTICE_MAX_QUEUED_JOBS") or os.getenv("PAPERPIPE_MAX_QUEUED_JOBS") or "").strip()
+    if not raw:
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        return 0
+    return max(value, 0)
+
+
+def _resolve_max_concurrent_jobs() -> int:
+    raw = (os.getenv("LATTICE_MAX_CONCURRENT_JOBS") or os.getenv("PAPERPIPE_MAX_CONCURRENT_JOBS") or "").strip()
+    if not raw:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1
+    return max(value, 1)
+
 
 class JobQueue:
     def __init__(self):
@@ -29,7 +69,41 @@ class JobQueue:
         
         conn = get_db_connection()
         try:
-            conn.execute("""
+            cursor = conn.cursor()
+            # Serialize enqueue writes to enforce "one open job per paper_id" reliably.
+            cursor.execute("BEGIN IMMEDIATE")
+            existing = cursor.execute(
+                """
+                SELECT job_id, run_id, status
+                FROM jobs
+                WHERE paper_id = ? AND status IN ('queued', 'running')
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (paper_id,),
+            ).fetchone()
+            if existing:
+                conn.rollback()
+                raise DuplicateOpenJobError(
+                    paper_id=paper_id,
+                    job_id=existing["job_id"],
+                    run_id=existing["run_id"],
+                    status=existing["status"],
+                )
+
+            max_queued_jobs = _resolve_max_queued_jobs()
+            if max_queued_jobs > 0:
+                queued_count = cursor.execute(
+                    "SELECT COUNT(*) AS total FROM jobs WHERE status = 'queued'"
+                ).fetchone()["total"]
+                if queued_count >= max_queued_jobs:
+                    conn.rollback()
+                    raise QueueBackpressureError(
+                        queued_count=queued_count,
+                        limit=max_queued_jobs,
+                    )
+
+            cursor.execute("""
                 INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, clean_reindex, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
             """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify)), int(bool(clean_reindex))))
@@ -71,7 +145,7 @@ class JobQueue:
     def claim_next_job(self) -> Optional[JobStatus]:
         """
         Atomically claim the next queued job.
-        Implements Max Concurrency check (Limit 1 running job).
+        Implements max concurrency guard for running jobs.
         """
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -79,7 +153,8 @@ class JobQueue:
             # 1. Check running jobs count
             cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
             running_count = cursor.fetchone()[0]
-            if running_count >= 1: # Strict Limit 1 for now
+            max_concurrent_jobs = _resolve_max_concurrent_jobs()
+            if running_count >= max_concurrent_jobs:
                 return None
             
             # 2. Find oldest queued job

@@ -3,6 +3,11 @@ from pydantic import BaseModel
 import logging
 from pathlib import Path
 import json
+import os
+import re
+import tempfile
+from contextlib import contextmanager
+from typing import Iterator
 
 from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
@@ -17,6 +22,15 @@ class SyncRequest(BaseModel):
 
 MARKER_START = "<!-- AI_AGENT_START -->"
 MARKER_END = "<!-- AI_AGENT_END -->"
+MARKER_BLOCK_PATTERN = re.compile(
+    rf"{re.escape(MARKER_START)}.*?{re.escape(MARKER_END)}",
+    flags=re.DOTALL,
+)
+
+try:
+    import fcntl
+except Exception:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
 
 def _load_artifact(paper_id: str, run_id: str, filename: str):
     path = Path(f"storage/artifacts/{paper_id}/{run_id}/{filename}")
@@ -32,6 +46,47 @@ def _load_claimset_for_obsidian(paper_id: str, run_id: str) -> dict | None:
         if data:
             return data
     return None
+
+
+def _merge_agent_block(original_content: str, new_content: str) -> str:
+    if MARKER_BLOCK_PATTERN.search(original_content):
+        return MARKER_BLOCK_PATTERN.sub(new_content, original_content, count=1)
+    stripped = original_content.rstrip()
+    if not stripped:
+        return f"{new_content}\n"
+    return f"{stripped}\n\n{new_content}\n"
+
+
+def _atomic_write_text(target_file: Path, content: str) -> None:
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{target_file.name}.",
+        suffix=".tmp",
+        dir=str(target_file.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, target_file)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@contextmanager
+def _note_file_lock(target_file: Path) -> Iterator[None]:
+    lock_path = target_file.with_name(f".{target_file.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def _artifact_entry(path: Path) -> ArtifactFileEntry:
@@ -129,7 +184,8 @@ def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
 @router.post("/sync")
 async def sync_to_obsidian(req: SyncRequest):
     config = load_config()
-    vault_path = config.paths.obsidian_vault
+    vault_path = Path(config.paths.obsidian_vault).expanduser()
+    vault_path.mkdir(parents=True, exist_ok=True)
     
     # 1. Load Artifacts
     claim_set = _load_claimset_for_obsidian(req.paper_id, req.run_id)
@@ -156,29 +212,22 @@ async def sync_to_obsidian(req: SyncRequest):
     if not candidates:
         # Create new note in Inbox if not found
         inbox_dir = vault_path / "Inbox"
-        inbox_dir.mkdir(exist_ok=True)
+        inbox_dir.mkdir(parents=True, exist_ok=True)
         target_file = inbox_dir / f"{req.paper_id}.md"
-        with open(target_file, "w") as f:
-            f.write(f"# {req.paper_id}\n\nCreated by PaperPipe.\n\n")
+        with _note_file_lock(target_file):
+            if not target_file.exists():
+                _atomic_write_text(target_file, f"# {req.paper_id}\n\nCreated by Lattice.\n\n")
     else:
         target_file = candidates[0]
         
     # 4. Inject Content
     try:
-        with open(target_file, "r") as f:
-            original_content = f.read()
-            
-        if MARKER_START in original_content and MARKER_END in original_content:
-            # Replace existing block
-            pre = original_content.split(MARKER_START)[0]
-            post = original_content.split(MARKER_END)[1]
-            final_content = pre + new_content + post
-        else:
-            # Append
-            final_content = original_content + "\n\n" + new_content
-            
-        with open(target_file, "w") as f:
-            f.write(final_content)
+        with _note_file_lock(target_file):
+            original_content = ""
+            if target_file.exists():
+                original_content = target_file.read_text(encoding="utf-8")
+            final_content = _merge_agent_block(original_content, new_content)
+            _atomic_write_text(target_file, final_content)
             
         return {"status": "synced", "file": str(target_file), "message": "Obsidian note updated."}
         
