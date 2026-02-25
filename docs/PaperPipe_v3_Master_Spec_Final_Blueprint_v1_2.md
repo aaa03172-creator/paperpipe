@@ -686,6 +686,7 @@ paperpipe/
   - `LATTICE_API_KEY`(legacy: `PAPERPIPE_API_KEY`)가 설정되면 쓰기 엔드포인트 인증 활성화
   - `X-API-Key` 헤더 불일치/누락 시 `401 UNAUTHORIZED`
   - 보호 대상: `POST /jobs/deepread`, `POST /jobs/{id}/cancel`, `POST /feedback`, `POST /obsidian/sync`
+  - 응답 경로 마스킹 옵션: `LATTICE_MASK_LOCAL_PATHS=true` (legacy: `PAPERPIPE_MASK_LOCAL_PATHS`)
 
 ### 18.6 SSE 안정성 — 권장
 - 15~30초 간격 `ping` 이벤트로 커넥션 유지(프록시 타임아웃 방지)
@@ -734,6 +735,7 @@ paperpipe/
   - SSE `retry` 힌트(2s) + heartbeat ping(20s)
   - CORS 기본 정책 localhost 제한 + 환경변수 확장(`LATTICE_CORS_ALLOW_ORIGINS`)
   - 선택적 API Key 인증(`LATTICE_API_KEY`) + 쓰기 엔드포인트 가드(`X-API-Key`)
+  - 응답 절대경로 마스킹 옵션(`LATTICE_MASK_LOCAL_PATHS`)
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)
