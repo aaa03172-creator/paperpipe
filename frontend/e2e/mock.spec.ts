@@ -22,3 +22,11 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await page.getByRole("button", { name: "Deep Read Run" }).click();
   await expect(terminalDrawer.locator("pre")).toContainText("deepread enqueued", { timeout: 15_000 });
 });
+
+test("encoded paper id route does not crash in workbench", async ({ page }) => {
+  await page.goto("/workbench/paper%25id");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toBeVisible();
+  await expect(page.getByText("Invalid paper id.")).toHaveCount(0);
+});
