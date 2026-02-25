@@ -22,6 +22,8 @@ import {
   SAMPLE_PDF,
 } from "./mock";
 
+const FORCE_MOCK_REASON = "mock mode forced by VITE_FORCE_MOCK";
+
 interface DeepReadRequest {
   paper_id: string;
   run_verify: boolean;
@@ -118,6 +120,9 @@ async function withMockFallback<T>(
   mocker: () => T,
   reason: string,
 ): Promise<ApiResult<T>> {
+  if (APP_CONFIG.forceMock) {
+    return { data: mocker(), isMock: true, reason: FORCE_MOCK_REASON };
+  }
   try {
     return { data: await fetcher(), isMock: false };
   } catch {
@@ -233,6 +238,13 @@ export async function enqueueDeepRead(payload: DeepReadRequest): Promise<ApiResu
 }
 
 export async function getArtifactsLatest(paperId: string): Promise<ApiResult<ArtifactBundle>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockArtifactsLatest(paperId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
   try {
     return {
       data: await firstSuccess<ArtifactBundle>([`/artifacts/${encodeURIComponent(paperId)}/latest`]),
@@ -255,6 +267,13 @@ export async function getArtifactsLatest(paperId: string): Promise<ApiResult<Art
 }
 
 export async function getRunTimeline(runId: string): Promise<ApiResult<TimelineResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockTimeline(runId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
   try {
     return {
       data: await firstSuccess<TimelineResponse>([`/runs/${encodeURIComponent(runId)}/timeline`]),
