@@ -39,6 +39,7 @@
 - `PR-CLI-Start-Entrypoint`
 - `PR-QA-CLI-Start-Regression-Coverage`
 - `PR-OPS-Summary-Quality-Normalize`
+- `PR-DOC-ReleaseNotes-2026-02-25-UI-Mock-Test-Stability`
 
 ## PR-OPS-Teacher-Quality-Loop (In Progress)
 - Title: `feat(quality): add teacher candidate/gate/goldset/eval promotion loop`
