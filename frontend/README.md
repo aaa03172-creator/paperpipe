@@ -22,6 +22,10 @@ npm run dev
 - 환경변수 (`.env` 또는 `.env.local`):
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
+# 선택: 백엔드 API 키 보호가 켜진 경우 POST 보호 엔드포인트 호출용
+VITE_API_KEY=your-api-key
+# 선택: 자동 mock fallback 비활성화(운영/검증 모드)
+VITE_STRICT_API=1
 ```
 - Vite proxy:
   - 프론트 요청 `/api/*`
@@ -45,6 +49,10 @@ VITE_FORCE_MOCK=1
 ```
 - 허용 값: `1`, `true`, `yes`, `on` (대소문자 무시)
 - E2E `e2e:mock`는 이 값을 자동으로 켜고 실행됩니다.
+
+## Strict API 모드
+- `VITE_STRICT_API=1`이면 API 실패 시 mock fallback으로 전환하지 않고 에러를 UI에 표시합니다.
+- 운영 점검이나 백엔드 회귀 검증 시 권장됩니다.
 
 ## E2E 스모크 테스트 (Playwright)
 - mock fallback 시나리오:

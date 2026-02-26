@@ -48,6 +48,17 @@ function isApiHttpError(error: unknown): error is ApiHttpError {
   return error instanceof ApiHttpError;
 }
 
+function requestHeaders(init?: RequestInit): HeadersInit {
+  const headers = new Headers(init?.headers ?? undefined);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (APP_CONFIG.apiKey && !headers.has("X-API-Key")) {
+    headers.set("X-API-Key", APP_CONFIG.apiKey);
+  }
+  return headers;
+}
+
 function normalizePaperStatus(raw?: string): PaperSummary["status"] {
   const value = (raw ?? "").toLowerCase();
   if (value.includes("process") || value === "running" || value === "queued") {
@@ -86,10 +97,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(apiPath(path), {
       ...init,
       signal: timeout.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-      },
+      headers: requestHeaders(init),
     });
 
     if (!response.ok) {
@@ -125,9 +133,26 @@ async function withMockFallback<T>(
   }
   try {
     return { data: await fetcher(), isMock: false };
-  } catch {
+  } catch (error) {
+    if (APP_CONFIG.strictApi) {
+      throw error;
+    }
     return { data: mocker(), isMock: true, reason };
   }
+}
+
+export function getApiErrorMessage(error: unknown): string {
+  if (isApiHttpError(error)) {
+    const body = (error.responseBody ?? "").trim();
+    if (body.length > 0) {
+      return `${error.message}: ${body}`;
+    }
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown API error";
 }
 
 function normalizePaper(raw: Record<string, unknown>): PaperSummary {
@@ -226,15 +251,32 @@ export async function getJob(jobId: string): Promise<ApiResult<JobStatus>> {
 }
 
 export async function enqueueDeepRead(payload: DeepReadRequest): Promise<ApiResult<JobEnqueueResponse>> {
-  return withMockFallback(
-    () =>
-      firstSuccess<JobEnqueueResponse>(["/jobs/deepread"], {
+  if (APP_CONFIG.forceMock) {
+    return { data: createMockJob(), isMock: true, reason: FORCE_MOCK_REASON };
+  }
+  try {
+    return {
+      data: await firstSuccess<JobEnqueueResponse>(["/jobs/deepread"], {
         method: "POST",
         body: JSON.stringify(payload),
       }),
-    () => createMockJob(),
-    "deepread enqueue unavailable",
-  );
+      isMock: false,
+    };
+  } catch (error) {
+    // Backend returned a valid 4xx response (e.g. duplicate open job, auth, validation):
+    // surface it to UI instead of masking with mock enqueue.
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+      throw error;
+    }
+    if (APP_CONFIG.strictApi) {
+      throw error;
+    }
+    return {
+      data: createMockJob(),
+      isMock: true,
+      reason: "deepread enqueue unavailable",
+    };
+  }
 }
 
 export async function getArtifactsLatest(paperId: string): Promise<ApiResult<ArtifactBundle>> {
@@ -257,6 +299,9 @@ export async function getArtifactsLatest(paperId: string): Promise<ApiResult<Art
         isMock: false,
         reason: "artifact not generated yet",
       };
+    }
+    if (APP_CONFIG.strictApi) {
+      throw error;
     }
     return {
       data: getMockArtifactsLatest(paperId),
@@ -286,6 +331,9 @@ export async function getRunTimeline(runId: string): Promise<ApiResult<TimelineR
         isMock: false,
         reason: "timeline not generated yet",
       };
+    }
+    if (APP_CONFIG.strictApi) {
+      throw error;
     }
     return {
       data: getMockTimeline(runId),

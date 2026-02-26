@@ -30,3 +30,14 @@ test("encoded paper id route does not crash in workbench", async ({ page }) => {
   await expect(page.getByText(/^Mock mode$/)).toBeVisible();
   await expect(page.getByText("Invalid paper id.")).toHaveCount(0);
 });
+
+test("issue button routes with focus=issues and selects risk claim", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
+  await page.locator("tbody tr").first().getByRole("button").click();
+
+  await expect(page).toHaveURL(/focus=issues/);
+  await expect(page.getByText("Issue focus enabled: prioritizing risk-related claims.")).toBeVisible();
+  await expect(page.getByText("Claim Link · p.5")).toBeVisible();
+});

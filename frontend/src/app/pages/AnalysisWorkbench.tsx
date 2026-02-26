@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Play, RefreshCcw } from "lucide-react";
 import {
   enqueueDeepRead,
   getArtifactsLatest,
+  getApiErrorMessage,
   getJob,
   getJobsForPaper,
   getPaper,
@@ -42,10 +43,40 @@ function buildIdleJob(paperId: string): JobStatus {
   };
 }
 
+const ISSUE_CLAIM_HINTS = ["issue", "error", "fail", "warning", "mismatch", "inconsistent", "unresolved", "drift", "alert"];
+
+function selectIssueClaimId(notebook: NotebookArtifact): string | null {
+  const byRiskText = notebook.claims.find((claim) => {
+    const text = claim.text.toLowerCase();
+    return ISSUE_CLAIM_HINTS.some((keyword) => text.includes(keyword));
+  });
+  if (byRiskText) {
+    return byRiskText.claim_id;
+  }
+  const byLowConfidence = notebook.claims.find((claim) => claim.confidence === "low");
+  return byLowConfidence?.claim_id ?? null;
+}
+
+function chooseActiveClaimId(
+  notebook: NotebookArtifact,
+  focusIssues: boolean,
+  currentClaimId: string | null,
+): string | null {
+  if (currentClaimId && notebook.claims.some((claim) => claim.claim_id === currentClaimId)) {
+    return currentClaimId;
+  }
+  if (focusIssues) {
+    return selectIssueClaimId(notebook) ?? notebook.claims[0]?.claim_id ?? null;
+  }
+  return notebook.claims[0]?.claim_id ?? null;
+}
+
 export function AnalysisWorkbench() {
   const params = useParams<{ paperId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const paperId = params.paperId ?? "";
+  const focusIssues = searchParams.get("focus") === "issues";
 
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [paper, setPaper] = useState<PaperDetail | null>(null);
@@ -57,6 +88,7 @@ export function AnalysisWorkbench() {
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [runVerify, setRunVerify] = useState(true);
   const [cleanReindex, setCleanReindex] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -83,10 +115,20 @@ export function AnalysisWorkbench() {
   }, [papers, searchQuery]);
 
   const jobRef = useRef<JobStatus | null>(null);
+  const activeClaimIdRef = useRef<string | null>(activeClaimId);
+  const focusIssuesRef = useRef<boolean>(focusIssues);
 
   useEffect(() => {
     jobRef.current = job;
   }, [job]);
+
+  useEffect(() => {
+    activeClaimIdRef.current = activeClaimId;
+  }, [activeClaimId]);
+
+  useEffect(() => {
+    focusIssuesRef.current = focusIssues;
+  }, [focusIssues]);
 
   useEffect(() => {
     let mounted = true;
@@ -96,59 +138,69 @@ export function AnalysisWorkbench() {
         return;
       }
 
+      setLoadError(null);
       clearMockMode();
 
-      const [papersResult, paperResult, personaResult, jobsResult, artifactResult] = await Promise.all([
-        getPapers(),
-        getPaper(paperId),
-        getPersonas(),
-        getJobsForPaper(paperId),
-        getArtifactsLatest(paperId),
-      ]);
+      try {
+        const [papersResult, paperResult, personaResult, jobsResult, artifactResult] = await Promise.all([
+          getPapers(),
+          getPaper(paperId),
+          getPersonas(),
+          getJobsForPaper(paperId),
+          getArtifactsLatest(paperId),
+        ]);
 
-      if (!mounted) {
-        return;
-      }
-
-      if (papersResult.isMock) markMockMode(papersResult.reason);
-      if (paperResult.isMock) markMockMode(paperResult.reason);
-      if (personaResult.isMock) markMockMode(personaResult.reason);
-      if (jobsResult.isMock) markMockMode(jobsResult.reason);
-      if (artifactResult.isMock) markMockMode(artifactResult.reason);
-
-      setPapers(papersResult.data);
-      setPaper(paperResult.data);
-      setPersonas(personaResult.data.personas ?? []);
-
-      const initialJob = jobsResult.data[0] ?? null;
-      setJob(initialJob);
-
-      const bundle = artifactResult.data;
-      setArtifactBundle(bundle);
-      const notebookData = getNotebookFromBundle(bundle);
-      setNotebook(notebookData);
-      setActiveClaimId(notebookData.claims[0]?.claim_id ?? null);
-
-      if (initialJob?.run_id) {
-        const timelineResult = await getRunTimeline(initialJob.run_id);
         if (!mounted) {
           return;
         }
-        if (timelineResult.isMock) {
-          markMockMode(timelineResult.reason);
-        }
-        setTimelineEvents(timelineResult.data.events);
-        setTerminalLogs(
-          timelineResult.data.events.map((event) => {
-            const level = event.level ?? (event.event === "error" ? "ERROR" : "INFO");
-            return `[${event.ts ?? new Date().toISOString()}][${level}] ${event.message ?? event.raw ?? event.event}`;
-          }),
-        );
-      } else {
-        setTimelineEvents([]);
-        setTerminalLogs([]);
-      }
 
+        if (papersResult.isMock) markMockMode(papersResult.reason);
+        if (paperResult.isMock) markMockMode(paperResult.reason);
+        if (personaResult.isMock) markMockMode(personaResult.reason);
+        if (jobsResult.isMock) markMockMode(jobsResult.reason);
+        if (artifactResult.isMock) markMockMode(artifactResult.reason);
+
+        setPapers(papersResult.data);
+        setPaper(paperResult.data);
+        setPersonas(personaResult.data.personas ?? []);
+
+        const initialJob = jobsResult.data[0] ?? null;
+        setJob(initialJob);
+
+        const bundle = artifactResult.data;
+        setArtifactBundle(bundle);
+        const notebookData = getNotebookFromBundle(bundle);
+        setNotebook(notebookData);
+        setActiveClaimId(chooseActiveClaimId(notebookData, focusIssues, null));
+
+        if (initialJob?.run_id) {
+          const timelineResult = await getRunTimeline(initialJob.run_id);
+          if (!mounted) {
+            return;
+          }
+          if (timelineResult.isMock) {
+            markMockMode(timelineResult.reason);
+          }
+          setTimelineEvents(timelineResult.data.events);
+          setTerminalLogs(
+            timelineResult.data.events.map((event) => {
+              const level = event.level ?? (event.event === "error" ? "ERROR" : "INFO");
+              return `[${event.ts ?? new Date().toISOString()}][${level}] ${event.message ?? event.raw ?? event.event}`;
+            }),
+          );
+        } else {
+          setTimelineEvents([]);
+          setTerminalLogs([]);
+        }
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        const message = getApiErrorMessage(error);
+        setLoadError(message);
+        setTimelineEvents([]);
+        setTerminalLogs([`[${new Date().toISOString()}][ERROR] ${message}`]);
+      }
     }
 
     void loadWorkbench();
@@ -156,7 +208,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, clearMockMode, markMockMode, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, markMockMode, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -228,14 +280,22 @@ export function AnalysisWorkbench() {
           );
         },
         onArtifactReady: async () => {
-          const nextArtifacts = await getArtifactsLatest(paperId);
-          if (nextArtifacts.isMock) {
-            markMockMode(nextArtifacts.reason);
+          try {
+            const nextArtifacts = await getArtifactsLatest(paperId);
+            if (nextArtifacts.isMock) {
+              markMockMode(nextArtifacts.reason);
+            }
+            setArtifactBundle(nextArtifacts.data);
+            const nextNotebook = getNotebookFromBundle(nextArtifacts.data);
+            setNotebook(nextNotebook);
+            setActiveClaimId(
+              chooseActiveClaimId(nextNotebook, focusIssuesRef.current, activeClaimIdRef.current),
+            );
+          } catch (error) {
+            const message = getApiErrorMessage(error);
+            setLoadError(message);
+            setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
           }
-          setArtifactBundle(nextArtifacts.data);
-          const nextNotebook = getNotebookFromBundle(nextArtifacts.data);
-          setNotebook(nextNotebook);
-          setActiveClaimId(nextNotebook.claims[0]?.claim_id ?? null);
         },
         onModeChange: (isMock, reason) => {
           if (isMock) {
@@ -254,58 +314,72 @@ export function AnalysisWorkbench() {
     if (!paperId) {
       return;
     }
-    const [jobResult, artifactResult] = await Promise.all([
-      job ? getJob(job.job_id) : Promise.resolve(null),
-      getArtifactsLatest(paperId),
-    ]);
+    try {
+      setLoadError(null);
+      const [jobResult, artifactResult] = await Promise.all([
+        job ? getJob(job.job_id) : Promise.resolve(null),
+        getArtifactsLatest(paperId),
+      ]);
 
-    if (jobResult && jobResult.isMock) {
-      markMockMode(jobResult.reason);
-    }
-    if (artifactResult.isMock) {
-      markMockMode(artifactResult.reason);
-    }
+      if (jobResult && jobResult.isMock) {
+        markMockMode(jobResult.reason);
+      }
+      if (artifactResult.isMock) {
+        markMockMode(artifactResult.reason);
+      }
 
-    if (jobResult) {
-      setJob(jobResult.data);
-    }
+      if (jobResult) {
+        setJob(jobResult.data);
+      }
 
-    setArtifactBundle(artifactResult.data);
-    const nextNotebook = getNotebookFromBundle(artifactResult.data);
-    setNotebook(nextNotebook);
-    setActiveClaimId(nextNotebook.claims[0]?.claim_id ?? null);
+      setArtifactBundle(artifactResult.data);
+      const nextNotebook = getNotebookFromBundle(artifactResult.data);
+      setNotebook(nextNotebook);
+      setActiveClaimId(chooseActiveClaimId(nextNotebook, focusIssues, activeClaimId));
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setLoadError(message);
+      setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+    }
   }
 
   async function runDeepRead() {
     if (!paperId) {
       return;
     }
+    try {
+      setLoadError(null);
+      const enqueueResult = await enqueueDeepRead({
+        paper_id: paperId,
+        run_verify: runVerify,
+        clean_reindex: cleanReindex,
+        persona_id: selectedPersonaId,
+      });
 
-    const enqueueResult = await enqueueDeepRead({
-      paper_id: paperId,
-      run_verify: runVerify,
-      clean_reindex: cleanReindex,
-      persona_id: selectedPersonaId,
-    });
+      if (enqueueResult.isMock) {
+        markMockMode(enqueueResult.reason);
+      }
 
-    if (enqueueResult.isMock) {
-      markMockMode(enqueueResult.reason);
+      const newJob: JobStatus = {
+        job_id: enqueueResult.data.job_id,
+        paper_id: paperId,
+        run_id: enqueueResult.data.run_id ?? `run-${Date.now()}`,
+        status: "queued",
+        progress: 0,
+        stage: "ingest",
+        created_at: new Date().toISOString(),
+      };
+
+      setJob(newJob);
+      setTimelineEvents([]);
+      setTerminalLogs([`[${new Date().toISOString()}][INFO] deepread enqueued (${newJob.job_id})`]);
+      setTerminalOpen(true);
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setLoadError(message);
+      setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+      setTerminalOpen(true);
     }
-
-    const newJob: JobStatus = {
-      job_id: enqueueResult.data.job_id,
-      paper_id: paperId,
-      run_id: enqueueResult.data.run_id ?? `run-${Date.now()}`,
-      status: "queued",
-      progress: 0,
-      stage: "ingest",
-      created_at: new Date().toISOString(),
-    };
-
-    setJob(newJob);
-    setTimelineEvents([]);
-    setTerminalLogs([`[${new Date().toISOString()}][INFO] deepread enqueued (${newJob.job_id})`]);
-    setTerminalOpen(true);
   }
 
   if (!paperId) {
@@ -330,6 +404,16 @@ export function AnalysisWorkbench() {
       jobStatus={currentJob.status}
       mockMode={mockMode}
       mockReason={mockReason}
+      notice={focusIssues || loadError ? (
+        <>
+          {focusIssues ? (
+            <p className="text-xs text-[var(--pp-warning-text)]">Issue focus enabled: prioritizing risk-related claims.</p>
+          ) : null}
+          {loadError ? (
+            <p className="text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
+          ) : null}
+        </>
+      ) : null}
       rail={
         <Rail
           papers={filteredPapers}
