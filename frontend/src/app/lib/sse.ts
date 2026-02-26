@@ -140,6 +140,11 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
       reconnectAttempt += 1;
 
       if (!hasReceivedData && reconnectAttempt >= 2) {
+        if (APP_CONFIG.strictApi) {
+          handlers.onLog("SSE unavailable in strict API mode", "ERROR");
+          stop();
+          return;
+        }
         handlers.onModeChange?.(true, "sse unavailable, switched to mock stream");
         mockSubscription = connectMockStream(options, handlers);
         closed = true;

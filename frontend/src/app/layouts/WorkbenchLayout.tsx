@@ -17,6 +17,7 @@ interface WorkbenchLayoutProps {
   artifactPanel: ReactNode;
   timelinePanel: ReactNode;
   controls?: ReactNode;
+  notice?: ReactNode;
   terminalOpen: boolean;
   terminalLogs: string[];
   onToggleTerminal: () => void;
@@ -35,6 +36,7 @@ export function WorkbenchLayout({
   artifactPanel,
   timelinePanel,
   controls,
+  notice,
   terminalOpen,
   terminalLogs,
   onToggleTerminal,
@@ -75,6 +77,7 @@ export function WorkbenchLayout({
         {mockMode && mockReason ? (
           <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{mockReason}</p>
         ) : null}
+        {notice ? <div className="mt-2">{notice}</div> : null}
       </header>
 
       <main className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,1fr)]">

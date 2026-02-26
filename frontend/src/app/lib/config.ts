@@ -1,10 +1,21 @@
 const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-const forceMockRaw = (import.meta.env.VITE_FORCE_MOCK as string | undefined)?.trim().toLowerCase();
-const forceMock = forceMockRaw === "1" || forceMockRaw === "true" || forceMockRaw === "yes" || forceMockRaw === "on";
+const envApiKey = (import.meta.env.VITE_API_KEY as string | undefined)?.trim();
+const forceMockRaw = (import.meta.env.VITE_FORCE_MOCK as string | undefined)?.trim();
+const strictApiRaw = (import.meta.env.VITE_STRICT_API as string | undefined)?.trim();
+
+function parseBooleanEnv(raw: string | undefined): boolean {
+  const value = (raw ?? "").toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+const forceMock = parseBooleanEnv(forceMockRaw);
+const strictApi = parseBooleanEnv(strictApiRaw);
 
 export const APP_CONFIG = {
   apiBaseUrl: envBase && envBase.length > 0 ? envBase.replace(/\/$/, "") : "http://localhost:8000",
+  apiKey: envApiKey && envApiKey.length > 0 ? envApiKey : undefined,
   forceMock,
+  strictApi,
   requestTimeoutMs: 5000,
   mockBannerLabel: "Mock mode",
   sseBackoffMs: [800, 1500, 2500, 4000, 6000],

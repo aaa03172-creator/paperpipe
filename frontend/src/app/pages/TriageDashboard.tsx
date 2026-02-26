@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, LayoutGrid } from "lucide-react";
-import { getHealth, getPapers } from "../lib/api";
+import { getApiErrorMessage, getHealth, getPapers } from "../lib/api";
 import { PaperSummary } from "../lib/types";
 import { Rail } from "../components/Rail";
 import { StatusChip } from "../components/StatusChip";
@@ -11,6 +11,7 @@ export function TriageDashboard() {
   const navigate = useNavigate();
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -27,21 +28,33 @@ export function TriageDashboard() {
     async function load() {
       clearMockMode();
       setLoading(true);
+      setLoadError(null);
 
-      const [healthResult, paperResult] = await Promise.all([getHealth(), getPapers()]);
-      if (!mounted) {
-        return;
-      }
+      try {
+        const [healthResult, paperResult] = await Promise.all([getHealth(), getPapers()]);
+        if (!mounted) {
+          return;
+        }
 
-      if (healthResult.isMock) {
-        markMockMode(healthResult.reason);
-      }
-      if (paperResult.isMock) {
-        markMockMode(paperResult.reason);
-      }
+        if (healthResult.isMock) {
+          markMockMode(healthResult.reason);
+        }
+        if (paperResult.isMock) {
+          markMockMode(paperResult.reason);
+        }
 
-      setPapers(paperResult.data);
-      setLoading(false);
+        setPapers(paperResult.data);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        setPapers([]);
+        setLoadError(getApiErrorMessage(error));
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
     }
 
     void load();
@@ -96,6 +109,9 @@ export function TriageDashboard() {
         </div>
         {mockMode && mockReasons.length > 0 ? (
           <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{mockReasons.join(" / ")}</p>
+        ) : null}
+        {loadError ? (
+          <p className="mt-2 text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
         ) : null}
       </header>
 
