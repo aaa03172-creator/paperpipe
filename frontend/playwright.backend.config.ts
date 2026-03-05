@@ -5,26 +5,29 @@ export default defineConfig({
   testMatch: /.*backend\.spec\.ts/,
   timeout: 60_000,
   use: {
-    baseURL: "http://127.0.0.1:4174",
+    baseURL: "http://127.0.0.1:43174",
     trace: "on-first-retry",
     headless: true,
   },
   webServer: [
     {
       command: "./frontend/scripts/run_backend_for_e2e.sh",
-      url: "http://127.0.0.1:8000/health",
+      url: "http://127.0.0.1:18080/health",
       timeout: 120_000,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       cwd: "..",
+      env: {
+        E2E_BACKEND_PORT: "18080",
+      },
     },
     {
-      command: "npm run dev -- --host 127.0.0.1 --port 4174",
-      url: "http://127.0.0.1:4174",
+      command: "npm run dev -- --host 127.0.0.1 --port 43174",
+      url: "http://127.0.0.1:43174",
       timeout: 120_000,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       cwd: ".",
       env: {
-        VITE_API_BASE_URL: "http://127.0.0.1:8000",
+        VITE_API_BASE_URL: "http://127.0.0.1:18080",
       },
     },
   ],
