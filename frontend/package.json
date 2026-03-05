@@ -9,10 +9,17 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "e2e:mock": "playwright test -c playwright.mock.config.ts",
-    "e2e:backend": "playwright test -c playwright.backend.config.ts"
+    "e2e:backend": "playwright test -c playwright.backend.config.ts",
+    "e2e:mock:update": "playwright test -c playwright.mock.config.ts --update-snapshots",
+    "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
   },
   "dependencies": {
+    "@react-pdf-viewer/core": "^3.12.0",
+    "@react-pdf-viewer/highlight": "^3.12.0",
+    "@react-pdf-viewer/page-navigation": "^3.12.0",
+    "@react-pdf-viewer/search": "^3.12.0",
     "lucide-react": "^0.575.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",

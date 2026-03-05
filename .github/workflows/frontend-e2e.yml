@@ -12,8 +12,16 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e-mock:
+    name: e2e-mock
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,10 +46,21 @@ jobs:
         working-directory: frontend
         run: npm run e2e:mock
 
+      - name: Upload mock Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mock-artifacts
+          if-no-files-found: ignore
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
   e2e-backend:
+    name: e2e-backend
     runs-on: ubuntu-latest
     needs: e2e-mock
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_backend_e2e == true) || vars.RUN_FRONTEND_BACKEND_E2E == '1' }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.run_backend_e2e == true) || vars.RUN_FRONTEND_BACKEND_E2E == '1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,3 +94,13 @@ jobs:
       - name: Run backend-connected E2E smoke
         working-directory: frontend
         run: npm run e2e:backend
+
+      - name: Upload backend Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-backend-artifacts
+          if-no-files-found: ignore
+          path: |
+            frontend/playwright-report
+            frontend/test-results
