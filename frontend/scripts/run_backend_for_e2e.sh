@@ -98,6 +98,7 @@ YAML
 fi
 
 "${PYTHON_BIN}" - <<'PY'
+import json
 import sqlite3
 from pathlib import Path
 
@@ -127,6 +128,160 @@ conn.execute(
         str(pdf.resolve()),
     ),
 )
+
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        run_id TEXT,
+        paper_id TEXT,
+        persona_id TEXT DEFAULT 'default',
+        run_verify INTEGER DEFAULT 0,
+        clean_reindex INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'queued',
+        progress INTEGER DEFAULT 0,
+        stage TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP,
+        artifact_dir TEXT,
+        log_path TEXT,
+        error_code TEXT,
+        error_message TEXT
+    )
+    """
+)
+
+paper_id = "paper-e2e-001"
+run_id = "run_e2e_fixture_001"
+job_id = "job-e2e-fixture-001"
+artifact_dir = root / "storage" / "artifacts" / paper_id / run_id
+artifact_dir.mkdir(parents=True, exist_ok=True)
+
+claimset_payload = {
+    "doc_id": paper_id,
+    "claims": [
+        {
+            "claim_id": "e2e-claim-1",
+            "statement": "The intervention shows an initial improvement window during early follow-up.",
+            "confidence": "high",
+            "evidence": [
+                {
+                    "page": 0,
+                    "quote": "Initial improvement window observed during early follow-up period.",
+                    "bbox_pct": {"left": 8, "top": 10, "width": 40, "height": 20},
+                }
+            ],
+        },
+        {
+            "claim_id": "e2e-claim-2",
+            "statement": "A secondary response appears in a separate region on the same page.",
+            "confidence": "medium",
+            "evidence": [
+                {
+                    "page": 0,
+                    "quote": "Secondary response appears in a distinct region of the analysis.",
+                    "bbox_pct": {"left": 52, "top": 26, "width": 36, "height": 28},
+                }
+            ],
+        },
+        {
+            "claim_id": "e2e-claim-3",
+            "statement": "No severe adverse events were reported in the observed cohort.",
+            "confidence": "medium",
+            "evidence": [
+                {
+                    "page": 0,
+                    "quote": "No severe adverse events were reported in the observed cohort.",
+                    "bbox_pct": {"left": 14, "top": 60, "width": 44, "height": 18},
+                }
+            ],
+        },
+    ],
+}
+
+stats_payload = {
+    "checks": [
+        {"check_id": "check-1", "hypothesis": "Primary endpoint difference", "verdict": "pass"},
+        {"check_id": "check-2", "hypothesis": "N consistency", "verdict": "warning"},
+    ]
+}
+
+bootstrap_payload = {
+    "artifact_document_written": False,
+    "artifact_index_written": False,
+    "artifact_claimset_written": True,
+    "artifact_stats_written": True,
+    "claimset_readiness": "ready",
+    "claimset_ready": True,
+    "claimset_claim_count": 3,
+    "claimset_readiness_reason": "claims_present",
+    "claimset_readiness_badge": "READY",
+    "claimset_ops_action": "none",
+    "claimset_ops_alert": False,
+    "claimset_ops_note": "ready",
+}
+
+(artifact_dir / "claimset.json").write_text(json.dumps(claimset_payload, indent=2), encoding="utf-8")
+(artifact_dir / "stats_report.json").write_text(json.dumps(stats_payload, indent=2), encoding="utf-8")
+(artifact_dir / "bootstrap_meta.json").write_text(json.dumps(bootstrap_payload, indent=2), encoding="utf-8")
+(artifact_dir / "run_meta.json").write_text(
+    json.dumps({"paper_id": paper_id, "run_id": run_id, "status": "completed"}, indent=2),
+    encoding="utf-8",
+)
+
+log_dir = root / "logs" / "jobs"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_path = log_dir / f"{job_id}.log"
+log_lines = [
+    {
+        "timestamp": "2026-02-26T13:00:01Z",
+        "stage": "ingest",
+        "progress": 25,
+        "level": "INFO",
+        "message": "Ingested 1 page",
+    },
+    {
+        "timestamp": "2026-02-26T13:00:02Z",
+        "stage": "read",
+        "progress": 70,
+        "level": "INFO",
+        "message": "Extracted 3 claims",
+    },
+    {
+        "timestamp": "2026-02-26T13:00:03Z",
+        "stage": "completed",
+        "progress": 100,
+        "level": "INFO",
+        "message": "Pipeline completed successfully",
+    },
+]
+log_path.write_text("\n".join(json.dumps(line) for line in log_lines) + "\n", encoding="utf-8")
+
+conn.execute(
+    """
+    INSERT OR REPLACE INTO jobs (
+        job_id, run_id, paper_id, persona_id, run_verify, clean_reindex,
+        status, progress, stage, created_at, started_at, finished_at,
+        artifact_dir, log_path, error_code, error_message
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), ?, ?, NULL, NULL)
+    """,
+    (
+        job_id,
+        run_id,
+        paper_id,
+        "default",
+        1,
+        0,
+        "completed",
+        100,
+        "completed",
+        str(artifact_dir.resolve()),
+        str(log_path.resolve()),
+    ),
+)
+
 conn.commit()
 conn.close()
 PY
