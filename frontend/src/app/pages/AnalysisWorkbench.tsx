@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Play, RefreshCcw } from "lucide-react";
 import {
@@ -8,7 +8,7 @@ import {
   getJob,
   getJobsForPaper,
   getPaper,
-  getPaperPdfUrl,
+  getPaperPdfBlobUrl,
   getPapers,
   getPersonas,
   getRunTimeline,
@@ -27,10 +27,14 @@ import {
 import { getNotebookFromBundle } from "../lib/mock";
 import { useAppStore } from "../store/useAppStore";
 import { Rail } from "../components/Rail";
-import { PdfPanel } from "../components/PdfPanel";
 import { ArtifactPanel } from "../components/ArtifactPanel";
 import { TimelinePanel } from "../components/TimelinePanel";
 import { WorkbenchLayout } from "../layouts/WorkbenchLayout";
+
+const PdfPanel = lazy(async () => {
+  const module = await import("../components/PdfPanel");
+  return { default: module.PdfPanel };
+});
 
 function buildIdleJob(paperId: string): JobStatus {
   return {
@@ -89,6 +93,7 @@ export function AnalysisWorkbench() {
   const [runVerify, setRunVerify] = useState(true);
   const [cleanReindex, setCleanReindex] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -117,6 +122,15 @@ export function AnalysisWorkbench() {
   const jobRef = useRef<JobStatus | null>(null);
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
   const focusIssuesRef = useRef<boolean>(focusIssues);
+  const pdfBlobUrlRef = useRef<string | null>(null);
+
+  const replacePdfBlobUrl = useCallback((nextUrl: string | null) => {
+    if (pdfBlobUrlRef.current && pdfBlobUrlRef.current !== nextUrl) {
+      URL.revokeObjectURL(pdfBlobUrlRef.current);
+    }
+    pdfBlobUrlRef.current = nextUrl;
+    setPdfBlobUrl(nextUrl);
+  }, []);
 
   useEffect(() => {
     jobRef.current = job;
@@ -131,6 +145,15 @@ export function AnalysisWorkbench() {
   }, [focusIssues]);
 
   useEffect(() => {
+    return () => {
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadWorkbench() {
@@ -140,17 +163,20 @@ export function AnalysisWorkbench() {
 
       setLoadError(null);
       clearMockMode();
+      replacePdfBlobUrl(null);
 
       try {
-        const [papersResult, paperResult, personaResult, jobsResult, artifactResult] = await Promise.all([
+        const [papersResult, paperResult, personaResult, jobsResult, artifactResult, pdfResult] = await Promise.all([
           getPapers(),
           getPaper(paperId),
           getPersonas(),
           getJobsForPaper(paperId),
           getArtifactsLatest(paperId),
+          getPaperPdfBlobUrl(paperId),
         ]);
 
         if (!mounted) {
+          URL.revokeObjectURL(pdfResult.data);
           return;
         }
 
@@ -159,6 +185,7 @@ export function AnalysisWorkbench() {
         if (personaResult.isMock) markMockMode(personaResult.reason);
         if (jobsResult.isMock) markMockMode(jobsResult.reason);
         if (artifactResult.isMock) markMockMode(artifactResult.reason);
+        if (pdfResult.isMock) markMockMode(pdfResult.reason);
 
         setPapers(papersResult.data);
         setPaper(paperResult.data);
@@ -172,6 +199,7 @@ export function AnalysisWorkbench() {
         const notebookData = getNotebookFromBundle(bundle);
         setNotebook(notebookData);
         setActiveClaimId(chooseActiveClaimId(notebookData, focusIssues, null));
+        replacePdfBlobUrl(pdfResult.data);
 
         if (initialJob?.run_id) {
           const timelineResult = await getRunTimeline(initialJob.run_id);
@@ -198,6 +226,7 @@ export function AnalysisWorkbench() {
         }
         const message = getApiErrorMessage(error);
         setLoadError(message);
+        replacePdfBlobUrl(null);
         setTimelineEvents([]);
         setTerminalLogs([`[${new Date().toISOString()}][ERROR] ${message}`]);
       }
@@ -208,7 +237,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, focusIssues, clearMockMode, markMockMode, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -393,8 +422,126 @@ export function AnalysisWorkbench() {
   const currentJob = job ?? buildIdleJob(paperId);
   const stage = mapStage(currentJob.stage, currentJob.status);
   const mockReason = mockReasons.join(" / ");
-  const pdfAvailable = mockMode || Boolean(paper?.pdf_exists);
-  const pdfUrl = getPaperPdfUrl(paperId, mockMode);
+  const pdfAvailable = Boolean(pdfBlobUrl);
+  const pdfUrl = pdfBlobUrl ?? "";
+  const controlsDesktop = (
+    <>
+      <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
+        Persona
+        <select
+          value={selectedPersonaId}
+          onChange={(event) => setSelectedPersonaId(event.target.value)}
+          className="bg-transparent text-[var(--pp-text-primary)] outline-none"
+        >
+          {personas.map((persona) => (
+            <option key={persona.id} value={persona.id}>
+              {persona.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
+        <input type="checkbox" checked={runVerify} onChange={(event) => setRunVerify(event.target.checked)} />
+        Stats Verify
+      </label>
+
+      <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
+        <input type="checkbox" checked={cleanReindex} onChange={(event) => setCleanReindex(event.target.checked)} />
+        Clean Reindex
+      </label>
+
+      <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
+        Theme
+        <select
+          value={themeMode}
+          onChange={(event) => setThemeMode(event.target.value as "dark" | "light" | "system")}
+          className="bg-transparent text-[var(--pp-text-primary)] outline-none"
+        >
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="system">System</option>
+        </select>
+      </label>
+
+      <button
+        type="button"
+        onClick={() => void refreshData()}
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+      >
+        <RefreshCcw className="h-3.5 w-3.5" />
+        Refresh
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void runDeepRead()}
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1.5 text-xs text-[var(--pp-accent-text)]"
+      >
+        <Play className="h-3.5 w-3.5" />
+        Deep Read Run
+      </button>
+    </>
+  );
+  const controlsMobile = (
+    <>
+      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
+        Persona
+        <select
+          value={selectedPersonaId}
+          onChange={(event) => setSelectedPersonaId(event.target.value)}
+          className="max-w-[62%] bg-transparent text-right text-[var(--pp-text-primary)] outline-none"
+        >
+          {personas.map((persona) => (
+            <option key={persona.id} value={persona.id}>
+              {persona.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
+        <span>Stats Verify</span>
+        <input type="checkbox" checked={runVerify} onChange={(event) => setRunVerify(event.target.checked)} />
+      </label>
+
+      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
+        <span>Clean Reindex</span>
+        <input type="checkbox" checked={cleanReindex} onChange={(event) => setCleanReindex(event.target.checked)} />
+      </label>
+
+      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
+        Theme
+        <select
+          value={themeMode}
+          onChange={(event) => setThemeMode(event.target.value as "dark" | "light" | "system")}
+          className="bg-transparent text-right text-[var(--pp-text-primary)] outline-none"
+        >
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="system">System</option>
+        </select>
+      </label>
+
+      <button
+        type="button"
+        onClick={() => void refreshData()}
+        className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]"
+      >
+        <RefreshCcw className="h-3.5 w-3.5" />
+        Refresh
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void runDeepRead()}
+        className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-3 py-2 text-xs font-medium text-[var(--pp-accent-text)]"
+      >
+        <Play className="h-3.5 w-3.5" />
+        Deep Read Run
+      </button>
+    </>
+  );
 
   return (
     <WorkbenchLayout
@@ -424,14 +571,25 @@ export function AnalysisWorkbench() {
         />
       }
       pdfPanel={
-        <PdfPanel
-          title={paper?.title ?? "Selected Paper"}
-          paperId={paperId}
-          pdfUrl={pdfUrl}
-          pdfAvailable={pdfAvailable}
-          highlights={notebook.highlights}
-          activeClaimId={activeClaimId}
-        />
+        <Suspense
+          fallback={
+            <section className="surface-card flex min-h-0 flex-col p-3">
+              <div className="flex min-h-[420px] items-center justify-center text-sm text-[var(--pp-text-dim)]">
+                Loading PDF viewer...
+              </div>
+            </section>
+          }
+        >
+          <PdfPanel
+            title={paper?.title ?? "Selected Paper"}
+            paperId={paperId}
+            pdfUrl={pdfUrl}
+            pdfAvailable={pdfAvailable}
+            claims={notebook.claims}
+            highlights={notebook.highlights}
+            activeClaimId={activeClaimId}
+          />
+        </Suspense>
       }
       artifactPanel={
         <ArtifactPanel
@@ -442,65 +600,8 @@ export function AnalysisWorkbench() {
         />
       }
       timelinePanel={<TimelinePanel events={timelineEvents} />}
-      controls={
-        <>
-          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
-            Persona
-            <select
-              value={selectedPersonaId}
-              onChange={(event) => setSelectedPersonaId(event.target.value)}
-              className="bg-transparent text-[var(--pp-text-primary)] outline-none"
-            >
-              {personas.map((persona) => (
-                <option key={persona.id} value={persona.id}>
-                  {persona.title}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
-            <input type="checkbox" checked={runVerify} onChange={(event) => setRunVerify(event.target.checked)} />
-            Stats Verify
-          </label>
-
-          <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
-            <input type="checkbox" checked={cleanReindex} onChange={(event) => setCleanReindex(event.target.checked)} />
-            Clean Reindex
-          </label>
-
-          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
-            Theme
-            <select
-              value={themeMode}
-              onChange={(event) => setThemeMode(event.target.value as "dark" | "light" | "system")}
-              className="bg-transparent text-[var(--pp-text-primary)] outline-none"
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            onClick={() => void refreshData()}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
-          >
-            <RefreshCcw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void runDeepRead()}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1.5 text-xs text-[var(--pp-accent-text)]"
-          >
-            <Play className="h-3.5 w-3.5" />
-            Deep Read Run
-          </button>
-        </>
-      }
+      controls={controlsDesktop}
+      controlsMobile={controlsMobile}
       terminalOpen={terminalOpen}
       terminalLogs={terminalLogs}
       onToggleTerminal={toggleTerminal}

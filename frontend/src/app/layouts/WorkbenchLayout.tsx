@@ -17,6 +17,7 @@ interface WorkbenchLayoutProps {
   artifactPanel: ReactNode;
   timelinePanel: ReactNode;
   controls?: ReactNode;
+  controlsMobile?: ReactNode;
   notice?: ReactNode;
   terminalOpen: boolean;
   terminalLogs: string[];
@@ -36,14 +37,17 @@ export function WorkbenchLayout({
   artifactPanel,
   timelinePanel,
   controls,
+  controlsMobile,
   notice,
   terminalOpen,
   terminalLogs,
   onToggleTerminal,
   onCloseTerminal,
 }: WorkbenchLayoutProps) {
+  const mobileControls = controlsMobile ?? controls;
+
   return (
-    <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--pp-canvas)] p-4">
       <header className="surface-card mb-4 p-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -69,9 +73,20 @@ export function WorkbenchLayout({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--pp-border)] pt-3">
-          <Stepper stage={stage} jobStatus={jobStatus} />
-          <div className="flex flex-wrap items-center gap-2">{controls}</div>
+        <div className="mt-3 border-t border-[var(--pp-border)] pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Stepper stage={stage} jobStatus={jobStatus} />
+            <div className="hidden flex-wrap items-center gap-2 md:flex">{controls}</div>
+          </div>
+
+          {mobileControls ? (
+            <details className="mt-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] md:hidden">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                Run & View Controls
+              </summary>
+              <div className="grid gap-2 border-t border-[var(--pp-border)] p-3">{mobileControls}</div>
+            </details>
+          ) : null}
         </div>
 
         {mockMode && mockReason ? (
@@ -80,11 +95,11 @@ export function WorkbenchLayout({
         {notice ? <div className="mt-2">{notice}</div> : null}
       </header>
 
-      <main className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,1fr)]">
-        <div className="min-h-0">{rail}</div>
-        <div className="min-h-0">{pdfPanel}</div>
-        <div className="grid min-h-0 gap-4">
-          <div className="min-h-0">{artifactPanel}</div>
+      <main className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,1fr)] xl:items-start">
+        <div className="order-3 min-h-0 xl:order-1 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{rail}</div>
+        <div className="order-1 min-h-0 xl:order-2">{pdfPanel}</div>
+        <div className="order-2 grid min-h-0 gap-4 xl:order-3">
+          <div className="min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{artifactPanel}</div>
           <div className="min-h-0">{timelinePanel}</div>
         </div>
       </main>
