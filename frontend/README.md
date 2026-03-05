@@ -67,6 +67,16 @@ npm run e2e:backend
 ```
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
 
+## UI 품질 게이트 (권장)
+아래 순서로 실행하면 Workbench 핵심 UX(Claim jump + bbox highlight + mock/backend fallback)를 빠르게 검증할 수 있습니다.
+```bash
+cd frontend
+npm run lint
+npm run build
+npm run e2e:mock
+npm run e2e:backend
+```
+
 ## GitHub Actions 연동
 - 워크플로우: `.github/workflows/frontend-e2e.yml`
 - `e2e:mock`:
@@ -80,7 +90,7 @@ npm run e2e:backend
 - Tailwind CSS (토큰 `--pp-*` 기반)
 - Zustand
 - lucide-react
-- PDF: iframe renderer
+- PDF: `@react-pdf-viewer/core` + highlight/page-navigation/search plugins
 
 ## 주요 디렉토리
 - `src/app/layouts/`

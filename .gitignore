@@ -70,3 +70,9 @@ run_manual_injection.py
 brain/
 .gemini/
 .codex_trash/
+
+# Local UI audit artifacts
+tmp_*.png
+tmp_*.jpg
+tmp_*.jpeg
+tmp_*.webp

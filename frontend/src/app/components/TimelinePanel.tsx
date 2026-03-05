@@ -71,7 +71,7 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
           : newestFirst.filter((event) => event.event === "status");
 
   return (
-    <section className="surface-card flex min-h-[220px] flex-col p-3">
+    <section className="surface-card flex min-h-[220px] max-h-[68vh] flex-col overflow-hidden p-3 xl:max-h-[calc(100vh-7rem)]">
       <header className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
         <Clock3 className="h-3.5 w-3.5" />
         Timeline
@@ -177,7 +177,7 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
         </div>
       ) : null}
 
-      <ul className="space-y-2 overflow-auto pr-1 text-sm">
+      <ul className="mt-1 flex-1 min-h-0 space-y-2 overflow-auto overscroll-contain pr-1 text-sm">
         {events.length > 0 ? (
           filteredEvents.length > 0 ? (
             filteredEvents.map((event, index) => {
