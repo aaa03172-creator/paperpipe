@@ -1,4 +1,5 @@
-import { FileText, Search, TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, FileText, Search, TriangleAlert } from "lucide-react";
 import { PaperSummary } from "../lib/types";
 import { statusLabel } from "../lib/ui";
 
@@ -8,6 +9,7 @@ interface RailProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSelectPaper: (paperId: string) => void;
+  mobileCollapsedByDefault?: boolean;
 }
 
 function statusClasses(status: PaperSummary["status"]): string {
@@ -23,9 +25,61 @@ function statusClasses(status: PaperSummary["status"]): string {
   return "bg-[var(--pp-status-idle-bg)] text-[var(--pp-status-idle-text)] border-[var(--pp-status-idle-border)]";
 }
 
-export function Rail({ papers, selectedPaperId, searchQuery, onSearchChange, onSelectPaper }: RailProps) {
+export function Rail({
+  papers,
+  selectedPaperId,
+  searchQuery,
+  onSearchChange,
+  onSelectPaper,
+  mobileCollapsedByDefault = true,
+}: RailProps) {
+  const [mobileOpen, setMobileOpen] = useState(!mobileCollapsedByDefault);
+
+  const paperButtons = papers.map((paper) => {
+    const active = paper.paper_id === selectedPaperId;
+    return (
+      <button
+        key={paper.paper_id}
+        type="button"
+        onClick={() => onSelectPaper(paper.paper_id)}
+        className={[
+          "w-full rounded-md border p-3 text-left transition-colors",
+          active
+            ? "border-[var(--pp-accent)] bg-[var(--pp-surface-selected)]"
+            : "border-[var(--pp-border)] bg-[var(--pp-surface-raised)] hover:bg-[var(--pp-surface-muted)]",
+        ].join(" ")}
+      >
+        <div className="flex items-start gap-2">
+          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--pp-text-dim)]" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-[var(--pp-text-primary)]">{paper.title}</p>
+            <p className="mt-1 truncate text-xs text-[var(--pp-text-dim)]">{paper.paper_id}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <span
+            className={[
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              statusClasses(paper.status),
+            ].join(" ")}
+          >
+            {statusLabel(paper.status ?? "not_started")}
+          </span>
+
+          {(paper.issues ?? 0) > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--pp-warning-text)]">
+              <TriangleAlert className="h-3 w-3" />
+              {paper.issues}
+            </span>
+          ) : null}
+        </div>
+      </button>
+    );
+  });
+
   return (
-    <aside className="surface-card flex h-full min-h-0 flex-col p-3">
+    <aside className="surface-card flex min-h-0 max-h-[46vh] flex-col overflow-hidden p-3 xl:h-full xl:max-h-none">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Navigation Rail</p>
         <label className="mt-3 flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-2 py-2">
@@ -40,49 +94,23 @@ export function Rail({ papers, selectedPaperId, searchQuery, onSearchChange, onS
         </label>
       </div>
 
-      <div className="mt-3 flex-1 space-y-2 overflow-auto pr-1">
-        {papers.map((paper) => {
-          const active = paper.paper_id === selectedPaperId;
-          return (
-            <button
-              key={paper.paper_id}
-              type="button"
-              onClick={() => onSelectPaper(paper.paper_id)}
-              className={[
-                "w-full rounded-md border p-3 text-left transition-colors",
-                active
-                  ? "border-[var(--pp-accent)] bg-[var(--pp-surface-selected)]"
-                  : "border-[var(--pp-border)] bg-[var(--pp-surface-raised)] hover:bg-[var(--pp-surface-muted)]",
-              ].join(" ")}
-            >
-              <div className="flex items-start gap-2">
-                <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--pp-text-dim)]" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-[var(--pp-text-primary)]">{paper.title}</p>
-                  <p className="mt-1 truncate text-xs text-[var(--pp-text-dim)]">{paper.paper_id}</p>
-                </div>
-              </div>
+      <button
+        type="button"
+        onClick={() => setMobileOpen((value) => !value)}
+        className="mt-3 inline-flex items-center justify-between rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)] xl:hidden"
+      >
+        <span>{`Papers · ${papers.length}`}</span>
+        <ChevronDown className={["h-3.5 w-3.5 transition-transform", mobileOpen ? "rotate-180" : "rotate-0"].join(" ")} />
+      </button>
 
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <span
-                  className={[
-                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                    statusClasses(paper.status),
-                  ].join(" ")}
-                >
-                  {statusLabel(paper.status ?? "not_started")}
-                </span>
-
-                {(paper.issues ?? 0) > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--pp-warning-text)]">
-                    <TriangleAlert className="h-3 w-3" />
-                    {paper.issues}
-                  </span>
-                ) : null}
-              </div>
-            </button>
-          );
-        })}
+      <div
+        className={[
+          "mt-3 space-y-2 overflow-auto pr-1",
+          mobileOpen ? "block max-h-[34vh]" : "hidden",
+          "xl:mt-3 xl:flex-1 xl:max-h-none xl:space-y-2 xl:overflow-auto xl:pr-1 xl:block",
+        ].join(" ")}
+      >
+        {paperButtons}
       </div>
     </aside>
   );

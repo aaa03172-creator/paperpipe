@@ -48,3 +48,32 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
   await expect(page.getByText("Claim Link · p.3")).toBeVisible();
   await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
 });
+
+test.describe("mobile UX scenarios", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("mobile triage cards and workbench collapsed controls work", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
+    await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+
+    const firstMobileCard = page.locator("article").filter({ hasText: "Open Workbench" }).first();
+    await expect(firstMobileCard).toBeVisible();
+    await firstMobileCard.getByRole("button", { name: "Open Workbench" }).click();
+
+    await expect(page).toHaveURL(/\/workbench\//);
+    await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+
+    const controlsSummary = page.locator('summary:has-text("Run & View Controls")').first();
+    await expect(controlsSummary).toBeVisible();
+    await controlsSummary.click();
+
+    await expect(page.getByRole("button", { name: "Deep Read Run" }).first()).toBeVisible();
+    await expect(page.getByText("Errors / Done")).toBeVisible();
+    await expect(page.getByText("Pinned Events")).toBeVisible();
+
+    const railSummary = page.getByRole("button", { name: /Papers ·/ }).first();
+    await expect(railSummary).toBeVisible();
+  });
+});
