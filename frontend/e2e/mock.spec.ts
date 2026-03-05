@@ -12,7 +12,7 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
   await expect(page.getByText(/^Mock mode$/)).toBeVisible();
 
-  await expect(page.locator('iframe[title="Paper PDF"]')).toBeVisible();
+  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Cell 1 Claim")).toBeVisible();
 
   await page.getByRole("button", { name: "Show Terminal Logs" }).click();
@@ -35,9 +35,16 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
-  await page.locator("tbody tr").first().getByRole("button").click();
+  await page.locator("tbody tr").first().locator("td").nth(2).getByRole("button").click();
 
   await expect(page).toHaveURL(/focus=issues/);
   await expect(page.getByText("Issue focus enabled: prioritizing risk-related claims.")).toBeVisible();
   await expect(page.getByText("Claim Link · p.5")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]')).toBeVisible();
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await claimsPanel.getByRole("button").first().click();
+
+  await expect(page.getByText("Claim Link · p.3")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
 });
