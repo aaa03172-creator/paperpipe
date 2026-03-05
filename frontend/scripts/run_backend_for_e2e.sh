@@ -7,6 +7,8 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   exit 127
 fi
 
+BACKEND_PORT="${E2E_BACKEND_PORT:-8000}"
+
 if [[ ! -f "config.yaml" ]]; then
   cat > config.yaml <<'YAML'
 system:
@@ -286,4 +288,4 @@ conn.commit()
 conn.close()
 PY
 
-"${PYTHON_BIN}" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+"${PYTHON_BIN}" -m uvicorn backend.main:app --host 127.0.0.1 --port "${BACKEND_PORT}"
