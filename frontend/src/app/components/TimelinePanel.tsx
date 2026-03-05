@@ -1,10 +1,12 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info } from "lucide-react";
 import { TimelineEvent } from "../lib/types";
 
 interface TimelinePanelProps {
   events: TimelineEvent[];
 }
+
+type TimelineFilter = "all" | "status" | "error" | "done";
 
 function eventMessage(event: TimelineEvent): string {
   return event.message ?? event.raw ?? event.event;
@@ -49,6 +51,7 @@ function eventMeta(event: TimelineEvent): {
 }
 
 export function TimelinePanel({ events }: TimelinePanelProps) {
+  const [filter, setFilter] = useState<TimelineFilter>("all");
   const newestFirst = [...events].reverse();
   const latestEvent = newestFirst[0] ?? null;
   const latestError = newestFirst.find((event) => event.event === "error") ?? null;
@@ -57,6 +60,15 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
   const lastStage = latestStatus?.stage ?? latestEvent?.stage ?? "-";
   const errorCount = events.filter((event) => event.event === "error").length;
   const doneCount = events.filter((event) => event.event === "done").length;
+  const statusCount = events.filter((event) => event.event === "status").length;
+  const filteredEvents =
+    filter === "all"
+      ? newestFirst
+      : filter === "error"
+        ? newestFirst.filter((event) => event.event === "error")
+        : filter === "done"
+          ? newestFirst.filter((event) => event.event === "done")
+          : newestFirst.filter((event) => event.event === "status");
 
   return (
     <section className="surface-card flex min-h-[220px] flex-col p-3">
@@ -64,6 +76,59 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
         <Clock3 className="h-3.5 w-3.5" />
         Timeline
       </header>
+
+      {events.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setFilter("all")}
+            className={[
+              "rounded-full border px-2 py-0.5 text-[11px]",
+              filter === "all"
+                ? "border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] text-[var(--pp-accent-text)]"
+                : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+            ].join(" ")}
+          >
+            All ({events.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("status")}
+            className={[
+              "rounded-full border px-2 py-0.5 text-[11px]",
+              filter === "status"
+                ? "border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] text-[var(--pp-accent-text)]"
+                : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+            ].join(" ")}
+          >
+            Status ({statusCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("error")}
+            className={[
+              "rounded-full border px-2 py-0.5 text-[11px]",
+              filter === "error"
+                ? "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]"
+                : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+            ].join(" ")}
+          >
+            Error ({errorCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("done")}
+            className={[
+              "rounded-full border px-2 py-0.5 text-[11px]",
+              filter === "done"
+                ? "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
+                : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+            ].join(" ")}
+          >
+            Done ({doneCount})
+          </button>
+        </div>
+      ) : null}
 
       {events.length > 0 ? (
         <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -114,26 +179,32 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
 
       <ul className="space-y-2 overflow-auto pr-1 text-sm">
         {events.length > 0 ? (
-          newestFirst.map((event, index) => {
-            const meta = eventMeta(event);
-            return (
-              <li key={`${event.ts ?? "evt"}-${index}`} className={`rounded-md border bg-[var(--pp-surface-raised)] p-2.5 ${meta.cardClass}`}>
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <p className="text-xs text-[var(--pp-text-dim)]">{event.ts ? new Date(event.ts).toLocaleTimeString() : "-"}</p>
-                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>
-                    {meta.badge}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5">{meta.icon}</span>
-                  <div>
-                    <p className="text-sm text-[var(--pp-text-primary)]">{eventMessage(event)}</p>
-                    {event.stage ? <p className="text-xs text-[var(--pp-text-dim)]">stage: {event.stage}</p> : null}
+          filteredEvents.length > 0 ? (
+            filteredEvents.map((event, index) => {
+              const meta = eventMeta(event);
+              return (
+                <li key={`${event.ts ?? "evt"}-${index}`} className={`rounded-md border bg-[var(--pp-surface-raised)] p-2.5 ${meta.cardClass}`}>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <p className="text-xs text-[var(--pp-text-dim)]">{event.ts ? new Date(event.ts).toLocaleTimeString() : "-"}</p>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>
+                      {meta.badge}
+                    </span>
                   </div>
-                </div>
-              </li>
-            );
-          })
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5">{meta.icon}</span>
+                    <div>
+                      <p className="text-sm text-[var(--pp-text-primary)]">{eventMessage(event)}</p>
+                      {event.stage ? <p className="text-xs text-[var(--pp-text-dim)]">stage: {event.stage}</p> : null}
+                    </div>
+                  </div>
+                </li>
+              );
+            })
+          ) : (
+            <li className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-dim)]">
+              No events in this filter yet.
+            </li>
+          )
         ) : (
           <li className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-dim)]">
             Timeline events will appear after a run starts.
