@@ -67,6 +67,41 @@ export interface ArtifactBundle {
   files: Record<string, ArtifactFileEntry>;
 }
 
+export interface ObsidianMirrorClaim {
+  claim_id: string;
+  claim_type: string;
+  statement: string;
+  confidence: number;
+  evidence_quote?: string | null;
+  evidence_page?: number | null;
+  limitations: string[];
+}
+
+export interface ObsidianMirrorStatCheck {
+  check_id: string;
+  test_type: string;
+  verdict: string;
+  hypothesis?: string | null;
+  notes?: string | null;
+  decision_error: boolean;
+}
+
+export interface ObsidianMirror {
+  paper_id: string;
+  run_id: string;
+  generated_markdown: string;
+  has_claimset: boolean;
+  has_stats_report: boolean;
+  claims: ObsidianMirrorClaim[];
+  stats_checks: ObsidianMirrorStatCheck[];
+}
+
+export interface ObsidianSyncResponse {
+  status: string;
+  file?: string | null;
+  message?: string;
+}
+
 export interface PersonaOption {
   id: string;
   title: string;
@@ -92,12 +127,15 @@ export interface EvidenceHighlight {
   left: number;
   width: number;
   height: number;
+  quote?: string;
 }
 
 export interface NotebookClaim {
   claim_id: string;
   text: string;
   confidence: "low" | "medium" | "high";
+  text_missing?: boolean;
+  link_health?: "mapped" | "search_fallback" | "missing";
 }
 
 export interface NotebookArtifact {

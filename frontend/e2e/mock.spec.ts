@@ -74,6 +74,20 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
   }
 });
 
+test("runtime guard shows fallback and missing-text notices when claim evidence is incomplete", async ({ page }) => {
+  await page.goto("/workbench/paper-2025-nutrition");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+
+  await expect(page.getByTestId("claim-guard-fallback")).toBeVisible();
+  await expect(page.getByTestId("claim-guard-text-missing")).toBeVisible();
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await expect(claimsPanel.getByText("Missing evidence")).toBeVisible();
+  await expect(claimsPanel.getByText("Text missing")).toBeVisible();
+});
+
 test.describe("mobile UX scenarios", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

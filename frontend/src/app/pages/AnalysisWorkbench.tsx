@@ -7,18 +7,22 @@ import {
   getApiErrorMessage,
   getJob,
   getJobsForPaper,
+  getObsidianMirror,
   getPaper,
   getPaperPdfBlobUrl,
   getPapers,
   getPersonas,
   getRunTimeline,
+  syncToObsidian,
 } from "../lib/api";
 import { connectJobStream, StreamSubscription } from "../lib/sse";
 import { mapStage } from "../lib/ui";
+import { getClaimLinkState, summarizeClaimGuard } from "../lib/claimGuard";
 import {
   ArtifactBundle,
   JobStatus,
   NotebookArtifact,
+  ObsidianMirror,
   PaperDetail,
   PaperSummary,
   PersonaOption,
@@ -69,9 +73,26 @@ function chooseActiveClaimId(
   if (currentClaimId && notebook.claims.some((claim) => claim.claim_id === currentClaimId)) {
     return currentClaimId;
   }
+  const highlightMap = new Map(notebook.highlights.map((item) => [item.claim_id, item]));
+
   if (focusIssues) {
     return selectIssueClaimId(notebook) ?? notebook.claims[0]?.claim_id ?? null;
   }
+
+  const mappedClaim = notebook.claims.find(
+    (claim) => getClaimLinkState(claim, highlightMap.get(claim.claim_id)).health === "mapped",
+  );
+  if (mappedClaim) {
+    return mappedClaim.claim_id;
+  }
+
+  const fallbackClaim = notebook.claims.find(
+    (claim) => getClaimLinkState(claim, highlightMap.get(claim.claim_id)).health === "search_fallback",
+  );
+  if (fallbackClaim) {
+    return fallbackClaim.claim_id;
+  }
+
   return notebook.claims[0]?.claim_id ?? null;
 }
 
@@ -90,6 +111,8 @@ export function AnalysisWorkbench() {
   const [notebook, setNotebook] = useState<NotebookArtifact>(() => getNotebookFromBundle(getNotebookFallback(paperId)));
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [obsidianMirror, setObsidianMirror] = useState<ObsidianMirror | null>(null);
+  const [syncingObsidian, setSyncingObsidian] = useState(false);
   const [runVerify, setRunVerify] = useState(true);
   const [cleanReindex, setCleanReindex] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -118,6 +141,10 @@ export function AnalysisWorkbench() {
     }
     return papers.filter((item) => `${item.title} ${item.paper_id} ${item.authors ?? ""}`.toLowerCase().includes(q));
   }, [papers, searchQuery]);
+  const claimGuard = useMemo(
+    () => summarizeClaimGuard(notebook.claims, notebook.highlights),
+    [notebook.claims, notebook.highlights],
+  );
 
   const jobRef = useRef<JobStatus | null>(null);
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
@@ -131,6 +158,22 @@ export function AnalysisWorkbench() {
     pdfBlobUrlRef.current = nextUrl;
     setPdfBlobUrl(nextUrl);
   }, []);
+
+  const loadObsidianMirror = useCallback(
+    async (runId: string | null | undefined) => {
+      if (!paperId || !runId) {
+        setObsidianMirror(null);
+        return;
+      }
+
+      const mirrorResult = await getObsidianMirror(paperId, runId);
+      if (mirrorResult.isMock) {
+        markMockMode(mirrorResult.reason);
+      }
+      setObsidianMirror(mirrorResult.data);
+    },
+    [paperId, markMockMode],
+  );
 
   useEffect(() => {
     jobRef.current = job;
@@ -164,6 +207,7 @@ export function AnalysisWorkbench() {
       setLoadError(null);
       clearMockMode();
       replacePdfBlobUrl(null);
+      setObsidianMirror(null);
 
       try {
         const [papersResult, paperResult, personaResult, jobsResult, artifactResult, pdfResult] = await Promise.all([
@@ -201,6 +245,12 @@ export function AnalysisWorkbench() {
         setActiveClaimId(chooseActiveClaimId(notebookData, focusIssues, null));
         replacePdfBlobUrl(pdfResult.data);
 
+        const runIdForMirror = initialJob?.run_id ?? bundle.run_id;
+        await loadObsidianMirror(runIdForMirror);
+        if (!mounted) {
+          return;
+        }
+
         if (initialJob?.run_id) {
           const timelineResult = await getRunTimeline(initialJob.run_id);
           if (!mounted) {
@@ -228,6 +278,7 @@ export function AnalysisWorkbench() {
         setLoadError(message);
         replacePdfBlobUrl(null);
         setTimelineEvents([]);
+        setObsidianMirror(null);
         setTerminalLogs([`[${new Date().toISOString()}][ERROR] ${message}`]);
       }
     }
@@ -237,7 +288,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, focusIssues, clearMockMode, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -320,6 +371,7 @@ export function AnalysisWorkbench() {
             setActiveClaimId(
               chooseActiveClaimId(nextNotebook, focusIssuesRef.current, activeClaimIdRef.current),
             );
+            await loadObsidianMirror(nextArtifacts.data.run_id);
           } catch (error) {
             const message = getApiErrorMessage(error);
             setLoadError(message);
@@ -337,7 +389,7 @@ export function AnalysisWorkbench() {
     return () => {
       subscription?.close();
     };
-  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, markMockMode, setActiveClaimId]);
+  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, markMockMode, setActiveClaimId]);
 
   async function refreshData() {
     if (!paperId) {
@@ -365,10 +417,43 @@ export function AnalysisWorkbench() {
       const nextNotebook = getNotebookFromBundle(artifactResult.data);
       setNotebook(nextNotebook);
       setActiveClaimId(chooseActiveClaimId(nextNotebook, focusIssues, activeClaimId));
+      const runIdForMirror = jobResult?.data.run_id ?? artifactResult.data.run_id ?? job?.run_id ?? null;
+      await loadObsidianMirror(runIdForMirror);
     } catch (error) {
       const message = getApiErrorMessage(error);
       setLoadError(message);
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+    }
+  }
+
+  async function handleSyncObsidian() {
+    if (!paperId) {
+      return;
+    }
+    const runId = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
+    if (!runId) {
+      setLoadError("No run id available for Obsidian sync.");
+      return;
+    }
+
+    try {
+      setSyncingObsidian(true);
+      setLoadError(null);
+      const syncResult = await syncToObsidian(paperId, runId);
+      if (syncResult.isMock) {
+        markMockMode(syncResult.reason);
+      }
+      await loadObsidianMirror(runId);
+      setTerminalLogs((prev) => [
+        ...prev.slice(-499),
+        `[${new Date().toISOString()}][INFO] ${syncResult.data.message ?? "Obsidian sync completed"}`,
+      ]);
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setLoadError(message);
+      setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+    } finally {
+      setSyncingObsidian(false);
     }
   }
 
@@ -424,6 +509,8 @@ export function AnalysisWorkbench() {
   const mockReason = mockReasons.join(" / ");
   const pdfAvailable = Boolean(pdfBlobUrl);
   const pdfUrl = pdfBlobUrl ?? "";
+  const runIdForObsidianSync = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
+  const hasClaimGuardNotice = claimGuard.fallbackCount > 0 || claimGuard.missingCount > 0 || claimGuard.missingTextCount > 0;
   const controlsDesktop = (
     <>
       <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
@@ -551,10 +638,25 @@ export function AnalysisWorkbench() {
       jobStatus={currentJob.status}
       mockMode={mockMode}
       mockReason={mockReason}
-      notice={focusIssues || loadError ? (
+      notice={focusIssues || loadError || hasClaimGuardNotice ? (
         <>
           {focusIssues ? (
             <p className="text-xs text-[var(--pp-warning-text)]">Issue focus enabled: prioritizing risk-related claims.</p>
+          ) : null}
+          {claimGuard.fallbackCount > 0 ? (
+            <p data-testid="claim-guard-fallback" className="text-xs text-[var(--pp-warning-text)]">
+              {`${claimGuard.fallbackCount} claim(s) missing bbox; text-search fallback is active.`}
+            </p>
+          ) : null}
+          {claimGuard.missingCount > 0 ? (
+            <p data-testid="claim-guard-missing" className="text-xs text-[var(--pp-status-failed-text)]">
+              {`${claimGuard.missingCount} claim(s) missing both bbox and usable text; jump defaults to page 1.`}
+            </p>
+          ) : null}
+          {claimGuard.missingTextCount > 0 ? (
+            <p data-testid="claim-guard-text-missing" className="text-xs text-[var(--pp-status-failed-text)]">
+              {`${claimGuard.missingTextCount} claim text field(s) are missing.`}
+            </p>
           ) : null}
           {loadError ? (
             <p className="text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
@@ -594,7 +696,12 @@ export function AnalysisWorkbench() {
       artifactPanel={
         <ArtifactPanel
           notebook={notebook}
+          highlights={notebook.highlights}
           rawArtifact={artifactBundle?.files ?? {}}
+          obsidianMirror={obsidianMirror}
+          syncEnabled={Boolean(runIdForObsidianSync)}
+          syncing={syncingObsidian}
+          onSyncObsidian={() => void handleSyncObsidian()}
           activeClaimId={activeClaimId}
           onSelectClaim={setActiveClaimId}
         />

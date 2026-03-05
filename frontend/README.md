@@ -66,6 +66,12 @@ cd frontend
 npm run e2e:backend
 ```
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
+- 시각 회귀 스냅샷 갱신(의도된 UI 변경 시만):
+```bash
+cd frontend
+npm run e2e:mock:update
+npm run e2e:backend:update
+```
 
 ## UI 품질 게이트 (권장)
 아래 순서로 실행하면 Workbench 핵심 UX(Claim jump + bbox highlight + mock/backend fallback)를 빠르게 검증할 수 있습니다.
@@ -82,6 +88,7 @@ npm run e2e:backend
 - `e2e:mock`:
   - `master` 대상 PR에서 항상 실행
 - `e2e:backend`:
+  - `master` 대상 PR에서 항상 실행
   - 수동 실행(`workflow_dispatch`) 시 `run_backend_e2e=true`로 실행
   - 또는 Repository Variable `RUN_FRONTEND_BACKEND_E2E=1` 설정 시 실행
 
