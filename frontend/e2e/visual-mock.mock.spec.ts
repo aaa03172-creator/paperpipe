@@ -18,7 +18,7 @@ test("visual regression (mock, desktop): claim highlight in pdf viewer", async (
   await expect(viewer).toHaveScreenshot("mock-desktop-claim-highlight.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixelRatio: 0.03,
+    maxDiffPixels: 1200,
   });
 });
 
@@ -32,7 +32,7 @@ test.describe("mobile visual regression (mock)", () => {
     await expect(viewer).toHaveScreenshot("mock-mobile-claim-highlight.png", {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.03,
+      maxDiffPixels: 1200,
     });
   });
 });
