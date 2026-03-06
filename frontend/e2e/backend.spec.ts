@@ -9,7 +9,12 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
   // backend-seeded paper should be visible and navigable
   const seededPaper = page.locator("tbody tr").filter({ hasText: "E2E Seed Paper" }).first();
   await expect(seededPaper).toBeVisible();
-  await seededPaper.click();
+  const openLink = seededPaper.getByRole("link", { name: /open/i });
+  if ((await openLink.count()) > 0) {
+    await openLink.first().click();
+  } else {
+    await seededPaper.click();
+  }
 
   await expect(page).toHaveURL(/\/workbench\/paper-e2e-001/);
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
