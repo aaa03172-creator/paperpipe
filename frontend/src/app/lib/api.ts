@@ -4,6 +4,8 @@ import {
   ArtifactBundle,
   JobEnqueueResponse,
   JobStatus,
+  ObsidianMirror,
+  ObsidianSyncResponse,
   PaperDetail,
   PaperSummary,
   PersonaListResponse,
@@ -18,6 +20,7 @@ import {
   getMockPaper,
   getMockPapers,
   getMockPersonas,
+  getMockObsidianMirror,
   getMockTimeline,
   SAMPLE_PDF,
 } from "./mock";
@@ -59,6 +62,14 @@ function requestHeaders(init?: RequestInit): HeadersInit {
   return headers;
 }
 
+function binaryRequestHeaders(): HeadersInit {
+  const headers = new Headers();
+  if (APP_CONFIG.apiKey) {
+    headers.set("X-API-Key", APP_CONFIG.apiKey);
+  }
+  return headers;
+}
+
 function normalizePaperStatus(raw?: string): PaperSummary["status"] {
   const value = (raw ?? "").toLowerCase();
   if (value.includes("process") || value === "running" || value === "queued") {
@@ -91,6 +102,31 @@ function withTimeout(signal?: AbortSignal | null): { signal: AbortSignal; cancel
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  const row = asArray(value).find((item) => asRecord(item) !== null);
+  return row ? (row as Record<string, unknown>) : null;
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const timeout = withTimeout(init?.signal);
   try {
@@ -106,6 +142,25 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     }
 
     return (await response.json()) as T;
+  } finally {
+    timeout.cancel();
+  }
+}
+
+async function fetchBlobObjectUrl(pathOrUrl: string, absoluteUrl = false): Promise<string> {
+  const timeout = withTimeout();
+  try {
+    const target = absoluteUrl ? pathOrUrl : apiPath(pathOrUrl);
+    const response = await fetch(target, {
+      signal: timeout.signal,
+      headers: binaryRequestHeaders(),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new ApiHttpError(pathOrUrl, response.status, response.statusText, body);
+    }
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
   } finally {
     timeout.cancel();
   }
@@ -349,6 +404,167 @@ export async function getPersonas(): Promise<ApiResult<PersonaListResponse>> {
     () => getMockPersonas(),
     "persona registry unavailable",
   );
+}
+
+function normalizeObsidianMirrorFromArtifacts(
+  paperId: string,
+  runId: string,
+  payload: Record<string, unknown>,
+): ObsidianMirror {
+  const claimsetData = asRecord(asRecord(payload.claimset)?.data);
+  const statsData = asRecord(asRecord(payload.stats_report)?.data);
+
+  const claims = asArray(claimsetData?.claims)
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item) => {
+      const evidence = firstRecord(item.evidence_spans) ?? firstRecord(item.evidence);
+      return {
+        claim_id: asString(item.claim_id) ?? crypto.randomUUID(),
+        claim_type: asString(item.type) ?? asString(item.claim_type) ?? "evidence",
+        statement: asString(item.statement) ?? asString(item.claim_text) ?? "Claim text missing",
+        confidence: asNumber(item.confidence) ?? 0,
+        evidence_quote: asString(evidence?.quote) ?? asString(evidence?.raw_text),
+        evidence_page: asNumber(evidence?.page),
+        limitations: asArray(item.limitations)
+          .map((entry) => asString(entry))
+          .filter((entry): entry is string => entry !== null),
+      };
+    });
+
+  const statsChecks = asArray(statsData?.checks)
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item) => ({
+      check_id: asString(item.check_id) ?? crypto.randomUUID(),
+      test_type: asString(item.test_type) ?? "unknown",
+      verdict: asString(item.verdict) ?? "unknown",
+      hypothesis: asString(item.hypothesis),
+      notes: asString(item.notes),
+      decision_error: Boolean(item.decision_error),
+    }));
+
+  const lines: string[] = [];
+  lines.push("<!-- AI_AGENT_START -->");
+  lines.push("## 🤖 PaperPipe AI Analysis");
+  lines.push(`### 🧪 Scientific Claims (${claims.length})`);
+  for (const claim of claims.slice(0, 8)) {
+    lines.push(`- ${claim.statement}`);
+  }
+  lines.push(`### 📊 Statistical Verification (${statsChecks.length})`);
+  for (const check of statsChecks.slice(0, 8)) {
+    lines.push(`- ${check.test_type}: ${check.verdict}`);
+  }
+  lines.push("<!-- AI_AGENT_END -->");
+
+  return {
+    paper_id: asString(payload.paper_id) ?? paperId,
+    run_id: asString(payload.run_id) ?? runId,
+    generated_markdown: lines.join("\n"),
+    has_claimset: claims.length > 0,
+    has_stats_report: statsChecks.length > 0,
+    claims,
+    stats_checks: statsChecks,
+  };
+}
+
+export async function getObsidianMirror(paperId: string, runId: string): Promise<ApiResult<ObsidianMirror>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockObsidianMirror(paperId, runId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  const query = `paper_id=${encodeURIComponent(paperId)}&run_id=${encodeURIComponent(runId)}`;
+  try {
+    return {
+      data: await firstSuccess<ObsidianMirror>([`/obsidian/mirror?${query}`]),
+      isMock: false,
+    };
+  } catch {
+    try {
+      const artifactsPayload = await firstSuccess<Record<string, unknown>>([`/obsidian/artifacts?${query}`]);
+      return {
+        data: normalizeObsidianMirrorFromArtifacts(paperId, runId, artifactsPayload),
+        isMock: false,
+      };
+    } catch (error) {
+      if (APP_CONFIG.strictApi) {
+        throw error;
+      }
+      return {
+        data: getMockObsidianMirror(paperId, runId),
+        isMock: true,
+        reason: "obsidian mirror unavailable",
+      };
+    }
+  }
+}
+
+export async function syncToObsidian(paperId: string, runId: string): Promise<ApiResult<ObsidianSyncResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: {
+        status: "mock_synced",
+        message: "Mock mode: sync request was simulated.",
+      },
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<ObsidianSyncResponse>(["/obsidian/sync"], {
+        method: "POST",
+        body: JSON.stringify({ paper_id: paperId, run_id: runId }),
+      }),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+      throw error;
+    }
+    if (APP_CONFIG.strictApi) {
+      throw error;
+    }
+    return {
+      data: {
+        status: "mock_synced",
+        message: "Sync endpoint unavailable. Returned mock response.",
+      },
+      isMock: true,
+      reason: "obsidian sync unavailable",
+    };
+  }
+}
+
+export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<string>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: await fetchBlobObjectUrl(SAMPLE_PDF, true),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await fetchBlobObjectUrl(`/papers/${encodeURIComponent(paperId)}/pdf`),
+      isMock: false,
+    };
+  } catch (error) {
+    if (APP_CONFIG.strictApi) {
+      throw error;
+    }
+    return {
+      data: await fetchBlobObjectUrl(SAMPLE_PDF, true),
+      isMock: true,
+      reason: "pdf endpoint unavailable",
+    };
+  }
 }
 
 export function getPaperPdfUrl(paperId: string, useMock: boolean): string {
