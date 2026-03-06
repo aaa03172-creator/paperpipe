@@ -91,9 +91,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Run backend preflight guard
+        working-directory: frontend
+        run: npm run e2e:backend:preflight
+
       - name: Run backend-connected E2E smoke
         working-directory: frontend
-        run: npm run e2e:backend
+        run: npm run e2e:backend:full
 
       - name: Upload backend Playwright artifacts
         if: always()

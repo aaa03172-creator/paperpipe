@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+test("@preflight backend seed and route are ready", async ({ request, page }) => {
+  const papersResponse = await request.get("http://127.0.0.1:18080/papers?limit=5000");
+  expect(papersResponse.ok()).toBeTruthy();
+
+  const rows = (await papersResponse.json()) as Array<{ paper_id?: string; title?: string }>;
+  const seedRow = rows.find((row) => row.paper_id === "paper-e2e-001");
+  expect(seedRow).toBeTruthy();
+  expect(seedRow?.title ?? "").toContain("E2E Seed Paper");
+
+  await page.goto("/workbench/paper-e2e-001");
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+});
+
 test("backend mode stays out of mock fallback", async ({ page }) => {
   await page.goto("/");
 
