@@ -46,6 +46,19 @@ curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
   -d '{"paper_id":"paper_001","persona_id":"default","clean_reindex":false,"run_verify":true}'
 ```
 
+## Frontend E2E Required Checks
+
+Repository plan limitations can block branch protection/ruleset APIs on private repos.
+After enabling GitHub Pro/Team (or making the repo public), enforce PR required checks:
+
+```bash
+./scripts/enable_required_checks.sh master
+```
+
+This applies the following required contexts on `master`:
+- `e2e-mock`
+- `e2e-backend`
+
 ## Ops Monitoring
 
 Generate downloader dashboard and threshold alerts:
