@@ -3,10 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import signal
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.agents.ingest_agent import IngestAgent
 from src.agents.reader_agent import ReaderAgent
