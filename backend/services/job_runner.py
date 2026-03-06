@@ -24,6 +24,8 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.agents.feedback_retriever import FeedbackRetriever
+from src.quality.claimset_policy import enforce_claimset_evidence_policy
+from src.verify import resolve_anchor_api_context
 
 logger = logging.getLogger("paperpipe.backend")
 
@@ -174,6 +176,35 @@ def _resolve_main_model(config) -> str:
     return model_name or "llama3:latest"
 
 
+def _resolve_ingest_parser_backend(config) -> str:
+    ingest = getattr(config, "ingest", None)
+    backend = str(getattr(ingest, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber").strip().lower()
+    enable_docling = bool(getattr(ingest, "enable_docling", False))
+    if backend not in {"fitz_pdfplumber", "docling"}:
+        logger.warning("Unknown ingest parser backend in config: %s. Falling back to fitz_pdfplumber.", backend)
+        return "fitz_pdfplumber"
+    if backend == "docling" and not enable_docling:
+        logger.info("Docling parser backend requested but enable_docling=false. Falling back to fitz_pdfplumber.")
+        return "fitz_pdfplumber"
+    return backend
+
+
+def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
+    ingest = getattr(config, "ingest", None)
+    return {
+        "enable_ocr_fallback": bool(getattr(ingest, "enable_ocr_fallback", False)),
+        "ocr_lang": str(getattr(ingest, "ocr_lang", "eng") or "eng"),
+        "ocr_min_text_chars": int(getattr(ingest, "ocr_min_text_chars", 200)),
+        "enable_table_pass2_ocr": bool(getattr(ingest, "enable_table_pass2_ocr", False)),
+        "enable_cloud_table_fallback": bool(getattr(ingest, "enable_cloud_table_fallback", False)),
+        "cloud_table_page_budget": int(getattr(ingest, "cloud_table_page_budget", 2)),
+        "cloud_table_model": str(getattr(ingest, "cloud_table_model", "gpt-4o-mini") or "gpt-4o-mini"),
+        "cloud_table_base_url": getattr(ingest, "cloud_table_base_url", None),
+        "cloud_table_api_key": getattr(ingest, "cloud_table_api_key", None),
+        "cloud_table_timeout_seconds": int(getattr(ingest, "cloud_table_timeout_seconds", 30)),
+    }
+
+
 def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     try:
         with open(artifact_dir / "bootstrap_meta.json", "w", encoding="utf-8") as f:
@@ -235,6 +266,160 @@ def _collect_embed_params(config: Any) -> Dict[str, Any]:
         "chunking": None,
         "embed_model": embed_model,
     }
+
+
+def _extract_doc_doi_hint(doc: Any) -> Optional[str]:
+    meta = getattr(doc, "meta", None)
+    if meta is not None:
+        doi = str(getattr(meta, "doi", "") or "").strip()
+        if doi:
+            return doi
+    metadata = getattr(doc, "metadata", None)
+    if metadata is not None:
+        doi = str(getattr(metadata, "doi", "") or "").strip()
+        if doi:
+            return doi
+    return None
+
+
+def _extract_doc_source_ref(doc: Any) -> Optional[str]:
+    meta = getattr(doc, "meta", None)
+    if meta is not None:
+        source_ref = str(getattr(meta, "source_ref", "") or "").strip()
+        if source_ref:
+            return source_ref
+    source = getattr(doc, "source", None)
+    if source is not None:
+        ref = str(getattr(source, "ref", "") or "").strip()
+        if ref:
+            return ref
+    return None
+
+
+def _build_anchor_verify_summary(stats_report: Any) -> Dict[str, int]:
+    summary = {"pass": 0, "warn": 0, "fail": 0, "no_api": 0}
+    checks = getattr(stats_report, "checks", None)
+    if not isinstance(checks, list):
+        return summary
+
+    for check in checks:
+        verdict = _normalize_verdict(getattr(check, "verdict", ""))
+        if verdict == "verified":
+            summary["pass"] += 1
+        elif verdict == "inconsistent":
+            summary["fail"] += 1
+        elif verdict == "unverifiable":
+            summary["no_api"] += 1
+        elif verdict:
+            summary["warn"] += 1
+    return summary
+
+
+def _map_verdict_to_anchor_result(verdict: str) -> str:
+    v = _normalize_verdict(verdict)
+    if v == "verified":
+        return "PASS"
+    if v == "inconsistent":
+        return "FAIL"
+    if v == "unverifiable":
+        return "NO_API"
+    if v:
+        return "WARN"
+    return "WARN"
+
+
+def _map_verdict_reason_codes(verdict: Any) -> List[str]:
+    v = _normalize_verdict(verdict)
+    if v == "verified":
+        return ["VERDICT_VERIFIED"]
+    if v == "partially_verified":
+        return ["VERDICT_PARTIALLY_VERIFIED"]
+    if v == "inconsistent":
+        return ["VERDICT_INCONSISTENT"]
+    if v == "unverifiable":
+        return ["VERDICT_UNVERIFIABLE", "NO_API"]
+    if v:
+        return [f"VERDICT_{v.upper()}"]
+    return ["VERDICT_UNKNOWN"]
+
+
+def _normalize_verdict(verdict: Any) -> str:
+    if verdict is None:
+        return ""
+    value = getattr(verdict, "value", verdict)
+    return str(value or "").strip().lower()
+
+
+def _resolve_verify_failure_api_context(error_text: str) -> Dict[str, Any]:
+    msg = str(error_text or "").lower()
+    reason_codes: List[str] = ["NO_API"]
+    status = "unavailable"
+    provider = "none"
+    if "docker" in msg or "connection refused" in msg or "api version" in msg:
+        reason_codes.insert(0, "DOCKER_UNAVAILABLE")
+        status = "docker_unavailable"
+    elif "timeout" in msg:
+        reason_codes.insert(0, "VERIFY_TIMEOUT")
+    else:
+        reason_codes.insert(0, "VERIFY_ERROR")
+    return {"provider": provider, "status": status, "reason_codes": reason_codes}
+
+
+def _build_anchor_verify_log_entries(
+    run_id: str,
+    doc_id: str,
+    stats_report: Any,
+    api_provider: str = "stats_sandbox",
+    api_reason_codes: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    checks = getattr(stats_report, "checks", None)
+    if not isinstance(checks, list):
+        return entries
+
+    for check in checks:
+        verdict_raw = getattr(check, "verdict", "")
+        verdict = _normalize_verdict(verdict_raw)
+        evidence_list = getattr(check, "evidence", None)
+        first_span = evidence_list[0] if isinstance(evidence_list, list) and evidence_list else None
+        span_get = lambda key, default=None: getattr(first_span, key, default) if first_span is not None else default
+        normalized_value = (
+            getattr(check, "computed_p", None)
+            if getattr(check, "computed_p", None) is not None
+            else getattr(check, "reported_p", None)
+        )
+        if normalized_value is None:
+            normalized_value = getattr(check, "reported_stat", None)
+
+        bbox_ref = {
+            "page": span_get("page", None),
+            "bbox_pdf": span_get("bbox_pdf", None),
+            "bbox_pct": span_get("bbox_pct", None),
+            "table_id": span_get("table_id", None),
+            "cell_id": span_get("cell_id", None),
+            "source_span": span_get("source_span", None),
+            "char_start": span_get("char_start", None),
+            "char_end": span_get("char_end", None),
+        }
+        reason_codes = list(_map_verdict_reason_codes(verdict))
+        for code in api_reason_codes or []:
+            code_text = str(code or "").strip().upper()
+            if code_text:
+                reason_codes.append(code_text)
+
+        entries.append(
+            {
+                "run_id": run_id,
+                "doc_id": doc_id,
+                "anchor_id": str(getattr(check, "check_id", "") or ""),
+                "normalized_value": normalized_value,
+                "bbox_ref": bbox_ref,
+                "api_provider": str(api_provider or "stats_sandbox"),
+                "result": _map_verdict_to_anchor_result(verdict),
+                "reason_codes": sorted(set(reason_codes)),
+            }
+        )
+    return entries
 
 
 def _enqueue_needs_reader_followup(paper_id: str, reason: str) -> str:
@@ -387,9 +572,11 @@ async def run_deepread_job(
             "config_snapshot": _snapshot_copy(Path("config.yaml"), snapshots_dir / "config.yaml"),
             "prompts_snapshot": _snapshot_copy(DEFAULT_PROFILE_PATH, snapshots_dir / "profiles.yaml"),
             "models_used": {"reader": None, "verifier": None},
+            "parser_backend": None,
             "llm_params": _collect_llm_params(config),
             "embed_params": _collect_embed_params(config),
             "tool_policy_version": "v1",
+            "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
             "status": "running",
             "started_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -424,6 +611,16 @@ async def run_deepread_job(
             "claimset_ops_action": "none",
             "claimset_ops_alert": False,
             "claimset_ops_note": "not_evaluated",
+            "parser_backend": None,
+            "table_extraction_pass": "pass1",
+            "table_failure_taxonomy": [],
+            "fallback_used": False,
+            "fallback_pages": [],
+            "anchor_verify_summary": {"pass": 0, "warn": 0, "fail": 0, "no_api": 0},
+            "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
+            "table_pass2_enabled": False,
+            "table_pass3_enabled": False,
+            "table_page_budget": 0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -434,11 +631,46 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
-        ingest_agent = IngestAgent()
+        parser_backend = _resolve_ingest_parser_backend(config)
+        ingest_runtime_options = _resolve_ingest_runtime_options(config)
+        bootstrap_meta["parser_backend"] = parser_backend
+        bootstrap_meta["table_pass2_enabled"] = bool(ingest_runtime_options.get("enable_table_pass2_ocr", False))
+        bootstrap_meta["table_pass3_enabled"] = bool(ingest_runtime_options.get("enable_cloud_table_fallback", False))
+        bootstrap_meta["table_page_budget"] = int(ingest_runtime_options.get("cloud_table_page_budget", 0))
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["parser_backend"] = parser_backend
+            run_meta["ingest_options"] = dict(ingest_runtime_options)
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+
+        try:
+            ingest_agent = IngestAgent(parser_backend=parser_backend, **ingest_runtime_options)
+        except TypeError:
+            # Test doubles may expose a simplified constructor.
+            ingest_agent = IngestAgent()
         doc_artifact = ingest_agent.process_v2(str(pdf_path))
         
         if not doc_artifact:
              raise Exception("Ingestion failed to produce artifact")
+
+        ingest_meta = getattr(ingest_agent, "last_table_extraction_meta", {}) or {}
+        bootstrap_meta["table_extraction_pass"] = str(ingest_meta.get("table_extraction_pass") or "pass1")
+        taxonomy = ingest_meta.get("table_failure_taxonomy")
+        bootstrap_meta["table_failure_taxonomy"] = taxonomy if isinstance(taxonomy, list) else []
+        bootstrap_meta["fallback_used"] = bool(ingest_meta.get("fallback_used", False))
+        fallback_pages = ingest_meta.get("fallback_pages")
+        bootstrap_meta["fallback_pages"] = fallback_pages if isinstance(fallback_pages, list) else []
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["table_extraction"] = {
+                "pass": bootstrap_meta["table_extraction_pass"],
+                "failure_taxonomy": bootstrap_meta["table_failure_taxonomy"],
+                "fallback_used": bootstrap_meta["fallback_used"],
+                "fallback_pages": bootstrap_meta["fallback_pages"],
+            }
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
 
         # Save Document Artifact
         with open(artifact_dir / "document_artifact.json", "w") as f:
@@ -517,6 +749,7 @@ async def run_deepread_job(
         
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
+        claim_set = enforce_claimset_evidence_policy(claim_set)
              
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
@@ -578,9 +811,26 @@ async def run_deepread_job(
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
                 bootstrap_meta["artifact_stats_written"] = True
+                bootstrap_meta["anchor_verify_summary"] = _build_anchor_verify_summary(stats_report)
+                anchor_api_context = resolve_anchor_api_context(
+                    getattr(stats_report, "doc_id", None),
+                    doi_hint=_extract_doc_doi_hint(doc_artifact),
+                    source_ref=_extract_doc_source_ref(doc_artifact),
+                    id_hint=paper_id,
+                )
+                bootstrap_meta["anchor_verify_api"] = anchor_api_context
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                 if run_meta is not None:
                     run_meta["verification_status"] = "completed"
+                    run_meta["anchor_verify_summary"] = bootstrap_meta["anchor_verify_summary"]
+                    run_meta["anchor_verify_api"] = anchor_api_context
+                    run_meta["anchor_verify_log"] = _build_anchor_verify_log_entries(
+                        run_id=run_id,
+                        doc_id=str(getattr(stats_report, "doc_id", "") or paper_id),
+                        stats_report=stats_report,
+                        api_provider=str(anchor_api_context.get("provider") or "stats_sandbox"),
+                        api_reason_codes=list(anchor_api_context.get("reason_codes") or []),
+                    )
                     run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                     _write_run_meta(artifact_dir, run_meta)
                     
@@ -589,10 +839,15 @@ async def run_deepread_job(
             except Exception as e:
                 logger.error(f"Verification Failed: {e}")
                 bootstrap_meta["verifier_status"] = "failed"
+                bootstrap_meta["anchor_verify_summary"] = {"pass": 0, "warn": 0, "fail": 0, "no_api": 0}
+                bootstrap_meta["anchor_verify_api"] = _resolve_verify_failure_api_context(str(e))
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                 if run_meta is not None:
                     run_meta["verification_status"] = "failed"
                     run_meta["verification_error"] = str(e)
+                    run_meta["anchor_verify_summary"] = {"pass": 0, "warn": 0, "fail": 0, "no_api": 0}
+                    run_meta["anchor_verify_api"] = dict(bootstrap_meta["anchor_verify_api"])
+                    run_meta["anchor_verify_log"] = []
                     run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                     _write_run_meta(artifact_dir, run_meta)
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
