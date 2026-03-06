@@ -1,17 +1,188 @@
+import { useMemo, useState } from "react";
+import { Viewer, Worker } from "@react-pdf-viewer/core";
+import { HighlightArea, highlightPlugin, RenderHighlightsProps, Trigger } from "@react-pdf-viewer/highlight";
+import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
+import { RenderHighlightsProps as SearchRenderHighlightsProps, searchPlugin } from "@react-pdf-viewer/search";
 import { FileWarning, Link2 } from "lucide-react";
-import { EvidenceHighlight } from "../lib/types";
+import { circledNumber } from "../lib/ui";
+import { EvidenceHighlight, NotebookClaim } from "../lib/types";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
+import "@react-pdf-viewer/core/lib/styles/index.css";
+import "@react-pdf-viewer/highlight/lib/styles/index.css";
+import "@react-pdf-viewer/search/lib/styles/index.css";
 
 interface PdfPanelProps {
   title: string;
   paperId: string;
   pdfUrl: string;
   pdfAvailable: boolean;
+  claims: NotebookClaim[];
   highlights: EvidenceHighlight[];
   activeClaimId: string | null;
 }
 
-export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, highlights, activeClaimId }: PdfPanelProps) {
-  const activeHighlight = highlights.find((highlight) => highlight.claim_id === activeClaimId) ?? null;
+function clampPct(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function normalizeSearchText(text: string | null | undefined): string | null {
+  if (!text) {
+    return null;
+  }
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length < 4) {
+    return null;
+  }
+  return compact.length > 180 ? compact.slice(0, 180) : compact;
+}
+
+function buildSearchKeywords(primary: string | null | undefined, fallback: string | null | undefined): string[] {
+  const source = normalizeSearchText(primary) ?? normalizeSearchText(fallback);
+  if (!source) {
+    return [];
+  }
+
+  const cleaned = source.replace(/[^A-Za-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const words = cleaned.split(" ").filter((word) => word.length > 2);
+  if (words.length === 0) {
+    return [];
+  }
+
+  const candidates = [
+    words.slice(0, 12).join(" "),
+    words.slice(0, 8).join(" "),
+    words.slice(0, 6).join(" "),
+    words.slice(0, 4).join(" "),
+  ];
+  return Array.from(new Set(candidates.filter((item) => item.length >= 8)));
+}
+
+function toHighlightArea(activeHighlight: EvidenceHighlight | null): HighlightArea | null {
+  if (!activeHighlight) {
+    return null;
+  }
+  if (activeHighlight.width <= 0 || activeHighlight.height <= 0) {
+    return null;
+  }
+  return {
+    pageIndex: Math.max(0, activeHighlight.page - 1),
+    left: clampPct(activeHighlight.left),
+    top: clampPct(activeHighlight.top),
+    width: clampPct(activeHighlight.width),
+    height: clampPct(activeHighlight.height),
+  };
+}
+
+export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, claims, highlights, activeClaimId }: PdfPanelProps) {
+  const [loadedPdfMeta, setLoadedPdfMeta] = useState<{ url: string; pageCount: number } | null>(null);
+  const [searchMeta, setSearchMeta] = useState<{ claimKey: string; count: number } | null>(null);
+  const activeClaim = useMemo(
+    () => claims.find((claim) => claim.claim_id === activeClaimId) ?? null,
+    [claims, activeClaimId],
+  );
+  const activeHighlight = useMemo(
+    () => highlights.find((highlight) => highlight.claim_id === activeClaimId) ?? null,
+    [highlights, activeClaimId],
+  );
+  const activeClaimIndex = useMemo(
+    () => claims.findIndex((claim) => claim.claim_id === activeClaimId),
+    [claims, activeClaimId],
+  );
+  const activeClaimLabel = activeClaimIndex >= 0 ? circledNumber(activeClaimIndex) : null;
+  const searchKeywords = useMemo(
+    () => buildSearchKeywords(activeHighlight?.quote ?? null, activeClaim?.text ?? null),
+    [activeHighlight, activeClaim],
+  );
+  const claimKey = activeClaimId ?? "__none";
+  const searchMatchCount = searchMeta?.claimKey === claimKey ? searchMeta.count : 0;
+  const activePageIndex = useMemo(() => Math.max((activeHighlight?.page ?? 1) - 1, 0), [activeHighlight]);
+  const activeArea = useMemo(() => toHighlightArea(activeHighlight), [activeHighlight]);
+  const pageCount = loadedPdfMeta?.url === pdfUrl ? loadedPdfMeta.pageCount : null;
+  const resolvedActivePageIndex = useMemo(() => {
+    if (!pageCount || pageCount < 1) {
+      return activePageIndex;
+    }
+    return Math.min(activePageIndex, pageCount - 1);
+  }, [activePageIndex, pageCount]);
+
+  const resolvedActiveArea = useMemo(() => {
+    if (!activeArea) {
+      return null;
+    }
+    if (activeArea.pageIndex === resolvedActivePageIndex) {
+      return activeArea;
+    }
+    return {
+      ...activeArea,
+      pageIndex: resolvedActivePageIndex,
+    };
+  }, [activeArea, resolvedActivePageIndex]);
+
+  const pageNavigationPluginInstance = pageNavigationPlugin();
+  const highlightPluginInstance = highlightPlugin({
+    trigger: Trigger.None,
+    renderHighlights: (props: RenderHighlightsProps) => {
+      const selectedArea = resolvedActiveArea;
+      const showSelected = Boolean(selectedArea && props.pageIndex === selectedArea.pageIndex);
+      const showApprox = !selectedArea && searchMatchCount === 0 && props.pageIndex === resolvedActivePageIndex;
+      if (!showSelected && !showApprox) {
+        return <></>;
+      }
+      const area: HighlightArea = (showSelected && selectedArea) ? selectedArea : {
+        pageIndex: resolvedActivePageIndex,
+        left: 6,
+        top: 8,
+        width: 88,
+        height: 10,
+      };
+      return (
+        <div
+          data-testid={showApprox ? "claim-approx-highlight" : "claim-highlight"}
+          className="pointer-events-none absolute rounded-md"
+          style={{
+            ...props.getCssProperties(area, props.rotation),
+            borderStyle: showApprox ? "dashed" : "solid",
+            borderWidth: showApprox ? 3 : 3,
+            borderColor: showApprox ? "#f59e0b" : "#22d3ee",
+            background: showApprox ? "rgba(245, 158, 11, 0.34)" : "rgba(34, 211, 238, 0.28)",
+            boxShadow: showApprox
+              ? "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)"
+              : "0 0 0 2px rgba(34, 211, 238, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)",
+            zIndex: 30,
+          }}
+        >
+          {activeClaimLabel ? (
+            <span className="absolute -top-6 left-0 rounded-full border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--pp-accent-text)] shadow-sm">
+              {activeClaimLabel}
+            </span>
+          ) : null}
+        </div>
+      );
+    },
+  });
+  const searchPluginInstance = searchPlugin({
+    renderHighlights: (props: SearchRenderHighlightsProps) => {
+      const primaryArea = props.highlightAreas[0];
+      if (!primaryArea) {
+        return <></>;
+      }
+      return (
+        <div
+          data-testid="claim-search-highlight"
+          className="pointer-events-none absolute rounded-sm"
+          style={{
+            ...props.getCssProperties(primaryArea),
+            border: "3px solid rgba(245, 158, 11, 0.95)",
+            background: "rgba(245, 158, 11, 0.34)",
+            boxShadow: "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)",
+            zIndex: 28,
+          }}
+        />
+      );
+    },
+  });
+
+  const viewerKey = `${pdfUrl}::${activeClaimId ?? "none"}::${resolvedActivePageIndex}`;
 
   return (
     <section className="surface-card flex min-h-0 flex-col p-3">
@@ -31,21 +202,38 @@ export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, highlights, act
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)]">
-        {pdfAvailable ? (
-          <>
-            <iframe title="Paper PDF" src={pdfUrl} className="h-full min-h-[420px] w-full" loading="lazy" />
-            {activeHighlight ? (
-              <div
-                className="pointer-events-none absolute border-2 border-[var(--pp-accent)] bg-[var(--pp-accent-soft)]/60"
-                style={{
-                  top: `${activeHighlight.top}%`,
-                  left: `${activeHighlight.left}%`,
-                  width: `${activeHighlight.width}%`,
-                  height: `${activeHighlight.height}%`,
+        {pdfAvailable && pdfUrl ? (
+          <div data-testid="pdf-viewer" className="h-[70vh] min-h-[420px] w-full overflow-hidden xl:h-[calc(100vh-10rem)]">
+            <Worker workerUrl={pdfWorkerUrl}>
+              <Viewer
+                key={viewerKey}
+                fileUrl={pdfUrl}
+                initialPage={resolvedActivePageIndex}
+                plugins={[highlightPluginInstance, pageNavigationPluginInstance, searchPluginInstance]}
+                onDocumentLoad={async (event) => {
+                  const localClaimKey = claimKey;
+                  setLoadedPdfMeta({ url: pdfUrl, pageCount: event.doc.numPages });
+                  pageNavigationPluginInstance.jumpToPage(resolvedActivePageIndex);
+                  searchPluginInstance.clearHighlights();
+                  if (resolvedActiveArea) {
+                    highlightPluginInstance.jumpToHighlightArea(resolvedActiveArea);
+                    setSearchMeta({ claimKey: localClaimKey, count: 0 });
+                    return;
+                  }
+                  if (searchKeywords.length === 0) {
+                    setSearchMeta({ claimKey: localClaimKey, count: 0 });
+                    return;
+                  }
+                  searchPluginInstance.setTargetPages((targetPage) => targetPage.pageIndex === resolvedActivePageIndex);
+                  const matches = await searchPluginInstance.highlight(searchKeywords);
+                  setSearchMeta({ claimKey: localClaimKey, count: matches.length });
+                  if (matches.length > 0) {
+                    searchPluginInstance.jumpToMatch(0);
+                  }
                 }}
               />
-            ) : null}
-          </>
+            </Worker>
+          </div>
         ) : (
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 px-4 text-center">
             <FileWarning className="h-8 w-8 text-[var(--pp-text-dim)]" />

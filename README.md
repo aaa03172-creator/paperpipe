@@ -59,6 +59,19 @@ This applies the following required contexts on `master`:
 - `e2e-mock`
 - `e2e-backend`
 
+## Soft Gate (No Branch Protection Plan)
+
+If branch protection/rulesets are not available on a private repository plan, use:
+- Workflow: `.github/workflows/soft-gate-master.yml`
+- Trigger: push to `master`
+- Scope: frontend mock/backend E2E
+
+Behavior:
+- Test failures (`npm run e2e:mock`, `npm run e2e:backend`) can trigger auto-revert.
+- Bootstrap failures (`npm ci`, dependency install, browser install) do **not** trigger auto-revert.
+- Commits that modify `.github/workflows/soft-gate-master.yml` are excluded from auto-revert to prevent self-revert.
+- Revert commits are prefixed with `revert(soft-gate):` and excluded from recursive revert.
+
 ## Ops Monitoring
 
 Generate downloader dashboard and threshold alerts:
