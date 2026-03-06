@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "e2e:mock": "playwright test -c playwright.mock.config.ts",
     "e2e:backend": "playwright test -c playwright.backend.config.ts",
+    "e2e:backend:preflight": "playwright test -c playwright.backend.config.ts --grep @preflight",
+    "e2e:backend:full": "playwright test -c playwright.backend.config.ts --grep-invert @preflight",
     "e2e:mock:update": "playwright test -c playwright.mock.config.ts --update-snapshots",
     "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
   },

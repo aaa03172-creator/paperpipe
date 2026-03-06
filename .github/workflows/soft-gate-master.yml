@@ -187,12 +187,19 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Run backend E2E
-        id: run_backend
+      - name: Run backend preflight guard
+        id: run_backend_preflight
         if: ${{ steps.backend_deps.outcome == 'success' && steps.frontend_deps.outcome == 'success' && steps.install_browser.outcome == 'success' }}
         continue-on-error: true
         working-directory: frontend
-        run: npm run e2e:backend
+        run: npm run e2e:backend:preflight
+
+      - name: Run backend E2E
+        id: run_backend
+        if: ${{ steps.backend_deps.outcome == 'success' && steps.frontend_deps.outcome == 'success' && steps.install_browser.outcome == 'success' && steps.run_backend_preflight.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run e2e:backend:full
 
       - name: Classify backend verification result
         id: result
@@ -211,6 +218,10 @@ jobs:
 
           if [[ "${{ steps.install_browser.outcome }}" == "failure" ]]; then
             BOOTSTRAP_FAILED=1
+          fi
+
+          if [[ "${{ steps.run_backend_preflight.outcome }}" == "failure" ]]; then
+            TESTS_FAILED=1
           fi
 
           if [[ "${{ steps.run_backend.outcome }}" == "failure" ]]; then

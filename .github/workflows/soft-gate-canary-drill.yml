@@ -1,0 +1,100 @@
+name: soft-gate-canary-drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Git ref to drill (branch or SHA)"
+        required: false
+        default: "master"
+        type: string
+      drill_mode:
+        description: "Pass keeps green path; Fail injects intentional canary failure at end"
+        required: true
+        default: "fail"
+        type: choice
+        options:
+          - fail
+          - pass
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soft-gate-canary-drill-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run mock E2E gate
+        working-directory: frontend
+        run: npm run e2e:mock
+
+      - name: Run backend preflight guard
+        working-directory: frontend
+        run: npm run e2e:backend:preflight
+
+      - name: Run backend E2E gate
+        working-directory: frontend
+        run: npm run e2e:backend:full
+
+      - name: Intentional canary failure
+        if: ${{ inputs.drill_mode == 'fail' }}
+        run: |
+          echo "Intentional drill failure injected."
+          echo "This workflow does not push/revert master automatically."
+          exit 1
+
+      - name: Upload drill artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soft-gate-canary-drill-artifacts
+          if-no-files-found: ignore
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
+      - name: Post drill summary
+        if: always()
+        run: |
+          {
+            echo "## Soft Gate Canary Drill Summary"
+            echo ""
+            echo "- ref: \`${{ inputs.target_ref }}\`"
+            echo "- mode: \`${{ inputs.drill_mode }}\`"
+            echo "- auto-revert: not executed in this workflow"
+          } >> "${GITHUB_STEP_SUMMARY}"
