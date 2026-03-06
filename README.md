@@ -59,19 +59,6 @@ This applies the following required contexts on `master`:
 - `e2e-mock`
 - `e2e-backend`
 
-## Soft Gate (No Branch Protection Plan)
-
-If branch protection is unavailable due to plan limits on a private repository, a soft gate workflow is enabled:
-
-- Workflow: `.github/workflows/soft-gate-master.yml`
-- Trigger: push to `master`
-- Checks: `frontend` mock/backend E2E
-- Action on failure: auto-revert the failing head commit on `master`
-
-Notes:
-- Revert commits are prefixed with `revert(soft-gate):` and are excluded from recursive auto-revert.
-- This is a recovery mechanism, not a pre-merge hard block.
-
 ## Ops Monitoring
 
 Generate downloader dashboard and threshold alerts:
