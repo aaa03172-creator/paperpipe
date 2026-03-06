@@ -19,7 +19,7 @@ test("visual regression (backend, desktop): claim highlight in pdf viewer", asyn
   await expect(viewer).toHaveScreenshot("backend-desktop-claim-highlight.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixelRatio: 0.03,
+    maxDiffPixels: 1200,
   });
 });
 
@@ -33,7 +33,7 @@ test.describe("mobile visual regression (backend)", () => {
     await expect(viewer).toHaveScreenshot("backend-mobile-claim-highlight.png", {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.03,
+      maxDiffPixels: 1200,
     });
   });
 });
