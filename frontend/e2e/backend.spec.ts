@@ -80,3 +80,7 @@ test.describe("mobile backend UX", () => {
     await expect(page.getByText("Errors / Done")).toBeVisible();
   });
 });
+
+test("soft-gate canary: intentional backend e2e failure drill", async () => {
+  expect(1).toBe(2);
+});
