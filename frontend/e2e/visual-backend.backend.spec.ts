@@ -17,6 +17,13 @@ async function openBackendPaperNotes(page: Page) {
   await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
 }
 
+async function openBackendPaperNoteDetail(page: Page) {
+  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
+  await expect(
+    page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+  ).toBeVisible();
+}
+
 test("visual regression (backend, desktop): paper notes list layout", async ({ page }) => {
   await openBackendPaperNotes(page);
 
@@ -25,6 +32,17 @@ test("visual regression (backend, desktop): paper notes list layout", async ({ p
     animations: "disabled",
     caret: "hide",
     maxDiffPixels: 2800,
+  });
+});
+
+test("visual regression (backend, desktop): paper note detail layout", async ({ page }) => {
+  await openBackendPaperNoteDetail(page);
+
+  const detailPage = page.locator("div.min-h-screen").first();
+  await expect(detailPage).toHaveScreenshot("backend-desktop-paper-note-detail.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixels: 3200,
   });
 });
 
@@ -74,6 +92,17 @@ test.describe("mobile visual regression (backend)", () => {
       animations: "disabled",
       caret: "hide",
       maxDiffPixels: 2800,
+    });
+  });
+
+  test("paper note detail layout", async ({ page }) => {
+    await openBackendPaperNoteDetail(page);
+
+    const detailPage = page.locator("div.min-h-screen").first();
+    await expect(detailPage).toHaveScreenshot("backend-mobile-paper-note-detail.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixels: 3500,
     });
   });
 });

@@ -103,6 +103,8 @@ fi
 import json
 import sqlite3
 from pathlib import Path
+import textwrap
+import yaml
 
 root = Path.cwd()
 db_path = root / "storage" / "state.db"
@@ -130,6 +132,123 @@ conn.execute(
         str(pdf.resolve()),
     ),
 )
+
+config_raw = {}
+config_path = root / "config.yaml"
+if config_path.exists():
+    try:
+        config_raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        config_raw = {}
+
+configured_vault = ((config_raw.get("paths") or {}).get("obsidian_vault")) or "./obsidian"
+vault_path = Path(str(configured_vault)).expanduser()
+if not vault_path.is_absolute():
+    vault_path = (root / vault_path).resolve()
+vault_papers_dir = vault_path / "Inbox" / "PaperPipe"
+vault_papers_dir.mkdir(parents=True, exist_ok=True)
+
+seed_pdf_uri = pdf.resolve().as_uri()
+
+primary_slug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+related_slug = "zoteroduboisAmnesticMCIProdromal2004"
+third_slug = "zoteroduboisBloodBiomarkersClinicalPracticeTrials2022"
+
+primary_note = textwrap.dedent(
+    f"""\
+    ---
+    id: zotero:duboisAlzheimerDiseaseClinicalBiological2024
+    aliases:
+      - "Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation"
+    tags:
+      - Medicine/Neurology
+      - Alzheimers_Disease
+      - ClinicalTrial
+    date_processed: 2026-02-24
+    confidence: 0.9
+    status: INDEXED
+    doi: 10.1016/S1474-4422(24)00001-2
+    zotero_link: zotero://select/items/1_ABCDE
+    pdf_url: {seed_pdf_uri}
+    ---
+
+    # Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation
+
+    ## One-Line Summary
+    Since 2018, Alzheimer's disease definitions increasingly focus on biological evidence.
+
+    ## Critical Analysis
+    - Study Design: Narrative working-group recommendation
+    - Professor's Verdict: Strongly Approved (0.9)
+
+    ## Key Findings & Evidence
+    - The revised criteria support biological evidence as a defining axis.
+    - [[Inbox/PaperPipe/{related_slug}|Amnestic MCI or prodromal Alzheimer's disease?]] is discussed as adjacent scope.
+
+    ## Critical Review (ClaimSet)
+    ### Claim 1
+    - Claim: AD diagnosis can be refined through biomarker-first criteria.
+    - Evidence: quote="biological evidence first", page_num=N/A
+    - Confidence: 0.9
+
+    ## 🔗 Related Papers
+    - [[Inbox/PaperPipe/{related_slug}|Amnestic MCI or prodromal Alzheimer's disease?]] (shared tags: Alzheimers_Disease, Medicine/Neurology)
+    - [[Inbox/PaperPipe/{third_slug}|Blood biomarkers for Alzheimer's disease in clinical practice and trials]] (shared tags: Alzheimers_Disease, Medicine/Neurology)
+
+    ## 🔗 References
+    - [Open PDF]({seed_pdf_uri})
+    - [Publisher Link](https://example.org/ad-construct)
+    """
+)
+
+related_note = textwrap.dedent(
+    """\
+    ---
+    id: zotero:duboisAmnesticMCIProdromal2004
+    aliases:
+      - "Amnestic MCI or prodromal Alzheimer's disease?"
+    tags:
+      - Medicine/Neurology
+      - Alzheimers_Disease
+    date_processed: 2026-02-20
+    confidence: 0.82
+    status: INDEXED
+    doi: 10.1016/S1474-4422(04)70020-4
+    ---
+
+    # Amnestic MCI or prodromal Alzheimer's disease?
+
+    ## One-Line Summary
+    Prodromal framing has clinical utility but requires careful criteria boundaries.
+    """
+)
+
+third_note = textwrap.dedent(
+    """\
+    ---
+    id: zotero:duboisBloodBiomarkersClinicalPracticeTrials2022
+    aliases:
+      - "Blood biomarkers for Alzheimer's disease in clinical practice and trials"
+    tags:
+      - Medicine/Neurology
+      - Alzheimers_Disease
+      - Biomarker
+    date_processed: 2026-02-10
+    confidence: 0.78
+    status: INDEXED
+    doi: 10.1016/S1474-4422(22)00414-9
+    ---
+
+    # Blood biomarkers for Alzheimer's disease in clinical practice and trials
+
+    ## One-Line Summary
+    Blood biomarkers are increasingly practical for large-scale screening and trials.
+    """
+)
+
+(vault_papers_dir / f"{primary_slug}.md").write_text(primary_note, encoding="utf-8")
+(vault_papers_dir / f"{related_slug}.md").write_text(related_note, encoding="utf-8")
+(vault_papers_dir / f"{third_slug}.md").write_text(third_note, encoding="utf-8")
 
 conn.execute(
     """
