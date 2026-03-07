@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "e2e:mock": "playwright test -c playwright.mock.config.ts",
     "e2e:backend": "playwright test -c playwright.backend.config.ts",
+    "e2e:backend:canary": "PAPERPIPE_E2E_CANARY=1 playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g \"soft-gate canary\"",
     "e2e:mock:update": "playwright test -c playwright.mock.config.ts --update-snapshots",
     "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
   },
@@ -22,7 +23,9 @@
     "pdfjs-dist": "^3.11.174",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.1",
+    "remark-gfm": "^4.0.1",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

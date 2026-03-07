@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const runSoftGateCanary = process.env.PAPERPIPE_E2E_CANARY === "1";
+
 test("backend mode stays out of mock fallback", async ({ page }) => {
   await page.goto("/");
 
@@ -82,5 +84,6 @@ test.describe("mobile backend UX", () => {
 });
 
 test("soft-gate canary: intentional backend e2e failure drill", async () => {
+  test.skip(!runSoftGateCanary, "Set PAPERPIPE_E2E_CANARY=1 to run intentional failure drill.");
   expect(1).toBe(2);
 });
