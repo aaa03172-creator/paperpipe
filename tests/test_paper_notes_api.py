@@ -235,6 +235,74 @@ def test_paper_notes_list_supports_status_filter_and_sorting(tmp_path, monkeypat
     assert [item["slug"] for item in date_payload["items"][:3]] == ["note-alpha", "note-gamma", "note-beta"]
 
 
+def test_paper_notes_list_supports_multi_tag_filter_and_pagination(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "note-one.md",
+        _note_content(
+            note_id="zotero:one",
+            alias="Note One",
+            tags=["A"],
+            date_processed="2026-01-01",
+            confidence=0.1,
+            status="INDEXED",
+        ),
+    )
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "note-two.md",
+        _note_content(
+            note_id="zotero:two",
+            alias="Note Two",
+            tags=["B"],
+            date_processed="2026-01-02",
+            confidence=0.2,
+            status="INDEXED",
+        ),
+    )
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "note-three.md",
+        _note_content(
+            note_id="zotero:three",
+            alias="Note Three",
+            tags=["A", "B"],
+            date_processed="2026-01-03",
+            confidence=0.3,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+    client = TestClient(api_main.app)
+
+    response = client.get(
+        "/paper-notes",
+        params={
+            "tags": "A,B",
+            "sort_by": "date_processed",
+            "sort_order": "desc",
+            "page": 2,
+            "page_size": 1,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["total"] == 3
+    assert payload["page"] == 2
+    assert payload["page_size"] == 1
+    assert payload["total_pages"] == 3
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["slug"] == "note-two"
+    assert sorted(payload["available_tags"]) == ["A", "B"]
+    assert payload["available_statuses"] == ["INDEXED"]
+
+
 def test_paper_note_detail_related_limit_and_scoring(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

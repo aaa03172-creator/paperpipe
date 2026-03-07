@@ -23,6 +23,53 @@ export interface PaperDetail extends PaperSummary {
   abstract?: string;
 }
 
+export interface PaperNoteSummary {
+  slug: string;
+  title: string;
+  note_path: string;
+  id?: string | null;
+  aliases: string[];
+  tags: string[];
+  date_processed?: string | null;
+  confidence?: number | null;
+  status?: string | null;
+  doi?: string | null;
+  zotero_link?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PaperNoteListResponse {
+  generated_at: string;
+  index_path: string;
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  available_tags: string[];
+  available_statuses: string[];
+  items: PaperNoteSummary[];
+}
+
+export interface PaperNoteRelated {
+  slug: string;
+  title: string;
+  shared_tags: string[];
+}
+
+export interface PaperNoteReference {
+  label: string;
+  url: string;
+  source: "pdf" | "doi" | "zotero" | "external";
+}
+
+export interface PaperNoteDetailResponse {
+  note: PaperNoteSummary;
+  frontmatter: Record<string, unknown>;
+  body_markdown: string;
+  related: PaperNoteRelated[];
+  references: PaperNoteReference[];
+}
+
 export interface JobStatus {
   job_id: string;
   paper_id?: string;
@@ -81,6 +128,8 @@ export interface ObsidianMirrorStatCheck {
   check_id: string;
   test_type: string;
   verdict: string;
+  claim_id?: string | null;
+  evidence_page?: number | null;
   hypothesis?: string | null;
   notes?: string | null;
   decision_error: boolean;
@@ -128,6 +177,7 @@ export interface EvidenceHighlight {
   width: number;
   height: number;
   quote?: string;
+  source?: "bbox" | "text_match" | "approx";
 }
 
 export interface NotebookClaim {
