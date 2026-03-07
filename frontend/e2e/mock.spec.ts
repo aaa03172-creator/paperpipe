@@ -55,7 +55,7 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
   const highlight = page.locator('[data-testid="claim-highlight"]').first();
   await expect(page).toHaveURL(/focus=issues/);
   await expect(page.getByText("Issue focus enabled: prioritizing risk-related claims.")).toBeVisible();
-  await expect(page.getByText("Claim Link · p.5")).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
   await expect(highlight).toBeVisible();
 
   const viewerBox = await viewer.boundingBox();
@@ -67,12 +67,16 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
     expect(beforeBox.height).toBeGreaterThan(24);
     expect(beforeBox.width).toBeLessThan(viewerBox.width * 0.95);
     expect(beforeBox.height).toBeLessThan(viewerBox.height * 0.95);
+    expect(beforeBox.x).toBeGreaterThanOrEqual(viewerBox.x - 2);
+    expect(beforeBox.y).toBeGreaterThanOrEqual(viewerBox.y - 2);
+    expect(beforeBox.x + beforeBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(beforeBox.y + beforeBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
   }
 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await claimsPanel.getByRole("button").first().click();
 
-  await expect(page.getByText("Claim Link · p.3")).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
   await expect(highlight).toBeVisible();
   await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
 
@@ -99,14 +103,14 @@ test("runtime guard shows fallback and missing-text notices when claim evidence 
 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await expect(claimsPanel.getByText("Missing evidence")).toBeVisible();
-  await expect(claimsPanel.getByText("Text missing")).toBeVisible();
+  await expect(claimsPanel.getByText("Text missing", { exact: true })).toBeVisible();
 });
 
 test("obsidian stats snapshot click jumps to mapped claim highlight", async ({ page }) => {
   await page.goto("/workbench/paper-2023-imaging");
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Claim Link · p.3")).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
 
   const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
   await expect(mirrorPanel).toBeVisible();
@@ -115,9 +119,37 @@ test("obsidian stats snapshot click jumps to mapped claim highlight", async ({ p
   await expect(targetCheck).toBeVisible();
   await targetCheck.click();
 
-  await expect(page.getByText("Claim Link · p.4")).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
   await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
   await page.screenshot({ path: "../tmp_verify_obsidian_stats_jump.png", fullPage: true });
+});
+
+test("duplicate claim highlights prefer bbox anchor over text fallback", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-ambiguous");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  const pdfPanel = page.locator("section").filter({ hasText: "PDF Renderer" }).first();
+  await expect(pdfPanel).toBeVisible();
+
+  await expect(pdfPanel.getByText("Claim Link · p.1")).toBeVisible();
+  await expect(pdfPanel.getByText("Text Match · p.4")).toHaveCount(0);
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+});
+
+test("stats snapshot disambiguates target claim by text signal", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-ambiguous");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  const pdfPanel = page.locator("section").filter({ hasText: "PDF Renderer" }).first();
+  await expect(pdfPanel.getByText("Claim Link · p.1")).toBeVisible();
+
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  const targetCheck = mirrorPanel.getByRole("button").filter({ hasText: "effect-size-disambiguation" }).first();
+  await expect(targetCheck).toBeVisible();
+  await targetCheck.click();
+
+  await expect(pdfPanel.getByText("Claim Link · p.2")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
 });
 
 test.describe("mobile UX scenarios", () => {
