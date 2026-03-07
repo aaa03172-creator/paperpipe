@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpDown, Search } from "lucide-react";
 import { getApiErrorMessage, getPaperNotesIndex } from "../lib/api";
@@ -46,17 +46,6 @@ function parseSelectedTags(value: string | null): string[] {
   return Array.from(unique.values());
 }
 
-function dateSortValue(value?: string | null): number {
-  if (!value) {
-    return 0;
-  }
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return 0;
-  }
-  return parsed;
-}
-
 function formatDate(value?: string | null): string {
   if (!value) {
     return "-";
@@ -77,7 +66,12 @@ function confidenceLabel(value?: number | null): string {
 
 export function PaperNotesListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const loadSequence = useRef(0);
   const [items, setItems] = useState<PaperNoteSummary[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [allStatuses, setAllStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -89,24 +83,45 @@ export function PaperNotesListPage() {
   const [page, setPage] = useState(() => parsePage(searchParams.get("page")));
 
   useEffect(() => {
-    let mounted = true;
+    const seq = loadSequence.current + 1;
+    loadSequence.current = seq;
+    let active = true;
+
     async function load() {
       setLoading(true);
       setLoadError(null);
       try {
-        const result = await getPaperNotesIndex();
-        if (!mounted) {
+        const result = await getPaperNotesIndex({
+          q: query.trim() || undefined,
+          tags: selectedTags,
+          status: statusFilter !== "all" ? statusFilter : undefined,
+          sortBy,
+          sortOrder,
+          page,
+          pageSize: PAGE_SIZE,
+        });
+        if (!active || loadSequence.current !== seq) {
           return;
         }
-        setItems(result.data.items);
+        const response = result.data;
+        setItems(response.items);
+        setTotal(response.total);
+        setTotalPages(response.total_pages);
+        setAllTags(response.available_tags);
+        setAllStatuses(response.available_statuses);
+        if (response.page !== page) {
+          setPage(response.page);
+        }
       } catch (error) {
-        if (!mounted) {
+        if (!active || loadSequence.current !== seq) {
           return;
         }
         setItems([]);
+        setTotal(0);
+        setTotalPages(1);
         setLoadError(getApiErrorMessage(error));
       } finally {
-        if (mounted) {
+        if (active && loadSequence.current === seq) {
           setLoading(false);
         }
       }
@@ -114,33 +129,13 @@ export function PaperNotesListPage() {
 
     void load();
     return () => {
-      mounted = false;
+      active = false;
     };
-  }, []);
+  }, [page, query, selectedTags, sortBy, sortOrder, statusFilter]);
 
   useEffect(() => {
     document.title = "Paper Notes | Lattice";
   }, []);
-
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      for (const tag of item.tags) {
-        set.add(tag);
-      }
-    }
-    return Array.from(set.values()).sort((a, b) => a.localeCompare(b));
-  }, [items]);
-
-  const allStatuses = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      if (item.status) {
-        set.add(item.status);
-      }
-    }
-    return Array.from(set.values()).sort((a, b) => a.localeCompare(b));
-  }, [items]);
 
   const matchedTagHints = useMemo(() => {
     const needle = tagInput.trim().toLowerCase();
@@ -197,60 +192,6 @@ export function PaperNotesListPage() {
     setPage(1);
   }
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    let next = items;
-
-    if (needle) {
-      next = next.filter((item) => {
-        if (item.title.toLowerCase().includes(needle)) {
-          return true;
-        }
-        if ((item.id ?? "").toLowerCase().includes(needle)) {
-          return true;
-        }
-        if (item.slug.toLowerCase().includes(needle)) {
-          return true;
-        }
-        return item.aliases.some((alias) => alias.toLowerCase().includes(needle));
-      });
-    }
-
-    if (selectedTags.length > 0) {
-      const selectedLower = selectedTags.map((tag) => tag.toLowerCase());
-      next = next.filter((item) => item.tags.some((tag) => selectedLower.includes(tag.toLowerCase())));
-    }
-    if (statusFilter !== "all") {
-      next = next.filter((item) => (item.status ?? "").toUpperCase() === statusFilter.toUpperCase());
-    }
-
-    const sorted = [...next];
-    sorted.sort((left, right) => {
-      if (sortBy === "confidence") {
-        const leftScore = left.confidence ?? -1;
-        const rightScore = right.confidence ?? -1;
-        if (leftScore !== rightScore) {
-          return sortOrder === "asc" ? leftScore - rightScore : rightScore - leftScore;
-        }
-      } else {
-        const leftDate = dateSortValue(left.date_processed);
-        const rightDate = dateSortValue(right.date_processed);
-        if (leftDate !== rightDate) {
-          return sortOrder === "asc" ? leftDate - rightDate : rightDate - leftDate;
-        }
-      }
-      return left.title.localeCompare(right.title);
-    });
-
-    return sorted;
-  }, [items, query, sortBy, sortOrder, statusFilter, selectedTags]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-
-  useEffect(() => {
-    setPage((current) => Math.min(Math.max(current, 1), totalPages));
-  }, [totalPages]);
-
   useEffect(() => {
     const next = new URLSearchParams();
     const trimmedQuery = query.trim();
@@ -283,11 +224,6 @@ export function PaperNotesListPage() {
       setSearchParams(next, { replace: true });
     }
   }, [page, query, searchParams, selectedTags, setSearchParams, sortBy, sortOrder, statusFilter, tagInput]);
-
-  const pagedItems = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
 
   const pageWindow = useMemo(() => {
     const start = Math.max(1, page - 2);
@@ -431,7 +367,7 @@ export function PaperNotesListPage() {
 
       <section className="surface-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-xs text-[var(--pp-text-dim)]">
-          <span>{loading ? "Loading notes..." : `${filtered.length} notes · page ${page}/${totalPages}`}</span>
+          <span>{loading ? "Loading notes..." : `${total} notes · page ${page}/${totalPages}`}</span>
           <Link to="/" className="text-[var(--pp-accent-text)] underline-offset-2 hover:underline">
             Open Workbench
           </Link>
@@ -441,12 +377,12 @@ export function PaperNotesListPage() {
         ) : null}
         {!loadError ? (
           <>
-            {filtered.length === 0 ? (
+            {!loading && total === 0 ? (
               <p className="p-4 text-sm text-[var(--pp-text-dim)]">No notes matched the current filters.</p>
             ) : null}
 
             <div className="space-y-2 p-3 md:hidden">
-              {pagedItems.map((item) => (
+              {items.map((item) => (
                 <article key={item.slug} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3">
                   <Link
                     to={`/papers/${encodeURIComponent(item.slug)}`}
@@ -502,7 +438,7 @@ export function PaperNotesListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedItems.map((item) => (
+                  {items.map((item) => (
                     <tr key={item.slug} className="bg-[var(--pp-surface)] hover:bg-[var(--pp-surface-selected)]">
                       <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
                         <Link
@@ -541,7 +477,7 @@ export function PaperNotesListPage() {
               </table>
             </div>
 
-            {filtered.length > 0 ? (
+            {total > 0 ? (
               <div className="flex items-center justify-between border-t border-[var(--pp-border)] px-3 py-2">
                 <button
                   type="button"

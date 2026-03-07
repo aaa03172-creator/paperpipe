@@ -21,11 +21,15 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 - `GET /paper-notes`
   - query:
     - `q` (title/alias/slug/id 검색)
-    - `tag`
+    - `tag` (legacy single tag)
+    - `tags` (comma-separated multi-tag, OR semantics)
     - `status`
     - `sort_by`: `date_processed | confidence`
     - `sort_order`: `asc | desc`
+    - `page` (기본 1)
+    - `page_size` (기본 30, 1~200)
   - response: `PaperNoteListResponse`
+    - 주요 필드: `total`, `page`, `page_size`, `total_pages`, `available_tags`, `available_statuses`, `items`
   - 정렬 동작:
     - `date_processed`: 날짜(파싱 실패 시 원문 문자열) 기준
     - `confidence`: 숫자 기준 (없으면 `-1.0` 취급)
@@ -43,10 +47,17 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 ## API ↔ UI 매핑(현재 구현)
 ### `/papers` 목록 페이지
 - 프론트 파일: `frontend/src/app/pages/PaperNotesListPage.tsx`
-- 데이터 로드: 최초 1회 `GET /paper-notes`
-- 검색/태그/상태/정렬/페이지네이션: 현재 **클라이언트 측 계산**
+- 데이터 로드: `GET /paper-notes` (필터/정렬/페이지네이션 파라미터 포함)
+- 검색/태그/상태/정렬/페이지네이션: 현재 **서버 측 계산**
   - URL 쿼리 동기화 키: `q`, `tags`, `status`, `sort`, `order`, `page`, `tag_input`
-  - 참고: API의 `q/tag/status/sort_by/sort_order`는 준비되어 있으나, 현재 목록 페이지는 서버 필터를 직접 사용하지 않음
+  - API 요청 파라미터 매핑:
+    - `q` -> `q`
+    - `tags` -> `tags` (comma-separated, OR semantics)
+    - `status` -> `status`
+    - `sort` -> `sort_by`
+    - `order` -> `sort_order`
+    - `page` -> `page`
+    - page size는 고정값 `30` -> `page_size`
 
 ### `/papers/:slug` 상세 페이지
 - 프론트 파일: `frontend/src/app/pages/PaperNoteDetailPage.tsx`
