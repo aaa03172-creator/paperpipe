@@ -6,7 +6,13 @@ import { PaperNoteSummary } from "../lib/types";
 
 type SortBy = "date_processed" | "confidence";
 type SortOrder = "asc" | "desc";
-const PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [30, 50, 100] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+
+function isPageSizeOption(value: number): value is PageSize {
+  return PAGE_SIZE_OPTIONS.some((option) => option === value);
+}
 
 function parseSortBy(value: string | null): SortBy {
   if (value === "confidence" || value === "date_processed") {
@@ -29,6 +35,17 @@ function parsePage(value: string | null): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     return 1;
+  }
+  return parsed;
+}
+
+function parsePageSize(value: string | null): PageSize {
+  if (!value) {
+    return DEFAULT_PAGE_SIZE;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || !isPageSizeOption(parsed)) {
+    return DEFAULT_PAGE_SIZE;
   }
   return parsed;
 }
@@ -74,6 +91,7 @@ export function PaperNotesListPage() {
   const [allStatuses, setAllStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [queryInput, setQueryInput] = useState(() => searchParams.get("q") ?? "");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [tagInput, setTagInput] = useState(() => searchParams.get("tag_input") ?? "");
   const [selectedTags, setSelectedTags] = useState<string[]>(() => parseSelectedTags(searchParams.get("tags")));
@@ -81,6 +99,14 @@ export function PaperNotesListPage() {
   const [sortBy, setSortBy] = useState<SortBy>(() => parseSortBy(searchParams.get("sort")));
   const [sortOrder, setSortOrder] = useState<SortOrder>(() => parseSortOrder(searchParams.get("order")));
   const [page, setPage] = useState(() => parsePage(searchParams.get("page")));
+  const [pageSize, setPageSize] = useState<PageSize>(() => parsePageSize(searchParams.get("page_size")));
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setQuery(queryInput);
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [queryInput]);
 
   useEffect(() => {
     const seq = loadSequence.current + 1;
@@ -98,7 +124,7 @@ export function PaperNotesListPage() {
           sortBy,
           sortOrder,
           page,
-          pageSize: PAGE_SIZE,
+          pageSize,
         });
         if (!active || loadSequence.current !== seq) {
           return;
@@ -131,7 +157,7 @@ export function PaperNotesListPage() {
     return () => {
       active = false;
     };
-  }, [page, query, selectedTags, sortBy, sortOrder, statusFilter]);
+  }, [page, pageSize, query, selectedTags, sortBy, sortOrder, statusFilter]);
 
   useEffect(() => {
     document.title = "Paper Notes | Lattice";
@@ -173,7 +199,7 @@ export function PaperNotesListPage() {
   }
 
   function handleQueryChange(value: string) {
-    setQuery(value);
+    setQueryInput(value);
     setPage(1);
   }
 
@@ -187,14 +213,32 @@ export function PaperNotesListPage() {
     setPage(1);
   }
 
+  function handlePageSizeChange(value: string) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || !isPageSizeOption(parsed)) {
+      return;
+    }
+    setPageSize(parsed);
+    setPage(1);
+  }
+
   function toggleSortOrder() {
     setSortOrder((current) => (current === "desc" ? "asc" : "desc"));
     setPage(1);
   }
 
+  function clearAllFilters() {
+    setQueryInput("");
+    setQuery("");
+    setTagInput("");
+    setSelectedTags([]);
+    setStatusFilter("all");
+    setPage(1);
+  }
+
   useEffect(() => {
     const next = new URLSearchParams();
-    const trimmedQuery = query.trim();
+    const trimmedQuery = queryInput.trim();
     const trimmedTagInput = tagInput.trim();
     if (trimmedQuery) {
       next.set("q", trimmedQuery);
@@ -214,6 +258,9 @@ export function PaperNotesListPage() {
     if (page > 1) {
       next.set("page", String(page));
     }
+    if (pageSize !== DEFAULT_PAGE_SIZE) {
+      next.set("page_size", String(pageSize));
+    }
     if (trimmedTagInput) {
       next.set("tag_input", trimmedTagInput);
     }
@@ -223,7 +270,7 @@ export function PaperNotesListPage() {
     if (nextValue !== currentValue) {
       setSearchParams(next, { replace: true });
     }
-  }, [page, query, searchParams, selectedTags, setSearchParams, sortBy, sortOrder, statusFilter, tagInput]);
+  }, [page, pageSize, queryInput, searchParams, selectedTags, setSearchParams, sortBy, sortOrder, statusFilter, tagInput]);
 
   const pageWindow = useMemo(() => {
     const start = Math.max(1, page - 2);
@@ -235,6 +282,8 @@ export function PaperNotesListPage() {
     return pages;
   }, [page, totalPages]);
 
+  const hasActiveFilters = Boolean(queryInput.trim()) || selectedTags.length > 0 || statusFilter !== "all";
+
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
       <header className="surface-card mb-4 p-4">
@@ -244,13 +293,13 @@ export function PaperNotesListPage() {
           Obsidian vault note index with search, filtering, and confidence/date sorting.
         </p>
 
-        <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-4">
+        <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-6">
           <label className="md:col-span-2">
             <span className="mb-1 block text-xs text-[var(--pp-text-dim)]">Search</span>
             <span className="flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5">
               <Search className="h-3.5 w-3.5 text-[var(--pp-text-dim)]" />
               <input
-                value={query}
+                value={queryInput}
                 onChange={(event) => handleQueryChange(event.target.value)}
                 placeholder="title / alias / slug"
                 className="w-full border-0 bg-transparent px-2 py-2 text-sm text-[var(--pp-text-primary)] outline-none"
@@ -362,12 +411,54 @@ export function PaperNotesListPage() {
               </button>
             </div>
           </label>
+
+          <label>
+            <span className="mb-1 block text-xs text-[var(--pp-text-dim)]">Page Size</span>
+            <select
+              value={pageSize}
+              onChange={(event) => handlePageSizeChange(event.target.value)}
+              className="w-full rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-2 text-sm text-[var(--pp-text-primary)]"
+            >
+              {PAGE_SIZE_OPTIONS.map((value) => (
+                <option key={`page-size-${value}`} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
+
+        {hasActiveFilters ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {queryInput.trim() ? (
+              <span className="inline-flex items-center rounded-full border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-0.5 text-xs text-[var(--pp-text-secondary)]">
+                q: {queryInput.trim()}
+              </span>
+            ) : null}
+            {selectedTags.length > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2 py-0.5 text-xs text-[var(--pp-accent-text)]">
+                tags: {selectedTags.length}
+              </span>
+            ) : null}
+            {statusFilter !== "all" ? (
+              <span className="inline-flex items-center rounded-full border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-0.5 text-xs text-[var(--pp-text-secondary)]">
+                status: {statusFilter}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="rounded-full border border-[var(--pp-border)] px-2 py-0.5 text-xs text-[var(--pp-text-dim)]"
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <section className="surface-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-xs text-[var(--pp-text-dim)]">
-          <span>{loading ? "Loading notes..." : `${total} notes · page ${page}/${totalPages}`}</span>
+          <span>{loading ? "Loading notes..." : `${total} notes · page ${page}/${totalPages} · size ${pageSize}`}</span>
           <Link to="/" className="text-[var(--pp-accent-text)] underline-offset-2 hover:underline">
             Open Workbench
           </Link>
@@ -378,12 +469,41 @@ export function PaperNotesListPage() {
         {!loadError ? (
           <>
             {!loading && total === 0 ? (
-              <p className="p-4 text-sm text-[var(--pp-text-dim)]">No notes matched the current filters.</p>
+              <div className="flex items-center justify-between gap-3 p-4">
+                <p className="text-sm text-[var(--pp-text-dim)]">
+                  {hasActiveFilters ? "No notes matched the current filters." : "No notes are indexed yet."}
+                </p>
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="rounded-md border border-[var(--pp-border)] px-2.5 py-1 text-xs text-[var(--pp-text-secondary)]"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
             ) : null}
 
             <div className="space-y-2 p-3 md:hidden">
-              {items.map((item) => (
-                <article key={item.slug} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3">
+              {loading
+                ? Array.from({ length: 4 }).map((_, idx) => (
+                    <article
+                      key={`loading-mobile-${idx}`}
+                      className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3"
+                      aria-hidden="true"
+                    >
+                      <div className="h-4 w-4/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                      <div className="mt-2 h-3 w-2/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="h-8 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                        <div className="h-8 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                        <div className="h-8 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                      </div>
+                    </article>
+                  ))
+                : items.map((item) => (
+                    <article key={item.slug} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3">
                   <Link
                     to={`/papers/${encodeURIComponent(item.slug)}`}
                     className="text-sm font-medium text-[var(--pp-text-primary)] underline-offset-2 hover:underline"
@@ -422,8 +542,8 @@ export function PaperNotesListPage() {
                       <p>{confidenceLabel(item.confidence)}</p>
                     </div>
                   </div>
-                </article>
-              ))}
+                    </article>
+                  ))}
             </div>
 
             <div className="hidden max-h-[70vh] overflow-auto md:block">
@@ -438,8 +558,29 @@ export function PaperNotesListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <tr key={item.slug} className="bg-[var(--pp-surface)] hover:bg-[var(--pp-surface-selected)]">
+                  {loading
+                    ? Array.from({ length: 6 }).map((_, idx) => (
+                        <tr key={`loading-desktop-${idx}`} className="bg-[var(--pp-surface)]" aria-hidden="true">
+                          <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
+                            <div className="h-4 w-4/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                            <div className="mt-2 h-3 w-2/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                          </td>
+                          <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
+                            <div className="h-4 w-3/4 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                          </td>
+                          <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
+                            <div className="h-4 w-16 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                          </td>
+                          <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
+                            <div className="h-4 w-20 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                          </td>
+                          <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
+                            <div className="h-4 w-14 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                          </td>
+                        </tr>
+                      ))
+                    : items.map((item) => (
+                        <tr key={item.slug} className="bg-[var(--pp-surface)] hover:bg-[var(--pp-surface-selected)]">
                       <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top">
                         <Link
                           to={`/papers/${encodeURIComponent(item.slug)}`}
@@ -471,13 +612,13 @@ export function PaperNotesListPage() {
                       <td className="border-b border-[var(--pp-border)] px-3 py-3 align-top text-xs text-[var(--pp-text-secondary)]">
                         {confidenceLabel(item.confidence)}
                       </td>
-                    </tr>
-                  ))}
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
 
-            {total > 0 ? (
+            {total > 0 && !loading ? (
               <div className="flex items-center justify-between border-t border-[var(--pp-border)] px-3 py-2">
                 <button
                   type="button"
