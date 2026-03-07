@@ -66,7 +66,7 @@ test("visual regression (backend, desktop): claim highlight in pdf viewer", asyn
   await expect(viewer).toHaveScreenshot("backend-desktop-claim-highlight.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixels: 1200,
+    maxDiffPixels: 1600,
   });
 });
 

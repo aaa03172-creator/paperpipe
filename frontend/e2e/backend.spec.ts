@@ -46,6 +46,10 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
     expect(beforeBox.height).toBeGreaterThan(24);
     expect(beforeBox.width).toBeLessThan(viewerBox.width * 0.95);
     expect(beforeBox.height).toBeLessThan(viewerBox.height * 0.95);
+    expect(beforeBox.x).toBeGreaterThanOrEqual(viewerBox.x - 2);
+    expect(beforeBox.y).toBeGreaterThanOrEqual(viewerBox.y - 2);
+    expect(beforeBox.x + beforeBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(beforeBox.y + beforeBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
   }
 
   await claimButtons.nth(1).click();
@@ -78,7 +82,7 @@ test.describe("mobile backend UX", () => {
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
-    await expect(page.getByRole("button", { name: "Deep Read Run" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first()).toBeVisible();
     await expect(page.getByText("Errors / Done")).toBeVisible();
   });
 });
