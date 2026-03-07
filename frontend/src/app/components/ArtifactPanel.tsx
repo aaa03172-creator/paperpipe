@@ -14,6 +14,7 @@ interface ArtifactPanelProps {
   onSyncObsidian: () => void;
   activeClaimId: string | null;
   onSelectClaim: (claimId: string) => void;
+  density: "detail" | "compact";
 }
 
 function verdictStyle(level: NotebookArtifact["verdict"]["level"]): { icon: ReactNode; className: string } {
@@ -39,6 +40,78 @@ function stripLeadingClaimMarker(text: string): string {
   return text.replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/, "");
 }
 
+function normalizeClaimTextForMatch(text: string): string {
+  return stripLeadingClaimMarker(text)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveMirrorClaimTargetId(
+  mirrorClaimId: string,
+  mirrorStatement: string,
+  notebook: NotebookArtifact,
+): string | null {
+  if (notebook.claims.some((claim) => claim.claim_id === mirrorClaimId)) {
+    return mirrorClaimId;
+  }
+  const normalizedMirror = normalizeClaimTextForMatch(mirrorStatement);
+  if (!normalizedMirror) {
+    return null;
+  }
+  const exact = notebook.claims.find((claim) => normalizeClaimTextForMatch(claim.text) === normalizedMirror);
+  if (exact) {
+    return exact.claim_id;
+  }
+  const partial = notebook.claims.find((claim) => {
+    const normalizedNotebook = normalizeClaimTextForMatch(claim.text);
+    if (!normalizedNotebook) {
+      return false;
+    }
+    return (
+      normalizedMirror.includes(normalizedNotebook) ||
+      normalizedNotebook.includes(normalizedMirror)
+    );
+  });
+  return partial?.claim_id ?? null;
+}
+
+function resolveStatsCheckTargetId(
+  check: ObsidianMirror["stats_checks"][number],
+  notebook: NotebookArtifact,
+  highlights: EvidenceHighlight[],
+): string | null {
+  if (check.claim_id && notebook.claims.some((claim) => claim.claim_id === check.claim_id)) {
+    return check.claim_id;
+  }
+  if (notebook.claims.some((claim) => claim.claim_id === check.check_id)) {
+    return check.check_id;
+  }
+  if (check.evidence_page !== null && check.evidence_page !== undefined) {
+    const byPage = highlights.find((item) => item.page === check.evidence_page);
+    if (byPage) {
+      return byPage.claim_id;
+    }
+  }
+
+  const signals = [check.hypothesis, check.notes, check.test_type]
+    .map((item) => normalizeClaimTextForMatch(item ?? ""))
+    .filter((item) => item.length >= 6);
+  for (const signal of signals) {
+    const matched = notebook.claims.find((claim) => {
+      const claimText = normalizeClaimTextForMatch(claim.text);
+      return (
+        claimText.includes(signal) ||
+        signal.includes(claimText)
+      );
+    });
+    if (matched) {
+      return matched.claim_id;
+    }
+  }
+  return null;
+}
+
 export function ArtifactPanel({
   notebook,
   highlights,
@@ -49,9 +122,25 @@ export function ArtifactPanel({
   onSyncObsidian,
   activeClaimId,
   onSelectClaim,
+  density,
 }: ArtifactPanelProps) {
   const verdict = verdictStyle(notebook.verdict.level);
   const highlightMap = new Map(highlights.map((item) => [item.claim_id, item]));
+  const compact = density === "compact";
+  const claimLinkStates = notebook.claims.map((claim) => ({
+    claimId: claim.claim_id,
+    state: getClaimLinkState(claim, highlightMap.get(claim.claim_id)),
+  }));
+  const claimLinkStateMap = new Map(claimLinkStates.map((item) => [item.claimId, item.state]));
+  const mappedCount = claimLinkStates.filter((item) => item.state.health === "mapped").length;
+  const fallbackCount = claimLinkStates.filter((item) => item.state.health === "search_fallback").length;
+  const missingCount = claimLinkStates.filter((item) => item.state.health === "missing").length;
+  const activeClaimIndex = notebook.claims.findIndex((claim) => claim.claim_id === activeClaimId);
+  const activeClaimState = activeClaimId ? claimLinkStateMap.get(activeClaimId) ?? null : null;
+  const activeClaimSummary =
+    activeClaimIndex >= 0 && activeClaimState
+      ? `Active ${circledNumber(activeClaimIndex)} · ${activeClaimState.health === "mapped" ? `p.${activeClaimState.page}` : activeClaimState.health === "search_fallback" ? `Text fallback p.${activeClaimState.page}` : "Missing evidence"}`
+      : "Select claim to inspect evidence link";
 
   return (
     <section className="surface-card flex h-full min-h-0 flex-col p-3">
@@ -63,6 +152,27 @@ export function ArtifactPanel({
       </header>
 
       <div className="grid min-h-0 flex-1 gap-3 overflow-auto pr-1">
+        {compact ? (
+          <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Compact Summary</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-md border border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-[var(--pp-status-completed-text)]">Mapped</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--pp-status-completed-text)]">{mappedCount}</p>
+              </div>
+              <div className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-[var(--pp-warning-text)]">Fallback</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--pp-warning-text)]">{fallbackCount}</p>
+              </div>
+              <div className="rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-[var(--pp-status-failed-text)]">Missing</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--pp-status-failed-text)]">{missingCount}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{activeClaimSummary}</p>
+          </article>
+        ) : null}
+
         <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
             <NotebookPen className="h-3.5 w-3.5" />
@@ -72,7 +182,7 @@ export function ArtifactPanel({
             {notebook.claims.length > 0 ? (
               notebook.claims.map((claim, index) => {
                 const active = claim.claim_id === activeClaimId;
-                const linkState = getClaimLinkState(claim, highlightMap.get(claim.claim_id));
+                const linkState = claimLinkStateMap.get(claim.claim_id) ?? getClaimLinkState(claim, highlightMap.get(claim.claim_id));
                 const linkLabel =
                   linkState.health === "mapped"
                     ? `Mapped · p.${linkState.page}`
@@ -97,8 +207,10 @@ export function ArtifactPanel({
                           : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)]",
                       ].join(" ")}
                     >
-                      <span className="mr-2 text-[var(--pp-accent-text)]">{circledNumber(index)}</span>
-                      {stripLeadingClaimMarker(claim.text)}
+                      <p className={compact ? "line-clamp-2" : ""}>
+                        <span className="mr-2 text-[var(--pp-accent-text)]">{circledNumber(index)}</span>
+                        {stripLeadingClaimMarker(claim.text)}
+                      </p>
                       <span className="mt-2 block">
                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] ${linkClassName}`}>
                           {linkLabel}
@@ -121,27 +233,31 @@ export function ArtifactPanel({
           </ul>
         </article>
 
-        <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-            <FlaskConical className="h-3.5 w-3.5" />
-            Cell 2 Agent Plan
-          </div>
-          <ol className="space-y-1 text-sm text-[var(--pp-text-secondary)]">
-            {notebook.agent_plan.map((step, index) => (
-              <li key={`${step}-${index}`}>{`${index + 1}. ${step}`}</li>
-            ))}
-          </ol>
-        </article>
+        {compact ? null : (
+          <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+              <FlaskConical className="h-3.5 w-3.5" />
+              Cell 2 Agent Plan
+            </div>
+            <ol className="space-y-1 text-sm text-[var(--pp-text-secondary)]">
+              {notebook.agent_plan.map((step, index) => (
+                <li key={`${step}-${index}`}>{`${index + 1}. ${step}`}</li>
+              ))}
+            </ol>
+          </article>
+        )}
 
-        <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-            <FlaskConical className="h-3.5 w-3.5" />
-            Cell 3 Sandbox Execution
-          </div>
-          <pre className="pp-hatch rounded-md border border-[var(--pp-border)] p-3 text-xs leading-5 text-[var(--pp-text-secondary)]">
-            {notebook.sandbox_code}
-          </pre>
-        </article>
+        {compact ? null : (
+          <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+              <FlaskConical className="h-3.5 w-3.5" />
+              Cell 3 Sandbox Execution
+            </div>
+            <pre className="pp-hatch rounded-md border border-[var(--pp-border)] p-3 text-xs leading-5 text-[var(--pp-text-secondary)]">
+              {notebook.sandbox_code}
+            </pre>
+          </article>
+        )}
 
         <article className={[
           "rounded-md border p-3",
@@ -188,42 +304,85 @@ export function ArtifactPanel({
               </div>
 
               {obsidianMirror.claims.length > 0 ? (
-                <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2" open>
+                <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2" open={!compact}>
                   <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
                     Claims Snapshot
                   </summary>
                   <ul className="mt-2 space-y-1.5">
-                    {obsidianMirror.claims.slice(0, 8).map((claim) => (
-                      <li key={claim.claim_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5">
-                        <p className="text-xs text-[var(--pp-text-primary)]">{claim.statement}</p>
-                        <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
-                          {`${claim.claim_type} · confidence ${claim.confidence.toFixed(2)}${claim.evidence_page !== null && claim.evidence_page !== undefined ? ` · p.${claim.evidence_page}` : ""}`}
-                        </p>
-                      </li>
-                    ))}
+                    {obsidianMirror.claims.slice(0, 8).map((claim) => {
+                      const targetClaimId = resolveMirrorClaimTargetId(claim.claim_id, claim.statement, notebook);
+                      const canJump = Boolean(targetClaimId);
+                      return (
+                        <li key={claim.claim_id}>
+                          <button
+                            type="button"
+                            disabled={!canJump}
+                            onClick={() => {
+                              if (targetClaimId) {
+                                onSelectClaim(targetClaimId);
+                              }
+                            }}
+                            className={[
+                              "w-full rounded-md border px-2 py-1.5 text-left",
+                              canJump
+                                ? "border-[var(--pp-border)] bg-[var(--pp-surface-raised)]"
+                                : "cursor-not-allowed border-[var(--pp-border)] bg-[var(--pp-surface-muted)] opacity-70",
+                            ].join(" ")}
+                          >
+                            <p className="text-xs text-[var(--pp-text-primary)]">{claim.statement}</p>
+                            <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
+                              {`${claim.claim_type} · confidence ${claim.confidence.toFixed(2)}${claim.evidence_page !== null && claim.evidence_page !== undefined ? ` · p.${claim.evidence_page}` : ""}${canJump ? " · Jump to PDF" : " · Jump unavailable"}`}
+                            </p>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </details>
               ) : null}
 
               {obsidianMirror.stats_checks.length > 0 ? (
-                <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2" open>
+                <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2" open={!compact}>
                   <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
                     Stats Snapshot
                   </summary>
                   <ul className="mt-2 space-y-1.5">
-                    {obsidianMirror.stats_checks.slice(0, 8).map((check) => (
-                      <li key={check.check_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5">
-                        <p className="text-xs text-[var(--pp-text-primary)]">{check.test_type}</p>
-                        <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
-                          {`${check.verdict}${check.decision_error ? " · decision error" : ""}${check.notes ? ` · ${check.notes}` : ""}`}
-                        </p>
-                      </li>
-                    ))}
+                    {obsidianMirror.stats_checks.slice(0, 8).map((check) => {
+                      const targetClaimId = resolveStatsCheckTargetId(check, notebook, highlights);
+                      const canJump = Boolean(targetClaimId);
+                      const isActive = Boolean(targetClaimId && targetClaimId === activeClaimId);
+                      return (
+                        <li key={check.check_id}>
+                          <button
+                            type="button"
+                            disabled={!canJump}
+                            onClick={() => {
+                              if (targetClaimId) {
+                                onSelectClaim(targetClaimId);
+                              }
+                            }}
+                            className={[
+                              "w-full rounded-md border px-2 py-1.5 text-left",
+                              canJump
+                                ? isActive
+                                  ? "border-[var(--pp-accent-border)] bg-[var(--pp-surface-selected)]"
+                                  : "border-[var(--pp-border)] bg-[var(--pp-surface-raised)]"
+                                : "cursor-not-allowed border-[var(--pp-border)] bg-[var(--pp-surface-muted)] opacity-70",
+                            ].join(" ")}
+                          >
+                            <p className="text-xs text-[var(--pp-text-primary)]">{check.test_type}</p>
+                            <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
+                              {`${check.verdict}${check.decision_error ? " · decision error" : ""}${check.evidence_page !== null && check.evidence_page !== undefined ? ` · p.${check.evidence_page}` : ""}${canJump ? " · Jump to PDF" : " · Jump unavailable"}${check.notes ? ` · ${check.notes}` : ""}`}
+                            </p>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </details>
               ) : null}
 
-              <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2">
+              <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2" open={!compact}>
                 <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
                   Generated Markdown (sync preview)
                 </summary>
@@ -239,14 +398,16 @@ export function ArtifactPanel({
           )}
         </article>
 
-        <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-            Raw Artifact JSON
-          </summary>
-          <pre className="mt-2 overflow-auto rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 text-xs text-[var(--pp-text-secondary)]">
-            {JSON.stringify(rawArtifact, null, 2)}
-          </pre>
-        </details>
+        {compact ? null : (
+          <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+              Raw Artifact JSON
+            </summary>
+            <pre className="mt-2 overflow-auto rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 text-xs text-[var(--pp-text-secondary)]">
+              {JSON.stringify(rawArtifact, null, 2)}
+            </pre>
+          </details>
+        )}
       </div>
     </section>
   );
