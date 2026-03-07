@@ -77,6 +77,21 @@ const MOCK_PAPERS: PaperDetail[] = [
     updated_at: "2026-02-22T12:09:00Z",
     abstract: "Narrative review across metabolomics and transcriptomics cohorts.",
   },
+  {
+    paper_id: "paper-2026-ambiguous",
+    title: "Adaptive Intervention Signals with Ambiguous Evidence Anchors",
+    authors: "Han et al.",
+    year: 2026,
+    pdf_exists: true,
+    pdf_path: SAMPLE_PDF,
+    status: "completed",
+    issues: 1,
+    issues_label: "⚠️ 1 Mapping Ambiguity",
+    latest_job_id: "job-004",
+    latest_run_id: "run-004",
+    updated_at: "2026-02-21T09:05:00Z",
+    abstract: "Synthetic scenario for validating claim-to-highlight disambiguation logic.",
+  },
 ];
 
 const MOCK_JOBS: Record<string, JobStatus[]> = {
@@ -123,36 +138,50 @@ const MOCK_JOBS: Record<string, JobStatus[]> = {
     },
   ],
   "paper-2022-omics": [],
+  "paper-2026-ambiguous": [
+    {
+      job_id: "job-004",
+      paper_id: "paper-2026-ambiguous",
+      run_id: "run-004",
+      persona_id: "stats-auditor",
+      status: "completed",
+      progress: 100,
+      stage: "completed",
+      created_at: "2026-02-21T08:59:00Z",
+      started_at: "2026-02-21T08:59:10Z",
+      finished_at: "2026-02-21T09:03:21Z",
+    },
+  ],
 };
 
 const BASE_NOTEBOOK: NotebookArtifact = {
   claims: [
     {
       claim_id: "claim-1",
-      text: "① Intervention arm showed lower glucose variability at week 12 compared with control.",
+      text: "① RAG mitigates hallucination by grounding responses in relevant documents.",
       confidence: "high",
     },
     {
       claim_id: "claim-2",
-      text: "② Reported effect size was moderate, but heterogeneity increased in subgroup B.",
+      text: "② The methods and indexer pipeline combine PyMuPDF parsing with ChromaDB retrieval.",
       confidence: "medium",
     },
     {
       claim_id: "claim-3",
-      text: "③ Two tables report slightly inconsistent participant counts (N mismatch).",
+      text: "③ Section-aware chunking achieved hit rate 0.85, while fixed-window achieved 0.60.",
       confidence: "low",
     },
     {
       claim_id: "claim-4",
-      text: "④ Primary endpoint remains directionally robust after sensitivity analysis.",
+      text: "④ Discussion notes structure-preserving parsing as essential and flags PDF-header dependence as a limitation.",
       confidence: "medium",
     },
   ],
   highlights: [
-    { claim_id: "claim-1", page: 3, top: 14, left: 11, width: 38, height: 8 },
-    { claim_id: "claim-2", page: 4, top: 36, left: 9, width: 44, height: 9 },
-    { claim_id: "claim-3", page: 5, top: 57, left: 12, width: 40, height: 8 },
-    { claim_id: "claim-4", page: 7, top: 24, left: 10, width: 46, height: 8 },
+    { claim_id: "claim-1", page: 1, top: 24, left: 11, width: 75, height: 10, source: "bbox" },
+    { claim_id: "claim-2", page: 1, top: 36, left: 11, width: 75, height: 10, source: "bbox" },
+    { claim_id: "claim-3", page: 1, top: 48, left: 11, width: 75, height: 10, source: "bbox" },
+    { claim_id: "claim-4", page: 1, top: 60, left: 11, width: 75, height: 10, source: "bbox" },
   ],
   agent_plan: [
     "Parse section-level claims with mandatory evidence anchors.",
@@ -225,6 +254,37 @@ const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
     },
   },
   "paper-2022-omics": BASE_NOTEBOOK,
+  "paper-2026-ambiguous": {
+    ...BASE_NOTEBOOK,
+    claims: [
+      {
+        claim_id: "claim-1",
+        text: "① Early intervention improved glucose variability during the initial follow-up window.",
+        confidence: "high",
+      },
+      {
+        claim_id: "claim-2",
+        text: "② Effect size remained moderate after subgroup split adjustment.",
+        confidence: "medium",
+      },
+      {
+        claim_id: "claim-3",
+        text: "③ No severe adverse events were observed in the cohort.",
+        confidence: "medium",
+      },
+    ],
+    highlights: [
+      { claim_id: "claim-1", page: 4, top: 0, left: 0, width: 0, height: 0, source: "text_match" },
+      { claim_id: "claim-1", page: 1, top: 24, left: 11, width: 75, height: 10, source: "bbox" },
+      { claim_id: "claim-2", page: 2, top: 42, left: 11, width: 75, height: 10, source: "bbox" },
+      { claim_id: "claim-3", page: 3, top: 58, left: 11, width: 72, height: 10, source: "bbox" },
+    ],
+    verdict: {
+      label: "Caution",
+      detail: "Evidence links require disambiguation when stats checks point to shared pages.",
+      level: "caution",
+    },
+  },
 };
 
 function toArtifactBundle(paperId: string, runId: string, notebook: NotebookArtifact): ArtifactBundle {
@@ -353,6 +413,38 @@ const MOCK_TIMELINES: Record<string, TimelineResponse> = {
       },
     ],
   },
+  "run-004": {
+    run_id: "run-004",
+    job_id: "job-004",
+    paper_id: "paper-2026-ambiguous",
+    events: [
+      {
+        event: "log",
+        source: "job_log",
+        ts: "2026-02-21T09:00:02Z",
+        stage: "read",
+        level: "INFO",
+        message: "Anchor candidates resolved for 3 claims.",
+      },
+      {
+        event: "log",
+        source: "job_log",
+        ts: "2026-02-21T09:01:18Z",
+        stage: "verify",
+        level: "INFO",
+        message: "Stats checks generated with page-level overlap.",
+      },
+      {
+        event: "done",
+        source: "synthetic",
+        ts: "2026-02-21T09:03:21Z",
+        stage: "completed",
+        progress: 100,
+        level: "INFO",
+        message: "completed",
+      },
+    ],
+  },
 };
 
 export function getMockHealth(): { status: string; version: string } {
@@ -423,6 +515,50 @@ function toMockObsidianMarkdown(notebook: NotebookArtifact): string {
 export function getMockObsidianMirror(paperId: string, runId: string): ObsidianMirror {
   const notebook = NOTEBOOK_BY_PAPER[paperId] ?? BASE_NOTEBOOK;
   const generated = toMockObsidianMarkdown(notebook);
+  if (paperId === "paper-2026-ambiguous") {
+    return {
+      paper_id: paperId,
+      run_id: runId,
+      generated_markdown: generated,
+      has_claimset: true,
+      has_stats_report: true,
+      claims: notebook.claims.map((claim) => ({
+        claim_id: claim.claim_id,
+        claim_type: "evidence",
+        statement: claim.text,
+        confidence: claim.confidence === "high" ? 0.9 : claim.confidence === "medium" ? 0.65 : 0.35,
+        evidence_quote: undefined,
+        evidence_page: undefined,
+        limitations: [],
+      })),
+      stats_checks: [
+        {
+          check_id: "mock-check-1",
+          test_type: "consistency",
+          verdict: "verified",
+          claim_id: "claim-1",
+          evidence_page: 1,
+          hypothesis: "Primary intervention consistency",
+          notes: "Early window response aligns with anchored statement.",
+          decision_error: false,
+        },
+        {
+          check_id: "mock-check-2",
+          test_type: "effect-size-disambiguation",
+          verdict: "verified",
+          claim_id: null,
+          evidence_page: 1,
+          hypothesis: "Effect size remained moderate after subgroup split adjustment",
+          notes: "Use subgroup split signal to map to effect-size claim even when page hint overlaps.",
+          decision_error: false,
+        },
+      ],
+    };
+  }
+  const firstClaimId = notebook.claims[0]?.claim_id ?? "claim-1";
+  const secondClaimId = notebook.claims[1]?.claim_id ?? firstClaimId;
+  const firstPage = notebook.highlights.find((item) => item.claim_id === firstClaimId)?.page ?? 1;
+  const secondPage = notebook.highlights.find((item) => item.claim_id === secondClaimId)?.page ?? firstPage;
   return {
     paper_id: paperId,
     run_id: runId,
@@ -443,9 +579,21 @@ export function getMockObsidianMirror(paperId: string, runId: string): ObsidianM
         check_id: "mock-check-1",
         test_type: "consistency",
         verdict: notebook.verdict.level === "fail" ? "inconsistent" : "verified",
+        claim_id: firstClaimId,
+        evidence_page: firstPage,
         hypothesis: "Primary summary consistency",
         notes: notebook.verdict.detail,
         decision_error: notebook.verdict.level === "fail",
+      },
+      {
+        check_id: "mock-check-2",
+        test_type: "effect-size",
+        verdict: "verified",
+        claim_id: secondClaimId,
+        evidence_page: secondPage,
+        hypothesis: "Secondary effect size plausibility",
+        notes: "Effect size direction preserved across subgroup split.",
+        decision_error: false,
       },
     ],
   };
@@ -506,6 +654,24 @@ function asFiniteNumber(value: unknown): number | null {
 
 function clampPct(value: number): number {
   return Math.max(0, Math.min(100, value));
+}
+
+function normalizeBBoxPct(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+): Pick<EvidenceHighlight, "left" | "top" | "width" | "height"> {
+  const safeLeft = clampPct(left);
+  const safeTop = clampPct(top);
+  const safeWidth = clampPct(width);
+  const safeHeight = clampPct(height);
+  return {
+    left: safeLeft,
+    top: safeTop,
+    width: clampPct(Math.min(safeWidth, 100 - safeLeft)),
+    height: clampPct(Math.min(safeHeight, 100 - safeTop)),
+  };
 }
 
 function normalizeMatchText(value: string): string {
@@ -597,12 +763,12 @@ function toPctFromPdfBbox(
     return null;
   }
 
-  return {
-    left: clampPct((minX / pageWidth) * 100),
-    top: clampPct((minY / pageHeight) * 100),
-    width: clampPct(((maxX - minX) / pageWidth) * 100),
-    height: clampPct(((maxY - minY) / pageHeight) * 100),
-  };
+  return normalizeBBoxPct(
+    (minX / pageWidth) * 100,
+    (minY / pageHeight) * 100,
+    ((maxX - minX) / pageWidth) * 100,
+    ((maxY - minY) / pageHeight) * 100,
+  );
 }
 
 function parseDocumentPages(documentData: unknown): DocumentPageContext[] {
@@ -693,12 +859,12 @@ function extractBBoxFromPdf(
     return null;
   }
 
-  return {
-    left: clampPct((minX / pageContext.width) * 100),
-    top: clampPct((minY / pageContext.height) * 100),
-    width: clampPct(((maxX - minX) / pageContext.width) * 100),
-    height: clampPct(((maxY - minY) / pageContext.height) * 100),
-  };
+  return normalizeBBoxPct(
+    (minX / pageContext.width) * 100,
+    (minY / pageContext.height) * 100,
+    ((maxX - minX) / pageContext.width) * 100,
+    ((maxY - minY) / pageContext.height) * 100,
+  );
 }
 
 function confidenceToLevel(value: unknown): "low" | "medium" | "high" {
@@ -779,12 +945,7 @@ function extractBBoxPct(
     typeof bbox.width === "number" &&
     typeof bbox.height === "number"
   ) {
-    return {
-      left: clampPct(bbox.left),
-      top: clampPct(bbox.top),
-      width: clampPct(bbox.width),
-      height: clampPct(bbox.height),
-    };
+    return normalizeBBoxPct(bbox.left, bbox.top, bbox.width, bbox.height);
   }
 
   if (
@@ -796,12 +957,7 @@ function extractBBoxPct(
   ) {
     const isNormalized = bbox.x <= 1 && bbox.y <= 1 && bbox.w <= 1 && bbox.h <= 1;
     const scale = isNormalized ? 100 : 1;
-    return {
-      left: clampPct(bbox.x * scale),
-      top: clampPct(bbox.y * scale),
-      width: clampPct(bbox.w * scale),
-      height: clampPct(bbox.h * scale),
-    };
+    return normalizeBBoxPct(bbox.x * scale, bbox.y * scale, bbox.w * scale, bbox.h * scale);
   }
 
   if (
@@ -811,12 +967,7 @@ function extractBBoxPct(
     typeof span.width === "number" &&
     typeof span.height === "number"
   ) {
-    return {
-      left: clampPct(span.left),
-      top: clampPct(span.top),
-      width: clampPct(span.width),
-      height: clampPct(span.height),
-    };
+    return normalizeBBoxPct(span.left, span.top, span.width, span.height);
   }
 
   return null;
@@ -830,6 +981,14 @@ function extractEvidenceQuote(span: Record<string, unknown> | null): string | un
     asString(span?.excerpt) ??
     undefined
   );
+}
+
+function extractHighlightSource(span: Record<string, unknown> | null): EvidenceHighlight["source"] | null {
+  const raw = asString(span?.highlight_source) ?? asString(span?.highlightSource);
+  if (raw === "bbox" || raw === "text_match" || raw === "approx") {
+    return raw;
+  }
+  return null;
 }
 
 function findDocumentBboxForClaim(
@@ -937,6 +1096,37 @@ function findDocumentBboxForClaim(
   };
 }
 
+function resolvePageNumberingMode(rawPages: Array<number | null>, pages: DocumentPageContext[]): "zero_based" | "one_based" {
+  const concretePages = rawPages.filter((page): page is number => page !== null);
+  if (concretePages.length === 0) {
+    return "one_based";
+  }
+  if (concretePages.some((page) => page === 0)) {
+    return "zero_based";
+  }
+
+  const pageIndexSet = new Set(pages.map((page) => page.pageIndex));
+  if (pageIndexSet.size === 0) {
+    return "one_based";
+  }
+
+  let zeroBasedScore = 0;
+  let oneBasedScore = 0;
+  for (const page of concretePages) {
+    if (pageIndexSet.has(page)) {
+      zeroBasedScore += 1;
+    }
+    if (page > 0 && pageIndexSet.has(page - 1)) {
+      oneBasedScore += 1;
+    }
+  }
+
+  if (zeroBasedScore > oneBasedScore) {
+    return "zero_based";
+  }
+  return "one_based";
+}
+
 export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact {
   const notebookData = bundle.files.notebook?.data;
   if (notebookData && typeof notebookData === "object") {
@@ -964,12 +1154,12 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
   });
 
   const rawPages = rawClaims.map((claim) => extractPageNumber(extractEvidenceArray(claim)[0]));
-  const hasZeroBasedPage = rawPages.some((page) => page === 0);
+  const pageNumberingMode = resolvePageNumberingMode(rawPages, documentPages);
   const parsedHighlights = rawClaims.map((claim, index) => {
     const primaryEvidence = extractEvidenceArray(claim)[0] ?? null;
     const rawPage = extractPageNumber(primaryEvidence);
-    const resolvedPage = rawPage === null ? 1 : Math.max(hasZeroBasedPage ? rawPage + 1 : rawPage, 1);
-    const hintedDocPageIndex = rawPage === null ? null : Math.max(hasZeroBasedPage ? rawPage : rawPage - 1, 0);
+    const resolvedPage = rawPage === null ? 1 : Math.max(pageNumberingMode === "zero_based" ? rawPage + 1 : rawPage, 1);
+    const hintedDocPageIndex = rawPage === null ? null : Math.max(pageNumberingMode === "zero_based" ? rawPage : rawPage - 1, 0);
     const targetPageIndex = hintedDocPageIndex ?? Math.max(resolvedPage - 1, 0);
     const targetPage = documentPages.find((page) => page.pageIndex === targetPageIndex) ?? null;
     const bbox = extractBBoxPct(primaryEvidence);
@@ -983,6 +1173,9 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       : bboxFromPdf && targetPage
         ? targetPage.pageIndex + 1
         : resolvedPage;
+    const explicitHighlightSource = extractHighlightSource(primaryEvidence);
+    const highlightSource: EvidenceHighlight["source"] =
+      explicitHighlightSource ?? (bbox || bboxFromPdf ? "bbox" : fallbackBbox ? "text_match" : "approx");
 
     return {
       claim_id: parsedClaims[index].claim_id,
@@ -992,6 +1185,7 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       width: bbox?.width ?? bboxFromPdf?.width ?? fallbackBbox?.width ?? 0,
       height: bbox?.height ?? bboxFromPdf?.height ?? fallbackBbox?.height ?? 0,
       quote: extractEvidenceQuote(primaryEvidence),
+      source: highlightSource,
     };
   });
 
