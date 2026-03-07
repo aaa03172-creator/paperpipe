@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info } from "lucide-react";
 import { TimelineEvent } from "../lib/types";
 
@@ -63,6 +63,14 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
   const errorCount = events.filter((event) => event.event === "error").length;
   const doneCount = events.filter((event) => event.event === "done").length;
   const statusCount = events.filter((event) => event.event === "status").length;
+  useEffect(() => {
+    // Defaulting to "status" keeps focus, but if a run has no status events
+    // we should fall back to "all" so the timeline doesn't look empty.
+    if (filter === "status" && events.length > 0 && statusCount === 0) {
+      setFilter("all");
+    }
+  }, [events, filter, statusCount]);
+
   const filteredEvents =
     filter === "all"
       ? newestFirst
