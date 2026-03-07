@@ -79,7 +79,7 @@ export function Rail({
   });
 
   return (
-    <aside className="surface-card flex min-h-0 max-h-[46vh] flex-col overflow-hidden p-3 xl:h-full xl:max-h-none">
+    <aside className="surface-card flex min-h-0 max-h-[min(72vh,760px)] flex-col overflow-hidden p-3 xl:h-full xl:max-h-none">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Navigation Rail</p>
         <label className="mt-3 flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-2 py-2">
@@ -106,7 +106,7 @@ export function Rail({
       <div
         className={[
           "mt-3 space-y-2 overflow-auto pr-1",
-          mobileOpen ? "block max-h-[34vh]" : "hidden",
+          mobileOpen ? "block max-h-[min(58vh,620px)]" : "hidden",
           "xl:mt-3 xl:flex-1 xl:max-h-none xl:space-y-2 xl:overflow-auto xl:pr-1 xl:block",
         ].join(" ")}
       >
