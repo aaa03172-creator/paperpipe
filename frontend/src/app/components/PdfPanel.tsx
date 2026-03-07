@@ -29,6 +29,53 @@ interface TextMatchSnippet {
   preview: string;
 }
 
+function highlightSourceScore(source: EvidenceHighlight["source"]): number {
+  if (source === "bbox") {
+    return 3.0;
+  }
+  if (source === "text_match") {
+    return 2.0;
+  }
+  if (source === "approx") {
+    return 1.0;
+  }
+  return 0.5;
+}
+
+function pickBestHighlightForClaim(
+  allHighlights: EvidenceHighlight[],
+  claimId: string | null,
+): EvidenceHighlight | null {
+  if (!claimId) {
+    return null;
+  }
+  const candidates = allHighlights.filter((item) => item.claim_id === claimId);
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  let best: EvidenceHighlight | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  candidates.forEach((item, index) => {
+    const hasBBox = item.width > 0 && item.height > 0;
+    const area = hasBBox ? item.width * item.height : 0;
+    const score =
+      (hasBBox ? 4.0 : 0) +
+      highlightSourceScore(item.source) +
+      Math.min(area / 500, 2.0) +
+      Math.max(item.page, 1) * 0.001 +
+      index * 0.0001;
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
+    }
+  });
+  return best;
+}
+
 function clampPct(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
@@ -261,7 +308,7 @@ export function PdfPanel({
     [claims, activeClaimId],
   );
   const activeHighlight = useMemo(
-    () => highlights.find((highlight) => highlight.claim_id === activeClaimId) ?? null,
+    () => pickBestHighlightForClaim(highlights, activeClaimId),
     [highlights, activeClaimId],
   );
   const activeClaimIndex = useMemo(
