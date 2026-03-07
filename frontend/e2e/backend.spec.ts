@@ -83,6 +83,44 @@ test.describe("mobile backend UX", () => {
   });
 });
 
+test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
+  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
+
+  await expect(
+    page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+  ).toBeVisible();
+  const propertiesPanel = page.locator("aside").filter({ hasText: "Properties" }).first();
+  await expect(propertiesPanel.getByRole("heading", { name: "Properties" })).toBeVisible();
+  await expect(propertiesPanel.getByText("INDEXED", { exact: true })).toBeVisible();
+  await expect(propertiesPanel.getByText("Medicine/Neurology", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "One-Line Summary" })).toBeVisible();
+
+  const relatedHeading = page.getByRole("heading", { name: "Related Papers" }).first();
+  await expect(relatedHeading).toBeVisible();
+  const relatedSection = relatedHeading.locator("xpath=ancestor::section[1]");
+  const firstRelatedItem = relatedSection.locator("li").first();
+  await expect(firstRelatedItem).toBeVisible();
+  await expect(firstRelatedItem).toContainText(/shared tags:/i);
+  const relatedLink = firstRelatedItem.getByRole("link").first();
+  await expect(relatedLink).toBeVisible();
+  await expect(relatedLink).toHaveAttribute("href", /\/papers\//);
+
+  const referencesHeading = page.getByRole("heading", { name: "References" }).first();
+  await expect(referencesHeading).toBeVisible();
+  const referencesSection = referencesHeading.locator("xpath=ancestor::section[1]");
+  const openPdfLink = referencesSection.getByRole("link", { name: /Open PDF/i }).first();
+  await expect(openPdfLink).toBeVisible();
+  await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
+
+  const workbenchLink = page.getByRole("link", { name: "Open in Workbench" }).first();
+  await expect(workbenchLink).toBeVisible();
+  await expect(workbenchLink).toHaveAttribute("href", /\/workbench\/zotero%3AduboisAlzheimerDiseaseClinicalBiological2024$/);
+
+  await relatedLink.click();
+  await expect(page).toHaveURL(/\/papers\/.+$/);
+  await expect(page.getByRole("banner").getByRole("heading")).toBeVisible();
+});
+
 test("soft-gate canary: intentional backend e2e failure drill", async () => {
   test.skip(!runSoftGateCanary, "Set PAPERPIPE_E2E_CANARY=1 to run intentional failure drill.");
   expect(1).toBe(2);
