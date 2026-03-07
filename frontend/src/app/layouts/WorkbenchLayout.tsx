@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { TerminalSquare } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Stepper } from "../components/Stepper";
 import { StatusChip } from "../components/StatusChip";
 import { TerminalDrawer } from "../components/TerminalDrawer";
@@ -62,6 +63,12 @@ export function WorkbenchLayout({
                 Mock mode
               </span>
             ) : null}
+            <Link
+              to="/papers"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Paper Notes
+            </Link>
             <button
               type="button"
               onClick={onToggleTerminal}
@@ -96,9 +103,9 @@ export function WorkbenchLayout({
       </header>
 
       <main className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,1fr)] xl:items-start">
-        <div className="order-3 min-h-0 xl:order-1 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{rail}</div>
+        <div className="order-2 min-h-0 xl:order-1 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{rail}</div>
         <div className="order-1 min-h-0 xl:order-2">{pdfPanel}</div>
-        <div className="order-2 grid min-h-0 gap-4 xl:order-3">
+        <div className="order-3 grid min-h-0 gap-4 xl:order-3">
           <div className="min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{artifactPanel}</div>
           <div className="min-h-0">{timelinePanel}</div>
         </div>
