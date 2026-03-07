@@ -19,6 +19,7 @@ interface PdfPanelProps {
   claims: NotebookClaim[];
   highlights: EvidenceHighlight[];
   activeClaimId: string | null;
+  highlightMode: "soft" | "focus";
 }
 
 interface TextMatchSnippet {
@@ -240,7 +241,16 @@ function pickPreferredSnippet(
   return scored[0]?.snippet ?? snippets[0] ?? null;
 }
 
-export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, claims, highlights, activeClaimId }: PdfPanelProps) {
+export function PdfPanel({
+  title,
+  paperId,
+  pdfUrl,
+  pdfAvailable,
+  claims,
+  highlights,
+  activeClaimId,
+  highlightMode,
+}: PdfPanelProps) {
   const [loadedPdfMeta, setLoadedPdfMeta] = useState<{ url: string; pageCount: number } | null>(null);
   const [searchMeta, setSearchMeta] = useState<{ claimKey: string; count: number } | null>(null);
   const [textMatchSnippets, setTextMatchSnippets] = useState<TextMatchSnippet[]>([]);
@@ -294,6 +304,23 @@ export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, claims, highlig
   }, [activeArea, resolvedActivePageIndex]);
 
   const pageNavigationPluginInstance = pageNavigationPlugin();
+  const softMode = highlightMode === "soft";
+  const selectedBorderWidth = softMode ? 2 : 3;
+  const selectedBg = softMode ? "rgba(34, 211, 238, 0.18)" : "rgba(34, 211, 238, 0.30)";
+  const selectedShadow = softMode
+    ? "0 0 0 1px rgba(34, 211, 238, 0.42), 0 4px 10px rgba(0, 0, 0, 0.26)"
+    : "0 0 0 2px rgba(34, 211, 238, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)";
+  const fallbackBorderWidth = softMode ? 2 : 3;
+  const fallbackBg = softMode ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.34)";
+  const fallbackShadow = softMode
+    ? "0 0 0 1px rgba(245, 158, 11, 0.42), 0 4px 10px rgba(0, 0, 0, 0.24)"
+    : "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)";
+  const searchBorder = softMode ? "2px solid rgba(245, 158, 11, 0.84)" : "3px solid rgba(245, 158, 11, 0.95)";
+  const searchBg = softMode ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.34)";
+  const searchShadow = softMode
+    ? "0 0 0 1px rgba(245, 158, 11, 0.42), 0 4px 10px rgba(0, 0, 0, 0.24)"
+    : "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)";
+
   const highlightPluginInstance = highlightPlugin({
     trigger: Trigger.None,
     renderHighlights: (props: RenderHighlightsProps) => {
@@ -317,12 +344,10 @@ export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, claims, highlig
           style={{
             ...props.getCssProperties(area, props.rotation),
             borderStyle: showApprox ? "dashed" : "solid",
-            borderWidth: showApprox ? 3 : 3,
+            borderWidth: showApprox ? fallbackBorderWidth : selectedBorderWidth,
             borderColor: showApprox ? "#f59e0b" : "#22d3ee",
-            background: showApprox ? "rgba(245, 158, 11, 0.34)" : "rgba(34, 211, 238, 0.28)",
-            boxShadow: showApprox
-              ? "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)"
-              : "0 0 0 2px rgba(34, 211, 238, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)",
+            background: showApprox ? fallbackBg : selectedBg,
+            boxShadow: showApprox ? fallbackShadow : selectedShadow,
             zIndex: 30,
           }}
         >
@@ -347,9 +372,9 @@ export function PdfPanel({ title, paperId, pdfUrl, pdfAvailable, claims, highlig
           className="pointer-events-none absolute rounded-sm"
           style={{
             ...props.getCssProperties(primaryArea),
-            border: "3px solid rgba(245, 158, 11, 0.95)",
-            background: "rgba(245, 158, 11, 0.34)",
-            boxShadow: "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)",
+            border: searchBorder,
+            background: searchBg,
+            boxShadow: searchShadow,
             zIndex: 28,
           }}
         />
