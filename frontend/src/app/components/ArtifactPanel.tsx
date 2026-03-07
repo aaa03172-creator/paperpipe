@@ -47,6 +47,39 @@ function normalizeClaimTextForMatch(text: string): string {
     .trim();
 }
 
+function tokenizeMatchText(text: string): string[] {
+  return normalizeClaimTextForMatch(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(" ")
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3);
+}
+
+function scoreClaimTextAgainstSignals(claimText: string, signals: string[]): number {
+  if (signals.length === 0) {
+    return 0;
+  }
+  const claimTokens = new Set(tokenizeMatchText(claimText));
+  if (claimTokens.size === 0) {
+    return 0;
+  }
+  let score = 0;
+  for (const signal of signals) {
+    const signalTokens = tokenizeMatchText(signal);
+    if (signalTokens.length === 0) {
+      continue;
+    }
+    let overlap = 0;
+    signalTokens.forEach((token) => {
+      if (claimTokens.has(token)) {
+        overlap += 1;
+      }
+    });
+    score += overlap / signalTokens.length;
+  }
+  return score;
+}
+
 function resolveMirrorClaimTargetId(
   mirrorClaimId: string,
   mirrorStatement: string,
@@ -80,6 +113,7 @@ function resolveStatsCheckTargetId(
   check: ObsidianMirror["stats_checks"][number],
   notebook: NotebookArtifact,
   highlights: EvidenceHighlight[],
+  activeClaimId: string | null,
 ): string | null {
   if (check.claim_id && notebook.claims.some((claim) => claim.claim_id === check.claim_id)) {
     return check.claim_id;
@@ -87,26 +121,55 @@ function resolveStatsCheckTargetId(
   if (notebook.claims.some((claim) => claim.claim_id === check.check_id)) {
     return check.check_id;
   }
-  if (check.evidence_page !== null && check.evidence_page !== undefined) {
-    const byPage = highlights.find((item) => item.page === check.evidence_page);
-    if (byPage) {
-      return byPage.claim_id;
+
+  const signals = [check.hypothesis, check.notes, check.test_type]
+    .map((item) => (item ?? "").trim())
+    .filter((item) => item.length >= 6);
+
+  if (signals.length > 0) {
+    const ranked = notebook.claims
+      .map((claim) => ({
+        claimId: claim.claim_id,
+        score: scoreClaimTextAgainstSignals(claim.text, signals),
+      }))
+      .sort((a, b) => b.score - a.score);
+    if (ranked[0]?.score > 0) {
+      return ranked[0].claimId;
     }
   }
 
-  const signals = [check.hypothesis, check.notes, check.test_type]
-    .map((item) => normalizeClaimTextForMatch(item ?? ""))
-    .filter((item) => item.length >= 6);
-  for (const signal of signals) {
-    const matched = notebook.claims.find((claim) => {
-      const claimText = normalizeClaimTextForMatch(claim.text);
-      return (
-        claimText.includes(signal) ||
-        signal.includes(claimText)
-      );
+  if (check.evidence_page !== null && check.evidence_page !== undefined) {
+    const byPage = highlights.filter((item) => item.page === check.evidence_page);
+    if (byPage.length === 1) {
+      return byPage[0].claim_id;
+    }
+    if (byPage.length > 1) {
+      if (activeClaimId && byPage.some((item) => item.claim_id === activeClaimId)) {
+        return activeClaimId;
+      }
+      const scored = byPage
+        .map((item) => {
+          const claim = notebook.claims.find((entry) => entry.claim_id === item.claim_id);
+          return {
+            claimId: item.claim_id,
+            score: scoreClaimTextAgainstSignals(claim?.text ?? "", signals),
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+      return scored[0]?.claimId ?? byPage[0].claim_id;
+    }
+  }
+
+  if (signals.length > 0) {
+    const partial = notebook.claims.find((claim) => {
+      const normalizedClaim = normalizeClaimTextForMatch(claim.text);
+      return signals.some((signal) => {
+        const normalizedSignal = normalizeClaimTextForMatch(signal);
+        return normalizedClaim.includes(normalizedSignal) || normalizedSignal.includes(normalizedClaim);
+      });
     });
-    if (matched) {
-      return matched.claim_id;
+    if (partial) {
+      return partial.claim_id;
     }
   }
   return null;
@@ -348,7 +411,7 @@ export function ArtifactPanel({
                   </summary>
                   <ul className="mt-2 space-y-1.5">
                     {obsidianMirror.stats_checks.slice(0, 8).map((check) => {
-                      const targetClaimId = resolveStatsCheckTargetId(check, notebook, highlights);
+                      const targetClaimId = resolveStatsCheckTargetId(check, notebook, highlights, activeClaimId);
                       const canJump = Boolean(targetClaimId);
                       const isActive = Boolean(targetClaimId && targetClaimId === activeClaimId);
                       return (
