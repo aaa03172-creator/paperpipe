@@ -1,18 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("@preflight backend seed and route are ready", async ({ request, page }) => {
-  const papersResponse = await request.get("http://127.0.0.1:18080/papers?limit=5000");
-  expect(papersResponse.ok()).toBeTruthy();
-
-  const rows = (await papersResponse.json()) as Array<{ paper_id?: string; title?: string }>;
-  const seedRow = rows.find((row) => row.paper_id === "paper-e2e-001");
-  expect(seedRow).toBeTruthy();
-  expect(seedRow?.title ?? "").toContain("E2E Seed Paper");
-
-  await page.goto("/workbench/paper-e2e-001");
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-});
+const runSoftGateCanary = process.env.PAPERPIPE_E2E_CANARY === "1";
 
 test("backend mode stays out of mock fallback", async ({ page }) => {
   await page.goto("/");
@@ -23,10 +11,7 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
   // backend-seeded paper should be visible and navigable
   const seededPaper = page.locator("tbody tr").filter({ hasText: "E2E Seed Paper" }).first();
   await expect(seededPaper).toBeVisible();
-
-  // CI dataset can render the row without row-level click navigation.
-  // Navigate via canonical route after confirming the seeded row exists.
-  await page.goto("/workbench/paper-e2e-001");
+  await seededPaper.click();
 
   await expect(page).toHaveURL(/\/workbench\/paper-e2e-001/);
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
@@ -61,6 +46,10 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
     expect(beforeBox.height).toBeGreaterThan(24);
     expect(beforeBox.width).toBeLessThan(viewerBox.width * 0.95);
     expect(beforeBox.height).toBeLessThan(viewerBox.height * 0.95);
+    expect(beforeBox.x).toBeGreaterThanOrEqual(viewerBox.x - 2);
+    expect(beforeBox.y).toBeGreaterThanOrEqual(viewerBox.y - 2);
+    expect(beforeBox.x + beforeBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(beforeBox.y + beforeBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
   }
 
   await claimButtons.nth(1).click();
@@ -93,7 +82,50 @@ test.describe("mobile backend UX", () => {
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
-    await expect(page.getByRole("button", { name: "Deep Read Run" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first()).toBeVisible();
     await expect(page.getByText("Errors / Done")).toBeVisible();
   });
+});
+
+test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
+  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
+
+  await expect(
+    page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+  ).toBeVisible();
+  const propertiesPanel = page.locator("aside").filter({ hasText: "Properties" }).first();
+  await expect(propertiesPanel.getByRole("heading", { name: "Properties" })).toBeVisible();
+  await expect(propertiesPanel.getByText("INDEXED", { exact: true })).toBeVisible();
+  await expect(propertiesPanel.getByText("Medicine/Neurology", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "One-Line Summary" })).toBeVisible();
+
+  const relatedHeading = page.getByRole("heading", { name: "Related Papers" }).first();
+  await expect(relatedHeading).toBeVisible();
+  const relatedSection = relatedHeading.locator("xpath=ancestor::section[1]");
+  const firstRelatedItem = relatedSection.locator("li").first();
+  await expect(firstRelatedItem).toBeVisible();
+  await expect(firstRelatedItem).toContainText(/shared tags:/i);
+  const relatedLink = firstRelatedItem.getByRole("link").first();
+  await expect(relatedLink).toBeVisible();
+  await expect(relatedLink).toHaveAttribute("href", /\/papers\//);
+
+  const referencesHeading = page.getByRole("heading", { name: "References" }).first();
+  await expect(referencesHeading).toBeVisible();
+  const referencesSection = referencesHeading.locator("xpath=ancestor::section[1]");
+  const openPdfLink = referencesSection.getByRole("link", { name: /Open PDF/i }).first();
+  await expect(openPdfLink).toBeVisible();
+  await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
+
+  const workbenchLink = page.getByRole("link", { name: "Open in Workbench" }).first();
+  await expect(workbenchLink).toBeVisible();
+  await expect(workbenchLink).toHaveAttribute("href", /\/workbench\/zotero%3AduboisAlzheimerDiseaseClinicalBiological2024$/);
+
+  await relatedLink.click();
+  await expect(page).toHaveURL(/\/papers\/.+$/);
+  await expect(page.getByRole("banner").getByRole("heading")).toBeVisible();
+});
+
+test("soft-gate canary: intentional backend e2e failure drill", async () => {
+  test.skip(!runSoftGateCanary, "Set PAPERPIPE_E2E_CANARY=1 to run intentional failure drill.");
+  expect(1).toBe(2);
 });
