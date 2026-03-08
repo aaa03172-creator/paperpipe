@@ -284,37 +284,52 @@ claimset_payload = {
     "claims": [
         {
             "claim_id": "e2e-claim-1",
+            "type": "efficacy",
             "statement": "The intervention shows an initial improvement window during early follow-up.",
-            "confidence": "high",
-            "evidence": [
+            "confidence": 0.9,
+            "limitations": [],
+            "evidence_spans": [
                 {
                     "page": 0,
+                    "raw_text": "Initial improvement window observed during early follow-up period.",
                     "quote": "Initial improvement window observed during early follow-up period.",
+                    "rationale": "Supports early response trajectory in treated arm.",
                     "bbox_pct": {"left": 8, "top": 10, "width": 40, "height": 20},
+                    "highlight_source": "bbox",
                 }
             ],
         },
         {
             "claim_id": "e2e-claim-2",
+            "type": "efficacy",
             "statement": "A secondary response appears in a separate region on the same page.",
-            "confidence": "medium",
-            "evidence": [
+            "confidence": 0.72,
+            "limitations": [],
+            "evidence_spans": [
                 {
                     "page": 0,
+                    "raw_text": "Secondary response appears in a distinct region of the analysis.",
                     "quote": "Secondary response appears in a distinct region of the analysis.",
+                    "rationale": "Independent region indicates secondary signal.",
                     "bbox_pct": {"left": 52, "top": 26, "width": 36, "height": 28},
+                    "highlight_source": "bbox",
                 }
             ],
         },
         {
             "claim_id": "e2e-claim-3",
+            "type": "safety",
             "statement": "No severe adverse events were reported in the observed cohort.",
-            "confidence": "medium",
-            "evidence": [
+            "confidence": 0.74,
+            "limitations": [],
+            "evidence_spans": [
                 {
-                    "page": 0,
+                    "page": 1,
+                    "raw_text": "No severe adverse events were reported in the observed cohort.",
                     "quote": "No severe adverse events were reported in the observed cohort.",
+                    "rationale": "Safety statement supported by adverse-event summary.",
                     "bbox_pct": {"left": 14, "top": 60, "width": 44, "height": 18},
+                    "highlight_source": "bbox",
                 }
             ],
         },
@@ -322,10 +337,44 @@ claimset_payload = {
 }
 
 stats_payload = {
+    "doc_id": paper_id,
+    "run_id": run_id,
     "checks": [
-        {"check_id": "check-1", "hypothesis": "Primary endpoint difference", "verdict": "pass"},
-        {"check_id": "check-2", "hypothesis": "N consistency", "verdict": "warning"},
-    ]
+        {
+            "check_id": "stats-check-1",
+            "hypothesis": "Primary intervention consistency",
+            "test_type": "consistency",
+            "code": "print('ok')",
+            "outputs": "ok",
+            "verdict": "verified",
+            "decision_error": False,
+            "notes": "Initial window response aligns with primary claim.",
+            "evidence": [
+                {
+                    "page": 0,
+                    "raw_text": "Initial improvement window observed during early follow-up period.",
+                    "quote": "Initial improvement window observed during early follow-up period.",
+                }
+            ],
+        },
+        {
+            "check_id": "stats-check-2",
+            "hypothesis": "No severe adverse events were reported in the observed cohort.",
+            "test_type": "effect-size-disambiguation",
+            "code": "print('ok')",
+            "outputs": "ok",
+            "verdict": "verified",
+            "decision_error": False,
+            "notes": "Map safety check to adverse-events claim even when evidence page overlaps primary page hint.",
+            "evidence": [
+                {
+                    "page": 0,
+                    "raw_text": "No severe adverse events were reported in the observed cohort.",
+                    "quote": "No severe adverse events were reported in the observed cohort.",
+                }
+            ],
+        },
+    ],
 }
 
 bootstrap_payload = {
@@ -343,6 +392,7 @@ bootstrap_payload = {
     "claimset_ops_note": "ready",
 }
 
+(artifact_dir / "claimset.resolved.json").write_text(json.dumps(claimset_payload, indent=2), encoding="utf-8")
 (artifact_dir / "claimset.json").write_text(json.dumps(claimset_payload, indent=2), encoding="utf-8")
 (artifact_dir / "stats_report.json").write_text(json.dumps(stats_payload, indent=2), encoding="utf-8")
 (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(bootstrap_payload, indent=2), encoding="utf-8")

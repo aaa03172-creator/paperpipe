@@ -68,6 +68,23 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
   }
 });
 
+test("backend stats snapshot disambiguates claim target by text signal", async ({ page }) => {
+  await page.goto("/workbench/paper-e2e-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  await expect(mirrorPanel).toBeVisible();
+
+  const targetCheck = mirrorPanel.getByRole("button").filter({ hasText: "effect-size-disambiguation" }).first();
+  await expect(targetCheck).toBeVisible();
+  await targetCheck.click();
+
+  await expect(page.getByText("Claim Link · p.2")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+});
+
 test.describe("mobile backend UX", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
