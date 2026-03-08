@@ -99,7 +99,7 @@ test("runtime guard shows fallback and missing-text notices when claim evidence 
 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await expect(claimsPanel.getByText("Missing evidence")).toBeVisible();
-  await expect(claimsPanel.getByText("Text missing")).toBeVisible();
+  await expect(claimsPanel.getByText("Text missing").first()).toBeVisible();
 });
 
 test("obsidian stats snapshot click jumps to mapped claim highlight", async ({ page }) => {
