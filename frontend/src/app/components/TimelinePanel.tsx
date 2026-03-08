@@ -1,9 +1,10 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info } from "lucide-react";
 import { TimelineEvent } from "../lib/types";
 
 interface TimelinePanelProps {
   events: TimelineEvent[];
+  density: "detail" | "compact";
 }
 
 type TimelineFilter = "all" | "status" | "error" | "done";
@@ -50,8 +51,9 @@ function eventMeta(event: TimelineEvent): {
   };
 }
 
-export function TimelinePanel({ events }: TimelinePanelProps) {
-  const [filter, setFilter] = useState<TimelineFilter>("all");
+export function TimelinePanel({ events, density }: TimelinePanelProps) {
+  const [filter, setFilter] = useState<TimelineFilter>("status");
+  const compact = density === "compact";
   const newestFirst = [...events].reverse();
   const latestEvent = newestFirst[0] ?? null;
   const latestError = newestFirst.find((event) => event.event === "error") ?? null;
@@ -61,6 +63,14 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
   const errorCount = events.filter((event) => event.event === "error").length;
   const doneCount = events.filter((event) => event.event === "done").length;
   const statusCount = events.filter((event) => event.event === "status").length;
+  useEffect(() => {
+    // Defaulting to "status" keeps focus, but if a run has no status events
+    // we should fall back to "all" so the timeline doesn't look empty.
+    if (filter === "status" && events.length > 0 && statusCount === 0) {
+      setFilter("all");
+    }
+  }, [events, filter, statusCount]);
+
   const filteredEvents =
     filter === "all"
       ? newestFirst
@@ -69,6 +79,7 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
         : filter === "done"
           ? newestFirst.filter((event) => event.event === "done")
           : newestFirst.filter((event) => event.event === "status");
+  const renderedEvents = compact ? filteredEvents.slice(0, 8) : filteredEvents;
 
   return (
     <section className="surface-card flex min-h-[220px] max-h-[68vh] flex-col overflow-hidden p-3 xl:max-h-[calc(100vh-7rem)]">
@@ -77,7 +88,7 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
         Timeline
       </header>
 
-      {events.length > 0 ? (
+      {events.length > 0 && !compact ? (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -179,8 +190,8 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
 
       <ul className="mt-1 flex-1 min-h-0 space-y-2 overflow-auto overscroll-contain pr-1 text-sm">
         {events.length > 0 ? (
-          filteredEvents.length > 0 ? (
-            filteredEvents.map((event, index) => {
+          renderedEvents.length > 0 ? (
+            renderedEvents.map((event, index) => {
               const meta = eventMeta(event);
               return (
                 <li key={`${event.ts ?? "evt"}-${index}`} className={`rounded-md border bg-[var(--pp-surface-raised)] p-2.5 ${meta.cardClass}`}>
@@ -211,6 +222,11 @@ export function TimelinePanel({ events }: TimelinePanelProps) {
           </li>
         )}
       </ul>
+      {compact && filteredEvents.length > renderedEvents.length ? (
+        <p className="mt-2 text-[11px] text-[var(--pp-text-dim)]">
+          Compact view shows latest {renderedEvents.length} events.
+        </p>
+      ) : null}
     </section>
   );
 }

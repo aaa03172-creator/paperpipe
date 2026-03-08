@@ -15,7 +15,8 @@
           "quote": "improvement of Aβ accumulation, neuroinflammation, synapse loss, hippocampal neurogenesis, and memory dysfunction",
           "rationale": "The study explicitly states the therapeutic effects of KARI 201 on various neuropathological features in AD mice.",
           "section": "Results",
-          "source_span": null
+          "source_span": null,
+          "highlight_source": "text_match"
         }
       ],
       "limitations": [
@@ -38,7 +39,8 @@
           "quote": "direct, selective, and competitive ASM inhibitor",
           "rationale": "The study describes the screening process and results, which led to the identification of KARI 201 as a direct, selective, and competitive ASM inhibitor.",
           "section": "Methods",
-          "source_span": null
+          "source_span": null,
+          "highlight_source": "text_match"
         }
       ],
       "limitations": [
@@ -60,7 +62,8 @@
           "quote": "outstanding, synergetic therapeutic effects",
           "rationale": "The study explicitly states the therapeutic effects of KARI 201 on learning and memory impairment in AD mouse models.",
           "section": "Results",
-          "source_span": null
+          "source_span": null,
+          "highlight_source": "text_match"
         }
       ],
       "limitations": [

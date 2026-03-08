@@ -31,6 +31,20 @@ test("encoded paper id route does not crash in workbench", async ({ page }) => {
   await expect(page.getByText("Invalid paper id.")).toHaveCount(0);
 });
 
+test("paper notes query state syncs with URL params", async ({ page }) => {
+  await page.goto("/papers?q=alzheimer&sort=confidence&order=asc&page=3");
+
+  await expect(page.locator('input[placeholder="title / alias / slug"]')).toHaveValue("alzheimer");
+  await expect(page.locator("select").nth(1)).toHaveValue("confidence");
+  await expect(page).toHaveURL(/\/papers\?q=alzheimer&sort=confidence&order=asc$/);
+
+  await page.locator('input[placeholder="title / alias / slug"]').fill("biomarker");
+  await expect(page).toHaveURL(/\/papers\?q=biomarker&sort=confidence&order=asc$/);
+
+  await page.getByRole("button", { name: "Toggle sort order" }).click();
+  await expect(page).toHaveURL(/\/papers\?q=biomarker&sort=confidence$/);
+});
+
 test("issue button routes with focus=issues and selects risk claim", async ({ page }) => {
   await page.goto("/");
 
@@ -86,6 +100,24 @@ test("runtime guard shows fallback and missing-text notices when claim evidence 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await expect(claimsPanel.getByText("Missing evidence")).toBeVisible();
   await expect(claimsPanel.getByText("Text missing")).toBeVisible();
+});
+
+test("obsidian stats snapshot click jumps to mapped claim highlight", async ({ page }) => {
+  await page.goto("/workbench/paper-2023-imaging");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Claim Link · p.3")).toBeVisible();
+
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  await expect(mirrorPanel).toBeVisible();
+
+  const targetCheck = mirrorPanel.getByRole("button").filter({ hasText: "effect-size" }).first();
+  await expect(targetCheck).toBeVisible();
+  await targetCheck.click();
+
+  await expect(page.getByText("Claim Link · p.4")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+  await page.screenshot({ path: "../tmp_verify_obsidian_stats_jump.png", fullPage: true });
 });
 
 test.describe("mobile UX scenarios", () => {
