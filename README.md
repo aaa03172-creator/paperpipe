@@ -61,16 +61,22 @@ This applies the following required contexts on `master`:
 
 ## Soft Gate (No Branch Protection Plan)
 
-If branch protection is unavailable due to plan limits on a private repository, a soft gate workflow is enabled:
-
+If branch protection/rulesets are not available on a private repository plan, use:
 - Workflow: `.github/workflows/soft-gate-master.yml`
 - Trigger: push to `master`
-- Checks: `frontend` mock/backend E2E
-- Action on failure: auto-revert the failing head commit on `master`
+- Scope: frontend mock/backend E2E
 
-Notes:
-- Revert commits are prefixed with `revert(soft-gate):` and are excluded from recursive auto-revert.
-- This is a recovery mechanism, not a pre-merge hard block.
+Behavior:
+- Test failures (`npm run e2e:mock`, `npm run e2e:backend`) can trigger auto-revert.
+- Bootstrap failures (`npm ci`, dependency install, browser install) do **not** trigger auto-revert.
+- Commits that modify `.github/workflows/soft-gate-master.yml` are excluded from auto-revert to prevent self-revert.
+- Revert commits are prefixed with `revert(soft-gate):` and excluded from recursive revert.
+- Ops checklist: [Soft_Gate_Reintroduction_Checklist_2026-03-06.md](/Users/jangseongjin/paperpipe/docs/Soft_Gate_Reintroduction_Checklist_2026-03-06.md)
+
+Manual drill (no master auto-revert side effect):
+- Workflow: `.github/workflows/soft-gate-canary-drill.yml`
+- Trigger: `workflow_dispatch` only
+- Purpose: run mock/backend gate path and optional intentional failure without editing test source files
 
 ## Ops Monitoring
 
