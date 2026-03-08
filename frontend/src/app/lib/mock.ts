@@ -447,6 +447,16 @@ export function getMockObsidianMirror(paperId: string, runId: string): ObsidianM
         notes: notebook.verdict.detail,
         decision_error: notebook.verdict.level === "fail",
       },
+      {
+        check_id: "mock-check-2",
+        test_type: "effect-size",
+        verdict: "verified",
+        claim_id: "claim-2",
+        evidence_page: 4,
+        hypothesis: "Subgroup-B effect-size direction",
+        notes: "Effect-size direction preserved across subgroup split.",
+        decision_error: false,
+      },
     ],
   };
 }

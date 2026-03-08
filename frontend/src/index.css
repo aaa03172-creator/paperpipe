@@ -41,4 +41,83 @@ body {
     );
     background-size: 16px 16px;
   }
+
+  .paper-note-link {
+    color: #ae8cff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .paper-note-link:hover {
+    color: #ccb6ff;
+  }
+
+  .paper-note-markdown {
+    color: var(--pp-text-primary);
+    line-height: 1.6;
+    font-size: 1.03rem;
+  }
+
+  .paper-note-markdown > * + * {
+    margin-top: 1rem;
+  }
+
+  .paper-note-markdown h1,
+  .paper-note-markdown h2,
+  .paper-note-markdown h3 {
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .paper-note-markdown h1 {
+    font-size: 2.1rem;
+    margin-top: 1.5rem;
+  }
+
+  .paper-note-markdown h2 {
+    font-size: 1.8rem;
+    margin-top: 1.5rem;
+  }
+
+  .paper-note-markdown h3 {
+    font-size: 1.45rem;
+    margin-top: 1.25rem;
+  }
+
+  .paper-note-markdown ul,
+  .paper-note-markdown ol {
+    padding-left: 1.2rem;
+  }
+
+  .paper-note-markdown li {
+    margin-top: 0.2rem;
+  }
+
+  .paper-note-markdown blockquote {
+    border-left: 3px solid #9c7cff;
+    padding-left: 0.8rem;
+    color: var(--pp-text-secondary);
+  }
+
+  .paper-note-markdown code {
+    background: color-mix(in srgb, var(--pp-surface-muted) 75%, transparent);
+    border: 1px solid var(--pp-border);
+    border-radius: 6px;
+    padding: 0.1rem 0.3rem;
+    font-size: 0.92em;
+  }
+
+  .paper-note-markdown pre {
+    background: var(--pp-log-bg);
+    border: 1px solid var(--pp-border);
+    border-radius: var(--pp-radius-md);
+    overflow-x: auto;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .paper-note-markdown pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
 }
