@@ -26,7 +26,7 @@ from src.schemas.ops import (
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
-from .routers import obsidian, feedback
+from .routers import feedback, obsidian, paper_notes
 
 def _resolve_cors_allow_origins() -> list[str]:
     raw = (
@@ -718,3 +718,4 @@ async def job_events(job_id: str, request: Request):
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
+app.include_router(paper_notes.router)
