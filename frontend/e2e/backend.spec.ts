@@ -68,6 +68,49 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
   }
 });
 
+test("backend evidence_spans fixture keeps zero-based normalized anchors stable", async ({ page }) => {
+  await page.goto("/workbench/paper-e2e-spans-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  const claimButtons = claimsPanel.getByRole("button");
+  await expect(claimButtons).toHaveCount(2);
+
+  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
+  const highlight = page.locator('[data-testid="claim-highlight"]').first();
+  await expect(highlight).toBeVisible();
+
+  const viewerBox = await viewer.boundingBox();
+  const firstBox = await highlight.boundingBox();
+  expect(viewerBox).not.toBeNull();
+  expect(firstBox).not.toBeNull();
+  if (viewerBox && firstBox) {
+    expect(firstBox.width).toBeGreaterThan(viewerBox.width * 0.15);
+    expect(firstBox.height).toBeGreaterThan(viewerBox.height * 0.08);
+    expect(firstBox.x + firstBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
+  }
+
+  await claimButtons.nth(1).click();
+  await expect(page.getByText("Claim Link · p.2")).toBeVisible();
+  await expect(highlight).toBeVisible();
+
+  const secondBox = await highlight.boundingBox();
+  expect(secondBox).not.toBeNull();
+  if (firstBox && secondBox) {
+    const movedDelta =
+      Math.abs(firstBox.x - secondBox.x) +
+      Math.abs(firstBox.y - secondBox.y) +
+      Math.abs(firstBox.width - secondBox.width) +
+      Math.abs(firstBox.height - secondBox.height);
+    expect(movedDelta).toBeGreaterThan(8);
+  }
+});
+
 test.describe("mobile backend UX", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

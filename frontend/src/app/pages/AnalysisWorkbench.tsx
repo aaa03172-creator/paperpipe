@@ -104,6 +104,14 @@ type RepairStatsFeedback =
     }
   | null;
 
+interface MockFallbackTelemetryItem {
+  key: string;
+  source: string;
+  reason: string;
+  count: number;
+  lastSeenAt: string;
+}
+
 function getInlineNoticeClassName(tone: "warning" | "success" | "error"): string {
   if (tone === "success") {
     return "rounded-md border border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] px-3 py-2 text-xs text-[var(--pp-status-completed-text)]";
@@ -140,6 +148,7 @@ export function AnalysisWorkbench() {
   const [highlightMode, setHighlightMode] = useState<"soft" | "focus">("soft");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [mockFallbackTelemetry, setMockFallbackTelemetry] = useState<MockFallbackTelemetryItem[]>([]);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -190,13 +199,30 @@ export function AnalysisWorkbench() {
       return;
     }
     const eventKey = `${source}::${normalizedReason}`;
+    const timestamp = new Date().toISOString();
+    setMockFallbackTelemetry((prev) => {
+      const existing = prev.find((item) => item.key === eventKey);
+      if (existing) {
+        return prev
+          .map((item) => (
+            item.key === eventKey
+              ? { ...item, count: item.count + 1, lastSeenAt: timestamp }
+              : item
+          ))
+          .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+      }
+      return [
+        { key: eventKey, source, reason: normalizedReason, count: 1, lastSeenAt: timestamp },
+        ...prev,
+      ].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    });
     if (mockFallbackLogKeysRef.current.has(eventKey)) {
       return;
     }
     mockFallbackLogKeysRef.current.add(eventKey);
     setTerminalLogs((prev) => [
       ...prev.slice(-499),
-      `[${new Date().toISOString()}][MOCK] ${source}: ${normalizedReason}`,
+      `[${timestamp}][MOCK] ${source}: ${normalizedReason}`,
     ]);
   }, [markMockMode]);
 
@@ -268,6 +294,7 @@ export function AnalysisWorkbench() {
       setRepairStatsFeedback(null);
       clearMockMode();
       mockFallbackLogKeysRef.current.clear();
+      setMockFallbackTelemetry([]);
       setTerminalLogs([]);
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
@@ -649,6 +676,7 @@ export function AnalysisWorkbench() {
     focusIssues ||
     loadError ||
     hasClaimGuardNotice ||
+    (mockMode && mockFallbackTelemetry.length > 0) ||
     canRepairStats ||
     repairingStats ||
     Boolean(repairStatsFeedback);
@@ -918,6 +946,27 @@ export function AnalysisWorkbench() {
             <p data-testid="claim-guard-text-missing" className="text-xs text-[var(--pp-status-failed-text)]">
               {`${claimGuard.missingTextCount} claim text field(s) are missing.`}
             </p>
+          ) : null}
+          {mockMode && mockFallbackTelemetry.length > 0 ? (
+            <details data-testid="mock-fallback-telemetry" className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-[var(--pp-warning-text)]">
+                Mock fallback telemetry ({mockFallbackTelemetry.length})
+              </summary>
+              <ul className="mt-2 space-y-1.5 text-xs">
+                {mockFallbackTelemetry.map((item) => (
+                  <li key={item.key} className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-[var(--pp-warning-text)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full border border-[var(--pp-warning-border)] px-1.5 py-0.5 text-[10px] font-semibold">
+                        {item.source}
+                      </span>
+                      <span className="text-[10px] opacity-80">x{item.count}</span>
+                      <span className="text-[10px] opacity-70">{new Date(item.lastSeenAt).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="mt-1">{item.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </details>
           ) : null}
           {loadError ? (
             <p className="text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
