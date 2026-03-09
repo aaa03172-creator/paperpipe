@@ -4,13 +4,13 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
 
   await page.locator("tbody tr").first().click();
   await expect(page).toHaveURL(/\/workbench\//);
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
 
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Cell 1 Claim")).toBeVisible();
@@ -23,11 +23,40 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await expect(terminalDrawer.locator("pre")).toContainText("deepread enqueued", { timeout: 15_000 });
 });
 
+test("mock fallback observability shows structured reasons and terminal mock logs", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
+
+  const triageDetails = page.getByTestId("triage-mock-mode-details");
+  await expect(triageDetails).toBeVisible();
+  await triageDetails.locator("summary").click();
+  const triageReasonCount = await page.getByTestId("triage-mock-mode-reason-item").count();
+  expect(triageReasonCount).toBeGreaterThan(0);
+
+  await page.locator("tbody tr").first().click();
+  await expect(page).toHaveURL(/\/workbench\//);
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode · \d+$/)).toBeVisible();
+
+  const workbenchDetails = page.getByTestId("mock-mode-details");
+  await expect(workbenchDetails).toBeVisible();
+  await workbenchDetails.locator("summary").click();
+  const workbenchReasonCount = await page.getByTestId("mock-mode-reason-item").count();
+  expect(workbenchReasonCount).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Show Terminal Logs" }).click();
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+  await expect(terminalDrawer.locator("pre")).toContainText("[MOCK]");
+});
+
 test("encoded paper id route does not crash in workbench", async ({ page }) => {
   await page.goto("/workbench/paper%25id");
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
   await expect(page.getByText("Invalid paper id.")).toHaveCount(0);
 });
 
@@ -92,7 +121,7 @@ test("runtime guard shows fallback and missing-text notices when claim evidence 
   await page.goto("/workbench/paper-2025-nutrition");
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
 
   await expect(page.getByTestId("claim-guard-fallback")).toBeVisible();
   await expect(page.getByTestId("claim-guard-text-missing")).toBeVisible();
@@ -120,6 +149,43 @@ test("obsidian stats snapshot click jumps to mapped claim highlight", async ({ p
   await page.screenshot({ path: "../tmp_verify_obsidian_stats_jump.png", fullPage: true });
 });
 
+test("normalized bbox and zero-based page values render stable claim highlights", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-normalized-bbox");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
+
+  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
+  const highlight = page.locator('[data-testid="claim-highlight"]').first();
+  await expect(viewer).toBeVisible();
+  await expect(highlight).toBeVisible();
+
+  const viewerBox = await viewer.boundingBox();
+  const firstBox = await highlight.boundingBox();
+  expect(viewerBox).not.toBeNull();
+  expect(firstBox).not.toBeNull();
+  if (viewerBox && firstBox) {
+    expect(firstBox.width).toBeGreaterThan(viewerBox.width * 0.12);
+    expect(firstBox.height).toBeGreaterThan(viewerBox.height * 0.08);
+  }
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await claimsPanel.getByRole("button").nth(1).click();
+  await expect(page.getByText("Claim Link · p.2")).toBeVisible();
+  await expect(highlight).toBeVisible();
+
+  const secondBox = await highlight.boundingBox();
+  expect(secondBox).not.toBeNull();
+  if (firstBox && secondBox) {
+    const movedDelta =
+      Math.abs(firstBox.x - secondBox.x) +
+      Math.abs(firstBox.y - secondBox.y) +
+      Math.abs(firstBox.width - secondBox.width) +
+      Math.abs(firstBox.height - secondBox.height);
+    expect(movedDelta).toBeGreaterThan(8);
+  }
+});
+
 test.describe("mobile UX scenarios", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -127,7 +193,7 @@ test.describe("mobile UX scenarios", () => {
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
-    await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+    await expect(page.getByText(/^Mock mode/)).toBeVisible();
 
     const firstMobileCard = page.locator("article").filter({ hasText: "Open Workbench" }).first();
     await expect(firstMobileCard).toBeVisible();

@@ -173,6 +173,7 @@ export function AnalysisWorkbench() {
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
   const focusIssuesRef = useRef<boolean>(focusIssues);
   const pdfBlobUrlRef = useRef<string | null>(null);
+  const mockFallbackLogKeysRef = useRef<Set<string>>(new Set());
 
   const replacePdfBlobUrl = useCallback((nextUrl: string | null) => {
     if (pdfBlobUrlRef.current && pdfBlobUrlRef.current !== nextUrl) {
@@ -181,6 +182,23 @@ export function AnalysisWorkbench() {
     pdfBlobUrlRef.current = nextUrl;
     setPdfBlobUrl(nextUrl);
   }, []);
+
+  const reportMockFallback = useCallback((reason?: string, source = "unknown") => {
+    markMockMode(reason);
+    const normalizedReason = reason?.trim();
+    if (!normalizedReason) {
+      return;
+    }
+    const eventKey = `${source}::${normalizedReason}`;
+    if (mockFallbackLogKeysRef.current.has(eventKey)) {
+      return;
+    }
+    mockFallbackLogKeysRef.current.add(eventKey);
+    setTerminalLogs((prev) => [
+      ...prev.slice(-499),
+      `[${new Date().toISOString()}][MOCK] ${source}: ${normalizedReason}`,
+    ]);
+  }, [markMockMode]);
 
   const loadObsidianMirror = useCallback(
     async (runId: string | null | undefined) => {
@@ -194,14 +212,14 @@ export function AnalysisWorkbench() {
       try {
         const mirrorResult = await getObsidianMirror(paperId, runId);
         if (mirrorResult.isMock) {
-          markMockMode(mirrorResult.reason);
+          reportMockFallback(mirrorResult.reason, "obsidian-mirror");
         }
         setObsidianMirror(mirrorResult.data);
       } finally {
         setLoadingObsidianMirror(false);
       }
     },
-    [paperId, markMockMode],
+    [paperId, reportMockFallback],
   );
 
   useEffect(() => {
@@ -249,6 +267,8 @@ export function AnalysisWorkbench() {
       setLoadError(null);
       setRepairStatsFeedback(null);
       clearMockMode();
+      mockFallbackLogKeysRef.current.clear();
+      setTerminalLogs([]);
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
       setLoadingObsidianMirror(true);
@@ -266,11 +286,11 @@ export function AnalysisWorkbench() {
           return;
         }
 
-        if (papersResult.isMock) markMockMode(papersResult.reason);
-        if (paperResult.isMock) markMockMode(paperResult.reason);
-        if (personaResult.isMock) markMockMode(personaResult.reason);
-        if (jobsResult.isMock) markMockMode(jobsResult.reason);
-        if (artifactResult.isMock) markMockMode(artifactResult.reason);
+        if (papersResult.isMock) reportMockFallback(papersResult.reason, "papers");
+        if (paperResult.isMock) reportMockFallback(paperResult.reason, "paper-detail");
+        if (personaResult.isMock) reportMockFallback(personaResult.reason, "personas");
+        if (jobsResult.isMock) reportMockFallback(jobsResult.reason, "jobs");
+        if (artifactResult.isMock) reportMockFallback(artifactResult.reason, "artifacts-latest");
 
         setPapers(papersResult.data);
         setPaper(paperResult.data);
@@ -291,7 +311,7 @@ export function AnalysisWorkbench() {
             return;
           }
           if (pdfResult.isMock) {
-            markMockMode(pdfResult.reason);
+            reportMockFallback(pdfResult.reason, "paper-pdf");
           }
           replacePdfBlobUrl(pdfResult.data);
         } catch (error) {
@@ -315,18 +335,18 @@ export function AnalysisWorkbench() {
             return;
           }
           if (timelineResult.isMock) {
-            markMockMode(timelineResult.reason);
+            reportMockFallback(timelineResult.reason, "timeline");
           }
           setTimelineEvents(timelineResult.data.events);
-          setTerminalLogs(
-            timelineResult.data.events.map((event) => {
+          setTerminalLogs((prev) => [
+            ...prev.slice(-499),
+            ...timelineResult.data.events.map((event) => {
               const level = event.level ?? (event.event === "error" ? "ERROR" : "INFO");
               return `[${event.ts ?? new Date().toISOString()}][${level}] ${event.message ?? event.raw ?? event.event}`;
             }),
-          );
+          ]);
         } else {
           setTimelineEvents([]);
-          setTerminalLogs([]);
         }
       } catch (error) {
         if (!mounted) {
@@ -347,7 +367,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, reportMockFallback, replacePdfBlobUrl, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -422,7 +442,7 @@ export function AnalysisWorkbench() {
           try {
             const nextArtifacts = await getArtifactsLatest(paperId);
             if (nextArtifacts.isMock) {
-              markMockMode(nextArtifacts.reason);
+              reportMockFallback(nextArtifacts.reason, "stream-artifacts-latest");
             }
             setArtifactBundle(nextArtifacts.data);
             const nextNotebook = getNotebookFromBundle(nextArtifacts.data);
@@ -439,7 +459,7 @@ export function AnalysisWorkbench() {
         },
         onModeChange: (isMock, reason) => {
           if (isMock) {
-            markMockMode(reason);
+            reportMockFallback(reason, "stream-mode");
           }
         },
       },
@@ -448,7 +468,7 @@ export function AnalysisWorkbench() {
     return () => {
       subscription?.close();
     };
-  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, markMockMode, setActiveClaimId]);
+  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, reportMockFallback, setActiveClaimId]);
 
   async function refreshData() {
     if (!paperId) {
@@ -462,10 +482,10 @@ export function AnalysisWorkbench() {
       ]);
 
       if (jobResult && jobResult.isMock) {
-        markMockMode(jobResult.reason);
+        reportMockFallback(jobResult.reason, "job");
       }
       if (artifactResult.isMock) {
-        markMockMode(artifactResult.reason);
+        reportMockFallback(artifactResult.reason, "artifacts-latest");
       }
 
       if (jobResult) {
@@ -502,7 +522,7 @@ export function AnalysisWorkbench() {
         dry_run: false,
       });
       if (repairResult.isMock) {
-        markMockMode(repairResult.reason);
+        reportMockFallback(repairResult.reason, "repair-stats");
       }
       const summary = `repair-stats summary: seeded=${repairResult.data.seeded}, skipped=${repairResult.data.skipped}, total=${repairResult.data.total}`;
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][INFO] ${summary}`]);
@@ -544,7 +564,7 @@ export function AnalysisWorkbench() {
       setLoadError(null);
       const syncResult = await syncToObsidian(paperId, runId);
       if (syncResult.isMock) {
-        markMockMode(syncResult.reason);
+        reportMockFallback(syncResult.reason, "obsidian-sync");
       }
       await loadObsidianMirror(runId);
       setTerminalLogs((prev) => [
@@ -575,7 +595,7 @@ export function AnalysisWorkbench() {
       });
 
       if (enqueueResult.isMock) {
-        markMockMode(enqueueResult.reason);
+        reportMockFallback(enqueueResult.reason, "deepread-enqueue");
       }
 
       const newJob: JobStatus = {
@@ -841,6 +861,7 @@ export function AnalysisWorkbench() {
       jobStatus={currentJob.status}
       mockMode={mockMode}
       mockReason={mockReason}
+      mockReasons={mockReasons}
       notice={showNotice ? (
         <div className="grid gap-2">
           {canRepairStats || repairingStats ? (

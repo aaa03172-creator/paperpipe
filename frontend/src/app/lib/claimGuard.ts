@@ -33,6 +33,60 @@ function highlightSourceScore(source: EvidenceHighlight["source"] | undefined): 
   return 0.5;
 }
 
+function clampPct(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function detectHighlightPageOffset(highlights: EvidenceHighlight[]): number {
+  return highlights.some((item) => Number.isFinite(item.page) && Math.round(item.page) === 0) ? 1 : 0;
+}
+
+function detectHighlightCoordinateScale(highlights: EvidenceHighlight[]): number {
+  const coordinates = highlights
+    .flatMap((item) => [item.left, item.top, item.width, item.height])
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.abs(value))
+    .filter((value) => value > 0);
+  if (coordinates.length === 0) {
+    return 1;
+  }
+  const maxValue = Math.max(...coordinates);
+  const normalizedLikeCount = coordinates.filter((value) => value <= 1).length;
+  if (maxValue <= 1 && normalizedLikeCount >= Math.ceil(coordinates.length * 0.75)) {
+    return 100;
+  }
+  return 1;
+}
+
+function normalizeSingleHighlight(
+  item: EvidenceHighlight,
+  pageOffset: number,
+  coordinateScale: number,
+): EvidenceHighlight {
+  const left = clampPct(item.left * coordinateScale);
+  const top = clampPct(item.top * coordinateScale);
+  const width = clampPct(item.width * coordinateScale);
+  const height = clampPct(item.height * coordinateScale);
+
+  return {
+    ...item,
+    page: Math.max(Math.round(item.page) + pageOffset, 1),
+    left,
+    top,
+    width: clampPct(Math.min(width, 100 - left)),
+    height: clampPct(Math.min(height, 100 - top)),
+  };
+}
+
+export function normalizeHighlightsForUi(highlights: EvidenceHighlight[]): EvidenceHighlight[] {
+  if (highlights.length === 0) {
+    return highlights;
+  }
+  const pageOffset = detectHighlightPageOffset(highlights);
+  const coordinateScale = detectHighlightCoordinateScale(highlights);
+  return highlights.map((item) => normalizeSingleHighlight(item, pageOffset, coordinateScale));
+}
+
 function highlightQualityScore(item: EvidenceHighlight, index: number): number {
   const hasBBox = item.width > 0 && item.height > 0;
   const area = hasBBox ? item.width * item.height : 0;

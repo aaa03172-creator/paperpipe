@@ -10,7 +10,7 @@ import {
   PersonaListResponse,
   TimelineResponse,
 } from "./types";
-import { buildBestHighlightMap, getClaimLinkState, isClaimTextMissing } from "./claimGuard";
+import { buildBestHighlightMap, getClaimLinkState, isClaimTextMissing, normalizeHighlightsForUi } from "./claimGuard";
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -77,6 +77,21 @@ const MOCK_PAPERS: PaperDetail[] = [
     updated_at: "2026-02-22T12:09:00Z",
     abstract: "Narrative review across metabolomics and transcriptomics cohorts.",
   },
+  {
+    paper_id: "paper-2026-normalized-bbox",
+    title: "Assessment of RAG Systems in Agentic Workflows",
+    authors: "Jane Smith et al.",
+    year: 2026,
+    pdf_exists: true,
+    pdf_path: SAMPLE_PDF,
+    status: "processing",
+    issues: 0,
+    issues_label: "No critical issues",
+    latest_job_id: "job-004",
+    latest_run_id: "run-004",
+    updated_at: "2026-03-09T06:00:00Z",
+    abstract: "Synthetic fixture for normalized bbox and zero-based page compatibility.",
+  },
 ];
 
 const MOCK_JOBS: Record<string, JobStatus[]> = {
@@ -123,6 +138,19 @@ const MOCK_JOBS: Record<string, JobStatus[]> = {
     },
   ],
   "paper-2022-omics": [],
+  "paper-2026-normalized-bbox": [
+    {
+      job_id: "job-004",
+      paper_id: "paper-2026-normalized-bbox",
+      run_id: "run-004",
+      persona_id: "default",
+      status: "running",
+      progress: 44,
+      stage: "read",
+      created_at: "2026-03-09T05:58:00Z",
+      started_at: "2026-03-09T05:58:20Z",
+    },
+  ],
 };
 
 const BASE_NOTEBOOK: NotebookArtifact = {
@@ -225,6 +253,34 @@ const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
     },
   },
   "paper-2022-omics": BASE_NOTEBOOK,
+  "paper-2026-normalized-bbox": {
+    claims: [
+      {
+        claim_id: "claim-1",
+        text: "① Section-aware method achieved a hit rate above baseline.",
+        confidence: "high",
+      },
+      {
+        claim_id: "claim-2",
+        text: "② Limitations include sparse tables in older PDFs.",
+        confidence: "medium",
+      },
+    ],
+    highlights: [
+      { claim_id: "claim-1", page: 0, top: 0.30, left: 0.13, width: 0.52, height: 0.22, source: "bbox" },
+      { claim_id: "claim-2", page: 1, top: 0.52, left: 0.10, width: 0.70, height: 0.13, source: "bbox" },
+    ],
+    agent_plan: [
+      "Validate page-index conversion from zero-based artifacts.",
+      "Validate normalized bbox conversion from 0~1 unit values.",
+    ],
+    sandbox_code: "# Sandbox Execution (read-only)\n# fixture: normalized bbox",
+    verdict: {
+      label: "Review",
+      detail: "Normalization fixture loaded for anchor-mapping validation.",
+      level: "caution",
+    },
+  },
 };
 
 function toArtifactBundle(paperId: string, runId: string, notebook: NotebookArtifact): ArtifactBundle {
@@ -350,6 +406,30 @@ const MOCK_TIMELINES: Record<string, TimelineResponse> = {
         progress: 79,
         level: "ERROR",
         message: "failed",
+      },
+    ],
+  },
+  "run-004": {
+    run_id: "run-004",
+    job_id: "job-004",
+    paper_id: "paper-2026-normalized-bbox",
+    events: [
+      {
+        event: "log",
+        source: "job_log",
+        ts: "2026-03-09T05:58:32Z",
+        stage: "ingest",
+        level: "INFO",
+        message: "Loaded normalized bbox fixture claimset.",
+      },
+      {
+        event: "status",
+        source: "synthetic",
+        ts: "2026-03-09T05:58:55Z",
+        stage: "read",
+        progress: 44,
+        level: "INFO",
+        message: "reader running",
       },
     ],
   },
@@ -789,11 +869,13 @@ function extractBBoxPct(
     typeof bbox.width === "number" &&
     typeof bbox.height === "number"
   ) {
+    const isNormalized = bbox.left <= 1 && bbox.top <= 1 && bbox.width <= 1 && bbox.height <= 1;
+    const scale = isNormalized ? 100 : 1;
     return {
-      left: clampPct(bbox.left),
-      top: clampPct(bbox.top),
-      width: clampPct(bbox.width),
-      height: clampPct(bbox.height),
+      left: clampPct(bbox.left * scale),
+      top: clampPct(bbox.top * scale),
+      width: clampPct(bbox.width * scale),
+      height: clampPct(bbox.height * scale),
     };
   }
 
@@ -821,11 +903,13 @@ function extractBBoxPct(
     typeof span.width === "number" &&
     typeof span.height === "number"
   ) {
+    const isNormalized = span.left <= 1 && span.top <= 1 && span.width <= 1 && span.height <= 1;
+    const scale = isNormalized ? 100 : 1;
     return {
-      left: clampPct(span.left),
-      top: clampPct(span.top),
-      width: clampPct(span.width),
-      height: clampPct(span.height),
+      left: clampPct(span.left * scale),
+      top: clampPct(span.top * scale),
+      width: clampPct(span.width * scale),
+      height: clampPct(span.height * scale),
     };
   }
 
@@ -947,10 +1031,31 @@ function findDocumentBboxForClaim(
   };
 }
 
+function normalizeNotebookForUi(notebook: NotebookArtifact): NotebookArtifact {
+  const normalizedHighlights = normalizeHighlightsForUi(
+    Array.isArray(notebook.highlights) ? notebook.highlights : [],
+  );
+  const normalizedClaims = (Array.isArray(notebook.claims) ? notebook.claims : []).map((claim) => ({
+    ...claim,
+    text_missing: claim.text_missing ?? isClaimTextMissing(claim.text),
+  }));
+  const highlightMap = buildBestHighlightMap(normalizedHighlights);
+  const claimsWithGuard = normalizedClaims.map((claim) => ({
+    ...claim,
+    link_health: claim.link_health ?? getClaimLinkState(claim, highlightMap.get(claim.claim_id)).health,
+  }));
+
+  return {
+    ...notebook,
+    claims: claimsWithGuard,
+    highlights: normalizedHighlights,
+  };
+}
+
 export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact {
   const notebookData = bundle.files.notebook?.data;
   if (notebookData && typeof notebookData === "object") {
-    return notebookData as NotebookArtifact;
+    return normalizeNotebookForUi(notebookData as NotebookArtifact);
   }
 
   const claimsetData = bundle.files.claimset_resolved?.data ?? bundle.files.claimset?.data;
@@ -974,7 +1079,10 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
   });
 
   const rawPages = rawClaims.map((claim) => extractPageNumber(extractEvidenceArray(claim)[0]));
-  const hasZeroBasedPage = rawPages.some((page) => page === 0);
+  const hasEvidenceSpans = rawClaims.some((claim) => Array.isArray(claim.evidence_spans));
+  const hasLegacyEvidence = rawClaims.some((claim) => !Array.isArray(claim.evidence_spans) && Array.isArray(claim.evidence));
+  const assumeZeroBased = hasEvidenceSpans && !hasLegacyEvidence;
+  const hasZeroBasedPage = assumeZeroBased || rawPages.some((page) => page === 0);
   const parsedHighlights = rawClaims.map((claim, index) => {
     const primaryEvidence = extractEvidenceArray(claim)[0] ?? null;
     const rawPage = extractPageNumber(primaryEvidence);
@@ -1010,7 +1118,8 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       ? (statsData as { checks: unknown[] }).checks.length
       : 0;
 
-  const highlightMap = buildBestHighlightMap(parsedHighlights);
+  const normalizedHighlights = normalizeHighlightsForUi(parsedHighlights);
+  const highlightMap = buildBestHighlightMap(normalizedHighlights);
 
   const parsedClaimsWithGuard = parsedClaims.map((claim) => {
     const highlight = highlightMap.get(claim.claim_id);
@@ -1023,7 +1132,7 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
 
   return {
     claims: parsedClaimsWithGuard,
-    highlights: parsedHighlights,
+    highlights: normalizedHighlights,
     agent_plan: [
       "Loaded claims from artifact bundle.",
       "Evidence mapping can be reviewed in claimset payload.",

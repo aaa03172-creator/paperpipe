@@ -128,7 +128,16 @@ export function TriageDashboard() {
           </div>
         </div>
         {mockMode && mockReasons.length > 0 ? (
-          <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{mockReasons.join(" / ")}</p>
+          <details data-testid="triage-mock-mode-details" className="mt-2 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2.5 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-[var(--pp-warning-text)]">
+              Mock fallback details
+            </summary>
+            <ul className="mt-1 space-y-1 text-xs text-[var(--pp-warning-text)]">
+              {mockReasons.map((reason) => (
+                <li key={reason} data-testid="triage-mock-mode-reason-item">{reason}</li>
+              ))}
+            </ul>
+          </details>
         ) : null}
         {loadError ? (
           <p className="mt-2 text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>

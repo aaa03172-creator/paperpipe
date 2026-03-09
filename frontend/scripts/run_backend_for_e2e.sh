@@ -290,7 +290,7 @@ claimset_payload = {
                 {
                     "page": 0,
                     "quote": "Initial improvement window observed during early follow-up period.",
-                    "bbox_pct": {"left": 8, "top": 10, "width": 40, "height": 20},
+                    "bbox_pct": {"left": 0.08, "top": 0.10, "width": 0.40, "height": 0.20},
                 }
             ],
         },
@@ -302,7 +302,10 @@ claimset_payload = {
                 {
                     "page": 0,
                     "quote": "Secondary response appears in a distinct region of the analysis.",
-                    "bbox_pct": {"left": 52, "top": 26, "width": 36, "height": 28},
+                    "left": 0.52,
+                    "top": 0.26,
+                    "width": 0.36,
+                    "height": 0.28,
                 }
             ],
         },
@@ -314,7 +317,7 @@ claimset_payload = {
                 {
                     "page": 0,
                     "quote": "No severe adverse events were reported in the observed cohort.",
-                    "bbox_pct": {"left": 14, "top": 60, "width": 44, "height": 18},
+                    "bbox": {"x": 0.14, "y": 0.60, "w": 0.44, "h": 0.18},
                 }
             ],
         },
