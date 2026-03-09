@@ -11,13 +11,13 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
   // backend-seeded paper should be visible and navigable
   const seededPaper = page.locator("tbody tr").filter({ hasText: "E2E Seed Paper" }).first();
   await expect(seededPaper).toBeVisible();
-  await seededPaper.locator("td").first().click();
+  await seededPaper.click();
 
   await expect(page).toHaveURL(/\/workbench\/paper-e2e-001/);
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
-
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+  await expect(page.getByText("Obsidian sync payload preview")).toBeVisible();
   await expect(page.getByText("Claim text missing")).toHaveCount(0);
 });
 
@@ -68,6 +68,48 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
   }
 });
 
+test("backend stats snapshot disambiguates claim target by text signal", async ({ page }) => {
+  await page.goto("/workbench/paper-e2e-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  await expect(mirrorPanel).toBeVisible();
+
+  const targetCheck = mirrorPanel.getByRole("button").filter({ hasText: "effect-size-disambiguation" }).first();
+  await expect(targetCheck).toBeVisible();
+  await targetCheck.click();
+
+  await expect(page.getByText("Claim Link · p.2")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+});
+
+test("backend repair stats action appears only when stats artifact is missing and hides after repair", async ({ page }) => {
+  await page.goto("/workbench/paper-e2e-repair-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  const repairButton = page.getByRole("button", { name: "Repair Stats", exact: true });
+  const statsSnapshotSummary = page.locator("summary").filter({ hasText: "Stats Snapshot" });
+  await expect(page.getByText("Obsidian sync payload preview")).toBeVisible();
+  await expect(page.getByTestId("repair-stats-warning")).toContainText("Stats report is missing or empty.", { timeout: 15_000 });
+  await expect(repairButton).toBeVisible();
+  await expect(statsSnapshotSummary).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Show Terminal Logs" }).click();
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+
+  await repairButton.click();
+
+  await expect(terminalDrawer.locator("pre")).toContainText("repair-stats summary", { timeout: 15_000 });
+  await expect(repairButton).toHaveCount(0);
+  await expect(page.getByTestId("repair-stats-success")).toContainText("Stats repair completed.");
+  await expect(page.getByText("Stats report contains 1 checks.")).toBeVisible();
+  await expect(statsSnapshotSummary).toBeVisible();
+});
+
 test.describe("mobile backend UX", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -85,6 +127,25 @@ test.describe("mobile backend UX", () => {
     await expect(page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first()).toBeVisible();
     await expect(page.getByText("Errors / Done")).toBeVisible();
   });
+
+  test("mobile paper notes detail opens side panel sheet", async ({ page }) => {
+    await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
+
+    await expect(
+      page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+    ).toBeVisible();
+    const sidePanelButton = page.getByTestId("paper-note-open-side-panel");
+    await expect(sidePanelButton).toBeVisible();
+    await sidePanelButton.click();
+
+    const sheet = page.getByTestId("paper-note-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Properties & Links" })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Outline", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Related Papers", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "References", exact: true })).toBeVisible();
+  });
 });
 
 test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
@@ -95,8 +156,9 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   ).toBeVisible();
   const propertiesPanel = page.locator("aside").filter({ hasText: "Properties" }).first();
   await expect(propertiesPanel.getByRole("heading", { name: "Properties" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outline" })).toBeVisible();
   await expect(propertiesPanel.getByText("INDEXED", { exact: true })).toBeVisible();
-  await expect(propertiesPanel.getByText("Medicine/Neurology", { exact: true })).toBeVisible();
+  await expect(propertiesPanel.locator("dd").getByText("Medicine/Neurology", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "One-Line Summary" })).toBeVisible();
 
   const relatedHeading = page.getByRole("heading", { name: "Related Papers" }).first();
@@ -123,6 +185,24 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   await relatedLink.click();
   await expect(page).toHaveURL(/\/papers\/.+$/);
   await expect(page.getByRole("banner").getByRole("heading")).toBeVisible();
+});
+
+test("paper notes list supports command-style tag selection", async ({ page }) => {
+  await page.goto("/papers");
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const tagCommand = page.getByTestId("paper-notes-tag-command");
+  const tagInput = page.getByTestId("paper-notes-tag-input");
+  await expect(tagCommand).toBeVisible();
+  await tagInput.fill("Medicine");
+
+  const option = page.getByTestId("paper-notes-tag-option").filter({ hasText: "Medicine/Neurology" }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(page.getByTestId("paper-notes-selected-tag").filter({ hasText: "Medicine/Neurology" })).toBeVisible();
+  await expect(page).toHaveURL(/tags=Medicine%2FNeurology/);
+  await expect(page.getByText("No notes matched the current filters.")).toHaveCount(0);
 });
 
 test("soft-gate canary: intentional backend e2e failure drill", async () => {
