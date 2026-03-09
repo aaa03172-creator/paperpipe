@@ -11,7 +11,10 @@ function parseBooleanEnv(raw: string | undefined): boolean {
 
 const forceMock = parseBooleanEnv(forceMockRaw);
 const strictApi = parseBooleanEnv(strictApiRaw);
-const autoMockFallback = autoMockFallbackRaw === undefined ? true : parseBooleanEnv(autoMockFallbackRaw);
+const autoMockFallback =
+  autoMockFallbackRaw === undefined || autoMockFallbackRaw.trim().length === 0
+    ? true
+    : parseBooleanEnv(autoMockFallbackRaw);
 
 export const APP_CONFIG = {
   apiBaseUrl: envBase && envBase.length > 0 ? envBase.replace(/\/$/, "") : "http://localhost:8000",
