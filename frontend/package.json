@@ -12,6 +12,7 @@
     "e2e:backend": "playwright test -c playwright.backend.config.ts",
     "e2e:backend:preflight": "playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g \"backend mode stays out of mock fallback\"",
     "e2e:backend:full": "playwright test -c playwright.backend.config.ts",
+    "verify:frontend": "npm run build && npm run e2e:mock && npm run e2e:backend:preflight && npm run e2e:backend:full",
     "e2e:backend:canary": "PAPERPIPE_E2E_CANARY=1 playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g \"soft-gate canary\"",
     "e2e:mock:update": "playwright test -c playwright.mock.config.ts --update-snapshots",
     "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
