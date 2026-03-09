@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Viewer, Worker } from "@react-pdf-viewer/core";
 import { HighlightArea, highlightPlugin, RenderHighlightsProps, Trigger } from "@react-pdf-viewer/highlight";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
@@ -6,6 +6,7 @@ import { Match, RenderHighlightsProps as SearchRenderHighlightsProps, searchPlug
 import { FileWarning, Link2 } from "lucide-react";
 import { circledNumber } from "../lib/ui";
 import { EvidenceHighlight, NotebookClaim } from "../lib/types";
+import { pickBestHighlightForClaim } from "../lib/claimGuard";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
 import "@react-pdf-viewer/core/lib/styles/index.css";
 import "@react-pdf-viewer/highlight/lib/styles/index.css";
@@ -27,53 +28,6 @@ interface TextMatchSnippet {
   globalIndex: number;
   pageIndex: number;
   preview: string;
-}
-
-function highlightSourceScore(source: EvidenceHighlight["source"]): number {
-  if (source === "bbox") {
-    return 3.0;
-  }
-  if (source === "text_match") {
-    return 2.0;
-  }
-  if (source === "approx") {
-    return 1.0;
-  }
-  return 0.5;
-}
-
-function pickBestHighlightForClaim(
-  allHighlights: EvidenceHighlight[],
-  claimId: string | null,
-): EvidenceHighlight | null {
-  if (!claimId) {
-    return null;
-  }
-  const candidates = allHighlights.filter((item) => item.claim_id === claimId);
-  if (candidates.length === 0) {
-    return null;
-  }
-  if (candidates.length === 1) {
-    return candidates[0];
-  }
-
-  let best: EvidenceHighlight | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  candidates.forEach((item, index) => {
-    const hasBBox = item.width > 0 && item.height > 0;
-    const area = hasBBox ? item.width * item.height : 0;
-    const score =
-      (hasBBox ? 4.0 : 0) +
-      highlightSourceScore(item.source) +
-      Math.min(area / 500, 2.0) +
-      Math.max(item.page, 1) * 0.001 +
-      index * 0.0001;
-    if (score > bestScore) {
-      bestScore = score;
-      best = item;
-    }
-  });
-  return best;
 }
 
 function clampPct(value: number): number {
@@ -263,7 +217,12 @@ function buildTextMatchSnippets(
   return scoredSnippets
     .filter((item) => topKeySet.has(item.key))
     .sort((a, b) => a.globalIndex - b.globalIndex)
-    .map(({ score: _score, ...rest }) => rest);
+    .map((item) => ({
+      key: item.key,
+      globalIndex: item.globalIndex,
+      pageIndex: item.pageIndex,
+      preview: item.preview,
+    }));
 }
 
 function pickPreferredSnippet(
@@ -302,7 +261,6 @@ export function PdfPanel({
   const [searchMeta, setSearchMeta] = useState<{ claimKey: string; count: number } | null>(null);
   const [textMatchSnippets, setTextMatchSnippets] = useState<TextMatchSnippet[]>([]);
   const [activeTextMatchIndex, setActiveTextMatchIndex] = useState<number | null>(null);
-  const [viewerPageIndex, setViewerPageIndex] = useState<number>(0);
   const activeClaim = useMemo(
     () => claims.find((claim) => claim.claim_id === activeClaimId) ?? null,
     [claims, activeClaimId],
@@ -439,22 +397,6 @@ export function PdfPanel({
     return found >= 0 ? found : 0;
   }, [textMatchSnippets, activeTextMatchIndex]);
   const activeTextMatchSnippet = activeTextMatchPos >= 0 ? textMatchSnippets[activeTextMatchPos] : null;
-  const pageScopedTextMatchSnippet = useMemo(() => {
-    if (!textMatchMode || textMatchSnippets.length === 0) {
-      return null;
-    }
-    return textMatchSnippets.find((snippet) => snippet.pageIndex === viewerPageIndex) ?? null;
-  }, [textMatchMode, textMatchSnippets, viewerPageIndex]);
-
-  useEffect(() => {
-    if (!textMatchMode || !pageScopedTextMatchSnippet) {
-      return;
-    }
-    if (activeTextMatchSnippet?.key === pageScopedTextMatchSnippet.key) {
-      return;
-    }
-    setActiveTextMatchIndex(pageScopedTextMatchSnippet.globalIndex);
-  }, [textMatchMode, pageScopedTextMatchSnippet, activeTextMatchSnippet?.key]);
 
   const viewerKey = `${pdfUrl}::${activeClaimId ?? "none"}::${resolvedActivePageIndex}`;
 
@@ -500,7 +442,6 @@ export function PdfPanel({
                   const nextPos = Math.max(currentPos - 1, 0);
                   const snippet = textMatchSnippets[nextPos];
                   setActiveTextMatchIndex(snippet.globalIndex);
-                  setViewerPageIndex(snippet.pageIndex);
                   pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
                   searchPluginInstance.jumpToMatch(snippet.globalIndex);
                 }}
@@ -524,7 +465,6 @@ export function PdfPanel({
                   const nextPos = Math.min(currentPos + 1, textMatchSnippets.length - 1);
                   const snippet = textMatchSnippets[nextPos];
                   setActiveTextMatchIndex(snippet.globalIndex);
-                  setViewerPageIndex(snippet.pageIndex);
                   pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
                   searchPluginInstance.jumpToMatch(snippet.globalIndex);
                 }}
@@ -548,7 +488,6 @@ export function PdfPanel({
                     type="button"
                     onClick={() => {
                       setActiveTextMatchIndex(snippet.globalIndex);
-                      setViewerPageIndex(snippet.pageIndex);
                       pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
                       searchPluginInstance.jumpToMatch(snippet.globalIndex);
                     }}
@@ -587,7 +526,6 @@ export function PdfPanel({
                 onDocumentLoad={async (event) => {
                   const localClaimKey = claimKey;
                   setLoadedPdfMeta({ url: pdfUrl, pageCount: event.doc.numPages });
-                  setViewerPageIndex(resolvedActivePageIndex);
                   pageNavigationPluginInstance.jumpToPage(resolvedActivePageIndex);
                   searchPluginInstance.clearHighlights();
                   if (resolvedActiveArea) {
@@ -616,16 +554,25 @@ export function PdfPanel({
                   const preferredSnippet = pickPreferredSnippet(snippets, rankingText, resolvedActivePageIndex);
                   if (preferredSnippet) {
                     setActiveTextMatchIndex(preferredSnippet.globalIndex);
-                    setViewerPageIndex(preferredSnippet.pageIndex);
                     pageNavigationPluginInstance.jumpToPage(preferredSnippet.pageIndex);
                     searchPluginInstance.jumpToMatch(preferredSnippet.globalIndex);
                   } else {
                     setActiveTextMatchIndex(null);
-                    setViewerPageIndex(resolvedActivePageIndex);
                   }
                 }}
                 onPageChange={(event) => {
-                  setViewerPageIndex(event.currentPage);
+                  const nextPageIndex = event.currentPage;
+                  if (!textMatchMode || textMatchSnippets.length === 0) {
+                    return;
+                  }
+                  const snippetOnPage = textMatchSnippets.find((snippet) => snippet.pageIndex === nextPageIndex);
+                  if (!snippetOnPage) {
+                    return;
+                  }
+                  if (activeTextMatchSnippet?.key === snippetOnPage.key) {
+                    return;
+                  }
+                  setActiveTextMatchIndex(snippetOnPage.globalIndex);
                 }}
               />
             </Worker>

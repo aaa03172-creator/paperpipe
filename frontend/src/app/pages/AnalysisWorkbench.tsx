@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Play, RefreshCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Play, RefreshCcw, Wrench } from "lucide-react";
 import {
   enqueueDeepRead,
   getArtifactsLatest,
@@ -14,10 +14,11 @@ import {
   getPersonas,
   getRunTimeline,
   syncToObsidian,
+  repairStats,
 } from "../lib/api";
 import { connectJobStream, StreamSubscription } from "../lib/sse";
 import { mapStage } from "../lib/ui";
-import { getClaimLinkState, summarizeClaimGuard } from "../lib/claimGuard";
+import { buildBestHighlightMap, getClaimLinkState, summarizeClaimGuard } from "../lib/claimGuard";
 import {
   ArtifactBundle,
   JobStatus,
@@ -73,7 +74,7 @@ function chooseActiveClaimId(
   if (currentClaimId && notebook.claims.some((claim) => claim.claim_id === currentClaimId)) {
     return currentClaimId;
   }
-  const highlightMap = new Map(notebook.highlights.map((item) => [item.claim_id, item]));
+  const highlightMap = buildBestHighlightMap(notebook.highlights);
 
   if (focusIssues) {
     return selectIssueClaimId(notebook) ?? notebook.claims[0]?.claim_id ?? null;
@@ -96,6 +97,23 @@ function chooseActiveClaimId(
   return notebook.claims[0]?.claim_id ?? null;
 }
 
+type RepairStatsFeedback =
+  | {
+      tone: "success" | "error";
+      message: string;
+    }
+  | null;
+
+function getInlineNoticeClassName(tone: "warning" | "success" | "error"): string {
+  if (tone === "success") {
+    return "rounded-md border border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] px-3 py-2 text-xs text-[var(--pp-status-completed-text)]";
+  }
+  if (tone === "error") {
+    return "rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] px-3 py-2 text-xs text-[var(--pp-status-failed-text)]";
+  }
+  return "rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)]";
+}
+
 export function AnalysisWorkbench() {
   const params = useParams<{ paperId: string }>();
   const [searchParams] = useSearchParams();
@@ -112,7 +130,10 @@ export function AnalysisWorkbench() {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [obsidianMirror, setObsidianMirror] = useState<ObsidianMirror | null>(null);
+  const [loadingObsidianMirror, setLoadingObsidianMirror] = useState(false);
   const [syncingObsidian, setSyncingObsidian] = useState(false);
+  const [repairingStats, setRepairingStats] = useState(false);
+  const [repairStatsFeedback, setRepairStatsFeedback] = useState<RepairStatsFeedback>(null);
   const [runVerify, setRunVerify] = useState(true);
   const [cleanReindex, setCleanReindex] = useState(false);
   const [panelDensity, setPanelDensity] = useState<"detail" | "compact">("detail");
@@ -165,14 +186,20 @@ export function AnalysisWorkbench() {
     async (runId: string | null | undefined) => {
       if (!paperId || !runId) {
         setObsidianMirror(null);
+        setLoadingObsidianMirror(false);
         return;
       }
 
-      const mirrorResult = await getObsidianMirror(paperId, runId);
-      if (mirrorResult.isMock) {
-        markMockMode(mirrorResult.reason);
+      setLoadingObsidianMirror(true);
+      try {
+        const mirrorResult = await getObsidianMirror(paperId, runId);
+        if (mirrorResult.isMock) {
+          markMockMode(mirrorResult.reason);
+        }
+        setObsidianMirror(mirrorResult.data);
+      } finally {
+        setLoadingObsidianMirror(false);
       }
-      setObsidianMirror(mirrorResult.data);
     },
     [paperId, markMockMode],
   );
@@ -220,9 +247,11 @@ export function AnalysisWorkbench() {
       }
 
       setLoadError(null);
+      setRepairStatsFeedback(null);
       clearMockMode();
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
+      setLoadingObsidianMirror(true);
 
       try {
         const [papersResult, paperResult, personaResult, jobsResult, artifactResult] = await Promise.all([
@@ -308,6 +337,7 @@ export function AnalysisWorkbench() {
         replacePdfBlobUrl(null);
         setTimelineEvents([]);
         setObsidianMirror(null);
+        setLoadingObsidianMirror(false);
         setTerminalLogs([`[${new Date().toISOString()}][ERROR] ${message}`]);
       }
     }
@@ -455,6 +485,50 @@ export function AnalysisWorkbench() {
     }
   }
 
+  async function handleRepairStats() {
+    if (!paperId) {
+      return;
+    }
+    const targetRunId = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
+    try {
+      setRepairingStats(true);
+      setLoadError(null);
+      setRepairStatsFeedback(null);
+      const repairResult = await repairStats({
+        paper_ids: [paperId],
+        run_id: targetRunId,
+        skip_existing: true,
+        write_bootstrap_meta: true,
+        dry_run: false,
+      });
+      if (repairResult.isMock) {
+        markMockMode(repairResult.reason);
+      }
+      const summary = `repair-stats summary: seeded=${repairResult.data.seeded}, skipped=${repairResult.data.skipped}, total=${repairResult.data.total}`;
+      setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][INFO] ${summary}`]);
+      setRepairStatsFeedback({
+        tone: "success",
+        message:
+          repairResult.data.seeded > 0
+            ? `Stats snapshot rebuilt from claimset. ${repairResult.data.seeded} artifact bundle updated.`
+            : "Stats repair completed without changes.",
+      });
+      setTerminalOpen(true);
+      await refreshData();
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setLoadError(message);
+      setRepairStatsFeedback({
+        tone: "error",
+        message: `Repair Stats failed: ${message}`,
+      });
+      setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+      setTerminalOpen(true);
+    } finally {
+      setRepairingStats(false);
+    }
+  }
+
   async function handleSyncObsidian() {
     if (!paperId) {
       return;
@@ -492,6 +566,7 @@ export function AnalysisWorkbench() {
     }
     try {
       setLoadError(null);
+      setRepairStatsFeedback(null);
       const enqueueResult = await enqueueDeepRead({
         paper_id: paperId,
         run_verify: runVerify,
@@ -539,7 +614,24 @@ export function AnalysisWorkbench() {
   const pdfAvailable = Boolean(pdfBlobUrl);
   const pdfUrl = pdfBlobUrl ?? "";
   const runIdForObsidianSync = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
+  const hasClaimsetArtifact =
+    Boolean(artifactBundle?.files.claimset_resolved?.exists) ||
+    Boolean(artifactBundle?.files.claimset?.exists) ||
+    Boolean(obsidianMirror?.has_claimset) ||
+    Boolean(obsidianMirror?.claims.length);
+  const hasStatsArtifact =
+    Boolean(artifactBundle?.files.stats_report?.exists) ||
+    Boolean(obsidianMirror?.has_stats_report) ||
+    Boolean(obsidianMirror?.stats_checks.length);
+  const canRepairStats = !loadingObsidianMirror && hasClaimsetArtifact && !hasStatsArtifact;
   const hasClaimGuardNotice = claimGuard.fallbackCount > 0 || claimGuard.missingCount > 0 || claimGuard.missingTextCount > 0;
+  const showNotice =
+    focusIssues ||
+    loadError ||
+    hasClaimGuardNotice ||
+    canRepairStats ||
+    repairingStats ||
+    Boolean(repairStatsFeedback);
   const controlsDesktop = (
     <>
       <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
@@ -574,6 +666,18 @@ export function AnalysisWorkbench() {
         <RefreshCcw className="h-3.5 w-3.5" />
         Refresh
       </button>
+
+      {canRepairStats ? (
+        <button
+          type="button"
+          onClick={() => void handleRepairStats()}
+          disabled={repairingStats}
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2.5 py-1.5 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Wrench className="h-3.5 w-3.5" />
+          {repairingStats ? "Repairing..." : "Repair Stats"}
+        </button>
+      ) : null}
 
       <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
         <input type="checkbox" checked={runVerify} onChange={(event) => setRunVerify(event.target.checked)} />
@@ -661,6 +765,18 @@ export function AnalysisWorkbench() {
         </button>
       </div>
 
+      {canRepairStats ? (
+        <button
+          type="button"
+          onClick={() => void handleRepairStats()}
+          disabled={repairingStats}
+          className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Wrench className="h-3.5 w-3.5" />
+          {repairingStats ? "Repairing..." : "Repair Stats"}
+        </button>
+      ) : null}
+
       <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
         <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
           Advanced controls
@@ -725,8 +841,45 @@ export function AnalysisWorkbench() {
       jobStatus={currentJob.status}
       mockMode={mockMode}
       mockReason={mockReason}
-      notice={focusIssues || loadError || hasClaimGuardNotice ? (
-        <>
+      notice={showNotice ? (
+        <div className="grid gap-2">
+          {canRepairStats || repairingStats ? (
+            <div data-testid="repair-stats-warning" className={getInlineNoticeClassName("warning")}>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    {repairingStats ? "Repairing stats snapshot..." : "Stats report is missing or empty."}
+                  </p>
+                  <p className="mt-1 text-[11px]">
+                    {repairingStats
+                      ? "Rebuilding Stats Snapshot from the current claimset. The artifact panel refreshes when the repair finishes."
+                      : "This paper already has claimset data but no stats_report artifact. Use Repair Stats to rebuild the Stats Snapshot from the current claimset."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {repairStatsFeedback ? (
+            <div
+              data-testid={`repair-stats-${repairStatsFeedback.tone}`}
+              className={getInlineNoticeClassName(repairStatsFeedback.tone)}
+            >
+              <div className="flex items-start gap-2">
+                {repairStatsFeedback.tone === "success" ? (
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                )}
+                <div>
+                  <p className="font-semibold">
+                    {repairStatsFeedback.tone === "success" ? "Stats repair completed." : "Stats repair failed."}
+                  </p>
+                  <p className="mt-1 text-[11px]">{repairStatsFeedback.message}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {focusIssues ? (
             <p className="text-xs text-[var(--pp-warning-text)]">Issue focus enabled: prioritizing risk-related claims.</p>
           ) : null}
@@ -748,7 +901,7 @@ export function AnalysisWorkbench() {
           {loadError ? (
             <p className="text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
           ) : null}
-        </>
+        </div>
       ) : null}
       rail={
         <Rail

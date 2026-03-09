@@ -10,7 +10,7 @@ import {
   PersonaListResponse,
   TimelineResponse,
 } from "./types";
-import { getClaimLinkState, isClaimTextMissing } from "./claimGuard";
+import { buildBestHighlightMap, getClaimLinkState, isClaimTextMissing } from "./claimGuard";
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -1010,8 +1010,10 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       ? (statsData as { checks: unknown[] }).checks.length
       : 0;
 
+  const highlightMap = buildBestHighlightMap(parsedHighlights);
+
   const parsedClaimsWithGuard = parsedClaims.map((claim) => {
-    const highlight = parsedHighlights.find((item) => item.claim_id === claim.claim_id);
+    const highlight = highlightMap.get(claim.claim_id);
     const state = getClaimLinkState(claim, highlight);
     return {
       ...claim,
