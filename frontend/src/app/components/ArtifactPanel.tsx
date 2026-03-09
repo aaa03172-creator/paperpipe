@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleHelp, FlaskConical, NotebookPen } from "lucide-react";
 import { EvidenceHighlight, NotebookArtifact, ObsidianMirror } from "../lib/types";
-import { getClaimLinkState } from "../lib/claimGuard";
+import { buildBestHighlightMap, getClaimLinkState } from "../lib/claimGuard";
 import { circledNumber } from "../lib/ui";
 
 interface ArtifactPanelProps {
@@ -188,7 +188,7 @@ export function ArtifactPanel({
   density,
 }: ArtifactPanelProps) {
   const verdict = verdictStyle(notebook.verdict.level);
-  const highlightMap = new Map(highlights.map((item) => [item.claim_id, item]));
+  const highlightMap = buildBestHighlightMap(highlights);
   const compact = density === "compact";
   const claimLinkStates = notebook.claims.map((claim) => ({
     claimId: claim.claim_id,

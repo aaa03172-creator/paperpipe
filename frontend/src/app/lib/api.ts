@@ -11,6 +11,7 @@ import {
   PaperNoteListResponse,
   PaperSummary,
   PersonaListResponse,
+  StatsRepairResponse,
   TimelineResponse,
 } from "./types";
 import {
@@ -34,6 +35,16 @@ interface DeepReadRequest {
   run_verify: boolean;
   clean_reindex: boolean;
   persona_id: string;
+}
+
+interface RepairStatsRequest {
+  paper_ids: string[];
+  run_id?: string | null;
+  artifacts_root?: string;
+  max_checks?: number;
+  write_bootstrap_meta?: boolean;
+  skip_existing?: boolean;
+  dry_run?: boolean;
 }
 
 class ApiHttpError extends Error {
@@ -407,6 +418,64 @@ export async function enqueueDeepRead(payload: DeepReadRequest): Promise<ApiResu
       data: createMockJob(),
       isMock: true,
       reason: "deepread enqueue unavailable",
+    };
+  }
+}
+
+export async function repairStats(payload: RepairStatsRequest): Promise<ApiResult<StatsRepairResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: {
+        seeded: 1,
+        planned: 0,
+        skipped: 0,
+        total: 1,
+        results: [
+          {
+            paper_id: payload.paper_ids[0] ?? "mock-paper",
+            run_id: payload.run_id ?? "run-mock-001",
+            status: "seeded",
+            checks: 3,
+            reason: "claimset.json",
+          },
+        ],
+      },
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<StatsRepairResponse>(["/ops/repair-stats"], {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: {
+        seeded: 0,
+        planned: 0,
+        skipped: Math.max(1, payload.paper_ids.length),
+        total: Math.max(1, payload.paper_ids.length),
+        results: (payload.paper_ids.length > 0 ? payload.paper_ids : ["mock-paper"]).map((paperId) => ({
+          paper_id: paperId,
+          run_id: payload.run_id ?? null,
+          status: "skipped" as const,
+          checks: 0,
+          reason: "repair-stats endpoint unavailable",
+        })),
+      },
+      isMock: true,
+      reason: "repair-stats endpoint unavailable",
     };
   }
 }
