@@ -1,0 +1,7 @@
+{
+  "name": "paperpipe-root",
+  "private": true,
+  "scripts": {
+    "verify:ui": "npm --prefix frontend run verify:frontend"
+  }
+}

@@ -13,6 +13,14 @@ Compatibility alias:
 paperpipe start
 ```
 
+Frontend verification from repository root:
+
+```bash
+npm run verify:ui
+```
+
+This runs the full frontend gate (`build + mock E2E + backend preflight + backend E2E`).
+
 ## Runtime Security Environment Variables
 
 | Variable | Purpose | Default |
