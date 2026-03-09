@@ -3,7 +3,7 @@ import { expect, test, Page } from "@playwright/test";
 async function openMockWorkbenchAndSelectSecondClaim(page: Page) {
   await page.goto("/workbench/paper-2023-imaging");
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByText(/^Mock mode/)).toBeVisible();
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
