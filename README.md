@@ -48,6 +48,15 @@ curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
 
 ## Frontend E2E Required Checks
 
+Run the full frontend verification gate locally:
+
+```bash
+cd frontend
+npm run verify:frontend
+```
+
+This runs build + mock E2E + backend E2E in order.
+
 Repository plan limitations can block branch protection/ruleset APIs on private repos.
 After enabling GitHub Pro/Team (or making the repo public), enforce PR required checks:
 

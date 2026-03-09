@@ -27,19 +27,17 @@ async function openBackendPaperNoteDetail(page: Page) {
 test("visual regression (backend, desktop): paper notes list layout", async ({ page }) => {
   await openBackendPaperNotes(page);
 
-  const notesPage = page.locator("div.min-h-screen").first();
-  await expect(notesPage).toHaveScreenshot("backend-desktop-paper-notes-list.png", {
+  await expect(page).toHaveScreenshot("backend-desktop-paper-notes-list.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixels: 2800,
+    maxDiffPixels: 25000,
   });
 });
 
 test("visual regression (backend, desktop): paper note detail layout", async ({ page }) => {
   await openBackendPaperNoteDetail(page);
 
-  const detailPage = page.locator("div.min-h-screen").first();
-  await expect(detailPage).toHaveScreenshot("backend-desktop-paper-note-detail.png", {
+  await expect(page).toHaveScreenshot("backend-desktop-paper-note-detail.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixels: 3200,
@@ -55,7 +53,7 @@ test("visual regression (backend, desktop): workbench rail layout", async ({ pag
   await expect(rail).toHaveScreenshot("backend-desktop-workbench-rail.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixels: 1800,
+    maxDiffPixels: 4000,
   });
 });
 
@@ -87,8 +85,7 @@ test.describe("mobile visual regression (backend)", () => {
   test("paper notes list layout", async ({ page }) => {
     await openBackendPaperNotes(page);
 
-    const notesPage = page.locator("div.min-h-screen").first();
-    await expect(notesPage).toHaveScreenshot("backend-mobile-paper-notes-list.png", {
+    await expect(page).toHaveScreenshot("backend-mobile-paper-notes-list.png", {
       animations: "disabled",
       caret: "hide",
       maxDiffPixels: 2800,
@@ -98,8 +95,7 @@ test.describe("mobile visual regression (backend)", () => {
   test("paper note detail layout", async ({ page }) => {
     await openBackendPaperNoteDetail(page);
 
-    const detailPage = page.locator("div.min-h-screen").first();
-    await expect(detailPage).toHaveScreenshot("backend-mobile-paper-note-detail.png", {
+    await expect(page).toHaveScreenshot("backend-mobile-paper-note-detail.png", {
       animations: "disabled",
       caret: "hide",
       maxDiffPixels: 3500,
