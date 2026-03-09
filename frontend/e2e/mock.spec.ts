@@ -46,6 +46,12 @@ test("mock fallback observability shows structured reasons and terminal mock log
   const workbenchReasonCount = await page.getByTestId("mock-mode-reason-item").count();
   expect(workbenchReasonCount).toBeGreaterThan(0);
 
+  const telemetryDetails = page.getByTestId("mock-fallback-telemetry");
+  await expect(telemetryDetails).toBeVisible();
+  await telemetryDetails.locator("summary").click();
+  await expect(telemetryDetails.getByText("papers")).toBeVisible();
+  await expect(telemetryDetails.getByText(/^x\d+$/).first()).toBeVisible();
+
   await page.getByRole("button", { name: "Show Terminal Logs" }).click();
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();

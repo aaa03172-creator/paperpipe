@@ -121,16 +121,23 @@ conn.execute(
     """
 )
 pdf = root / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
-conn.execute(
+conn.executemany(
     """
     INSERT OR REPLACE INTO papers (paper_id, title, pdf_path, updated_at)
     VALUES (?, ?, ?, datetime('now'))
     """,
-    (
-        "paper-e2e-001",
-        "E2E Seed Paper",
-        str(pdf.resolve()),
-    ),
+    [
+        (
+            "paper-e2e-001",
+            "E2E Seed Paper",
+            str(pdf.resolve()),
+        ),
+        (
+            "paper-e2e-spans-001",
+            "E2E Spans Seed Paper",
+            str(pdf.resolve()),
+        ),
+    ],
 )
 
 config_raw = {}
@@ -403,6 +410,124 @@ conn.execute(
         "completed",
         str(artifact_dir.resolve()),
         str(log_path.resolve()),
+    ),
+)
+
+paper_id_spans = "paper-e2e-spans-001"
+run_id_spans = "run_e2e_spans_001"
+job_id_spans = "job-e2e-spans-001"
+artifact_dir_spans = root / "storage" / "artifacts" / paper_id_spans / run_id_spans
+artifact_dir_spans.mkdir(parents=True, exist_ok=True)
+
+claimset_payload_spans = {
+    "doc_id": paper_id_spans,
+    "claims": [
+        {
+            "claim_id": "span-claim-1",
+            "statement": "Section-aware method achieved a hit rate of 0.85.",
+            "confidence": "high",
+            "evidence_spans": [
+                {
+                    "page": 0,
+                    "raw_text": "Section-aware method achieved a Hit Rate@5 of 0.85.",
+                    "quote": "Section-aware method achieved a Hit Rate@5 of 0.85.",
+                    "bbox_pct": {"left": 0.18, "top": 0.22, "width": 0.46, "height": 0.14},
+                }
+            ],
+        },
+        {
+            "claim_id": "span-claim-2",
+            "statement": "Limitations include reliance on clear PDF headers.",
+            "confidence": "medium",
+            "evidence_spans": [
+                {
+                    "page": 1,
+                    "raw_text": "Limitations include the reliance on clear PDF headers.",
+                    "quote": "Limitations include the reliance on clear PDF headers.",
+                    "bbox": {"x": 0.12, "y": 0.48, "w": 0.66, "h": 0.14},
+                }
+            ],
+        },
+    ],
+}
+
+stats_payload_spans = {
+    "checks": [
+        {"check_id": "span-check-1", "hypothesis": "Hit-rate superiority", "verdict": "pass"},
+        {"check_id": "span-check-2", "hypothesis": "Header dependency risk", "verdict": "warning"},
+    ]
+}
+
+bootstrap_payload_spans = {
+    "artifact_document_written": False,
+    "artifact_index_written": False,
+    "artifact_claimset_written": True,
+    "artifact_stats_written": True,
+    "claimset_readiness": "ready",
+    "claimset_ready": True,
+    "claimset_claim_count": 2,
+    "claimset_readiness_reason": "claims_present",
+    "claimset_readiness_badge": "READY",
+    "claimset_ops_action": "none",
+    "claimset_ops_alert": False,
+    "claimset_ops_note": "ready",
+}
+
+(artifact_dir_spans / "claimset.json").write_text(json.dumps(claimset_payload_spans, indent=2), encoding="utf-8")
+(artifact_dir_spans / "stats_report.json").write_text(json.dumps(stats_payload_spans, indent=2), encoding="utf-8")
+(artifact_dir_spans / "bootstrap_meta.json").write_text(json.dumps(bootstrap_payload_spans, indent=2), encoding="utf-8")
+(artifact_dir_spans / "run_meta.json").write_text(
+    json.dumps({"paper_id": paper_id_spans, "run_id": run_id_spans, "status": "completed"}, indent=2),
+    encoding="utf-8",
+)
+
+log_path_spans = log_dir / f"{job_id_spans}.log"
+log_lines_spans = [
+    {
+        "timestamp": "2026-03-09T08:10:01Z",
+        "stage": "ingest",
+        "progress": 20,
+        "level": "INFO",
+        "message": "Loaded evidence_spans fixture",
+    },
+    {
+        "timestamp": "2026-03-09T08:10:02Z",
+        "stage": "read",
+        "progress": 70,
+        "level": "INFO",
+        "message": "Extracted 2 claims",
+    },
+    {
+        "timestamp": "2026-03-09T08:10:03Z",
+        "stage": "completed",
+        "progress": 100,
+        "level": "INFO",
+        "message": "Pipeline completed successfully",
+    },
+]
+log_path_spans.write_text("\n".join(json.dumps(line) for line in log_lines_spans) + "\n", encoding="utf-8")
+
+conn.execute(
+    """
+    INSERT OR REPLACE INTO jobs (
+        job_id, run_id, paper_id, persona_id, run_verify, clean_reindex,
+        status, progress, stage, created_at, started_at, finished_at,
+        artifact_dir, log_path, error_code, error_message
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), ?, ?, NULL, NULL)
+    """,
+    (
+        job_id_spans,
+        run_id_spans,
+        paper_id_spans,
+        "default",
+        1,
+        0,
+        "completed",
+        100,
+        "completed",
+        str(artifact_dir_spans.resolve()),
+        str(log_path_spans.resolve()),
     ),
 )
 
