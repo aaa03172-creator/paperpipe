@@ -13,6 +13,7 @@ interface WorkbenchLayoutProps {
   jobStatus: JobLifecycle;
   mockMode: boolean;
   mockReason?: string;
+  mockReasons?: string[];
   rail: ReactNode;
   pdfPanel: ReactNode;
   artifactPanel: ReactNode;
@@ -33,6 +34,7 @@ export function WorkbenchLayout({
   jobStatus,
   mockMode,
   mockReason,
+  mockReasons = [],
   rail,
   pdfPanel,
   artifactPanel,
@@ -60,7 +62,7 @@ export function WorkbenchLayout({
             <StatusChip status={jobStatus} asJob />
             {mockMode ? (
               <span className="inline-flex items-center rounded-full border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2.5 py-1 text-xs text-[var(--pp-warning-text)]">
-                Mock mode
+                {mockReasons.length > 0 ? `Mock mode · ${mockReasons.length}` : "Mock mode"}
               </span>
             ) : null}
             <Link
@@ -97,7 +99,18 @@ export function WorkbenchLayout({
         </div>
 
         {mockMode && mockReason ? (
-          <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{mockReason}</p>
+          <details data-testid="mock-mode-details" className="mt-2 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-[var(--pp-warning-text)]">
+              Mock fallback details
+            </summary>
+            <ul className="mt-2 space-y-1 text-xs text-[var(--pp-warning-text)]">
+              {mockReasons.length > 0
+                ? mockReasons.map((reason) => (
+                    <li key={reason} data-testid="mock-mode-reason-item">{reason}</li>
+                  ))
+                : <li data-testid="mock-mode-reason-item">{mockReason}</li>}
+            </ul>
+          </details>
         ) : null}
         {notice ? <div className="mt-2">{notice}</div> : null}
       </header>
