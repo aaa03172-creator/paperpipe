@@ -104,6 +104,14 @@ type RepairStatsFeedback =
     }
   | null;
 
+interface MockFallbackTelemetryItem {
+  key: string;
+  source: string;
+  reason: string;
+  count: number;
+  lastSeenAt: string;
+}
+
 function getInlineNoticeClassName(tone: "warning" | "success" | "error"): string {
   if (tone === "success") {
     return "rounded-md border border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] px-3 py-2 text-xs text-[var(--pp-status-completed-text)]";
@@ -140,6 +148,7 @@ export function AnalysisWorkbench() {
   const [highlightMode, setHighlightMode] = useState<"soft" | "focus">("soft");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [mockFallbackTelemetry, setMockFallbackTelemetry] = useState<MockFallbackTelemetryItem[]>([]);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -173,6 +182,7 @@ export function AnalysisWorkbench() {
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
   const focusIssuesRef = useRef<boolean>(focusIssues);
   const pdfBlobUrlRef = useRef<string | null>(null);
+  const mockFallbackLogKeysRef = useRef<Set<string>>(new Set());
 
   const replacePdfBlobUrl = useCallback((nextUrl: string | null) => {
     if (pdfBlobUrlRef.current && pdfBlobUrlRef.current !== nextUrl) {
@@ -181,6 +191,40 @@ export function AnalysisWorkbench() {
     pdfBlobUrlRef.current = nextUrl;
     setPdfBlobUrl(nextUrl);
   }, []);
+
+  const reportMockFallback = useCallback((reason?: string, source = "unknown") => {
+    markMockMode(reason);
+    const normalizedReason = reason?.trim();
+    if (!normalizedReason) {
+      return;
+    }
+    const eventKey = `${source}::${normalizedReason}`;
+    const timestamp = new Date().toISOString();
+    setMockFallbackTelemetry((prev) => {
+      const existing = prev.find((item) => item.key === eventKey);
+      if (existing) {
+        return prev
+          .map((item) => (
+            item.key === eventKey
+              ? { ...item, count: item.count + 1, lastSeenAt: timestamp }
+              : item
+          ))
+          .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+      }
+      return [
+        { key: eventKey, source, reason: normalizedReason, count: 1, lastSeenAt: timestamp },
+        ...prev,
+      ].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    });
+    if (mockFallbackLogKeysRef.current.has(eventKey)) {
+      return;
+    }
+    mockFallbackLogKeysRef.current.add(eventKey);
+    setTerminalLogs((prev) => [
+      ...prev.slice(-499),
+      `[${timestamp}][MOCK] ${source}: ${normalizedReason}`,
+    ]);
+  }, [markMockMode]);
 
   const loadObsidianMirror = useCallback(
     async (runId: string | null | undefined) => {
@@ -194,14 +238,14 @@ export function AnalysisWorkbench() {
       try {
         const mirrorResult = await getObsidianMirror(paperId, runId);
         if (mirrorResult.isMock) {
-          markMockMode(mirrorResult.reason);
+          reportMockFallback(mirrorResult.reason, "obsidian-mirror");
         }
         setObsidianMirror(mirrorResult.data);
       } finally {
         setLoadingObsidianMirror(false);
       }
     },
-    [paperId, markMockMode],
+    [paperId, reportMockFallback],
   );
 
   useEffect(() => {
@@ -249,6 +293,9 @@ export function AnalysisWorkbench() {
       setLoadError(null);
       setRepairStatsFeedback(null);
       clearMockMode();
+      mockFallbackLogKeysRef.current.clear();
+      setMockFallbackTelemetry([]);
+      setTerminalLogs([]);
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
       setLoadingObsidianMirror(true);
@@ -266,11 +313,11 @@ export function AnalysisWorkbench() {
           return;
         }
 
-        if (papersResult.isMock) markMockMode(papersResult.reason);
-        if (paperResult.isMock) markMockMode(paperResult.reason);
-        if (personaResult.isMock) markMockMode(personaResult.reason);
-        if (jobsResult.isMock) markMockMode(jobsResult.reason);
-        if (artifactResult.isMock) markMockMode(artifactResult.reason);
+        if (papersResult.isMock) reportMockFallback(papersResult.reason, "papers");
+        if (paperResult.isMock) reportMockFallback(paperResult.reason, "paper-detail");
+        if (personaResult.isMock) reportMockFallback(personaResult.reason, "personas");
+        if (jobsResult.isMock) reportMockFallback(jobsResult.reason, "jobs");
+        if (artifactResult.isMock) reportMockFallback(artifactResult.reason, "artifacts-latest");
 
         setPapers(papersResult.data);
         setPaper(paperResult.data);
@@ -291,7 +338,7 @@ export function AnalysisWorkbench() {
             return;
           }
           if (pdfResult.isMock) {
-            markMockMode(pdfResult.reason);
+            reportMockFallback(pdfResult.reason, "paper-pdf");
           }
           replacePdfBlobUrl(pdfResult.data);
         } catch (error) {
@@ -315,18 +362,18 @@ export function AnalysisWorkbench() {
             return;
           }
           if (timelineResult.isMock) {
-            markMockMode(timelineResult.reason);
+            reportMockFallback(timelineResult.reason, "timeline");
           }
           setTimelineEvents(timelineResult.data.events);
-          setTerminalLogs(
-            timelineResult.data.events.map((event) => {
+          setTerminalLogs((prev) => [
+            ...prev.slice(-499),
+            ...timelineResult.data.events.map((event) => {
               const level = event.level ?? (event.event === "error" ? "ERROR" : "INFO");
               return `[${event.ts ?? new Date().toISOString()}][${level}] ${event.message ?? event.raw ?? event.event}`;
             }),
-          );
+          ]);
         } else {
           setTimelineEvents([]);
-          setTerminalLogs([]);
         }
       } catch (error) {
         if (!mounted) {
@@ -347,7 +394,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, reportMockFallback, replacePdfBlobUrl, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -422,7 +469,7 @@ export function AnalysisWorkbench() {
           try {
             const nextArtifacts = await getArtifactsLatest(paperId);
             if (nextArtifacts.isMock) {
-              markMockMode(nextArtifacts.reason);
+              reportMockFallback(nextArtifacts.reason, "stream-artifacts-latest");
             }
             setArtifactBundle(nextArtifacts.data);
             const nextNotebook = getNotebookFromBundle(nextArtifacts.data);
@@ -439,7 +486,7 @@ export function AnalysisWorkbench() {
         },
         onModeChange: (isMock, reason) => {
           if (isMock) {
-            markMockMode(reason);
+            reportMockFallback(reason, "stream-mode");
           }
         },
       },
@@ -448,7 +495,7 @@ export function AnalysisWorkbench() {
     return () => {
       subscription?.close();
     };
-  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, markMockMode, setActiveClaimId]);
+  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, reportMockFallback, setActiveClaimId]);
 
   async function refreshData() {
     if (!paperId) {
@@ -462,10 +509,10 @@ export function AnalysisWorkbench() {
       ]);
 
       if (jobResult && jobResult.isMock) {
-        markMockMode(jobResult.reason);
+        reportMockFallback(jobResult.reason, "job");
       }
       if (artifactResult.isMock) {
-        markMockMode(artifactResult.reason);
+        reportMockFallback(artifactResult.reason, "artifacts-latest");
       }
 
       if (jobResult) {
@@ -502,7 +549,7 @@ export function AnalysisWorkbench() {
         dry_run: false,
       });
       if (repairResult.isMock) {
-        markMockMode(repairResult.reason);
+        reportMockFallback(repairResult.reason, "repair-stats");
       }
       const summary = `repair-stats summary: seeded=${repairResult.data.seeded}, skipped=${repairResult.data.skipped}, total=${repairResult.data.total}`;
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][INFO] ${summary}`]);
@@ -544,7 +591,7 @@ export function AnalysisWorkbench() {
       setLoadError(null);
       const syncResult = await syncToObsidian(paperId, runId);
       if (syncResult.isMock) {
-        markMockMode(syncResult.reason);
+        reportMockFallback(syncResult.reason, "obsidian-sync");
       }
       await loadObsidianMirror(runId);
       setTerminalLogs((prev) => [
@@ -575,7 +622,7 @@ export function AnalysisWorkbench() {
       });
 
       if (enqueueResult.isMock) {
-        markMockMode(enqueueResult.reason);
+        reportMockFallback(enqueueResult.reason, "deepread-enqueue");
       }
 
       const newJob: JobStatus = {
@@ -629,6 +676,7 @@ export function AnalysisWorkbench() {
     focusIssues ||
     loadError ||
     hasClaimGuardNotice ||
+    (mockMode && mockFallbackTelemetry.length > 0) ||
     canRepairStats ||
     repairingStats ||
     Boolean(repairStatsFeedback);
@@ -841,6 +889,7 @@ export function AnalysisWorkbench() {
       jobStatus={currentJob.status}
       mockMode={mockMode}
       mockReason={mockReason}
+      mockReasons={mockReasons}
       notice={showNotice ? (
         <div className="grid gap-2">
           {canRepairStats || repairingStats ? (
@@ -897,6 +946,27 @@ export function AnalysisWorkbench() {
             <p data-testid="claim-guard-text-missing" className="text-xs text-[var(--pp-status-failed-text)]">
               {`${claimGuard.missingTextCount} claim text field(s) are missing.`}
             </p>
+          ) : null}
+          {mockMode && mockFallbackTelemetry.length > 0 ? (
+            <details data-testid="mock-fallback-telemetry" className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-[var(--pp-warning-text)]">
+                Mock fallback telemetry ({mockFallbackTelemetry.length})
+              </summary>
+              <ul className="mt-2 space-y-1.5 text-xs">
+                {mockFallbackTelemetry.map((item) => (
+                  <li key={item.key} className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-[var(--pp-warning-text)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full border border-[var(--pp-warning-border)] px-1.5 py-0.5 text-[10px] font-semibold">
+                        {item.source}
+                      </span>
+                      <span className="text-[10px] opacity-80">x{item.count}</span>
+                      <span className="text-[10px] opacity-70">{new Date(item.lastSeenAt).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="mt-1">{item.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </details>
           ) : null}
           {loadError ? (
             <p className="text-xs text-[var(--pp-status-failed-text)]">API error: {loadError}</p>
