@@ -43,8 +43,26 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run mock fallback E2E smoke
+        id: run_mock_verify
         working-directory: frontend
-        run: npm run e2e:mock
+        run: npm run verify:frontend:mock
+
+      - name: Mock failure reproduction guide
+        if: ${{ failure() && steps.run_mock_verify.outcome == 'failure' }}
+        run: |
+          {
+            echo "## Frontend E2E (Mock) Failure Guide"
+            echo ""
+            echo "- Reproduce locally:"
+            echo '  1. `cd frontend`'
+            echo '  2. `npm ci`'
+            echo '  3. `npx playwright install --with-deps chromium`'
+            echo '  4. `npm run verify:frontend:mock`'
+            echo ""
+            echo "- Artifacts:"
+            echo "  - \`frontend/playwright-report\`"
+            echo "  - \`frontend/test-results\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload mock Playwright artifacts
         if: always()
@@ -91,13 +109,27 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Run backend preflight guard
-        working-directory: frontend
-        run: npm run e2e:backend:preflight
-
       - name: Run backend-connected E2E smoke
+        id: run_backend_verify
         working-directory: frontend
-        run: npm run e2e:backend:full
+        run: npm run verify:frontend:backend
+
+      - name: Backend failure reproduction guide
+        if: ${{ failure() && steps.run_backend_verify.outcome == 'failure' }}
+        run: |
+          {
+            echo "## Frontend E2E (Backend) Failure Guide"
+            echo ""
+            echo "- Reproduce locally:"
+            echo '  1. `cd frontend`'
+            echo '  2. `npm ci`'
+            echo '  3. `npx playwright install --with-deps chromium`'
+            echo '  4. `npm run verify:frontend:backend`'
+            echo ""
+            echo "- Artifacts:"
+            echo "  - \`frontend/playwright-report\`"
+            echo "  - \`frontend/test-results\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload backend Playwright artifacts
         if: always()
