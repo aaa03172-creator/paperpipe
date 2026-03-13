@@ -4,10 +4,11 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from src.services.runtime_paths import state_db_path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("storage/state.db")
+DB_PATH = state_db_path()
 
 
 def _get_paper_columns(cursor: sqlite3.Cursor) -> set[str]:
