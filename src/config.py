@@ -152,7 +152,8 @@ class AppConfig(BaseModel):
 
 
 def load_config(config_path: str = "config.yaml") -> AppConfig:
-    path = Path(config_path)
+    override_path = os.getenv("PAPERPIPE_CONFIG_PATH")
+    path = Path(override_path or config_path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"Config file not found at {path.absolute()}")
     
