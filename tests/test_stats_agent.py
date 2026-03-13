@@ -1,16 +1,29 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from src.agents.stats_agent import StatsVerificationAgent, StatsAgentState
-from src.schemas.agent_artifacts import DocumentArtifact, ClaimSet, SourceInfo, PaperMetadata, ScientificClaim
-from src.contracts.document_artifact_v2 import DocumentArtifactV2, ArtifactMetaV2
+from src.agents.stats_agent import StatsVerificationAgent
+from src.schemas.agent_artifacts import (
+    DocumentArtifact,
+    ClaimSet,
+    SourceInfo,
+    PaperMetadata,
+    ScientificClaim,
+    TableData,
+)
+from src.contracts.document_artifact_v2 import DocumentArtifactV2, ArtifactMetaV2, TableV2
 
 class TestStatsAgent(unittest.TestCase):
     def setUp(self):
+        table = TableData(
+            table_id="T1",
+            caption="Test table",
+            data=[["group1", "group2"], ["1", "2"], ["3", "4"]],
+            source_page=1,
+        )
         self.doc = DocumentArtifact(
             doc_id="doc1",
             source=SourceInfo(type="text", ref="test"),
             metadata=PaperMetadata(title="Test", authors=[]),
-            tables=[]
+            tables=[table]
         )
         self.claims = ClaimSet(
             doc_id="doc1",
@@ -26,16 +39,28 @@ class TestStatsAgent(unittest.TestCase):
                 source_ref="test.pdf",
             ),
             pages=[],
-            tables=[],
+            tables=[
+                TableV2(
+                    table_id="T1",
+                    caption="Test table",
+                    data=[["group1", "group2"], ["1", "2"], ["3", "4"]],
+                    source_page=1,
+                )
+            ],
         )
 
-    def test_graph_construction(self):
+    @patch("src.agents.stats_agent.load_config")
+    @patch("src.agents.stats_agent.OllamaModelAdapter")
+    def test_graph_construction(self, _mock_adapter, mock_load_config):
+        mock_load_config.return_value = MagicMock()
         agent = StatsVerificationAgent()
         self.assertIsNotNone(agent.workflow)
 
+    @patch("src.agents.stats_agent.load_config")
     @patch("src.agents.stats_agent.OllamaModelAdapter")
     @patch("src.agents.stats_agent.DockerSandbox")
-    def test_execution_flow(self, MockSandbox, MockAdapter):
+    def test_execution_flow(self, MockSandbox, MockAdapter, mock_load_config):
+        mock_load_config.return_value = MagicMock()
         agent = StatsVerificationAgent()
         
         # Mock LLM responses
