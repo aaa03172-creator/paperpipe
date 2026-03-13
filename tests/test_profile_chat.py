@@ -1,8 +1,6 @@
 import unittest
-from unittest.mock import MagicMock, patch
-from src.schemas.agent_artifacts import DocumentArtifact
+from unittest.mock import patch
 from src.profiles.profile_schema import Profile, QuerySpec
-from src.profiles.patch_schema import PatchRequest, PatchOp
 from src.agents.profile_chat_agent import ProfileChatAgent
 
 class TestProfileChat(unittest.TestCase):

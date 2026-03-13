@@ -1,9 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
-from src.agents.profile_chat_agent import ProfileChatAgent, STRICT_LIBRARIAN_PROMPT, AUDIT_PROMPT
+from src.agents.profile_chat_agent import ProfileChatAgent
 from src.profiles.profile_schema import Profile, QuerySpec, Limits
-from src.profiles.patch_schema import PatchRequest
 from src.db_utils import init_run_stats_table, log_run_stat, get_profile_stats
 
 class TestAdvancedLibrarian(unittest.TestCase):

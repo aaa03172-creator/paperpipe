@@ -1,10 +1,8 @@
 import logging
 import json
-from datetime import datetime
-from src.schemas.agent_artifacts import DocumentArtifact
 from src.agents.adapter import OllamaModelAdapter
 from src.profiles.profile_schema import Profile
-from src.profiles.patch_schema import PatchRequest, PatchOp
+from src.profiles.patch_schema import PatchRequest
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
