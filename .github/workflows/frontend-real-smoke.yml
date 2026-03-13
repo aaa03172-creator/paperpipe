@@ -33,8 +33,7 @@ jobs:
     timeout-minutes: 45
     runs-on:
       - self-hosted
-      - linux
-      - x64
+      - paperpipe-real-smoke
     env:
       PAPERPIPE_CONFIG_PATH: ${{ inputs.config_path }}
       PAPERPIPE_STORAGE_DIR: ${{ inputs.storage_dir }}
