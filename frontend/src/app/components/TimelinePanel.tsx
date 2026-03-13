@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info } from "lucide-react";
 import { TimelineEvent } from "../lib/types";
 
@@ -63,20 +63,17 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
   const errorCount = events.filter((event) => event.event === "error").length;
   const doneCount = events.filter((event) => event.event === "done").length;
   const statusCount = events.filter((event) => event.event === "status").length;
-  useEffect(() => {
-    // Defaulting to "status" keeps focus, but if a run has no status events
-    // we should fall back to "all" so the timeline doesn't look empty.
-    if (filter === "status" && events.length > 0 && statusCount === 0) {
-      setFilter("all");
-    }
-  }, [events, filter, statusCount]);
+  const effectiveFilter: TimelineFilter =
+    filter === "status" && events.length > 0 && statusCount === 0
+      ? "all"
+      : filter;
 
   const filteredEvents =
-    filter === "all"
+    effectiveFilter === "all"
       ? newestFirst
-      : filter === "error"
+      : effectiveFilter === "error"
         ? newestFirst.filter((event) => event.event === "error")
-        : filter === "done"
+        : effectiveFilter === "done"
           ? newestFirst.filter((event) => event.event === "done")
           : newestFirst.filter((event) => event.event === "status");
   const renderedEvents = compact ? filteredEvents.slice(0, 8) : filteredEvents;
@@ -95,7 +92,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
             onClick={() => setFilter("all")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
-              filter === "all"
+              effectiveFilter === "all"
                 ? "border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] text-[var(--pp-accent-text)]"
                 : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
             ].join(" ")}
@@ -107,7 +104,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
             onClick={() => setFilter("status")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
-              filter === "status"
+              effectiveFilter === "status"
                 ? "border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] text-[var(--pp-accent-text)]"
                 : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
             ].join(" ")}
@@ -119,7 +116,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
             onClick={() => setFilter("error")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
-              filter === "error"
+              effectiveFilter === "error"
                 ? "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]"
                 : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
             ].join(" ")}
@@ -131,7 +128,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
             onClick={() => setFilter("done")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
-              filter === "done"
+              effectiveFilter === "done"
                 ? "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
                 : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
             ].join(" ")}
