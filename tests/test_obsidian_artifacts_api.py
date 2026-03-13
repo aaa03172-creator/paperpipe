@@ -7,6 +7,10 @@ from backend import main as api_main
 from backend.routers import obsidian as obsidian_router
 
 
+def _set_artifacts_root(monkeypatch, root):
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(root))
+
+
 def _claimset_payload(claim_id: str, statement: str, evidence: str) -> dict:
     return {
         "doc_id": "paper_sync_001",
@@ -24,6 +28,7 @@ def _claimset_payload(claim_id: str, statement: str, evidence: str) -> dict:
 
 def test_obsidian_artifacts_prefers_resolved_claimset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
     client = TestClient(api_main.app)
 
     run_dir = tmp_path / "storage" / "artifacts" / "paper_obs_001" / "run_obs_001"
@@ -51,6 +56,7 @@ def test_obsidian_artifacts_prefers_resolved_claimset(tmp_path, monkeypatch):
 
 def test_obsidian_artifacts_falls_back_to_legacy_claimset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
     client = TestClient(api_main.app)
 
     run_dir = tmp_path / "storage" / "artifacts" / "paper_obs_002" / "run_obs_002"
@@ -70,14 +76,37 @@ def test_obsidian_artifacts_falls_back_to_legacy_claimset(tmp_path, monkeypatch)
 
 def test_obsidian_artifacts_returns_404_for_missing_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
     client = TestClient(api_main.app)
 
     resp = client.get("/obsidian/artifacts", params={"paper_id": "paper_missing", "run_id": "run_missing"})
     assert resp.status_code == 404
 
 
+def test_obsidian_artifacts_honor_artifacts_root_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    custom_artifacts = tmp_path / "external-artifacts"
+    _set_artifacts_root(monkeypatch, custom_artifacts)
+    client = TestClient(api_main.app)
+
+    run_dir = custom_artifacts / "paper_obs_override" / "run_obs_override"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "claimset.resolved.json").write_text(json.dumps({"claims": ["resolved-override"]}), encoding="utf-8")
+    (run_dir / "stats_report.json").write_text(json.dumps({"checks": []}), encoding="utf-8")
+
+    resp = client.get("/obsidian/artifacts", params={"paper_id": "paper_obs_override", "run_id": "run_obs_override"})
+    assert resp.status_code == 200
+    payload = resp.json()
+
+    assert payload["claimset_source"] == "claimset.resolved.json"
+    assert payload["claimset"]["exists"] is True
+    assert payload["claimset"]["data"]["claims"] == ["resolved-override"]
+    assert payload["stats_report"]["exists"] is True
+
+
 def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
 
     vault_dir = tmp_path / "vault"
     vault_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +139,7 @@ def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
 
 def test_obsidian_sync_replaces_existing_marker_block(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
 
     vault_dir = tmp_path / "vault"
     vault_dir.mkdir(parents=True, exist_ok=True)
@@ -153,6 +183,7 @@ def test_obsidian_sync_replaces_existing_marker_block(tmp_path, monkeypatch):
 
 def test_obsidian_sync_uses_atomic_write(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
 
     vault_dir = tmp_path / "vault"
     vault_dir.mkdir(parents=True, exist_ok=True)

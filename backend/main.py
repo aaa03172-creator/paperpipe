@@ -26,6 +26,7 @@ from src.schemas.ops import (
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
+from src.services.runtime_paths import artifacts_root
 from .routers import obsidian, feedback
 
 def _resolve_cors_allow_origins() -> list[str]:
@@ -189,7 +190,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
 
 
 def _artifact_run_dir(paper_id: str, run_id: str) -> Path:
-    return Path("storage/artifacts") / paper_id / run_id
+    return artifacts_root() / paper_id / run_id
 
 
 def _safe_read_json(path: Path) -> Any:
@@ -249,7 +250,7 @@ def _latest_run_id_for_paper(paper_id: str) -> str | None:
     finally:
         conn.close()
 
-    paper_dir = Path("storage/artifacts") / paper_id
+    paper_dir = artifacts_root() / paper_id
     if not paper_dir.exists():
         return None
     candidates = [p for p in paper_dir.iterdir() if p.is_dir()]
