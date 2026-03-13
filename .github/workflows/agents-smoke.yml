@@ -1,0 +1,38 @@
+name: agents-smoke
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agents-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Run agents smoke gate
+        run: |
+          chmod +x ./scripts/run_agents_smoke.sh
+          ./scripts/run_agents_smoke.sh
