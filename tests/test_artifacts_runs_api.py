@@ -7,8 +7,13 @@ from backend import main as api_main
 from src.jobs.queue import JobQueue
 
 
+def _set_artifacts_root(monkeypatch, root):
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(root))
+
+
 def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
 
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"
@@ -95,6 +100,63 @@ def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
 
         missing = client.get("/artifacts/paper_artifacts_001/run_missing")
         assert missing.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_artifacts_latest_honors_artifacts_root_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    custom_artifacts = tmp_path / "external-artifacts"
+    _set_artifacts_root(monkeypatch, custom_artifacts)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_override",
+                "run_override",
+                "paper_override_001",
+                "completed",
+                100,
+                "completed",
+                "2026-02-24 00:02:00",
+                "2026-02-24 00:02:05",
+                None,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        run_dir = custom_artifacts / "paper_override_001" / "run_override"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "document_artifact.json").write_text(json.dumps({"doc_id": "override"}), encoding="utf-8")
+        (run_dir / "claimset.resolved.json").write_text(
+            json.dumps(
+                {
+                    "claims": [
+                        {"claim_id": "c1", "evidence_spans": [{"page": 0}]},
+                        {"claim_id": "c2", "evidence_spans": [{"page": 2}]},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        client = TestClient(api_main.app)
+        latest = client.get("/artifacts/paper_override_001/latest")
+        assert latest.status_code == 200
+        payload = latest.json()
+        assert payload["run_id"] == "run_override"
+        assert payload["files"]["document_artifact"]["data"]["doc_id"] == "override"
+        assert payload["files"]["claimset_resolved"]["exists"] is True
     finally:
         db_utils.DB_PATH = original_db_path
 
