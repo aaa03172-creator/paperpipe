@@ -13,6 +13,7 @@ from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 from src.schemas.ops import ArtifactFileEntry, ObsidianArtifactsResponse
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
+from src.services.runtime_paths import artifacts_root
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
@@ -34,7 +35,7 @@ except Exception:  # pragma: no cover - non-POSIX fallback
     fcntl = None
 
 def _load_artifact(paper_id: str, run_id: str, filename: str):
-    path = Path(f"storage/artifacts/{paper_id}/{run_id}/{filename}")
+    path = artifacts_root() / paper_id / run_id / filename
     if not path.exists():
         return None
     with open(path, "r") as f:
@@ -132,7 +133,7 @@ async def get_obsidian_artifacts(
     paper_id: str = Query(..., min_length=1),
     run_id: str = Query(..., min_length=1),
 ):
-    run_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+    run_dir = artifacts_root() / paper_id / run_id
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail=f"Artifacts not found for paper_id={paper_id}, run_id={run_id}")
 
