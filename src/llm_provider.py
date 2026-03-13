@@ -392,3 +392,14 @@ def get_llm_provider(config: LLMConfig) -> Optional[LLMProvider]:
         return OpenAIProvider(config)
     # 다른 프로바이더 (e.g., "anthropic")가 추가될 경우 여기에 로직을 구현
     return None
+
+
+class OllamaProvider(LLMProvider):
+    """Compatibility shim for branches without the full local provider."""
+
+    def __init__(self, config: LLMConfig, entity_aliases: Optional[Dict[str, str]] = None):
+        _ = entity_aliases
+        super().__init__(config)
+
+    def _create_client(self):
+        return None

@@ -16,9 +16,11 @@ class TestAdvancedLibrarian(unittest.TestCase):
             query=QuerySpec(must=["brain"], should=[], must_not=[])
         )
 
+    @patch("src.agents.profile_chat_agent.load_config")
     @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
-    def test_ontology_rule_in_prompt(self, MockAdapter):
+    def test_ontology_rule_in_prompt(self, MockAdapter, mock_load_config):
         """Verify that the Ontology Expansion rule is present in the prompt."""
+        mock_load_config.return_value = MagicMock(agents=None)
         agent = ProfileChatAgent()
         mock_instance = MockAdapter.return_value
         
@@ -37,9 +39,11 @@ class TestAdvancedLibrarian(unittest.TestCase):
         self.assertIn("Ontology Expansion (Domain Expert)", prompt_sent)
         self.assertIn("AUTOMATICALLY expand it", prompt_sent)
 
+    @patch("src.agents.profile_chat_agent.load_config")
     @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
-    def test_audit_fix_generation(self, MockAdapter):
+    def test_audit_fix_generation(self, MockAdapter, mock_load_config):
         """Verify suggest_audit_fix constructs prompt and parses response."""
+        mock_load_config.return_value = MagicMock(agents=None)
         agent = ProfileChatAgent()
         mock_instance = MockAdapter.return_value
         
