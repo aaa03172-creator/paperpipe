@@ -169,6 +169,23 @@ export interface JobEnqueueResponse {
   status: "queued";
 }
 
+
+export interface StatsRepairResult {
+  paper_id: string;
+  run_id?: string | null;
+  status: "seeded" | "planned" | "skipped";
+  checks: number;
+  reason: string;
+}
+
+export interface StatsRepairResponse {
+  seeded: number;
+  planned: number;
+  skipped: number;
+  total: number;
+  results: StatsRepairResult[];
+}
+
 export interface EvidenceHighlight {
   claim_id: string;
   page: number;
