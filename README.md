@@ -70,7 +70,7 @@ Notes:
 - GitHub Actions entry point: `.github/workflows/frontend-real-smoke.yml` (manual, self-hosted only).
 - GitHub can dispatch this workflow by filename only after the file exists on the repository default branch. The repository default branch is currently `main`, so the workflow is registered on `main` even when the actual implementation ref lives on `master` or a feature branch.
 - Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`.
-- If the repository has no matching `self-hosted`, `linux`, `x64` runner online, the run will stay `queued` until a runner comes online.
+- If the repository has no matching `self-hosted`, `paperpipe-real-smoke` runner online, the run will stay `queued` until a runner comes online.
 
 Branch note:
 - The repository default branch is `main`.

@@ -76,7 +76,7 @@ npm run e2e:backend:real-smoke
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
 - GitHub Actions에서 같은 경로를 수동 실행하려면 workflow 파일이 repo default branch에 등록돼 있어야 합니다. 현재 default branch는 `main`입니다.
 - 따라서 `.github/workflows/frontend-real-smoke.yml`는 `main`에 등록돼 있고, 실제 테스트 대상은 `--ref`로 별도 브랜치를 지정합니다. 예: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`
-- repo에 `self-hosted`, `linux`, `x64` 러너가 없으면 dispatch는 성공해도 job은 계속 `queued` 상태로 남습니다.
+- repo에 `self-hosted`, `paperpipe-real-smoke` 라벨을 가진 러너가 없으면 dispatch는 성공해도 job은 계속 `queued` 상태로 남습니다.
 - 시각 회귀 스냅샷 갱신(의도된 UI 변경 시만):
 ```bash
 cd frontend
@@ -106,7 +106,7 @@ npm run e2e:backend
 - `real smoke`:
   - 워크플로우: `.github/workflows/frontend-real-smoke.yml`
   - workflow 파일은 GitHub 등록을 위해 `main`에 존재해야 함
-  - `self-hosted`, `linux`, `x64` 러너에서만 수동 실행
+  - `self-hosted`, `paperpipe-real-smoke` 라벨을 가진 러너에서만 수동 실행
   - 필수 입력: runner-local `config_path`
   - 선택 입력: `storage_dir`, `db_path`, `artifacts_dir`
   - 주의: Playwright OS dependency는 러너에 미리 준비되어 있어야 합니다.
