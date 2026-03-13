@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload mock Playwright artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-mock-artifacts
           if-no-files-found: ignore
@@ -133,7 +133,7 @@ jobs:
 
       - name: Upload backend Playwright artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-backend-artifacts
           if-no-files-found: ignore
