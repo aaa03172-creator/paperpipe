@@ -41,9 +41,14 @@ jobs:
       PAPERPIPE_ARTIFACTS_DIR: ${{ inputs.artifacts_dir }}
       PAPERPIPE_REAL_SMOKE: "1"
       PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES: "1"
+      RUNNER_TOOL_CACHE: ${{ github.workspace }}/.toolcache
+      AGENT_TOOLSDIRECTORY: ${{ github.workspace }}/.toolcache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare self-hosted tool cache
+        run: mkdir -p "$RUNNER_TOOL_CACHE"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -71,13 +76,19 @@ jobs:
         if: always()
         shell: bash
         run: |
-          {
-            echo "## Frontend Real Smoke Preflight"
-            echo
-            echo '```json'
-            cat frontend-real-smoke-preflight.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f frontend-real-smoke-preflight.json ]]; then
+            {
+              echo "## Frontend Real Smoke Preflight"
+              echo
+              echo '```json'
+              cat frontend-real-smoke-preflight.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Frontend Real Smoke Preflight" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "preflight output was not generated because an earlier setup step failed." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Install frontend dependencies
         working-directory: frontend
