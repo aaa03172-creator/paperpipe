@@ -109,7 +109,7 @@ npm run e2e:backend
   - `self-hosted`, `paperpipe-real-smoke` 라벨을 가진 러너에서만 수동 실행
   - 필수 입력: runner-local `config_path`
   - 선택 입력: `storage_dir`, `db_path`, `artifacts_dir`
-  - 주의: Playwright OS dependency는 러너에 미리 준비되어 있어야 합니다.
+  - 주의: Playwright OS dependency와 `python3`/`node`/`npm`은 러너에 미리 준비되어 있어야 합니다.
   - 러너가 없으면 run은 실패하지도 시작하지도 않고 `queued`에 머뭅니다.
 
 ## 스택

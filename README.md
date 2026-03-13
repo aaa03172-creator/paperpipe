@@ -71,6 +71,7 @@ Notes:
 - GitHub can dispatch this workflow by filename only after the file exists on the repository default branch. The repository default branch is currently `main`, so the workflow is registered on `main` even when the actual implementation ref lives on `master` or a feature branch.
 - Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`.
 - If the repository has no matching `self-hosted`, `paperpipe-real-smoke` runner online, the run will stay `queued` until a runner comes online.
+- The dedicated self-hosted runner path expects `python3`, `node`, and `npm` to already exist on the runner machine. It uses runner-local Python instead of `actions/setup-python`.
 
 Branch note:
 - The repository default branch is `main`.
