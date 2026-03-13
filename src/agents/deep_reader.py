@@ -1,8 +1,7 @@
 
 import logging
-import os
 try:
-    from effgen import Agent, load_model
+    from effgen import Agent
     from effgen.core.agent import AgentConfig
     from effgen.tools.builtin import Retrieval, PythonREPL
 except ImportError:

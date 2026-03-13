@@ -1,24 +1,30 @@
 
 import logging
-from typing import Any, List, Dict, Optional, Iterator
+from typing import Iterator, List, Optional
 try:
     from effgen.models.base import BaseModel, GenerationResult, TokenCount, GenerationConfig
 except ImportError:
     # Fallback/Mock for circular import or missing lib checks
-    class BaseModel: pass
-    class GenerationResult: 
+    class BaseModel:
+        pass
+
+    class GenerationResult:
         def __init__(self, text, tokens_used, finish_reason, model_name):
             self.text = text
             self.tokens_used = tokens_used
             self.finish_reason = finish_reason
             self.model_name = model_name
+
     class TokenCount:
         def __init__(self, count, prompt_tokens, completion_tokens):
-            self.count = count # Assuming this structure or similar
-    class GenerationConfig: pass
+            self.count = count  # Assuming this structure or similar
+
+    class GenerationConfig:
+        pass
 
 from src.llm_provider import OllamaProvider
 from src.config import load_config
+from src.timeout_policy import is_timeout_exception
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,8 @@ class OllamaModelAdapter(BaseModel):
                 model_name=self.model_name
             )
         except Exception as e:
+            if is_timeout_exception(e):
+                raise
             logger.error(f"Adapter Generation Failed: {e}")
             return GenerationResult(text=f"Error: {e}", tokens_used=0, finish_reason="error", model_name=self.model_name)
 
