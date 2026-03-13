@@ -46,15 +46,31 @@ curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
   -d '{"paper_id":"paper_001","persona_id":"default","clean_reindex":false,"run_verify":true}'
 ```
 
-## Frontend E2E Required Checks
+## CI Verification Gates
 
-Run the full frontend verification gate locally from repository root:
+Run the agent smoke gate locally:
+
+```bash
+./scripts/run_agents_smoke.sh
+```
+
+This runs the targeted Ruff + pytest smoke set for the current agent surface.
+
+GitHub Actions entry point:
+- `.github/workflows/agents-smoke.yml`
+
+Run the frontend verification gate locally:
 
 ```bash
 npm run verify:ui
 ```
 
 This command executes both mock and backend E2E flows through the shared frontend verify runners.
+
+Current PR workflows targeting `master`:
+- `.github/workflows/pr-scope-guard.yml`
+- `.github/workflows/agents-smoke.yml`
+- `.github/workflows/frontend-e2e.yml`
 
 Repository plan limitations can block branch protection/ruleset APIs on private repos.
 After enabling GitHub Pro/Team (or making the repo public), enforce PR required checks:
@@ -64,6 +80,8 @@ After enabling GitHub Pro/Team (or making the repo public), enforce PR required 
 ```
 
 This applies the following required contexts on `master`:
+- `guard`
+- `agents-smoke`
 - `e2e-mock`
 - `e2e-backend`
 
@@ -99,4 +117,5 @@ python scripts/downloader_ops_dashboard.py --db storage/state.db --out storage/r
 
 Runbook:
 - [downloader_monitoring.md](/Users/jangseongjin/paperpipe/docs/downloader_monitoring.md)
-- [Lattice_v3_UIUX_MASTER.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_UIUX_MASTER.md)
+- [docs/README.md](/Users/jangseongjin/paperpipe/docs/README.md)
+- [Lattice_v3_Master_Spec.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_Master_Spec.md)
