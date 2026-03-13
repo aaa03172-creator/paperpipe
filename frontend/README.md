@@ -65,7 +65,18 @@ npm run e2e:mock
 cd frontend
 npm run e2e:backend
 ```
+- 실데이터 real smoke 시나리오:
+```bash
+cd frontend
+npm run e2e:backend:real-smoke
+```
+- `e2e:backend:real-smoke`는 seeded E2E harness를 쓰지 않고, 현재 `PAPERPIPE_CONFIG_PATH`/`PAPERPIPE_STORAGE_DIR`/`PAPERPIPE_DB_PATH`/`PAPERPIPE_ARTIFACTS_DIR` 환경을 그대로 사용합니다.
+- 기본 동작은 `config.yaml` 기준이며, 후보 paper가 없으면 `skip`이 아니라 실패합니다.
+- 실행 전 `python ../scripts/check_frontend_real_smoke_env.py --require-candidates` preflight가 자동으로 수행됩니다.
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
+- GitHub Actions에서 같은 경로를 수동 실행하려면 workflow 파일이 repo default branch에 등록돼 있어야 합니다. 현재 default branch는 `main`입니다.
+- 따라서 `.github/workflows/frontend-real-smoke.yml`는 `main`에 등록돼 있고, 실제 테스트 대상은 `--ref`로 별도 브랜치를 지정합니다. 예: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`
+- repo에 `self-hosted`, `linux`, `x64` 러너가 없으면 dispatch는 성공해도 job은 계속 `queued` 상태로 남습니다.
 - 시각 회귀 스냅샷 갱신(의도된 UI 변경 시만):
 ```bash
 cd frontend
@@ -85,12 +96,21 @@ npm run e2e:backend
 
 ## GitHub Actions 연동
 - 워크플로우: `.github/workflows/frontend-e2e.yml`
+- 현재 repo default branch는 `main`이지만, 이 workflow의 PR 트리거는 아직 `master` 대상입니다.
 - `e2e:mock`:
   - `master` 대상 PR에서 항상 실행
 - `e2e:backend`:
   - `master` 대상 PR에서 항상 실행
   - 수동 실행(`workflow_dispatch`) 시 `run_backend_e2e=true`로 실행
   - 또는 Repository Variable `RUN_FRONTEND_BACKEND_E2E=1` 설정 시 실행
+- `real smoke`:
+  - 워크플로우: `.github/workflows/frontend-real-smoke.yml`
+  - workflow 파일은 GitHub 등록을 위해 `main`에 존재해야 함
+  - `self-hosted`, `linux`, `x64` 러너에서만 수동 실행
+  - 필수 입력: runner-local `config_path`
+  - 선택 입력: `storage_dir`, `db_path`, `artifacts_dir`
+  - 주의: Playwright OS dependency는 러너에 미리 준비되어 있어야 합니다.
+  - 러너가 없으면 run은 실패하지도 시작하지도 않고 `queued`에 머뭅니다.
 
 ## 스택
 - Vite + React + TypeScript

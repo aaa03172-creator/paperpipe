@@ -57,6 +57,26 @@ npm run verify:frontend
 
 This runs build + mock E2E + backend E2E in order.
 
+Run the opt-in real-paper smoke only on a runner that has access to local PaperPipe config/storage:
+
+```bash
+cd frontend
+npm run e2e:backend:real-smoke
+```
+
+Notes:
+- This path uses the current `PAPERPIPE_CONFIG_PATH` / `PAPERPIPE_STORAGE_DIR` / `PAPERPIPE_DB_PATH` / `PAPERPIPE_ARTIFACTS_DIR` values.
+- It does not start the seeded E2E backend harness.
+- GitHub Actions entry point: `.github/workflows/frontend-real-smoke.yml` (manual, self-hosted only).
+- GitHub can dispatch this workflow by filename only after the file exists on the repository default branch. The repository default branch is currently `main`, so the workflow is registered on `main` even when the actual implementation ref lives on `master` or a feature branch.
+- Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`.
+- If the repository has no matching `self-hosted`, `linux`, `x64` runner online, the run will stay `queued` until a runner comes online.
+
+Branch note:
+- The repository default branch is `main`.
+- The current frontend PR workflow `.github/workflows/frontend-e2e.yml` is still scoped to `pull_request` events targeting `master`.
+- Keep that split explicit until the repo's integration branch strategy is unified.
+
 Repository plan limitations can block branch protection/ruleset APIs on private repos.
 After enabling GitHub Pro/Team (or making the repo public), enforce PR required checks:
 
@@ -94,4 +114,5 @@ python scripts/downloader_ops_dashboard.py --db storage/state.db --out storage/r
 
 Runbook:
 - [downloader_monitoring.md](/Users/jangseongjin/paperpipe/docs/downloader_monitoring.md)
-- [Lattice_v3_UIUX_MASTER.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_UIUX_MASTER.md)
+- [docs/README.md](/Users/jangseongjin/paperpipe/docs/README.md)
+- [Lattice_v3_Master_Spec.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_Master_Spec.md)
