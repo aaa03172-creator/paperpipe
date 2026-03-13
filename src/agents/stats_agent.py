@@ -1,12 +1,11 @@
 import json
 import logging
+import re
 from typing import TypedDict, List, Optional, Any, Dict
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.schemas.agent_artifacts import (
     DocumentArtifact, ClaimSet, StatsReport, StatCheckEntry, VerificationStatus,
-    TableData, EvidenceSpan
 )
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.contracts.artifact_views import get_artifact_header
@@ -81,6 +80,13 @@ class StatsVerificationAgent:
 
     def run(self, job_id: str, doc: DocumentArtifact | DocumentArtifactV2, claims: ClaimSet) -> StatsReport:
         """Run the verification agent."""
+        if not list(getattr(doc, "tables", []) or []):
+            return StatsReport(
+                doc_id=get_artifact_header(doc).doc_id,
+                run_id=job_id,
+                checks=self._build_no_table_checks(claims),
+            )
+
         initial_state = StatsAgentState(
             job_id=job_id,
             doc=doc,
@@ -134,7 +140,7 @@ class StatsVerificationAgent:
 
     def node_extract_stats(self, state: StatsAgentState) -> StatsAgentState:
         """Extract reported stats from claims to verify."""
-        logger.info(f"🔍 [Node: Extract] Identifying statistical claims from text...")
+        logger.info("🔍 [Node: Extract] Identifying statistical claims from text...")
         # Using LLM to extract structured stats from the text of claims
         claims_text = "\n".join([f"- {c.statement}" for c in state["claims"].claims])
         
@@ -167,7 +173,7 @@ class StatsVerificationAgent:
 
     def node_plan_verification(self, state: StatsAgentState) -> StatsAgentState:
         """Plan which tests to run based on extracted stats and available tables."""
-        logger.info(f"🧠 [Node: Plan] Formulating verification strategy...")
+        logger.info("🧠 [Node: Plan] Formulating verification strategy...")
         # LLM Reasoning: Can we verify this claim using df_table_X?
         prompt = f"""
         You are a Statistical Verification Planner.
@@ -190,7 +196,7 @@ class StatsVerificationAgent:
 
     def node_generate_code(self, state: StatsAgentState) -> StatsAgentState:
         """Generate Python code to execute the plan."""
-        logger.info(f"💻 [Node: Code] Generating Python verification script...")
+        logger.info("💻 [Node: Code] Generating Python verification script...")
         prompt = f"""
         generate a Python script to perform the statistical verification.
         
@@ -230,7 +236,7 @@ class StatsVerificationAgent:
 
     def node_execute_sandbox(self, state: StatsAgentState) -> StatsAgentState:
         """Run code in Docker."""
-        logger.info(f"📦 [Node: Schema] Spinning up Docker MicroVM...")
+        logger.info("📦 [Node: Schema] Spinning up Docker MicroVM...")
         sandbox = DockerSandbox(job_id=state["job_id"], work_dir=f"storage/sandbox/{state['job_id']}")
         exit_code, stdout, stderr = sandbox.run_code(state["python_code"])
         
@@ -256,43 +262,33 @@ class StatsVerificationAgent:
         
         checks = []
         
-        # Simple parsing logic (or use LLM to interpret output)
-        prompt = f"""
-        Analyze the execution output of the verification script.
-        
-        Output:
-        {output}
-        
-        Error (if any):
-        {state['execution_error']}
-        
-        Construct a list of StatCheckEntry objects (JSON).
-        Determine the 'verdict' (verified, partially_verified, inconsistent, unverifiable).
-        """
-        response = self.model.generate(prompt, format="json")
-        try:
-            entries_data = json.loads(response.text)
-            # Map back to Pydantic models
-            if isinstance(entries_data, list):
-                for e in entries_data:
-                    # Sanitize & Inject Context
-                    if "verdict" not in e: e["verdict"] = "unverifiable"
-                    # Inject code/output if missing (LLM usually omits these big fields)
-                    if "code" not in e: e["code"] = state["python_code"] if state["python_code"] else "N/A"
-                    if "outputs" not in e: e["outputs"] = state["execution_output"] if state["execution_output"] else "N/A"
-                    
-                    checks.append(StatCheckEntry(**e))
-            elif isinstance(entries_data, dict) and "checks" in entries_data:
-                 for e in entries_data["checks"]:
-                    # Sanitize & Inject Context
-                    if "verdict" not in e: e["verdict"] = "unverifiable"
-                    if "code" not in e: e["code"] = state["python_code"] if state["python_code"] else "N/A"
-                    if "outputs" not in e: e["outputs"] = state["execution_output"] if state["execution_output"] else "N/A"
-                    
-                    checks.append(StatCheckEntry(**e))
-        except Exception as e:
-            logger.error(f"Failed to parse reflexion: {e}")
-            # Fallback report
+        payload = self._extract_json_payload(output)
+        if payload is not None:
+            checks = self._checks_from_execution_payload(payload, state)
+
+        if not checks:
+            # Fallback to LLM reflection only if direct JSON parse failed.
+            prompt = f"""
+            Analyze the execution output of the verification script.
+            
+            Output:
+            {output}
+            
+            Error (if any):
+            {state['execution_error']}
+            
+            Construct a list of StatCheckEntry objects (JSON).
+            Determine the 'verdict' (verified, partially_verified, inconsistent, unverifiable).
+            """
+            response = self.model.generate(prompt, format="json")
+            try:
+                entries_data = json.loads(response.text)
+                checks = self._checks_from_execution_payload(entries_data, state)
+            except Exception as e:
+                logger.error(f"Failed to parse reflexion: {e}")
+                # Fallback report
+        if not checks:
+            checks = self._build_unverifiable_fallback_checks(state)
             
         report = StatsReport(
             doc_id=get_artifact_header(state["doc"]).doc_id,
@@ -309,3 +305,168 @@ class StatsVerificationAgent:
         if state["execution_error"] and state["retry_count"] < 2:
             return "retry"
         return "end"
+
+    @staticmethod
+    def _build_unverifiable_fallback_checks(state: StatsAgentState) -> List[StatCheckEntry]:
+        checks: List[StatCheckEntry] = []
+        code = state.get("python_code") or "N/A"
+        outputs = state.get("execution_output") or state.get("execution_error") or "N/A"
+        extraction_items = state.get("extraction_result") if isinstance(state.get("extraction_result"), list) else []
+
+        if extraction_items:
+            for idx, item in enumerate(extraction_items, start=1):
+                if not isinstance(item, dict):
+                    continue
+                checks.append(
+                    StatCheckEntry(
+                        check_id=f"auto_{idx}",
+                        hypothesis=str(item.get("claim_text") or item.get("hypothesis") or "").strip() or None,
+                        test_type=str(item.get("test_type") or "unknown"),
+                        method="auto_fallback",
+                        reported_p=str(item.get("reported_p")) if item.get("reported_p") is not None else None,
+                        code=code,
+                        outputs=outputs,
+                        verdict=VerificationStatus.UNVERIFIABLE,
+                        notes="auto_fallback_no_executable_verification",
+                    )
+                )
+
+        if checks:
+            return checks
+
+        claims = getattr(state.get("claims"), "claims", []) if state.get("claims") is not None else []
+        for idx, claim in enumerate(claims, start=1):
+            checks.append(
+                StatCheckEntry(
+                    check_id=str(getattr(claim, "claim_id", None) or f"auto_claim_{idx}"),
+                    hypothesis=str(getattr(claim, "statement", "") or "").strip() or None,
+                    test_type="unknown",
+                    method="auto_fallback",
+                    code=code,
+                    outputs=outputs,
+                    verdict=VerificationStatus.UNVERIFIABLE,
+                    notes="auto_fallback_no_extractable_stats",
+                )
+            )
+        return checks
+
+    @staticmethod
+    def _build_no_table_checks(claims: ClaimSet) -> List[StatCheckEntry]:
+        checks: List[StatCheckEntry] = []
+        for idx, claim in enumerate(claims.claims, start=1):
+            checks.append(
+                StatCheckEntry(
+                    check_id=str(getattr(claim, "claim_id", None) or f"no_table_{idx}"),
+                    hypothesis=str(getattr(claim, "statement", "") or "").strip() or None,
+                    test_type="unknown",
+                    method="no_table_data",
+                    code="N/A",
+                    outputs="No table data available for statistical recomputation.",
+                    verdict=VerificationStatus.UNVERIFIABLE,
+                    notes="no_table_data",
+                    evidence=list(getattr(claim, "evidence_spans", []) or []),
+                )
+            )
+        return checks
+
+    @staticmethod
+    def _normalize_verdict_value(raw: Any) -> VerificationStatus:
+        text = str(raw or "").strip().lower().replace(" ", "_")
+        mapping = {
+            "verified": VerificationStatus.VERIFIED,
+            "pass": VerificationStatus.VERIFIED,
+            "consistent": VerificationStatus.VERIFIED,
+            "partially_verified": VerificationStatus.PARTIALLY_VERIFIED,
+            "partially_verifiable": VerificationStatus.PARTIALLY_VERIFIED,
+            "partial": VerificationStatus.PARTIALLY_VERIFIED,
+            "inconsistent": VerificationStatus.INCONSISTENT,
+            "fail": VerificationStatus.INCONSISTENT,
+            "failed": VerificationStatus.INCONSISTENT,
+            "unverifiable": VerificationStatus.UNVERIFIABLE,
+            "no_api": VerificationStatus.UNVERIFIABLE,
+            "unknown": VerificationStatus.UNVERIFIABLE,
+        }
+        return mapping.get(text, VerificationStatus.UNVERIFIABLE)
+
+    @staticmethod
+    def _extract_json_payload(text: str) -> Any | None:
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+
+        # Try direct JSON parse first.
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+
+        # Then try fenced blocks and bracketed payloads.
+        candidates = re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
+        if not candidates:
+            obj_match = re.search(r"(\{[\s\S]*\})", raw)
+            arr_match = re.search(r"(\[[\s\S]*\])", raw)
+            if obj_match:
+                candidates.append(obj_match.group(1))
+            if arr_match:
+                candidates.append(arr_match.group(1))
+
+        for candidate in candidates:
+            snippet = candidate.strip()
+            if not snippet:
+                continue
+            try:
+                return json.loads(snippet)
+            except Exception:
+                continue
+        return None
+
+    def _checks_from_execution_payload(self, payload: Any, state: StatsAgentState) -> List[StatCheckEntry]:
+        items: List[Dict[str, Any]] = []
+
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    items.append(item)
+        elif isinstance(payload, dict):
+            if isinstance(payload.get("checks"), list):
+                for item in payload["checks"]:
+                    if isinstance(item, dict):
+                        items.append(item)
+            else:
+                # Format: {"check_1": {"computed_p": 0.04, "verdict": "consistent"}, ...}
+                for key, value in payload.items():
+                    if isinstance(value, dict):
+                        row = dict(value)
+                        row.setdefault("check_id", str(key))
+                        items.append(row)
+
+        checks: List[StatCheckEntry] = []
+        for idx, row in enumerate(items, start=1):
+            verdict = self._normalize_verdict_value(row.get("verdict"))
+            check_id = str(row.get("check_id") or row.get("claim_id") or f"check_{idx}")
+            test_type = str(row.get("test_type") or "unknown")
+            computed_p = row.get("computed_p")
+            try:
+                computed_p = float(computed_p) if computed_p is not None else None
+            except Exception:
+                computed_p = None
+
+            reported_p = row.get("reported_p")
+            if reported_p is not None:
+                reported_p = str(reported_p)
+
+            checks.append(
+                StatCheckEntry(
+                    check_id=check_id,
+                    hypothesis=str(row.get("hypothesis") or row.get("claim_text") or "").strip() or None,
+                    test_type=test_type,
+                    method=str(row.get("method") or "execution_json"),
+                    reported_p=reported_p,
+                    computed_p=computed_p,
+                    code=state["python_code"] if state["python_code"] else "N/A",
+                    outputs=state["execution_output"] if state["execution_output"] else "N/A",
+                    verdict=verdict,
+                    notes=str(row.get("notes") or "").strip() or None,
+                )
+            )
+        return checks
