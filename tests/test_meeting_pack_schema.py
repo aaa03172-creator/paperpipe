@@ -13,6 +13,7 @@ from src.schemas.meeting_pack import (
     MeetingPackExpectedQuestion,
     MeetingPackGenerateRequest,
     MeetingPackKeyPoint,
+    MeetingPackListResponse,
     MeetingPackNextStep,
     MeetingPackOnePageSummary,
     MeetingPackQuestion,
@@ -22,6 +23,7 @@ from src.schemas.meeting_pack import (
     MeetingPackSourceSelector,
     MeetingPackSpeakerNote,
     MeetingPackResponse,
+    MeetingPackTraceResponse,
     MeetingPackValidationResponse,
 )
 
@@ -193,6 +195,59 @@ def test_meeting_pack_validation_response_schema_accepts_legacy_strategy():
     )
 
     assert response.validation.regenerate_strategy == "legacy_source_items"
+
+
+def test_meeting_pack_trace_response_schema_accepts_summary_and_trace():
+    response = MeetingPackTraceResponse(
+        pack_id="meetingpack_20260313T090000Z_journal_club_a1b2c3d4",
+        available=True,
+        summary={
+            "entry_count": 2,
+            "selector_count": 1,
+            "matched_paper_count": 1,
+            "source_path_count": 1,
+            "action_counts": {
+                "selector_selected": 1,
+                "paper_state_loaded": 1,
+            },
+            "outcome_counts": {
+                "selected": 1,
+                "loaded": 1,
+            },
+            "matched_paper_slugs": ["wenzelShortchainFattyAcids2020"],
+            "source_paths": [".pp/wenzelShortchainFattyAcids2020/state.json"],
+        },
+        trace=_sample_pack().retrieval_trace,
+    )
+
+    assert response.available is True
+    assert response.summary.entry_count == 2
+    assert response.summary.action_counts["selector_selected"] == 1
+
+
+def test_meeting_pack_list_response_schema_accepts_summary_items():
+    response = MeetingPackListResponse(
+        generated_at=datetime(2026, 3, 17, 9, 5, tzinfo=timezone.utc),
+        total=1,
+        items=[
+            {
+                "pack_id": "meetingpack_20260313T090000Z_journal_club_a1b2c3d4",
+                "title": "SCFA paper journal club draft",
+                "mode": "journal_club",
+                "created_at": "2026-03-13T09:00:00Z",
+                "readiness": "evidence_backed",
+                "source_count": 2,
+                "slide_count": 6,
+                "trace_entry_count": 5,
+                "primary_source_title": "wenzelShortchainFattyAcids2020",
+                "has_generation_request": True,
+            }
+        ],
+    )
+
+    assert response.total == 1
+    assert response.items[0].pack_id.endswith("a1b2c3d4")
+    assert response.items[0].trace_entry_count == 5
 
 
 def test_meeting_pack_generate_request_accepts_typed_source_selectors():

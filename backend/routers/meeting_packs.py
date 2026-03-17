@@ -9,13 +9,17 @@ from src.config import load_config
 from src.meeting_packs.service import (
     generate_meeting_pack,
     get_meeting_pack,
+    get_meeting_pack_trace,
+    list_meeting_packs,
     regenerate_meeting_pack,
     rerender_meeting_pack,
     validate_meeting_pack,
 )
 from src.schemas.meeting_pack import (
     MeetingPackGenerateRequest,
+    MeetingPackListResponse,
     MeetingPackResponse,
+    MeetingPackTraceResponse,
     MeetingPackValidationResponse,
 )
 
@@ -56,10 +60,28 @@ def post_generate_meeting_pack(payload: MeetingPackGenerateRequest) -> MeetingPa
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("", response_model=MeetingPackListResponse)
+def list_meeting_packs_route() -> MeetingPackListResponse:
+    try:
+        return list_meeting_packs()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{pack_id}", response_model=MeetingPackResponse)
 def get_meeting_pack_route(pack_id: str) -> MeetingPackResponse:
     try:
         return get_meeting_pack(pack_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{pack_id}/trace", response_model=MeetingPackTraceResponse)
+def get_meeting_pack_trace_route(pack_id: str) -> MeetingPackTraceResponse:
+    try:
+        return get_meeting_pack_trace(pack_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
