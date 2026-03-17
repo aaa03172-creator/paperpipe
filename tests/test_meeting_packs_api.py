@@ -145,6 +145,13 @@ def test_meeting_packs_api_generates_roundtrip_and_markdown(tmp_path, monkeypatc
     assert fetched.json()["pack"]["id"] == pack_id
     assert fetched.json()["markdown_sync"]["status"] == "in_sync"
 
+    trace = client.get(f"/meeting-packs/{pack_id}/trace")
+    assert trace.status_code == 200
+    assert trace.json()["pack_id"] == pack_id
+    assert trace.json()["available"] is True
+    assert trace.json()["summary"]["matched_paper_slugs"] == [slug]
+    assert trace.json()["summary"]["source_paths"] == [f".pp/{slug}/state.json"]
+
     validation = client.get(f"/meeting-packs/{pack_id}/validate")
     assert validation.status_code == 200
     assert validation.json()["validation"]["can_regenerate"] is True
@@ -153,6 +160,53 @@ def test_meeting_packs_api_generates_roundtrip_and_markdown(tmp_path, monkeypatc
     markdown = client.get(f"/meeting-packs/{pack_id}/markdown")
     assert markdown.status_code == 200
     assert "## Slide Outline" in markdown.text
+
+
+def test_meeting_packs_api_lists_saved_packs_with_recent_first_order(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    _write_state(vault_dir, "paper-alpha")
+    _write_state(vault_dir, "paper-beta")
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    older = client.post(
+        "/meeting-packs/generate",
+        json={
+          "mode": "journal_club",
+          "title": "Older draft",
+          "source_items": [{"type": "paper_slug", "ref": "paper-alpha"}],
+          "max_slides": 5,
+        },
+    )
+    newer = client.post(
+        "/meeting-packs/generate",
+        json={
+          "mode": "experiment_proposal",
+          "title": "Newer draft",
+          "source_items": [{"type": "paper_slug", "ref": "paper-beta"}],
+          "max_slides": 5,
+        },
+    )
+    assert older.status_code == 200
+    assert newer.status_code == 200
+
+    listed = client.get("/meeting-packs")
+    assert listed.status_code == 200
+    payload = listed.json()
+
+    assert payload["total"] == 2
+    assert [item["pack_id"] for item in payload["items"]] == [
+        newer.json()["pack"]["id"],
+        older.json()["pack"]["id"],
+    ]
+    assert payload["items"][0]["title"] == "Newer draft"
+    assert payload["items"][0]["trace_entry_count"] == 2
 
 
 def test_meeting_packs_api_regenerates_and_rerenders_from_saved_pack(tmp_path, monkeypatch):
@@ -225,6 +279,12 @@ def test_meeting_packs_api_supports_bounded_legacy_regenerate_and_validate(tmp_p
     assert validation.status_code == 200
     assert validation.json()["validation"]["can_regenerate"] is True
     assert validation.json()["validation"]["regenerate_strategy"] == "legacy_source_items"
+
+    trace = client.get(f"/meeting-packs/{legacy_id}/trace")
+    assert trace.status_code == 200
+    assert trace.json()["available"] is False
+    assert trace.json()["trace"] == []
+    assert trace.json()["summary"]["entry_count"] == 0
 
     regenerated = client.post(f"/meeting-packs/{legacy_id}/regenerate")
     assert regenerated.status_code == 200
