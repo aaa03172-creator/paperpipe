@@ -14,6 +14,7 @@ import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
+from src.persona_modes import normalize_persona_selection
 from src.schemas.chat import ChatRequest, ChatStubResponse
 from src.output_modes import resolve_chat_output_mode_family
 from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
@@ -53,13 +54,35 @@ from src.schemas.ops import (
     PersonaOption,
     RunTimelineEvent,
     RunTimelineResponse,
+    UserActionEntry,
+    UserActionListResponse,
 )
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
+from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from .routers import obsidian, feedback, meeting_packs
+
+
+def _best_effort_log_user_action(
+    *,
+    paper_id: str | None,
+    action_type: str,
+    source: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    try:
+        log_user_action(
+            paper_id=paper_id,
+            action_type=action_type,
+            source=source,
+            payload=payload,
+        )
+    except Exception:
+        # User-action logging must never block the primary workflow.
+        pass
 
 def _resolve_cors_allow_origins() -> list[str]:
     raw = (
@@ -220,6 +243,12 @@ def _read_bootstrap_meta(meta_path: str | None) -> dict:
 def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
     meta_path = _resolve_bootstrap_meta_path(job)
     meta = _read_bootstrap_meta(meta_path)
+    params = get_execution_run_params(getattr(job, "run_id", None))
+    selection = normalize_persona_selection(
+        persona_id=meta.get("persona_id") or params.get("persona_id") or getattr(job, "persona_id", None),
+        reasoning_persona=meta.get("reasoning_persona") or params.get("reasoning_persona") or getattr(job, "reasoning_persona", None),
+        profile_id=meta.get("profile_id") or params.get("profile_id") or getattr(job, "profile_id", None),
+    )
     readiness = meta.get("claimset_readiness")
     badge = meta.get("claimset_readiness_badge")
     if badge is None:
@@ -234,15 +263,21 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "artifact_dir": _public_path(getattr(job, "artifact_dir", None)),
             "log_path": _public_path(getattr(job, "log_path", None)),
             "bootstrap_meta_path": _public_path(meta_path),
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
             "similar_feedback_count": meta.get("similar_feedback_count"),
             "persona_applied": meta.get("persona_applied"),
             "artifact_document_written": meta.get("artifact_document_written"),
             "artifact_index_written": meta.get("artifact_index_written"),
             "artifact_claimset_written": meta.get("artifact_claimset_written"),
+            "artifact_claimset_resolved_written": meta.get("artifact_claimset_resolved_written"),
             "artifact_stats_written": meta.get("artifact_stats_written"),
             "claimset_readiness": meta.get("claimset_readiness"),
             "claimset_ready": meta.get("claimset_ready"),
             "claimset_claim_count": meta.get("claimset_claim_count"),
+            "claimset_grounded_span_count": meta.get("claimset_grounded_span_count"),
+            "claimset_unresolved_span_count": meta.get("claimset_unresolved_span_count"),
             "claimset_readiness_reason": meta.get("claimset_readiness_reason"),
             "claimset_readiness_badge": badge,
             "claimset_ops_action": meta.get("claimset_ops_action"),
@@ -368,7 +403,41 @@ def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[
 
 
 def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEvent]:
-    events: list[RunTimelineEvent] = []
+    db_events = []
+    if job.run_id:
+        db_events = list_run_events(str(job.run_id), limit=limit)
+    user_action_events: list[RunTimelineEvent] = []
+    if job.paper_id and job.run_id:
+        action_rows = list_user_actions(paper_id=str(job.paper_id), limit=max(limit * 3, 50))
+        for row in reversed(action_rows):
+            payload = row.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("run_id") or "").strip() != str(job.run_id):
+                continue
+            action_type = str(row.get("action_type") or "").strip()
+            message = action_type
+            if action_type == "deepread_enqueued":
+                message = "User queued deep read"
+            elif action_type == "repair_stats":
+                message = "User requested stats repair"
+            elif action_type == "obsidian_sync":
+                message = "User synced note to Obsidian"
+            elif action_type == "skill_run":
+                skill_action = str(payload.get("action") or "").strip()
+                message = f"User ran skill: {skill_action}" if skill_action else "User ran skill"
+            user_action_events.append(
+                RunTimelineEvent(
+                    event="status",
+                    source="user_action",
+                    ts=str(row.get("ts") or ""),
+                    stage=action_type or "user_action",
+                    level="INFO",
+                    message=message,
+                )
+            )
+
+    log_events: list[RunTimelineEvent] = []
     if job.log_path and Path(job.log_path).exists():
         lines = [
             line.strip()
@@ -380,7 +449,7 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                 payload = json.loads(raw)
                 level = str(payload.get("level") or "INFO")
                 evt = "error" if level.upper() == "ERROR" else "log"
-                events.append(
+                log_events.append(
                     RunTimelineEvent(
                         event=evt,
                         source="job_log",
@@ -392,13 +461,72 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                     )
                 )
             except Exception:
-                events.append(
+                log_events.append(
                     RunTimelineEvent(
                         event="log",
                         source="job_log",
                         raw=raw,
                     )
                 )
+
+    if db_events:
+        events: list[RunTimelineEvent] = []
+        for row in db_events[-limit:]:
+            payload: dict[str, Any] = {}
+            try:
+                payload_raw = row.get("payload_json")
+                if payload_raw:
+                    payload = json.loads(str(payload_raw))
+            except Exception:
+                payload = {}
+
+            level = str(row.get("level") or payload.get("level") or "INFO")
+            event_name = "error" if level.upper() == "ERROR" else "log"
+            events.append(
+                RunTimelineEvent(
+                    event=event_name,
+                    source="db_event",
+                    ts=str(row.get("ts") or ""),
+                    stage=payload.get("stage") or payload.get("status"),
+                    progress=int(payload.get("progress")) if payload.get("progress") is not None else None,
+                    level=level,
+                    message=str(row.get("message") or payload.get("message") or row.get("event_type") or ""),
+                )
+            )
+
+        events.extend(log_events)
+        events.extend(user_action_events)
+        terminal = (
+            RunTimelineEvent(
+                event="done",
+                source="synthetic",
+                ts=str(job.finished_at or job.started_at or job.created_at),
+                stage=job.status,
+                progress=job.progress,
+                level="ERROR" if job.status == "failed" else "INFO",
+                message=job.error_message or job.status,
+            )
+            if job.status in TERMINAL_JOB_STATUSES
+            else RunTimelineEvent(
+                event="status",
+                source="synthetic",
+                ts=str(job.started_at or job.created_at),
+                stage=job.stage or job.status,
+                progress=job.progress,
+                level="INFO",
+                message=job.status,
+            )
+        )
+        events.append(terminal)
+        if len(events) > limit:
+            return events[-limit:]
+        return events
+
+    events: list[RunTimelineEvent] = []
+    if log_events:
+        events.extend(log_events)
+    if user_action_events:
+        events.extend(user_action_events)
 
     terminal = (
         RunTimelineEvent(
@@ -900,12 +1028,19 @@ def get_artifacts_for_run(paper_id: str, run_id: str):
 
 @app.post("/jobs/deepread", response_model=JobEnqueueResponse)
 def enqueue_job(job_req: JobCreate):
+    selection = normalize_persona_selection(
+        persona_id=job_req.persona_id,
+        reasoning_persona=job_req.reasoning_persona,
+        profile_id=job_req.profile_id,
+    )
     try:
         job_id = queue.enqueue(
             job_req.paper_id,
             job_req.clean_reindex,
             job_req.run_verify,
             job_req.persona_id,
+            job_req.reasoning_persona,
+            job_req.profile_id,
         )
     except DuplicateOpenJobError as exc:
         raise HTTPException(
@@ -930,7 +1065,35 @@ def enqueue_job(job_req: JobCreate):
             },
         )
     job = queue.get_job(job_id)
+    _best_effort_log_user_action(
+        paper_id=job_req.paper_id,
+        action_type="deepread_enqueued",
+        source="ui",
+        payload={
+            "job_id": job_id,
+            "run_id": job.run_id if job else None,
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
+            "run_verify": bool(job_req.run_verify),
+            "clean_reindex": bool(job_req.clean_reindex),
+        },
+    )
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
+@app.get("/user-actions", response_model=UserActionListResponse)
+def get_user_actions(
+    paper_id: str | None = Query(default=None),
+    action_type: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+):
+    actions = list_user_actions(
+        paper_id=paper_id,
+        action_type=action_type,
+        source=source,
+        limit=limit,
+    )
+    return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
 
 
 @app.get("/jobs", response_model=list[JobStatus])
