@@ -8,6 +8,7 @@ import uuid
 
 
 _DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", re.IGNORECASE)
+_SAFE_PAPER_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def normalize_doi(value: str) -> str:
@@ -79,5 +80,20 @@ def make_chunk_id(*, page_hint: int | None, section_ordinal: int, chunk_ordinal:
     return f"s{section_ordinal:02d}_c{chunk_ordinal:02d}"
 
 
-def artifact_paper_segment(paper_id: str) -> str:
+def make_paper_key(paper_id: str) -> str:
+    text = str(paper_id or "").strip()
+    if not text:
+        text = "paper"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return f"paper_{digest}"
+
+
+def legacy_artifact_paper_segment(paper_id: str) -> str:
     return str(paper_id)
+
+
+def artifact_paper_segment(paper_id: str) -> str:
+    raw = legacy_artifact_paper_segment(paper_id).strip()
+    if raw and raw not in {".", ".."} and _SAFE_PAPER_SEGMENT_RE.fullmatch(raw):
+        return raw
+    return make_paper_key(raw)
