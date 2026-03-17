@@ -39,7 +39,7 @@ class ArtifactBundleResponse(BaseModel):
 
 class RunTimelineEvent(BaseModel):
     event: Literal["log", "done", "status", "error"] = "log"
-    source: Literal["job_log", "synthetic"] = "job_log"
+    source: Literal["job_log", "synthetic", "db_event", "user_action"] = "job_log"
     ts: Optional[str] = None
     stage: Optional[str] = None
     progress: Optional[int] = None
@@ -53,6 +53,19 @@ class RunTimelineResponse(BaseModel):
     job_id: Optional[str] = None
     paper_id: Optional[str] = None
     events: list[RunTimelineEvent] = Field(default_factory=list)
+
+
+class UserActionEntry(BaseModel):
+    action_id: str
+    ts: str
+    paper_id: Optional[str] = None
+    action_type: str
+    source: str
+    payload: Optional[Any] = None
+
+
+class UserActionListResponse(BaseModel):
+    actions: list[UserActionEntry] = Field(default_factory=list)
 
 
 class ObsidianArtifactsResponse(BaseModel):

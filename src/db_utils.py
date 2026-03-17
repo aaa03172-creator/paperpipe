@@ -38,6 +38,8 @@ def init_db():
             run_id TEXT,
             paper_id TEXT,
             persona_id TEXT DEFAULT 'default',
+            reasoning_persona TEXT,
+            profile_id TEXT,
             run_verify INTEGER DEFAULT 0,
             clean_reindex INTEGER DEFAULT 0,
             status TEXT DEFAULT 'queued',
@@ -58,10 +60,68 @@ def init_db():
     existing_cols = {row[1] for row in cursor.fetchall()}
     if "persona_id" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
+    if "reasoning_persona" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN reasoning_persona TEXT")
+    if "profile_id" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN profile_id TEXT")
     if "run_verify" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
     if "clean_reindex" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN clean_reindex INTEGER DEFAULT 0")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS execution_runs (
+            run_id TEXT PRIMARY KEY,
+            paper_id TEXT,
+            trigger_source TEXT,
+            pipeline_profile TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TEXT,
+            finished_at TEXT,
+            params_json TEXT,
+            metrics_json TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_events (
+            event_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            run_id TEXT,
+            ts TEXT NOT NULL,
+            level TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            payload_json TEXT,
+            FOREIGN KEY(job_id) REFERENCES jobs(job_id)
+        )
+        """
+    )
+    cursor.execute("PRAGMA table_info(job_events)")
+    job_event_cols = {row[1] for row in cursor.fetchall()}
+    if "run_id" not in job_event_cols:
+        cursor.execute("ALTER TABLE job_events ADD COLUMN run_id TEXT")
+    if "payload_json" not in job_event_cols:
+        cursor.execute("ALTER TABLE job_events ADD COLUMN payload_json TEXT")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_actions (
+            action_id TEXT PRIMARY KEY,
+            ts TEXT NOT NULL,
+            paper_id TEXT,
+            action_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            payload_json TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_execution_runs_paper ON execution_runs(paper_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_run ON job_events(run_id, ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_actions_paper ON user_actions(paper_id, ts)")
 
     # Lightweight papers migration used by downloader metrics/dashboard.
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='papers'")
@@ -114,6 +174,7 @@ def get_db_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
