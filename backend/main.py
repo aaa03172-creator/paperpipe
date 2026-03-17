@@ -125,6 +125,10 @@ def _requires_api_key(method: str, path: str) -> bool:
     normalized = path.rstrip("/") or "/"
     if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats"}:
         return True
+    if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
+        return True
+    if normalized.startswith("/meeting-packs/"):
+        return True
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
 
