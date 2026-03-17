@@ -5,6 +5,17 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class PaperNoteOpsSummary(BaseModel):
+    state: Literal["healthy", "action_needed"]
+    label: str
+    reason: str
+    recommended_action: Literal["none", "repair_stats", "open_workbench"] = "none"
+    latest_run_id: str | None = None
+    has_claimset: bool = False
+    has_stats_report: bool = False
+    stats_check_count: int = 0
+
+
 class PaperNoteIndexItem(BaseModel):
     slug: str
     title: str

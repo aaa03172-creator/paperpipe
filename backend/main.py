@@ -16,6 +16,7 @@ from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureErr
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.schemas.chat import ChatRequest, ChatStubResponse
 from src.output_modes import resolve_chat_output_mode_family
+from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
     ResearchDNACreateRequest,
@@ -56,6 +57,8 @@ from src.schemas.ops import (
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
+from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
+from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from .routers import obsidian, feedback, meeting_packs
 
 def _resolve_cors_allow_origins() -> list[str]:
@@ -166,6 +169,27 @@ ARTIFACT_ALIAS_MAP: dict[str, str] = {
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
+def _derive_paper_issues_state(item: dict[str, Any]) -> str:
+    explicit_state = str(item.get("issues_state") or "").strip().lower()
+    if explicit_state in {"flagged", "clear", "unavailable"}:
+        return explicit_state
+    issues_value = item.get("issues")
+    issue_count = issues_value if isinstance(issues_value, int) else 0
+    if issue_count > 0:
+        return "flagged"
+    issues_label = str(item.get("issues_label") or "").strip()
+    if issues_label and re.search(r"not analy[sz]ed|unavailable|not available|pending|not reviewed|not run", issues_label, re.IGNORECASE):
+        return "unavailable"
+    status_value = str(item.get("status") or "").strip().upper()
+    if status_value in {"NEW", "FETCHED", "PDF_MISSING", "GATED"}:
+        return "unavailable"
+    if status_value in {"PENDING_REVIEW", "QUARANTINED", "FAILED"}:
+        return "flagged"
+    if status_value in {"APPROVED", "INDEXED"}:
+        return "clear"
+    return "clear"
+
+
 def _public_path(path_value: str | None) -> str | None:
     if path_value is None:
         return None
@@ -229,7 +253,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
 
 
 def _artifact_run_dir(paper_id: str, run_id: str) -> Path:
-    return Path("storage/artifacts") / paper_id / run_id
+    return artifact_run_dir(paper_id, run_id)
 
 
 def _safe_read_json(path: Path) -> Any:
@@ -289,7 +313,7 @@ def _latest_run_id_for_paper(paper_id: str) -> str | None:
     finally:
         conn.close()
 
-    paper_dir = Path("storage/artifacts") / paper_id
+    paper_dir = artifact_paper_dir(paper_id)
     if not paper_dir.exists():
         return None
     candidates = [p for p in paper_dir.iterdir() if p.is_dir()]
@@ -775,10 +799,18 @@ def get_downloader_metrics(
     return DownloaderOpsMetricsResponse(metrics=metrics, alerts=alerts)
 
 @app.get("/papers")
-def list_papers():
+def list_papers(
+    limit: int = Query(default=50, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+) -> list[PaperSummaryResponse]:
     conn = get_db_connection()
-    papers = conn.execute("SELECT * FROM papers ORDER BY updated_at DESC LIMIT 50").fetchall()
+    papers = conn.execute(
+        "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
     conn.close()
+    artifacts_path = artifacts_root()
+    artifact_cache: ArtifactSnapshotCache = {}
     out = []
     for p in papers:
         item = dict(p)
@@ -788,12 +820,14 @@ def list_papers():
         item["pdf_path"] = _public_path(pdf_path)
         if not pdf_exists and pdf_path:
             item["pdf_status"] = "missing"
+        item["issues_state"] = _derive_paper_issues_state(item)
+        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, str(item.get("paper_id") or ""), artifact_cache)
         out.append(item)
     return out
 
 
 @app.get("/papers/{paper_id}")
-def get_paper(paper_id: str):
+def get_paper(paper_id: str) -> PaperDetailResponse:
     conn = get_db_connection()
     row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
     conn.close()
@@ -807,6 +841,8 @@ def get_paper(paper_id: str):
     item["pdf_path"] = _public_path(pdf_path)
     if not pdf_exists and pdf_path:
         item["pdf_status"] = "missing"
+    item["issues_state"] = _derive_paper_issues_state(item)
+    item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
     return item
 
 
@@ -829,7 +865,7 @@ def get_paper_pdf(paper_id: str):
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
-@app.get("/artifacts/{paper_id}/latest", response_model=ArtifactBundleResponse)
+@app.get("/artifacts/{paper_id:path}/latest", response_model=ArtifactBundleResponse)
 def get_latest_artifacts(paper_id: str):
     run_id = _latest_run_id_for_paper(paper_id)
     if not run_id:
@@ -837,12 +873,12 @@ def get_latest_artifacts(paper_id: str):
     return _build_artifact_bundle(paper_id, run_id)
 
 
-@app.get("/artifacts/{paper_id}/{run_id}", response_model=ArtifactBundleResponse)
-def get_artifacts_for_run(paper_id: str, run_id: str):
+@app.get("/artifacts", response_model=ArtifactBundleResponse)
+def get_artifacts_for_run_query(paper_id: str, run_id: str):
     return _build_artifact_bundle(paper_id, run_id)
 
 
-@app.get("/artifacts/{paper_id}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry)
+@app.get("/artifacts/{paper_id:path}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry)
 def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
     artifact_key = _resolve_artifact_key(artifact_name)
     if not artifact_key:
@@ -856,6 +892,11 @@ def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
             detail=f"Artifact file not found for paper_id={paper_id}, run_id={run_id}, artifact_name={artifact_key}",
         )
     return entry
+
+
+@app.get("/artifacts/{paper_id:path}/{run_id}", response_model=ArtifactBundleResponse)
+def get_artifacts_for_run(paper_id: str, run_id: str):
+    return _build_artifact_bundle(paper_id, run_id)
 
 @app.post("/jobs/deepread", response_model=JobEnqueueResponse)
 def enqueue_job(job_req: JobCreate):
