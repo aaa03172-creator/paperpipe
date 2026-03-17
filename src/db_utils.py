@@ -69,6 +69,8 @@ def init_db():
             paper_cols = _get_paper_columns(cursor)
             if "download_attempts" not in paper_cols:
                 cursor.execute("ALTER TABLE papers ADD COLUMN download_attempts TEXT")
+            if "issues_state" not in paper_cols:
+                cursor.execute("ALTER TABLE papers ADD COLUMN issues_state TEXT")
         except sqlite3.OperationalError:
             pass
 
