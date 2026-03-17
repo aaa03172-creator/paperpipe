@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
 from backend import main as api_main
+from backend.routers import method_comparisons as method_comparisons_router
 from src.skills import runner as skills_runner
 
 
@@ -63,6 +64,12 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
             json={"mode": "journal_club", "source_items": [{"type": "paper_slug", "ref": "paper_auth_001"}]},
         )
         assert meeting_pack_generate.status_code == 401
+
+        method_comparison_generate = client.post(
+            "/method-comparisons/generate",
+            json={"paper_ids": ["paper_auth_001"], "field_ids": ["intervention"]},
+        )
+        assert method_comparison_generate.status_code == 401
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -127,6 +134,25 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         )
         monkeypatch.setattr(
             skills_runner,
+            "load_config",
+            lambda: type(
+                "Config",
+                (),
+                {
+                    "paths": type(
+                        "Paths",
+                        (),
+                        {
+                            "obsidian_vault": vault_dir,
+                            "library_dir": tmp_path / "Library",
+                        },
+                    )(),
+                    "system": type("System", (), {"unpaywall_email": None})(),
+                },
+            )(),
+        )
+        monkeypatch.setattr(
+            method_comparisons_router,
             "load_config",
             lambda: type(
                 "Config",
@@ -226,6 +252,8 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         )
         monkeypatch.setenv("PAPERPIPE_CONFIG_PATH", str(config_path))
         monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(tmp_path / "meeting_packs"))
+        monkeypatch.setenv("PAPERPIPE_METHOD_COMPARISONS_DIR", str(tmp_path / "method_comparisons"))
+        monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
 
         structured_state_path = vault_dir / ".pp" / "paper_auth_allow_001" / "state.json"
         structured_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -241,6 +269,25 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
                     '  "entities": [],',
                     '  "mesh": [],',
                     '  "outcomes": []',
+                    "}",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        artifact_run_dir = tmp_path / "artifacts" / "paper_auth_allow_001" / "run_auth_allow_001"
+        artifact_run_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_run_dir / "claimset.resolved.json").write_text(
+            "\n".join(
+                [
+                    "{",
+                    '  "doc_id": "paper_auth_allow_001",',
+                    '  "claims": [',
+                    '    {',
+                    '      "claim_id": "CLM-AUTH-001",',
+                    '      "statement": "Intervention: Auth intervention.",',
+                    '      "evidence_spans": [{"quote": "Intervention: Auth intervention.", "page": 1}]',
+                    "    }",
+                    "  ]",
                     "}",
                 ]
             ),
@@ -266,6 +313,17 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             headers=headers,
         )
         assert meeting_pack_rerender.status_code == 200
+
+        method_comparison_generate = client.post(
+            "/method-comparisons/generate",
+            json={
+                "comparison_id": "methodcmp_auth_demo",
+                "paper_ids": ["paper_auth_allow_001"],
+                "field_ids": ["intervention"],
+            },
+            headers=headers,
+        )
+        assert method_comparison_generate.status_code == 200
     finally:
         db_utils.DB_PATH = original_db_path
 
