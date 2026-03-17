@@ -14,6 +14,34 @@ import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
+from src.schemas.research_dna import (
+    ResearchDNAActorRequest,
+    ResearchDNACreateRequest,
+    ResearchDNAEnvelope,
+    ResearchDNAInterviewEnvelope,
+    ResearchDNAInterviewRequest,
+    ResearchDNAProjectedProfileEnvelope,
+    ResearchDNAProjectProfileRequest,
+    ResearchDNAPilotRunEnvelope,
+    ResearchDNAPilotRunRequest,
+    ResearchDNARefineRequest,
+    ResearchDNAScreeningRequest,
+    ResearchDNAUpdateRequest,
+)
+from src.profiles.research_dna_service import (
+    ResearchDNAStateError,
+    approve_pilot,
+    create_research_dna,
+    lock_research_dna,
+    log_interview_response,
+    refine_query_version,
+    run_pilot,
+    submit_screening_decision,
+    unlock_research_dna,
+    update_research_dna,
+)
+from src.profiles.research_dna_projection import sync_research_dna_profile
+from src.profiles.research_dna_store import ResearchDNARevisionConflictError, load_research_dna
 from src.schemas.ops import (
     ArtifactBundleResponse,
     ArtifactFileEntry,
@@ -444,6 +472,231 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
+
+
+@app.post("/research-dna", response_model=ResearchDNAEnvelope)
+def create_research_dna_endpoint(req: ResearchDNACreateRequest):
+    try:
+        dna = create_research_dna(
+            topic=req.topic,
+            intent=req.intent,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+            dna_id=req.dna_id,
+            title=req.title,
+            recommended_databases=req.recommended_databases,
+            available_databases=req.available_databases,
+        )
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create Research DNA: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.get("/research-dna/{dna_id}", response_model=ResearchDNAEnvelope)
+def get_research_dna_endpoint(dna_id: str):
+    try:
+        dna = load_research_dna(dna_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load Research DNA: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/approve-pilot", response_model=ResearchDNAEnvelope)
+def approve_research_dna_pilot_endpoint(dna_id: str, req: ResearchDNAActorRequest):
+    try:
+        dna = approve_pilot(
+            dna_id,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to approve pilot: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/update", response_model=ResearchDNAEnvelope)
+def update_research_dna_endpoint(dna_id: str, req: ResearchDNAUpdateRequest):
+    try:
+        dna = update_research_dna(
+            dna_id,
+            patch=req.patch,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update Research DNA: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/interview", response_model=ResearchDNAInterviewEnvelope)
+def log_research_dna_interview_endpoint(dna_id: str, req: ResearchDNAInterviewRequest):
+    try:
+        dna, interview = log_interview_response(
+            dna_id,
+            round=req.round,
+            question_id=req.question_id,
+            question=req.question,
+            answer=req.answer,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to log interview response: {exc}")
+    return ResearchDNAInterviewEnvelope(dna=dna, interview=interview)
+
+
+@app.post("/research-dna/{dna_id}/pilot", response_model=ResearchDNAPilotRunEnvelope)
+def run_research_dna_pilot_endpoint(dna_id: str, req: ResearchDNAPilotRunRequest):
+    try:
+        pilot_run = run_pilot(
+            dna_id,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            run_id=req.run_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to run pilot: {exc}")
+    return ResearchDNAPilotRunEnvelope(pilot_run=pilot_run)
+
+
+@app.post("/research-dna/{dna_id}/screening", response_model=ResearchDNAEnvelope)
+def submit_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreeningRequest):
+    try:
+        dna = submit_screening_decision(
+            dna_id,
+            run_id=req.run_id,
+            candidate_id=req.candidate_id,
+            decision=req.decision,
+            reason_code=req.reason_code,
+            note=req.note,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to submit screening decision: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/refine", response_model=ResearchDNAEnvelope)
+def refine_research_dna_endpoint(dna_id: str, req: ResearchDNARefineRequest):
+    try:
+        dna = refine_query_version(
+            dna_id,
+            query_version=req.query_version,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to refine query version: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/lock", response_model=ResearchDNAEnvelope)
+def lock_research_dna_endpoint(dna_id: str, req: ResearchDNAActorRequest):
+    try:
+        dna = lock_research_dna(
+            dna_id,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to lock Research DNA: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
+
+
+@app.post("/research-dna/{dna_id}/project-profile", response_model=ResearchDNAProjectedProfileEnvelope)
+def project_research_dna_profile_endpoint(dna_id: str, req: ResearchDNAProjectProfileRequest):
+    try:
+        projection = sync_research_dna_profile(
+            dna_id,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+            query_version_name=req.query_version,
+            database=req.database,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to project Research DNA profile: {exc}")
+    return ResearchDNAProjectedProfileEnvelope(projection=projection)
+
+
+@app.post("/research-dna/{dna_id}/unlock", response_model=ResearchDNAEnvelope)
+def unlock_research_dna_endpoint(dna_id: str, req: ResearchDNAActorRequest):
+    try:
+        dna = unlock_research_dna(
+            dna_id,
+            actor_type=req.actor_type,
+            actor_id=req.actor_id,
+            reason=req.reason,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to unlock Research DNA: {exc}")
+    return ResearchDNAEnvelope(dna=dna)
 
 
 @app.get("/personas", response_model=PersonaListResponse)
