@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from src.services.identity import artifact_paper_segment
+from src.services.identity import artifact_paper_segment, legacy_artifact_paper_segment
 
 
 def repo_root() -> Path:
@@ -46,12 +46,49 @@ def artifacts_root() -> Path:
     return (storage_root() / "artifacts").resolve()
 
 
+def artifact_paper_dir_candidates(paper_id: str, root: Path | None = None) -> list[Path]:
+    root_path = root.resolve() if root is not None else artifacts_root()
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for segment in (artifact_paper_segment(paper_id), legacy_artifact_paper_segment(paper_id)):
+        candidate = root_path / segment
+        if candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+    return candidates
+
+
+def preferred_artifact_paper_dir(paper_id: str, root: Path | None = None) -> Path:
+    candidates = artifact_paper_dir_candidates(paper_id, root=root)
+    legacy_path = (root.resolve() if root is not None else artifacts_root()) / legacy_artifact_paper_segment(paper_id)
+    canonical_path = (root.resolve() if root is not None else artifacts_root()) / artifact_paper_segment(paper_id)
+
+    # Preserve existing raw paper_id directories for backward compatibility.
+    if legacy_path != canonical_path and legacy_path.exists():
+        return legacy_path
+    if canonical_path.exists():
+        return canonical_path
+    return candidates[0]
+
+
 def artifact_paper_dir(paper_id: str) -> Path:
-    return artifacts_root() / artifact_paper_segment(paper_id)
+    return preferred_artifact_paper_dir(paper_id)
+
+
+def artifact_run_dir_candidates(paper_id: str, run_id: str) -> list[Path]:
+    return [paper_dir / str(run_id) for paper_dir in artifact_paper_dir_candidates(paper_id)]
 
 
 def artifact_run_dir(paper_id: str, run_id: str) -> Path:
-    return artifact_paper_dir(paper_id) / str(run_id)
+    preferred = preferred_artifact_paper_dir(paper_id)
+    candidates = [preferred / str(run_id)]
+    for candidate in artifact_run_dir_candidates(paper_id, run_id):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return preferred / str(run_id)
 
 
 def goldset_root() -> Path:
