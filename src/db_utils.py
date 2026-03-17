@@ -15,15 +15,17 @@ _IMPORTED_DB_PATH = Path(DB_PATH)
 
 def get_db_path() -> Path:
     global DB_PATH
+    env_value = os.getenv("PAPERPIPE_DB_PATH")
+    if env_value:
+        resolved = Path(env_value).expanduser().resolve()
+        DB_PATH = resolved
+        return resolved
+
     configured = Path(DB_PATH).expanduser().resolve()
     if configured != _IMPORTED_DB_PATH:
         return configured
 
-    env_value = os.getenv("PAPERPIPE_DB_PATH")
-    if env_value:
-        resolved = Path(env_value).expanduser().resolve()
-    else:
-        resolved = state_db_path()
+    resolved = state_db_path()
     DB_PATH = resolved
     return resolved
 
