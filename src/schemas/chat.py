@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.output_modes import OutputModeFamily
+
 
 class ChatLocator(BaseModel):
     page: int | None = None
@@ -34,6 +36,7 @@ class ChatSuggestedAction(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+    output_mode_family: OutputModeFamily = "learner"
     evidence_refs: list[ChatEvidenceRef] = Field(default_factory=list)
     suggested_actions: list[ChatSuggestedAction] = Field(default_factory=list)
 
@@ -42,10 +45,12 @@ class ChatRequest(BaseModel):
     paper_slug: str | None = None
     message: str = Field(..., min_length=1)
     focus: str | None = None
+    output_mode_family: OutputModeFamily | None = None
 
 
 class ChatStubResponse(BaseModel):
     error_code: Literal["CHAT_NOT_IMPLEMENTED"] = "CHAT_NOT_IMPLEMENTED"
     chat_enabled: bool = False
     message: str
+    output_mode_family: OutputModeFamily = "learner"
     external_calls: bool = False

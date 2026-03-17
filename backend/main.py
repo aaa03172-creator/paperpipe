@@ -14,6 +14,8 @@ import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
+from src.schemas.chat import ChatRequest, ChatStubResponse
+from src.output_modes import resolve_chat_output_mode_family
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
     ResearchDNACreateRequest,
@@ -74,6 +76,16 @@ def _resolve_api_key() -> str:
         or os.getenv("PAPERPIPE_API_KEY")
         or ""
     ).strip()
+
+
+def _is_chat_enabled() -> bool:
+    raw = (
+        os.getenv("CHAT_ENABLED")
+        or os.getenv("LATTICE_CHAT_ENABLED")
+        or os.getenv("PAPERPIPE_CHAT_ENABLED")
+        or "false"
+    ).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _requires_api_key(method: str, path: str) -> bool:
@@ -472,6 +484,34 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
+
+
+@app.post("/api/chat", response_model=ChatStubResponse)
+def chat_stub(req: ChatRequest):
+    output_mode_family = resolve_chat_output_mode_family(req.output_mode_family)
+    if not _is_chat_enabled():
+        return JSONResponse(
+            status_code=501,
+            content=ChatStubResponse(
+                chat_enabled=False,
+                output_mode_family=output_mode_family,
+                message=(
+                    "CHAT_ENABLED=false. /api/chat is a stub only in this sprint; "
+                    "no LLM provider, memory, or RAG call is executed."
+                ),
+            ).model_dump(),
+        )
+    return JSONResponse(
+        status_code=501,
+        content=ChatStubResponse(
+            chat_enabled=True,
+            output_mode_family=output_mode_family,
+            message=(
+                "/api/chat is intentionally stubbed. This sprint does not implement "
+                "LLM execution, conversation storage, or retrieval."
+            ),
+        ).model_dump(),
+    )
 
 
 @app.post("/research-dna", response_model=ResearchDNAEnvelope)
