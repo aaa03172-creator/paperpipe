@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import logging
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -9,6 +10,22 @@ from src.services.runtime_paths import state_db_path
 logger = logging.getLogger(__name__)
 
 DB_PATH = state_db_path()
+_IMPORTED_DB_PATH = Path(DB_PATH)
+
+
+def get_db_path() -> Path:
+    global DB_PATH
+    configured = Path(DB_PATH).expanduser().resolve()
+    if configured != _IMPORTED_DB_PATH:
+        return configured
+
+    env_value = os.getenv("PAPERPIPE_DB_PATH")
+    if env_value:
+        resolved = Path(env_value).expanduser().resolve()
+    else:
+        resolved = state_db_path()
+    DB_PATH = resolved
+    return resolved
 
 
 def _get_paper_columns(cursor: sqlite3.Cursor) -> set[str]:
@@ -26,8 +43,9 @@ def _paper_lookup_conditions(columns: set[str]) -> list[str]:
 
 def init_db():
     """Initialize runtime tables and apply lightweight compatibility migrations."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -171,8 +189,9 @@ def init_db():
     conn.close()
 
 def get_db_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
