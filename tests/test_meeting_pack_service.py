@@ -319,6 +319,7 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     )
 
     assert response.pack.mode == "journal_club"
+    assert response.pack.output_mode_family == "lab_meeting"
     assert response.pack.readiness == "evidence_backed"
     assert response.pack.evidence_refs[0].id == "evref_01"
     assert response.pack.generation_request is not None
@@ -368,6 +369,7 @@ def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
     assert response.total == 2
     assert [item.pack_id for item in response.items] == [second.pack.id, first.pack.id]
     assert response.items[0].title == "Newer draft"
+    assert response.items[0].output_mode_family == "builder_debug"
     assert response.items[0].primary_source_title == second.pack.source_items[0].title
     assert response.items[0].trace_entry_count == len(second.pack.retrieval_trace)
     assert response.items[0].has_generation_request is True

@@ -36,6 +36,7 @@ Related docs:
   - `GET /meeting-packs/{pack_id}/validate`
   - `GET /meeting-packs/{pack_id}/markdown`
   - `GET /meeting-packs/{pack_id}/trace` and `GET /meeting-packs` stay debug/ops surfaces, not reader-facing evidence views
+  - frontend ops/debug inspector routes: `/meeting-packs` (saved packs index + local search/filter + quick open), `/meeting-packs/{pack_id}` with guarded draft regenerate/rerender actions and carried success notice after regenerate
   - saved `generation_request` snapshot inside `meeting_pack.json`
   - `readiness`, `regenerated_from_pack_id`, and response-level `markdown_sync`
   - `validate` now downgrades regenerate availability to `unavailable` with warnings when the current vault can no longer resolve the saved selector set
@@ -194,6 +195,14 @@ Related docs:
 ## Supported Modes
 모든 모드는 같은 output contract를 사용하지만 강조점이 달라야 한다.
 
+Shared output-mode family mapping:
+- `journal_club` -> `lab_meeting`
+- `literature_update` -> `lab_meeting`
+- `project_progress_update` -> `project_update`
+- `experiment_proposal` -> `builder_debug`
+
+이 family는 presentation lane을 설명하는 공통 축이다. concrete `mode`는 meeting-pack-specific framing을 유지하고, family는 다른 surface와 공통 분류를 맞추는 용도로만 쓴다.
+
 ### `journal_club`
 - focus:
   - 핵심 질문
@@ -201,6 +210,7 @@ Related docs:
   - 주요 결과
   - strengths/limitations
   - discussion
+- output-mode family: `lab_meeting`
 
 ### `literature_update`
 - focus:
@@ -208,6 +218,7 @@ Related docs:
   - key papers and comparison
   - convergence/divergence
   - open questions
+- output-mode family: `lab_meeting`
 
 ### `project_progress_update`
 - focus:
@@ -215,6 +226,7 @@ Related docs:
   - 현재 evidence state
   - blockers
   - next actions
+- output-mode family: `project_update`
 
 ### `experiment_proposal`
 - focus:
@@ -223,6 +235,7 @@ Related docs:
   - proposed design
   - risks/failure modes
   - expected outcomes
+- output-mode family: `builder_debug`
 
 ## Canonical Boundary
 
