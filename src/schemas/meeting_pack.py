@@ -174,6 +174,31 @@ class MeetingPackValidation(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class MeetingPackListItem(BaseModel):
+    pack_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    mode: MeetingPackMode
+    created_at: datetime
+    readiness: MeetingPackReadiness
+    source_count: int = Field(default=0, ge=0)
+    slide_count: int = Field(default=0, ge=0)
+    trace_entry_count: int = Field(default=0, ge=0)
+    primary_source_title: str | None = None
+    has_generation_request: bool = False
+    regenerated_from_pack_id: str | None = None
+
+
+class MeetingPackRetrievalTraceSummary(BaseModel):
+    entry_count: int = Field(default=0, ge=0)
+    selector_count: int = Field(default=0, ge=0)
+    matched_paper_count: int = Field(default=0, ge=0)
+    source_path_count: int = Field(default=0, ge=0)
+    action_counts: dict[str, int] = Field(default_factory=dict)
+    outcome_counts: dict[str, int] = Field(default_factory=dict)
+    matched_paper_slugs: list[str] = Field(default_factory=list)
+    source_paths: list[str] = Field(default_factory=list)
+
+
 class MeetingPack(BaseModel):
     id: str = Field(..., pattern=r"^meetingpack_[A-Za-z0-9._-]+$")
     mode: MeetingPackMode
@@ -206,3 +231,16 @@ class MeetingPackResponse(BaseModel):
 
 class MeetingPackValidationResponse(BaseModel):
     validation: MeetingPackValidation
+
+
+class MeetingPackTraceResponse(BaseModel):
+    pack_id: str = Field(..., min_length=1)
+    available: bool = False
+    summary: MeetingPackRetrievalTraceSummary = Field(default_factory=MeetingPackRetrievalTraceSummary)
+    trace: list[MeetingPackRetrievalTraceEntry] = Field(default_factory=list)
+
+
+class MeetingPackListResponse(BaseModel):
+    generated_at: datetime
+    total: int = Field(default=0, ge=0)
+    items: list[MeetingPackListItem] = Field(default_factory=list)
