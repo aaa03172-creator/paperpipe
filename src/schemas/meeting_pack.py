@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from src.output_modes import OutputModeFamily, resolve_meeting_pack_output_mode_family
 from .chat import ChatLocator
 
 
@@ -178,6 +179,7 @@ class MeetingPackListItem(BaseModel):
     pack_id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
     mode: MeetingPackMode
+    output_mode_family: OutputModeFamily | None = None
     created_at: datetime
     readiness: MeetingPackReadiness
     source_count: int = Field(default=0, ge=0)
@@ -186,6 +188,18 @@ class MeetingPackListItem(BaseModel):
     primary_source_title: str | None = None
     has_generation_request: bool = False
     regenerated_from_pack_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_output_mode_family(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            payload = dict(value)
+            payload["output_mode_family"] = resolve_meeting_pack_output_mode_family(
+                payload["mode"],
+                explicit_family=payload.get("output_mode_family"),
+            )
+            return payload
+        return value
 
 
 class MeetingPackRetrievalTraceSummary(BaseModel):
@@ -202,6 +216,7 @@ class MeetingPackRetrievalTraceSummary(BaseModel):
 class MeetingPack(BaseModel):
     id: str = Field(..., pattern=r"^meetingpack_[A-Za-z0-9._-]+$")
     mode: MeetingPackMode
+    output_mode_family: OutputModeFamily | None = None
     title: str = Field(..., min_length=1)
     created_at: datetime
     status: MeetingPackStatus = "draft"
@@ -217,6 +232,18 @@ class MeetingPack(BaseModel):
     expected_questions: list[MeetingPackExpectedQuestion] = Field(default_factory=list)
     next_steps: list[MeetingPackNextStep] = Field(default_factory=list)
     evidence_refs: list[MeetingPackEvidenceRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_output_mode_family(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            payload = dict(value)
+            payload["output_mode_family"] = resolve_meeting_pack_output_mode_family(
+                payload["mode"],
+                explicit_family=payload.get("output_mode_family"),
+            )
+            return payload
+        return value
 
 
 class MeetingPackGenerateRequest(MeetingPackRequestSnapshot):
