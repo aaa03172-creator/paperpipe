@@ -119,6 +119,13 @@ def meeting_packs_root() -> Path:
     return (storage_root() / "meeting_packs").resolve()
 
 
+def method_comparisons_root() -> Path:
+    value = os.getenv("PAPERPIPE_METHOD_COMPARISONS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "method_comparisons").resolve()
+
+
 def profiles_config_path() -> Path:
     value = os.getenv("PAPERPIPE_PROFILES_PATH")
     if value:
