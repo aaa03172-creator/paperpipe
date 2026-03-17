@@ -54,6 +54,9 @@ from src.schemas.ops import (
     PersonaOption,
     RunTimelineEvent,
     RunTimelineResponse,
+    StatsRepairRequest,
+    StatsRepairResponse,
+    StatsRepairResult,
     UserActionEntry,
     UserActionListResponse,
 )
@@ -63,6 +66,7 @@ from src.services.event_log import get_execution_run_params, list_run_events, li
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
+from src.services.stats_repair import seed_stats_reports_from_claimset
 from .routers import feedback, meeting_packs, obsidian, paper_notes
 
 
@@ -119,7 +123,7 @@ def _requires_api_key(method: str, path: str) -> bool:
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync"}:
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats"}:
         return True
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
@@ -1094,6 +1098,63 @@ def get_user_actions(
         limit=limit,
     )
     return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
+
+
+@app.post("/ops/repair-stats", response_model=StatsRepairResponse)
+def repair_stats(req: StatsRepairRequest):
+    paper_ids = [str(pid).strip() for pid in (req.paper_ids or []) if str(pid).strip()]
+    if not paper_ids:
+        raise HTTPException(status_code=400, detail="paper_ids must include at least one id")
+
+    try:
+        results = seed_stats_reports_from_claimset(
+            paper_ids=paper_ids,
+            artifacts_root=Path(req.artifacts_root),
+            run_id=req.run_id,
+            max_checks=int(req.max_checks),
+            write_bootstrap_meta=bool(req.write_bootstrap_meta),
+            skip_existing=bool(req.skip_existing),
+            dry_run=bool(req.dry_run),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"repair-stats failed: {exc}")
+
+    serialized = [
+        StatsRepairResult(
+            paper_id=item.paper_id,
+            run_id=item.run_id,
+            status=item.status,  # type: ignore[arg-type]
+            checks=int(item.checks),
+            reason=str(item.reason),
+        )
+        for item in results
+    ]
+    for item in serialized:
+        _best_effort_log_user_action(
+            paper_id=item.paper_id,
+            action_type="repair_stats",
+            source="ui",
+            payload={
+                "run_id": item.run_id,
+                "status": item.status,
+                "checks": int(item.checks),
+                "reason": str(item.reason),
+                "skip_existing": bool(req.skip_existing),
+                "write_bootstrap_meta": bool(req.write_bootstrap_meta),
+                "dry_run": bool(req.dry_run),
+                "max_checks": int(req.max_checks),
+            },
+        )
+    seeded = sum(1 for item in serialized if item.status == "seeded")
+    planned = sum(1 for item in serialized if item.status == "planned")
+    skipped = sum(1 for item in serialized if item.status == "skipped")
+    return StatsRepairResponse(
+        seeded=seeded,
+        planned=planned,
+        skipped=skipped,
+        total=len(serialized),
+        results=serialized,
+    )
 
 
 @app.get("/jobs", response_model=list[JobStatus])
