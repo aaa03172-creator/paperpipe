@@ -31,6 +31,12 @@ class PaperNoteIndexItem(BaseModel):
     doi: str | None = None
     zotero_link: str | None = None
     updated_at: str | None = None
+    pp_signals: dict[str, Any] = Field(default_factory=dict)
+    claim_tags: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    mesh: list[str] = Field(default_factory=list)
+    outcomes: list[str] = Field(default_factory=list)
+    ops_summary: PaperNoteOpsSummary | None = None
 
 
 class PaperNoteListResponse(BaseModel):
@@ -49,13 +55,13 @@ class PaperNoteRelatedItem(BaseModel):
     slug: str
     title: str
     shared_tags: list[str] = Field(default_factory=list)
+    shared_signals: list[str] = Field(default_factory=list)
 
 
 class PaperNoteReferenceLink(BaseModel):
     label: str
     url: str
     source: Literal["pdf", "doi", "zotero", "external"] = "external"
-
 
 
 PaperNoteContextTraceOutcome = Literal["loaded", "filtered", "resolved", "derived", "missing"]
@@ -87,6 +93,7 @@ class PaperNoteContextTrace(BaseModel):
     available: bool = False
     summary: PaperNoteContextTraceSummary = Field(default_factory=PaperNoteContextTraceSummary)
     trace: list[PaperNoteContextTraceEntry] = Field(default_factory=list)
+
 
 class PaperNoteDetailResponse(BaseModel):
     note: PaperNoteIndexItem
