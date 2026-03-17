@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from src.output_modes import resolve_meeting_pack_output_mode_family
 from src.meeting_packs.evidence import build_meeting_pack_evidence_ledger
 from src.meeting_packs.renderer import render_meeting_pack_markdown
 from src.meeting_packs.source_resolver import (
@@ -413,6 +414,7 @@ def _build_meeting_pack(
     return MeetingPack(
         id=pack_id,
         mode=request.mode,
+        output_mode_family=resolve_meeting_pack_output_mode_family(request.mode),
         title=request.title or _default_title(request.mode, selected_ref_titles[0]),
         created_at=created_at,
         status="draft",
@@ -663,6 +665,7 @@ def _meeting_pack_list_item(pack: MeetingPack) -> MeetingPackListItem:
         pack_id=pack.id,
         title=pack.title,
         mode=pack.mode,
+        output_mode_family=resolve_meeting_pack_output_mode_family(pack.mode, explicit_family=pack.output_mode_family),
         created_at=pack.created_at,
         readiness=pack.readiness,
         source_count=len(pack.source_items),
