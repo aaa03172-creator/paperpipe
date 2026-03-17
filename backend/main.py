@@ -11,12 +11,26 @@ from pathlib import Path
 from typing import Any
 
 import src.db_utils as db_utils
-from src.db_utils import get_db_connection, init_db
+from src.db_utils import get_db_connection
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.persona_modes import list_reasoning_personas, normalize_persona_selection
 from src.schemas.chat import ChatRequest, ChatStubResponse
 from src.output_modes import resolve_chat_output_mode_family
+from src.schemas.ops import (
+    ArtifactBundleResponse,
+    ArtifactFileEntry,
+    DownloaderOpsMetricsResponse,
+    PersonaListResponse,
+    PersonaOption,
+    RunTimelineEvent,
+    RunTimelineResponse,
+    StatsRepairRequest,
+    StatsRepairResponse,
+    StatsRepairResult,
+    UserActionEntry,
+    UserActionListResponse,
+)
 from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
@@ -67,7 +81,7 @@ from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from src.services.stats_repair import seed_stats_reports_from_claimset
-from .routers import obsidian, feedback, meeting_packs, paper_notes
+from .routers import feedback, meeting_packs, obsidian, paper_notes, skills
 
 
 def _best_effort_log_user_action(
@@ -123,7 +137,7 @@ def _requires_api_key(method: str, path: str) -> bool:
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats"}:
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
@@ -1295,4 +1309,5 @@ async def job_events(job_id: str, request: Request):
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
 app.include_router(paper_notes.router)
+app.include_router(skills.router)
 app.include_router(meeting_packs.router)
