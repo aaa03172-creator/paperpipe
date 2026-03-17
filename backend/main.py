@@ -944,7 +944,7 @@ def get_downloader_metrics(
         bad_content_warn=bad_content_warn,
         policy_block_warn=policy_block_warn,
     )
-    metrics = collect_metrics(db_utils.DB_PATH, hours)
+    metrics = collect_metrics(db_utils.get_db_path(), hours)
     alerts = evaluate_alerts(metrics, thresholds)
     return DownloaderOpsMetricsResponse(metrics=metrics, alerts=alerts)
 
