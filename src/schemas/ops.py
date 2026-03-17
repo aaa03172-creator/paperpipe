@@ -109,6 +109,7 @@ class PersonaOption(BaseModel):
     id: str
     title: str
     enabled: bool = True
+    kind: Literal["compatibility", "reasoning_persona", "profile"] = "profile"
     notes: Optional[str] = None
     schedule: Optional[str] = None
     query_focus: Optional[str] = None
