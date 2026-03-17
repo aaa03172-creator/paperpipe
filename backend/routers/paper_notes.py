@@ -13,12 +13,18 @@ import yaml
 
 from src.config import load_config
 from src.schemas.paper_notes import (
+    PaperNoteContextTrace,
+    PaperNoteContextTraceEntry,
+    PaperNoteContextTraceSummary,
     PaperNoteDetailResponse,
     PaperNoteIndexItem,
     PaperNoteListResponse,
     PaperNoteReferenceLink,
     PaperNoteRelatedItem,
+    PaperNoteStructuredStateLookupResponse,
 )
+from src.skills.registry import list_available_actions
+from src.skills.storage import load_structured_state
 from src.services.path_masking import is_path_masking_enabled
 
 router = APIRouter(prefix="/paper-notes", tags=["paper-notes"])
@@ -299,10 +305,11 @@ def _normalize_heading_text(text: str) -> str:
     return " ".join(normalized.lower().split())
 
 
-def _strip_sections_and_capture_references(markdown: str) -> tuple[str, str]:
+def _strip_sections_and_capture_references(markdown: str) -> tuple[str, str, list[str]]:
     lines = markdown.splitlines()
     output: list[str] = []
     references: list[str] = []
+    filtered_sections: list[str] = []
     skip_mode: Literal["related", "references"] | None = None
     skip_level = 0
 
@@ -319,10 +326,14 @@ def _strip_sections_and_capture_references(markdown: str) -> tuple[str, str]:
             if skip_mode is None and "related papers" in heading_text:
                 skip_mode = "related"
                 skip_level = level
+                if "related" not in filtered_sections:
+                    filtered_sections.append("related")
                 continue
             if skip_mode is None and "references" in heading_text:
                 skip_mode = "references"
                 skip_level = level
+                if "references" not in filtered_sections:
+                    filtered_sections.append("references")
                 references.append(line)
                 continue
 
@@ -335,7 +346,7 @@ def _strip_sections_and_capture_references(markdown: str) -> tuple[str, str]:
 
     body = "\n".join(output).strip() + "\n"
     reference_block = "\n".join(references).strip()
-    return body, reference_block
+    return body, reference_block, filtered_sections
 
 
 def _convert_wikilinks(markdown: str) -> str:
@@ -576,6 +587,176 @@ def _compute_related(
     return [entry[3] for entry in scored[:limit]]
 
 
+
+def _normalize_paper_note_id(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _paper_id_variants(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    variants: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    _append(text)
+    _append(text.replace(":", ""))
+    if ":" in text:
+        suffix = text.split(":", 1)[1].strip()
+        _append(suffix)
+        _append(suffix.replace(":", ""))
+    return variants
+
+
+def _find_note_item_for_paper_id(items: list[PaperNoteIndexItem], paper_id: str) -> PaperNoteIndexItem | None:
+    raw_variants = _paper_id_variants(paper_id)
+    if not raw_variants:
+        return None
+    normalized_variants = {_normalize_paper_note_id(value) for value in raw_variants}
+
+    def _matches_exact(item: PaperNoteIndexItem) -> bool:
+        candidates = [item.id, item.slug]
+        return any(candidate in raw_variants for candidate in candidates if candidate)
+
+    for item in items:
+        if _matches_exact(item):
+            return item
+
+    for item in items:
+        candidates = [item.id, item.slug]
+        normalized_candidates = {
+            _normalize_paper_note_id(candidate)
+            for candidate in candidates
+            if candidate
+        }
+        if normalized_candidates & normalized_variants:
+            return item
+    return None
+
+
+def _build_context_trace_summary(
+    trace: list[PaperNoteContextTraceEntry],
+    *,
+    related: list[PaperNoteRelatedItem],
+    references: list[PaperNoteReferenceLink],
+) -> PaperNoteContextTraceSummary:
+    action_counts: dict[str, int] = {}
+    outcome_counts: dict[str, int] = {}
+    source_paths: list[str] = []
+    related_slugs: list[str] = []
+    reference_sources: list[str] = []
+
+    for entry in trace:
+        action_counts[entry.action] = action_counts.get(entry.action, 0) + 1
+        outcome_counts[entry.outcome] = outcome_counts.get(entry.outcome, 0) + 1
+        if entry.source_path and entry.source_path not in source_paths:
+            source_paths.append(entry.source_path)
+        for slug in entry.matched_slugs:
+            if slug not in related_slugs:
+                related_slugs.append(slug)
+
+    for reference in references:
+        if reference.source not in reference_sources:
+            reference_sources.append(reference.source)
+
+    return PaperNoteContextTraceSummary(
+        entry_count=len(trace),
+        source_path_count=len(source_paths),
+        related_count=len(related),
+        reference_count=len(references),
+        action_counts=action_counts,
+        outcome_counts=outcome_counts,
+        source_paths=source_paths,
+        related_slugs=related_slugs,
+        reference_sources=reference_sources,
+    )
+
+
+def _build_paper_note_context_trace(
+    *,
+    target: PaperNoteIndexItem,
+    filtered_sections: list[str],
+    related: list[PaperNoteRelatedItem],
+    references: list[PaperNoteReferenceLink],
+    structured_state: Any,
+    related_limit: int,
+) -> PaperNoteContextTrace:
+    structured_state_rel_path = f".pp/{target.slug}/state.json"
+    trace: list[PaperNoteContextTraceEntry] = [
+        PaperNoteContextTraceEntry(
+            order=1,
+            action="note_loaded",
+            outcome="loaded",
+            detail="Loaded note frontmatter and markdown body for detail rendering.",
+            source_path=target.note_path,
+            metadata={"note_slug": target.slug, "note_id": target.id},
+        ),
+        PaperNoteContextTraceEntry(
+            order=2,
+            action="body_sections_filtered",
+            outcome="filtered",
+            detail="Removed raw Related Papers and References sections from the center markdown body.",
+            source_path=target.note_path,
+            metadata={"filtered_sections": filtered_sections},
+        ),
+        PaperNoteContextTraceEntry(
+            order=3,
+            action="references_resolved",
+            outcome="resolved",
+            detail="Resolved preferred reference links from frontmatter and captured markdown references.",
+            source_path=target.note_path,
+            metadata={
+                "reference_count": len(references),
+                "reference_sources": list(dict.fromkeys(reference.source for reference in references)),
+            },
+        ),
+        PaperNoteContextTraceEntry(
+            order=4,
+            action="related_computed",
+            outcome="derived",
+            detail="Computed related papers from shared tags only.",
+            source_path=str(INDEX_CACHE_PATH),
+            matched_slugs=[item.slug for item in related],
+            metadata={"related_limit": related_limit},
+        ),
+    ]
+
+    if structured_state is not None:
+        trace.append(
+            PaperNoteContextTraceEntry(
+                order=5,
+                action="structured_state_loaded",
+                outcome="loaded",
+                detail="Loaded canonical structured sidecar state for the note detail view.",
+                source_path=structured_state_rel_path,
+                metadata={
+                    "run_count": len(getattr(structured_state, "runs", []) or []),
+                    "has_claimset": bool(getattr(structured_state, "claimset", []) or []),
+                },
+            )
+        )
+    else:
+        trace.append(
+            PaperNoteContextTraceEntry(
+                order=5,
+                action="structured_state_loaded",
+                outcome="missing",
+                detail="No canonical structured sidecar state was available for this note.",
+                source_path=structured_state_rel_path,
+            )
+        )
+
+    return PaperNoteContextTrace(
+        available=bool(trace),
+        summary=_build_context_trace_summary(trace, related=related, references=references),
+        trace=trace,
+    )
+
 def _find_note_item(items: list[PaperNoteIndexItem], slug: str) -> PaperNoteIndexItem | None:
     for item in items:
         if item.slug == slug:
@@ -618,6 +799,31 @@ def list_paper_notes(
     )
 
 
+@router.get("/resolve-by-paper-id", response_model=PaperNoteStructuredStateLookupResponse)
+def resolve_paper_note_by_paper_id(
+    paper_id: str = Query(..., min_length=1),
+):
+    vault_path = _resolve_vault_path()
+    index = _build_index(vault_path)
+    target = _find_note_item_for_paper_id(index.items, paper_id)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Paper note not found for paper_id={paper_id}")
+
+    note_path = vault_path / target.note_path
+    if not note_path.exists():
+        raise HTTPException(status_code=404, detail=f"Note file not found: {target.note_path}")
+
+    content = _safe_read_text(note_path)
+    frontmatter, _ = _parse_frontmatter(content)
+    structured_state = load_structured_state(vault_path, target.slug, frontmatter)
+    return PaperNoteStructuredStateLookupResponse(
+        paper_id=paper_id,
+        slug=target.slug,
+        note_path=target.note_path,
+        structured_state=structured_state,
+    )
+
+
 @router.get("/{slug}", response_model=PaperNoteDetailResponse)
 def get_paper_note(
     slug: str,
@@ -635,10 +841,19 @@ def get_paper_note(
 
     content = _safe_read_text(note_path)
     frontmatter, body = _parse_frontmatter(content)
-    stripped_body, reference_block = _strip_sections_and_capture_references(body)
+    stripped_body, reference_block, filtered_sections = _strip_sections_and_capture_references(body)
     converted_body = _convert_wikilinks(stripped_body)
     references = _build_references(frontmatter, reference_block)
     related = _compute_related(target, index.items, limit=related_limit)
+    structured_state = load_structured_state(vault_path, slug, frontmatter)
+    context_trace = _build_paper_note_context_trace(
+        target=target,
+        filtered_sections=filtered_sections,
+        related=related,
+        references=references,
+        structured_state=structured_state,
+        related_limit=related_limit,
+    )
 
     return PaperNoteDetailResponse(
         note=target,
@@ -646,4 +861,7 @@ def get_paper_note(
         body_markdown=converted_body,
         related=related,
         references=references,
+        context_trace=context_trace,
+        structured_state=structured_state,
+        available_actions=list_available_actions(),
     )
