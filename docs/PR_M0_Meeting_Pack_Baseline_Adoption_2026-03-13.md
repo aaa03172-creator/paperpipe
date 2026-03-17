@@ -1,6 +1,6 @@
 # PR-M0 Meeting Pack Baseline Adoption
 
-Status: Re-verified in workspace; staged candidate confirmed; awaiting repository-baseline adoption execution
+Status: Executed via commit `5c09619`; retained as the historical baseline-adoption note for the Meeting Pack runtime slice
 Date: 2026-03-17
 Parent roadmap: `/Users/jangseongjin/paperpipe/docs/Audit_Driven_Roadmap_2026-03-13.md`
 
@@ -11,6 +11,11 @@ Parent roadmap: `/Users/jangseongjin/paperpipe/docs/Audit_Driven_Roadmap_2026-03
 It is now a dependency-bearing runtime slice with its own package, schemas, store, selector logic, and transitive links into profile metadata, structured state, and Research DNA logs.
 
 This slice should be adopted explicitly instead of being smuggled into `PR-R0`.
+
+Execution follow-up:
+
+- baseline adoption for this slice was executed as commit `5c09619` (`feat(meeting-pack): adopt baseline runtime slice`)
+- later Meeting Pack follow-up slices were intentionally split into separate commits rather than folded back into this baseline note
 
 ## 1. Re-verified Baseline For This PR
 
@@ -32,7 +37,13 @@ Result:
 - this expanded recheck includes the profile-store/projection guard surface that Meeting Pack now depends on for projection-backed `project_profile` / `research_profile` selectors
 - stage-ready dry run is additionally recorded in `/Users/jangseongjin/paperpipe/docs/archive/PR_M0_Staging_Dry_Run_2026-03-17.md`
 - staged-index validation is additionally recorded in `/Users/jangseongjin/paperpipe/docs/archive/PR_M0_Staged_Candidate_Validation_2026-03-17.md`
-- current disposition: the staged set is now treated as the confirmed `PR-M0` baseline-adoption candidate; remaining broader worktree tails stay out of scope unless explicitly promoted into a separate lane
+- current disposition: this baseline-adoption slice was executed via commit `5c09619`; remaining broader worktree tails stay out of scope unless explicitly promoted into a separate lane
+
+Re-checked on 2026-03-18 with the same targeted suite:
+
+- `97 passed`
+- the Meeting Pack baseline slice still holds after the recent additive hardening around `Research DNA` reporting and paper-note `context_trace`
+- the widened passing count reflects normal test-surface growth, not a reason to broaden the `PR-M0` include/exclude boundary
 
 ## 2. Runtime Dependency Cone
 
@@ -162,6 +173,8 @@ Meaning:
 - `src/profiles/research_dna_projection.py` is intentionally excluded from `PR-M0`; the current Meeting Pack slice consumes projection metadata but does not import the projection producer module
 - `src/services/runtime_paths.py` and `src/services/identity.py` currently have broader unstaged tails in the workspace; those tails are not part of `PR-M0` and remain separate follow-up lanes
 - `backend/routers/meeting_packs.py`, `src/meeting_packs/service.py`, and `docs/MEETING_PACK.md` also currently have broader unstaged tails for list/trace/debug-inspector follow-up; those tails are not part of the confirmed `PR-M0` candidate
+- recent `Research DNA` eval-report hardening (`scripts/evaluate_search.py`, `tests/test_evaluate_search.py`, `docs/RESEARCH_DNA.md`) is adjacent but remains a separate additive lane
+- recent paper-note `context_trace` hardening (`src/schemas/paper_notes.py`, `backend/routers/paper_notes.py`, `tests/test_paper_notes_api.py`, `docs/WEB_VIEWER.md`) shares the "operational trace only" principle but remains outside `PR-M0`
 
 ### 3.6 Stage-ready adoption outline
 
@@ -218,6 +231,8 @@ Adopt as a narrow extracted hunk only:
 
 - no frontend Meeting Pack UX expansion
 - no Research DNA feature expansion beyond what Meeting Pack already imports
+- no paper-note detail trace UI/debug surface expansion
+- no use of recent additive hardening slices as a reason to broaden the baseline-adoption file set
 - no identity/path redesign yet
 - no event-log redesign yet
 
