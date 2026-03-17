@@ -38,6 +38,9 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
 
         obsidian_sync = client.post("/obsidian/sync", json={"paper_id": "paper_auth_001", "run_id": "run_auth_001"})
         assert obsidian_sync.status_code == 401
+
+        repair_stats = client.post("/ops/repair-stats", json={"paper_ids": ["paper_auth_001"]})
+        assert repair_stats.status_code == 401
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -67,6 +70,13 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             headers=headers,
         )
         assert feedback.status_code == 200
+
+        repair_stats = client.post(
+            "/ops/repair-stats",
+            json={"paper_ids": ["paper_auth_allow_001"], "dry_run": True},
+            headers=headers,
+        )
+        assert repair_stats.status_code == 200
     finally:
         db_utils.DB_PATH = original_db_path
 
