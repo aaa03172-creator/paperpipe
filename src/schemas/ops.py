@@ -70,6 +70,67 @@ class UserActionListResponse(BaseModel):
     actions: list[UserActionEntry] = Field(default_factory=list)
 
 
+class ObsidianArtifactsResponse(BaseModel):
+    paper_id: str
+    run_id: str
+    claimset_source: Optional[str] = None
+    claimset: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
+    chunks: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
+    stats_report: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
+
+
+class ObsidianMirrorClaim(BaseModel):
+    claim_id: str
+    claim_type: str
+    statement: str
+    confidence: float
+    evidence_quote: Optional[str] = None
+    evidence_page: Optional[int] = None
+    evidence_chunk_id: Optional[str] = None
+    evidence_grounded: Optional[bool] = None
+    evidence_resolution: Optional[str] = None
+    limitations: list[str] = Field(default_factory=list)
+
+
+class ObsidianMirrorStatCheck(BaseModel):
+    check_id: str
+    test_type: str
+    verdict: str
+    claim_id: Optional[str] = None
+    evidence_page: Optional[int] = None
+    evidence_chunk_id: Optional[str] = None
+    evidence_grounded: Optional[bool] = None
+    evidence_resolution: Optional[str] = None
+    hypothesis: Optional[str] = None
+    notes: Optional[str] = None
+    decision_error: bool = False
+
+
+class ObsidianMirrorResponse(BaseModel):
+    paper_id: str
+    run_id: str
+    generated_markdown: str
+    has_claimset: bool = False
+    has_stats_report: bool = False
+    claims: list[ObsidianMirrorClaim] = Field(default_factory=list)
+    stats_checks: list[ObsidianMirrorStatCheck] = Field(default_factory=list)
+
+
+class PersonaOption(BaseModel):
+    id: str
+    title: str
+    enabled: bool = True
+    kind: Literal["compatibility", "reasoning_persona", "profile"] = "profile"
+    notes: Optional[str] = None
+    schedule: Optional[str] = None
+    query_focus: Optional[str] = None
+    source: Literal["builtin", "yaml"] = "yaml"
+
+
+class PersonaListResponse(BaseModel):
+    personas: list[PersonaOption] = Field(default_factory=list)
+
+
 class StatsRepairRequest(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     run_id: Optional[str] = None
@@ -94,27 +155,3 @@ class StatsRepairResponse(BaseModel):
     skipped: int = 0
     total: int = 0
     results: list[StatsRepairResult] = Field(default_factory=list)
-
-
-class ObsidianArtifactsResponse(BaseModel):
-    paper_id: str
-    run_id: str
-    claimset_source: Optional[str] = None
-    claimset: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
-    chunks: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
-    stats_report: ArtifactFileEntry = Field(default_factory=ArtifactFileEntry)
-
-
-class PersonaOption(BaseModel):
-    id: str
-    title: str
-    enabled: bool = True
-    kind: Literal["compatibility", "reasoning_persona", "profile"] = "profile"
-    notes: Optional[str] = None
-    schedule: Optional[str] = None
-    query_focus: Optional[str] = None
-    source: Literal["builtin", "yaml"] = "yaml"
-
-
-class PersonaListResponse(BaseModel):
-    personas: list[PersonaOption] = Field(default_factory=list)
