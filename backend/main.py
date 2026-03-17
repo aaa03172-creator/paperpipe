@@ -67,7 +67,7 @@ from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from src.services.stats_repair import seed_stats_reports_from_claimset
-from .routers import obsidian, feedback, meeting_packs
+from .routers import obsidian, feedback, meeting_packs, paper_notes
 
 
 def _best_effort_log_user_action(
@@ -1294,4 +1294,5 @@ async def job_events(job_id: str, request: Request):
 
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
+app.include_router(paper_notes.router)
 app.include_router(meeting_packs.router)
