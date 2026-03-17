@@ -4,6 +4,8 @@ from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, Field
 
+from src.services.runtime_paths import artifacts_root
+
 
 class DownloaderOpsMetrics(BaseModel):
     db_exists: bool
@@ -66,6 +68,32 @@ class UserActionEntry(BaseModel):
 
 class UserActionListResponse(BaseModel):
     actions: list[UserActionEntry] = Field(default_factory=list)
+
+
+class StatsRepairRequest(BaseModel):
+    paper_ids: list[str] = Field(default_factory=list)
+    run_id: Optional[str] = None
+    artifacts_root: str = Field(default_factory=lambda: str(artifacts_root()))
+    max_checks: int = Field(default=6, ge=1)
+    write_bootstrap_meta: bool = True
+    skip_existing: bool = True
+    dry_run: bool = False
+
+
+class StatsRepairResult(BaseModel):
+    paper_id: str
+    run_id: Optional[str] = None
+    status: Literal["seeded", "planned", "skipped"]
+    checks: int = 0
+    reason: str = ""
+
+
+class StatsRepairResponse(BaseModel):
+    seeded: int = 0
+    planned: int = 0
+    skipped: int = 0
+    total: int = 0
+    results: list[StatsRepairResult] = Field(default_factory=list)
 
 
 class ObsidianArtifactsResponse(BaseModel):
