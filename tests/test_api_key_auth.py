@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
 from backend import main as api_main
+from src.skills import runner as skills_runner
 
 
 def _init_temp_db(tmp_path, monkeypatch):
@@ -42,6 +43,9 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
         repair_stats = client.post("/ops/repair-stats", json={"paper_ids": ["paper_auth_001"]})
         assert repair_stats.status_code == 401
 
+        skills_run = client.post("/skills/run", json={"slug": "paper_auth_001", "action": "validate_citations"})
+        assert skills_run.status_code == 401
+
         research_dna_create = client.post(
             "/research-dna",
             json={
@@ -67,6 +71,80 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
     original_db_path = _init_temp_db(tmp_path, monkeypatch)
     try:
+        vault_dir = tmp_path / "vault"
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        note_path = vault_dir / "Inbox" / "PaperPipe" / "paper_auth_allow_001.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text(
+            "\n".join(
+                [
+                    "---",
+                    "id: zotero:paper_auth_allow_001",
+                    'aliases: ["Auth Note"]',
+                    "tags:",
+                    "  - Auth/Test",
+                    "date_processed: 2026-03-09",
+                    "confidence: 0.75",
+                    "status: INDEXED",
+                    "doi: 10.1000/182",
+                    "---",
+                    "",
+                    "# Auth Note",
+                    "",
+                    "## 🔗 References",
+                    "* [Publisher Link](https://example.org/auth)",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        policy_path = tmp_path / "config" / "skills_policy.yaml"
+        policy_path.parent.mkdir(parents=True, exist_ok=True)
+        policy_path.write_text(
+            "\n".join(
+                [
+                    "version: 1",
+                    "",
+                    "defaults:",
+                    "  enabled: false",
+                    "  sandbox: native",
+                    "  network: none",
+                    "  timeout_seconds: 30",
+                    "",
+                    "actions:",
+                    "  validate_citations:",
+                    "    enabled: true",
+                    "    category: core-safe",
+                    "    source_skill: citation-management",
+                    "    license: MIT",
+                    "    sandbox: native",
+                    "    network: none",
+                    "    timeout_seconds: 15",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            skills_runner,
+            "load_config",
+            lambda: type(
+                "Config",
+                (),
+                {
+                    "paths": type(
+                        "Paths",
+                        (),
+                        {
+                            "obsidian_vault": vault_dir,
+                            "library_dir": tmp_path / "Library",
+                        },
+                    )(),
+                    "system": type("System", (), {"unpaywall_email": None})(),
+                },
+            )(),
+        )
+
         client = TestClient(api_main.app)
         headers = {"X-API-Key": "secret-key"}
 
@@ -96,6 +174,13 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         )
         assert repair_stats.status_code == 200
 
+        skills_run = client.post(
+            "/skills/run",
+            json={"slug": "paper_auth_allow_001", "action": "validate_citations"},
+            headers=headers,
+        )
+        assert skills_run.status_code == 200
+
         monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(tmp_path / "research_dna"))
         research_dna_create = client.post(
             "/research-dna",
@@ -110,56 +195,33 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         )
         assert research_dna_create.status_code == 200
 
-        vault_dir = tmp_path / "vault"
-        vault_dir.mkdir(parents=True, exist_ok=True)
-        note_path = vault_dir / "Inbox" / "PaperPipe" / "paper_auth_allow_001.md"
-        note_path.parent.mkdir(parents=True, exist_ok=True)
-        note_path.write_text(
-            "\n".join([
-                "---",
-                "id: zotero:paper_auth_allow_001",
-                'aliases: ["Auth Note"]',
-                "tags:",
-                "  - Auth/Test",
-                "date_processed: 2026-03-09",
-                "confidence: 0.75",
-                "status: INDEXED",
-                "doi: 10.1000/182",
-                "---",
-                "",
-                "# Auth Note",
-                "",
-                "## 🔗 References",
-                "* [Publisher Link](https://example.org/auth)",
-                "",
-            ]),
-            encoding="utf-8",
-        )
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
-            "\n".join([
-                "system:",
-                "  log_level: INFO",
-                "paths:",
-                f"  zotero_base_dir: {vault_dir}",
-                f"  obsidian_vault: {vault_dir}",
-                "search:",
-                "  constraints:",
-                "    min_pubmed: 2",
-                "    max_preprint: 1",
-                "  slots:",
-                "    primary:",
-                '      query: "test"',
-                "llm:",
-                "  mode: local",
-                "  features:",
-                "    trial_extraction:",
-                "      enabled: false",
-                "    slot_classification:",
-                "      enabled: false",
-                "    one_liner:",
-                "      enabled: false",
-            ]),
+            "\n".join(
+                [
+                    "system:",
+                    "  log_level: INFO",
+                    "paths:",
+                    f"  zotero_base_dir: {vault_dir}",
+                    f"  obsidian_vault: {vault_dir}",
+                    "search:",
+                    "  constraints:",
+                    "    min_pubmed: 2",
+                    "    max_preprint: 1",
+                    "  slots:",
+                    "    primary:",
+                    '      query: "test"',
+                    "llm:",
+                    "  mode: local",
+                    "  features:",
+                    "    trial_extraction:",
+                    "      enabled: false",
+                    "    slot_classification:",
+                    "      enabled: false",
+                    "    one_liner:",
+                    "      enabled: false",
+                ]
+            ),
             encoding="utf-8",
         )
         monkeypatch.setenv("PAPERPIPE_CONFIG_PATH", str(config_path))
