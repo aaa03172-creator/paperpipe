@@ -394,7 +394,7 @@ These files are no longer behaving like scratch work. They currently define real
    - it also records that `backend/main.py` cannot be adopted as a whole-file diff here; only the narrow `meeting_packs.router` import/include hunk belongs to `PR-M0`.
    - `/Users/jangseongjin/paperpipe/docs/archive/PR_M0_Staging_Dry_Run_2026-03-17.md` now confirms the whole-file and tracked-diff sets are stageable via `git add -n`, while `backend/main.py` still requires edited-patch handling.
    - `/Users/jangseongjin/paperpipe/docs/archive/PR_M0_Staged_Candidate_Validation_2026-03-17.md` now confirms that the currently staged candidate parses cleanly, passes `git diff --cached --check`, and still leaves the broader `runtime_paths` / `identity` tails out of scope.
-   - the remaining decision is no longer whether a viable candidate exists, but whether to execute repository-baseline adoption on the already confirmed staged `PR-M0` set.
+   - this execution decision was later resolved by commit `5c09619` (`feat(meeting-pack): adopt baseline runtime slice`); current follow-up work should therefore be described as additive committed lanes, not as reasons to reopen `PR-M0`.
 
 2. Freeze one canonical current-state contract document after the baseline files are adopted.
    - Decide whether the active runtime stays on `agent_artifacts` temporarily or resumes the H0/H1/H2 migration.

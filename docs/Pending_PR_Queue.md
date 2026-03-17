@@ -7,6 +7,28 @@ Canonical: `docs/Pending_PR_Queue.md`
 
 ## Queued
 
+## Future RFC Follow-Ups (Not Approved)
+- Title: `future/protocol-knowledge-layer`
+- Priority: Low
+- Purpose: Explore a bounded protocol knowledge surface without redefining the current product around a new `projects/documents` platform.
+- Reference: `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+
+- Title: `future/method-comparison-layer`
+- Priority: Low
+- Purpose: Explore a paper-centric comparison artifact layer with explicit cell-level provenance and no spreadsheet-platform scope creep.
+- Reference: `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
+- Implementation plan: `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
+
+- Title: `future/project-memory-layer`
+- Priority: Low
+- Purpose: Explore a bounded project memory/workspace layer only after an explicit product decision that this should become first-class.
+- Reference: `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+
+- Title: `future/local-backup-restore-semantics`
+- Priority: Low
+- Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
+- Reference: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
+
 ## PR-DOC-BE-MeetingPack-v1 (Completed in workspace)
 - Title: `docs/backend: define Meeting Pack v1 as evidence-linked lab meeting draft artifact`
 - Priority: High
@@ -42,21 +64,27 @@ Canonical: `docs/Pending_PR_Queue.md`
   - v1 non-goals: PPTX export, Google Slides export, auto-designed slide visuals, chatbot integration.
   - current limitation: bounded legacy regenerate fallback policy, branch-required rollout / API escalation policy for the new Meeting Pack CI verify lane (currently blocked on this private repo by GitHub branch-protection `403` plan limits), broader synonym coverage beyond the small alias map, looser cross-focus majority/outlier semantics beyond the current same-source-population guard, and deeper note/context-derived tuning beyond the current framing layer는 아직 follow-up이다.
 
-## Next Up (2026-03-17)
-- Recommended next: execute repository baseline adoption for the confirmed staged `PR-M0` candidate
-  - 이유: current slice는 staged-index 기준으로도 revalidated 되었고, 현재 남은 ambiguity는 기능 결함이 아니라 broader unstaged tails를 별도 lane으로 유지한 채 이 staged set을 baseline으로 받아들일지의 실행 판단이다.
+## Next Up (2026-03-18)
+- Recommended next: package the already-committed backend/API stack into a PR/change-summary bundle
+  - 이유: `PR-M0` baseline adoption은 이미 commit `5c09619`로 실행됐고, 그 뒤의 Meeting Pack/runtime/paper-notes/skills/obsidian/method-comparison follow-up lane도 개별 commit으로 고정됐다. 현재 남은 ambiguity는 baseline adoption 여부가 아니라, 이 committed stack을 어떤 narrative로 묶고 어떤 dirty tail을 별도 lane으로 남길지다.
+- Current stack note: use `docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` as the current packaging summary
+  - 이유: 이 note는 `5c09619` baseline anchor 이후의 additive commit stack, latest validation, remaining dirty tails(`backend/main.py`, `src/schemas/agent_artifacts.py`)를 한 곳에 모아준다.
+- PR packaging note: use `docs/reports/Backend_API_PR_Packaging_2026-03-18.md` as the ready-to-paste PR title/body/review-order draft
+  - 이유: 현재는 새 baseline 실행이 아니라 이미 commit된 stack을 reviewer가 이해 가능한 narrative로 묶는 단계이므로, title/body/validation/out-of-scope를 바로 재사용할 수 있는 packaging note가 필요하다.
+- Current-state recheck note: use `docs/reports/Current_Baseline_Recheck_2026-03-18.md` as the short "bind now vs separate lane" execution note
+  - 이유: 2026-03-18 기준 repo의 실제 가치는 이미 bounded `Research DNA`, evidence-linked `Meeting Pack`, additive paper-note `context_trace`까지 포함한 biomedical core loop에 있고, 이 note는 baseline adoption 이후에도 무엇을 separate lane으로 남겨야 하는지 다시 좁혀준다.
 - Baseline adoption note: use `docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md` as the canonical include/exclude boundary
-  - 이유: latest targeted recheck now covers Meeting Pack runtime, resolver, schema/store, runtime paths, projection guards, and profile-store concurrency with `90 passed`, and the dependency cone is now narrowed to exact source files rather than broad `src/skills/`-style placeholders. The note also now records a stage-ready file split (`whole-file`, `tracked-diff`, `narrow backend/main.py hunk`) and keeps the `research_dna_projection` producer out of `PR-M0`.
-- Dry-run status: stage-ready file list has been dry-run verified
-  - 이유: `docs/archive/PR_M0_Staging_Dry_Run_2026-03-17.md` now records successful `git add -n` checks for the whole-file and tracked-diff sets, plus the special handling rule for `backend/main.py`.
-- Index validation status: current staged `PR-M0` candidate has been revalidated
-  - 이유: `docs/archive/PR_M0_Staged_Candidate_Validation_2026-03-17.md` now records staged-index AST parse, `git diff --cached --check`, and the explicit split between the accepted staged slice and the remaining out-of-scope unstaged tails in `backend/main.py`, `src/services/runtime_paths.py`, and `src/services/identity.py`.
+  - 이유: 이 note는 `PR-M0`가 어떤 include/exclude boundary로 실행되었는지를 설명하는 historical baseline note로 유지된다. 실행 자체는 commit `5c09619`로 끝났지만, boundary 설명은 여전히 여기서 canonical하다.
+- Dry-run and staged-candidate notes remain historical validation artifacts
+  - 이유: `docs/archive/PR_M0_Staging_Dry_Run_2026-03-17.md`와 `docs/archive/PR_M0_Staged_Candidate_Validation_2026-03-17.md`는 실행 전 검증 기록으로 유지하되, 현재의 실행 단계는 아니다.
 - Baseline freeze guardrail: do not broaden selector semantics during `PR-M0`
   - 이유: baseline freeze의 목적은 current green slice를 고정하는 것이지, profile/topic/note semantics를 더 넓히는 것이 아니다.
 - Baseline freeze guardrail: `backend/main.py`는 whole-file adoption이 아니라 `meeting_packs.router` import/include hunk만 좁게 추출
   - 이유: 현재 `backend/main.py` 작업트리 diff는 너무 넓어서, raw inclusion은 `PR-M0`를 baseline freeze가 아니라 broad product expansion으로 보이게 만든다.
-- Follow-up after adoption: deepen Meeting Pack focus-family semantics beyond the current root-overlap + limited alias + clear-majority heuristic
-  - 이유: broader synonym coverage and looser cross-focus majority semantics는 아직 useful하지만, baseline adoption 뒤가 맞다.
+- Guardrail note: recent `Research DNA` eval-report hardening and paper-note `context_trace` are additive hardening slices, not reasons to broaden `PR-R0` or `PR-M0`
+  - 이유: 두 변화 모두 explainability와 reproducibility를 높이지만, 새 runtime layer나 broader UI/product scope를 열어야 하는 성질은 아니다.
+- Technical next lane if coding resumes: start `agent_artifacts` contract hardening as a separate schema lane
+  - 이유: 현재 남은 실질적 code lane은 `src/schemas/agent_artifacts.py`의 broader contract hardening이며, 이건 `backend/main.py` route-move tail보다 가치가 높고 committed stack에도 섞지 않는 편이 맞다.
 - Guardrail note: projection-backed profile selectors are usable only when the latest screened include set maps to existing vault `state.json`
   - 이유: query/profile text만으로 pack을 만들면 `state.json` first evidence boundary가 무너진다.
 - Follow-up after that: tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
