@@ -14,7 +14,7 @@ import src.db_utils as db_utils
 from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
-from src.persona_modes import normalize_persona_selection
+from src.persona_modes import list_reasoning_personas, normalize_persona_selection
 from src.schemas.chat import ChatRequest, ChatStubResponse
 from src.output_modes import resolve_chat_output_mode_family
 from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
@@ -617,9 +617,22 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
             id="default",
             title="Default (No Persona Override)",
             enabled=True,
+            kind="compatibility",
+            notes="Compatibility alias. New clients should split reasoning persona and profile context explicitly.",
             source="builtin",
         )
     ]
+    for definition in list_reasoning_personas():
+        options.append(
+            PersonaOption(
+                id=definition.id,
+                title=definition.title,
+                enabled=True,
+                kind="reasoning_persona",
+                notes=definition.notes,
+                source="builtin",
+            )
+        )
     conf = load_profiles()
     for profile in conf.profiles:
         if not include_disabled and not profile.enabled:
@@ -629,6 +642,7 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
                 id=profile.id,
                 title=profile.title,
                 enabled=profile.enabled,
+                kind="profile",
                 notes=profile.notes,
                 schedule=profile.schedule,
                 query_focus=profile.query.to_boolean_string(),
