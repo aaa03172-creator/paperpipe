@@ -16,6 +16,7 @@ from src.meeting_packs.source_resolver import (
     resolve_meeting_pack_sources,
 )
 from src.meeting_packs.store import (
+    list_meeting_pack_ids,
     load_meeting_pack,
     load_meeting_pack_markdown,
     save_meeting_pack_markdown,
@@ -29,6 +30,8 @@ from src.schemas.meeting_pack import (
     MeetingPackFigureCandidate,
     MeetingPackGenerateRequest,
     MeetingPackKeyPoint,
+    MeetingPackListItem,
+    MeetingPackListResponse,
     MeetingPackMarkdownSync,
     MeetingPackNextStep,
     MeetingPackOnePageSummary,
@@ -39,6 +42,9 @@ from src.schemas.meeting_pack import (
     MeetingPackSlide,
     MeetingPackSourceItem,
     MeetingPackSpeakerNote,
+    MeetingPackTraceResponse,
+    MeetingPackRetrievalTraceEntry,
+    MeetingPackRetrievalTraceSummary,
     MeetingPackValidation,
     MeetingPackValidationResponse,
 )
@@ -245,6 +251,30 @@ def get_meeting_pack(pack_id: str, *, root: Path | None = None) -> MeetingPackRe
     stored_markdown = load_meeting_pack_markdown(pack_id, root)
     rendered_markdown = render_meeting_pack_markdown(pack)
     return _meeting_pack_response(pack, stored_markdown, rendered_markdown)
+
+
+def list_meeting_packs(*, root: Path | None = None) -> MeetingPackListResponse:
+    items = [
+        _meeting_pack_list_item(load_meeting_pack(pack_id, root))
+        for pack_id in list_meeting_pack_ids(root)
+    ]
+    items.sort(key=lambda item: (item.created_at, item.pack_id), reverse=True)
+    return MeetingPackListResponse(
+        generated_at=datetime.now(timezone.utc),
+        total=len(items),
+        items=items,
+    )
+
+
+def get_meeting_pack_trace(pack_id: str, *, root: Path | None = None) -> MeetingPackTraceResponse:
+    pack = load_meeting_pack(pack_id, root)
+    trace = list(pack.retrieval_trace)
+    return MeetingPackTraceResponse(
+        pack_id=pack.id,
+        available=bool(trace),
+        summary=_retrieval_trace_summary(trace),
+        trace=trace,
+    )
 
 
 def validate_meeting_pack(
@@ -624,6 +654,54 @@ def _meeting_pack_response(
         pack=pack,
         markdown=stored_markdown,
         markdown_sync=_markdown_sync(stored_markdown, rendered_markdown),
+    )
+
+
+def _meeting_pack_list_item(pack: MeetingPack) -> MeetingPackListItem:
+    primary_source_title = pack.source_items[0].title if pack.source_items else None
+    return MeetingPackListItem(
+        pack_id=pack.id,
+        title=pack.title,
+        mode=pack.mode,
+        created_at=pack.created_at,
+        readiness=pack.readiness,
+        source_count=len(pack.source_items),
+        slide_count=len(pack.slides),
+        trace_entry_count=len(pack.retrieval_trace),
+        primary_source_title=primary_source_title,
+        has_generation_request=pack.generation_request is not None,
+        regenerated_from_pack_id=pack.regenerated_from_pack_id,
+    )
+
+
+def _retrieval_trace_summary(
+    trace: list[MeetingPackRetrievalTraceEntry],
+) -> MeetingPackRetrievalTraceSummary:
+    selector_keys: set[tuple[str, str]] = set()
+    action_counts: dict[str, int] = {}
+    outcome_counts: dict[str, int] = {}
+    matched_paper_slugs: list[str] = []
+    source_paths: list[str] = []
+
+    for entry in trace:
+        selector_keys.add((entry.selector_type, entry.selector_ref))
+        action_counts[entry.action] = action_counts.get(entry.action, 0) + 1
+        outcome_counts[entry.outcome] = outcome_counts.get(entry.outcome, 0) + 1
+        for slug in entry.matched_paper_slugs:
+            if slug not in matched_paper_slugs:
+                matched_paper_slugs.append(slug)
+        if entry.source_path and entry.source_path not in source_paths:
+            source_paths.append(entry.source_path)
+
+    return MeetingPackRetrievalTraceSummary(
+        entry_count=len(trace),
+        selector_count=len(selector_keys),
+        matched_paper_count=len(matched_paper_slugs),
+        source_path_count=len(source_paths),
+        action_counts=action_counts,
+        outcome_counts=outcome_counts,
+        matched_paper_slugs=matched_paper_slugs,
+        source_paths=source_paths,
     )
 
 

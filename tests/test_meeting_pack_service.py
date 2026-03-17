@@ -11,6 +11,8 @@ from src.profiles.research_dna_store import append_run_log, append_screening_log
 from src.meeting_packs.service import (
     generate_meeting_pack,
     get_meeting_pack,
+    get_meeting_pack_trace,
+    list_meeting_packs,
     regenerate_meeting_pack,
     rerender_meeting_pack,
     validate_meeting_pack,
@@ -330,6 +332,100 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     assert list_meeting_pack_ids(root) == [response.pack.id]
     stored = get_meeting_pack(response.pack.id, root=root)
     assert stored.pack.retrieval_trace == response.pack.retrieval_trace
+
+
+def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    first_slug = "paper-alpha"
+    second_slug = "paper-beta"
+    _write_state(vault_path, first_slug)
+    _write_state(vault_path, second_slug)
+
+    first = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Older draft",
+            source_items=[{"type": "paper_slug", "ref": first_slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+    second = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="experiment_proposal",
+            title="Newer draft",
+            source_items=[{"type": "paper_slug", "ref": second_slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 2
+    assert [item.pack_id for item in response.items] == [second.pack.id, first.pack.id]
+    assert response.items[0].title == "Newer draft"
+    assert response.items[0].primary_source_title == second.pack.source_items[0].title
+    assert response.items[0].trace_entry_count == len(second.pack.retrieval_trace)
+    assert response.items[0].has_generation_request is True
+
+
+def test_get_meeting_pack_trace_summarizes_selector_load_path(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_path, slug)
+
+    created = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    trace = get_meeting_pack_trace(created.pack.id, root=root)
+
+    assert trace.pack_id == created.pack.id
+    assert trace.available is True
+    assert trace.summary.entry_count == 2
+    assert trace.summary.selector_count == 1
+    assert trace.summary.matched_paper_slugs == [slug]
+    assert trace.summary.source_paths == [f".pp/{slug}/state.json"]
+    assert trace.summary.action_counts == {
+        "selector_selected": 1,
+        "paper_state_loaded": 1,
+    }
+    assert trace.summary.outcome_counts == {
+        "selected": 1,
+        "loaded": 1,
+    }
+    assert [entry.action for entry in trace.trace] == ["selector_selected", "paper_state_loaded"]
+
+
+def test_get_meeting_pack_trace_handles_legacy_pack_without_saved_trace(tmp_path):
+    root = tmp_path / "meeting_packs"
+    legacy_id = "meetingpack_20260313T090000Z_journal_club_legacy001"
+    _save_legacy_pack(
+        root,
+        pack_id=legacy_id,
+        selector_type="paper_slug",
+        selector_ref="wenzelShortchainFattyAcids2020",
+    )
+
+    trace = get_meeting_pack_trace(legacy_id, root=root)
+
+    assert trace.pack_id == legacy_id
+    assert trace.available is False
+    assert trace.trace == []
+    assert trace.summary.entry_count == 0
+    assert trace.summary.action_counts == {}
+    assert trace.summary.outcome_counts == {}
 
 
 def test_regenerate_meeting_pack_uses_saved_generation_request_and_creates_new_pack(tmp_path):

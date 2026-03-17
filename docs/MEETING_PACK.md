@@ -27,12 +27,15 @@ Related docs:
   - `src/meeting_packs/service.py`
   - `src/meeting_packs/renderer.py`
   - `backend/routers/meeting_packs.py`
+  - `GET /meeting-packs`
   - `POST /meeting-packs/generate`
   - `POST /meeting-packs/{pack_id}/regenerate`
   - `POST /meeting-packs/{pack_id}/rerender`
   - `GET /meeting-packs/{pack_id}`
+  - `GET /meeting-packs/{pack_id}/trace`
   - `GET /meeting-packs/{pack_id}/validate`
   - `GET /meeting-packs/{pack_id}/markdown`
+  - `GET /meeting-packs/{pack_id}/trace` and `GET /meeting-packs` stay debug/ops surfaces, not reader-facing evidence views
   - saved `generation_request` snapshot inside `meeting_pack.json`
   - `readiness`, `regenerated_from_pack_id`, and response-level `markdown_sync`
   - `validate` now downgrades regenerate availability to `unavailable` with warnings when the current vault can no longer resolve the saved selector set
