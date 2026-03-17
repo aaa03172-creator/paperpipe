@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,11 @@ from backend.routers import paper_notes as paper_notes_router
 def _write(path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _write_state(path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _note_content(
@@ -438,3 +444,167 @@ def test_paper_note_detail_uses_doi_and_zotero_when_pdf_missing(tmp_path, monkey
     assert "pdf" not in sources
     assert "doi" in sources
     assert "zotero" in sources
+
+
+def test_paper_note_detail_backfills_structured_state_ids_and_signals(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "stateful-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id="zotero:stateful",
+            alias="Stateful Note",
+            tags=["Tag/Stateful", "Outcome/Memory"],
+            date_processed="2026-03-09",
+            confidence=0.91,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / slug / "state.json",
+        {
+            "paper_slug": slug,
+            "updated_at": "2026-03-09T00:00:00Z",
+            "runs": [
+                {
+                    "id": "skill-20260309T000000Z-critical_appraisal",
+                    "action": "critical_appraisal",
+                    "ts": "2026-03-09T00:00:00Z",
+                    "status": "succeeded",
+                    "summary": "ClaimSet extracted",
+                    "artifacts": {},
+                    "data": {},
+                }
+            ],
+            "claimset": [
+                {
+                    "id": "CLM-001",
+                    "claim": "Structured state claims can keep stable deep links.",
+                    "evidence": [
+                        {
+                            "text": "Stable IDs help future chat references point to exact evidence.",
+                            "page": 2,
+                            "section": "Results",
+                            "source": "text_match",
+                        }
+                    ],
+                    "confidence": 0.88,
+                    "tags": ["methods"],
+                    "outcomes": ["methods"],
+                }
+            ],
+            "entities": ["Memory"],
+            "mesh": ["Knowledge Graphs"],
+            "outcomes": ["methods"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{slug}")
+    assert response.status_code == 200
+    payload = response.json()
+
+    state = payload["structured_state"]
+    assert state["schema_version"] == "2026-03-09.chat-hooks.v1"
+    assert state["signals"]["has_claimset"] is True
+    assert state["signals"]["claim_count"] == 1
+    assert state["signals"]["evidence_count"] == 1
+    assert state["signals"]["run_count"] == 1
+    assert state["signals"]["last_run_id"] == "skill-20260309T000000Z-critical_appraisal"
+    assert payload["context_trace"]["summary"]["reference_sources"] == ["pdf", "doi"]
+    assert payload["context_trace"]["trace"][-1]["action"] == "structured_state_loaded"
+    assert payload["context_trace"]["trace"][-1]["outcome"] == "loaded"
+    assert payload["context_trace"]["trace"][-1]["source_path"] == ".pp/stateful-note/state.json"
+    assert payload["context_trace"]["trace"][-1]["metadata"]["run_count"] == 1
+    assert payload["context_trace"]["trace"][-1]["metadata"]["has_claimset"] is True
+
+    claim = state["claimset"][0]
+    assert claim["id"] == "CLM-001"
+    assert claim["evidence_ids"][0].startswith("evidence_")
+    evidence = claim["evidence"][0]
+    assert evidence["claim_id"] == "CLM-001"
+    assert evidence["locator"]["page"] == 2
+    assert evidence["locator"]["section"] == "Results"
+    assert len(payload["available_actions"]) >= 1
+    assert all(action["enabled"] is False for action in payload["available_actions"])
+
+
+def test_paper_note_resolve_by_paper_id_prefers_frontmatter_id_and_returns_structured_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+    paper_id = "zotero:duboisAlzheimerDiseaseClinicalBiological2024"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Dubois Structured Note",
+            tags=["Medicine/Neurology"],
+            date_processed="2026-03-10",
+            confidence=0.93,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / slug / "state.json",
+        {
+            "paper_slug": slug,
+            "updated_at": "2026-03-10T09:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [
+                {
+                    "id": "claim_c0ffee000001",
+                    "claim": "Structured sidecar should win over stale artifact claimsets for bbox-backed highlighting.",
+                    "evidence_ids": ["evidence_deadbeef0001"],
+                    "evidence": [
+                        {
+                            "id": "evidence_deadbeef0001",
+                            "claim_id": "claim_c0ffee000001",
+                            "text": "BBox-backed evidence from canonical state.",
+                            "page": 0,
+                            "source": "bbox",
+                            "locator": {
+                                "page": 0,
+                                "span": [0, 41],
+                                "bbox_pct": {"left": 8, "top": 10, "width": 40, "height": 20},
+                                "source": "bbox",
+                            },
+                        }
+                    ],
+                    "confidence": 0.9,
+                    "tags": ["bbox"],
+                    "outcomes": ["diagnostic criteria"],
+                }
+            ],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["diagnostic criteria"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": paper_id})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["paper_id"] == paper_id
+    assert payload["slug"] == slug
+    assert payload["note_path"] == f"Inbox/PaperPipe/{slug}.md"
+    assert payload["structured_state"]["paper_slug"] == slug
+    assert payload["structured_state"]["claimset"][0]["evidence"][0]["locator"]["bbox_pct"]["left"] == 8
