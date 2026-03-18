@@ -154,6 +154,8 @@ def test_meeting_packs_api_generates_roundtrip_and_markdown(tmp_path, monkeypatc
 
     validation = client.get(f"/meeting-packs/{pack_id}/validate")
     assert validation.status_code == 200
+    assert validation.json()["validation"]["readiness"] == "evidence_backed"
+    assert validation.json()["validation"]["markdown_sync"]["status"] == "in_sync"
     assert validation.json()["validation"]["can_regenerate"] is True
     assert validation.json()["validation"]["regenerate_strategy"] == "saved_request"
 
