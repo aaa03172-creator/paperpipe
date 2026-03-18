@@ -256,6 +256,7 @@ def save_paper_state(
     feedback_json: Optional[str] = None,
     download_attempts: Optional[List[Dict[str, Any]]] = None,
     status: Optional[str] = None,
+    issues_state: Optional[str] = None,
 ) -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -333,6 +334,10 @@ def save_paper_state(
             insert_cols.append("download_attempts")
             insert_vals.append(attempts_payload)
             update_set.append("download_attempts=excluded.download_attempts")
+        if "issues_state" in columns and issues_state is not None:
+            insert_cols.append("issues_state")
+            insert_vals.append(issues_state)
+            update_set.append("issues_state=excluded.issues_state")
 
         if not insert_cols:
             return
@@ -456,6 +461,7 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
     new_count = 0
     conn = get_db_connection()
     cursor = conn.cursor()
+    paper_columns = _get_paper_columns(cursor)
 
     for item in items:
         paper_id = item.get('citationKey')
@@ -496,10 +502,31 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
         else:
             # Insert new
             try:
-                cursor.execute("""
-                    INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
-                    VALUES (?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (paper_id, title, summary, pdf_path))
+                if "issues_state" in paper_columns:
+                    cursor.execute(
+                        """
+                        INSERT INTO papers (
+                            paper_id,
+                            title,
+                            summary,
+                            status,
+                            issues_state,
+                            pdf_path,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (?, ?, ?, 'NEW', 'unavailable', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        (paper_id, title, summary, pdf_path),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
+                        VALUES (?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        (paper_id, title, summary, pdf_path),
+                    )
                 new_count += 1
             except sqlite3.IntegrityError:
                 pass # Should not happen given check above, but safe to ignore
