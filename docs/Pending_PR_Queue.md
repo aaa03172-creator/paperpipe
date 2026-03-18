@@ -73,6 +73,10 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 이유: 현재는 새 baseline 실행이 아니라 이미 commit된 stack을 reviewer가 이해 가능한 narrative로 묶는 단계이므로, title/body/validation/out-of-scope를 바로 재사용할 수 있는 packaging note가 필요하다.
 - Current-state recheck note: use `docs/reports/Current_Baseline_Recheck_2026-03-18.md` as the short "bind now vs separate lane" execution note
   - 이유: 2026-03-18 기준 repo의 실제 가치는 이미 bounded `Research DNA`, evidence-linked `Meeting Pack`, additive paper-note `context_trace`까지 포함한 biomedical core loop에 있고, 이 note는 baseline adoption 이후에도 무엇을 separate lane으로 남겨야 하는지 다시 좁혀준다.
+- External reference guardrail: interpret recent external references only in a bounded `sidecar`, `fallback`, `benchmark`, `dataset`, or `reference` frame
+  - 이유: `GLM-OCR`, `Scientific Taste`, `Ars Contexta`, `OpenAlex`, `MedCPT`, `Docling`, `PaperQA2` 등은 current repo 기준에서 architecture replacement 후보가 아니라 제한적 fit-review 입력이다. baseline-freeze work를 새 architecture hunt로 넓히면 안 된다.
+- Reopen-condition guardrail: only revisit those external references if the repo-grounded recheck conditions in `docs/reports/Current_Baseline_Recheck_2026-03-18.md` are satisfied
+  - 이유: 외부 레퍼런스 검토는 새 roadmap item이 아니라 조건부 재검토 대상이다. 실측 없는 재개는 queue churn만 만든다.
 - Baseline adoption note: use `docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md` as the canonical include/exclude boundary
   - 이유: 이 note는 `PR-M0`가 어떤 include/exclude boundary로 실행되었는지를 설명하는 historical baseline note로 유지된다. 실행 자체는 commit `5c09619`로 끝났지만, boundary 설명은 여전히 여기서 canonical하다.
 - Dry-run and staged-candidate notes remain historical validation artifacts
@@ -85,6 +89,9 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 이유: 두 변화 모두 explainability와 reproducibility를 높이지만, 새 runtime layer나 broader UI/product scope를 열어야 하는 성질은 아니다.
 - Technical next lane if coding resumes: start `agent_artifacts` contract hardening as a separate schema lane
   - 이유: 현재 남은 실질적 code lane은 `src/schemas/agent_artifacts.py`의 broader contract hardening이며, 이건 `backend/main.py` route-move tail보다 가치가 높고 committed stack에도 섞지 않는 편이 맞다.
+  - 현재 범위: `DocumentChunk` metadata 확장, `EvidenceSpan` text-vs-table payload/bbox sanity, `ScientificClaim.unknown*` normalization
+  - 현재 검증: `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py` -> `12 passed`
+  - guardrail: schema/test lane로만 열고 reader/runtime redesign으로 확장하지 않는다.
 - Guardrail note: projection-backed profile selectors are usable only when the latest screened include set maps to existing vault `state.json`
   - 이유: query/profile text만으로 pack을 만들면 `state.json` first evidence boundary가 무너진다.
 - Follow-up after that: tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
