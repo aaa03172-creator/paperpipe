@@ -1,8 +1,9 @@
 # Backend/API PR Packaging
 
-Status: Ready-to-use PR packaging draft
+Status: Open PR packaging note
 Date: 2026-03-18
-Branch observed: `codex/agents-smoke-ci-check`
+Branch observed: `codex/backend-api-packaging-stack`
+Opened PR: `#108` `https://github.com/aaa03172-creator/paperpipe/pull/108`
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md`
 - `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
@@ -25,12 +26,18 @@ This PR packages the committed backend/API slices that landed after the Meeting 
 It includes:
 
 - Meeting Pack runtime baseline and follow-up debug/list surfaces
-- additive runtime hardening for identity, jobs, ops, personas, auth, and DB-path handling
+- additive runtime hardening for identity, jobs, ops, personas, auth, and config/DB-path handling
 - Research DNA API/service projection surfaces and output/chat bridge additions
 - paper-notes structured detail and operational list enrichment
 - skills run API, Obsidian inspection routes, and method-comparison generation API
 
 It does not reopen the baseline boundary or broaden selector semantics beyond the already-committed slices.
+
+Clean replay note:
+
+- PR `#108` now tracks a fresh replay from `origin/master` instead of the older dirty branch tail
+- one minimal replay-only fix keeps `load_config()` aligned with `PAPERPIPE_CONFIG_PATH`
+- this follow-up is runtime-path hardening, not a feature-scope expansion
 
 ## 3. Ready-to-Paste PR Body
 
@@ -48,6 +55,7 @@ Included surfaces:
 - Obsidian mirror/artifact inspection routes
 - method-comparison generation API
 - runtime/auth/persona/ops hardening that these surfaces now depend on
+- config-path override hardening needed to keep the clean replay mergeable and green
 
 ## Why
 
@@ -55,7 +63,8 @@ The branch has already moved past the "staged candidate" phase.
 
 - the Meeting Pack baseline slice was fixed by commit `5c09619`
 - the related backend/API follow-up lanes were committed separately and validated
-- the remaining ambiguity is repository legibility, not runtime correctness
+- the original PR branch also carried unrelated merge-history conflict with `master`
+- the clean replay removes that conflict without widening backend/API scope
 
 This PR therefore packages the committed stack without reopening baseline scope.
 
@@ -101,7 +110,7 @@ This PR therefore packages the committed stack without reopening baseline scope.
 ## Validation
 
 - `PR-M0` baseline verification command -> `97 passed`
-- targeted post-baseline backend/API suite -> `57 passed, 7 warnings`
+- clean replay scoped backend/API suite -> `219 passed, 7 warnings`
 - `python3 scripts/lint_docs.py` -> `docs lint passed`
 
 ## Out of Scope
@@ -125,6 +134,12 @@ Reason:
 
 - this follows the actual dependency direction
 - it keeps baseline boundary questions ahead of additive feature/API surfaces
+
+Current sync status:
+
+- this note now tracks the clean replay branch used to update PR `#108`
+- the replay branch is based on `origin/master`, so the old dirty-branch merge conflict is intentionally bypassed
+- the extra `config_path` fix should be reviewed as mergeability/runtime hardening, not as a new product slice
 
 ## 5. Explicit Out-of-Scope Reminder
 
