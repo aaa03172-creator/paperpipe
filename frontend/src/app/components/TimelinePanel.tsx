@@ -1,5 +1,5 @@
 import { ReactNode, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDotDashed, Clock3, Info, NotebookPen } from "lucide-react";
 import { TimelineEvent } from "../lib/types";
 
 interface TimelinePanelProps {
@@ -51,6 +51,21 @@ function eventMeta(event: TimelineEvent): {
   };
 }
 
+function sourceMeta(event: TimelineEvent): {
+  badge: string;
+  icon: ReactNode;
+  badgeClass: string;
+} | null {
+  if (event.source === "user_action") {
+    return {
+      badge: "USER",
+      icon: <NotebookPen className="h-3 w-3 text-[var(--pp-accent-text)]" />,
+      badgeClass: "border-[var(--pp-accent-border)] bg-[var(--pp-surface-selected)] text-[var(--pp-accent-text)]",
+    };
+  }
+  return null;
+}
+
 export function TimelinePanel({ events, density }: TimelinePanelProps) {
   const [filter, setFilter] = useState<TimelineFilter>("status");
   const compact = density === "compact";
@@ -59,6 +74,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
   const latestError = newestFirst.find((event) => event.event === "error") ?? null;
   const latestDone = newestFirst.find((event) => event.event === "done") ?? null;
   const latestStatus = newestFirst.find((event) => event.event === "status") ?? null;
+  const latestUserAction = newestFirst.find((event) => event.source === "user_action") ?? null;
   const lastStage = latestStatus?.stage ?? latestEvent?.stage ?? "-";
   const errorCount = events.filter((event) => event.event === "error").length;
   const doneCount = events.filter((event) => event.event === "done").length;
@@ -159,8 +175,17 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
         <div className="mb-3 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Pinned Events</p>
           <ul className="space-y-1">
-            {(latestError || latestDone || latestStatus) && (
+            {(latestUserAction || latestError || latestDone || latestStatus) && (
               <>
+                {latestUserAction ? (
+                  <li
+                    data-testid="timeline-pinned-user-action"
+                    className="rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-primary)]"
+                  >
+                    <span className="mr-2 font-semibold text-[var(--pp-accent-text)]">User action</span>
+                    {eventMessage(latestUserAction)}
+                  </li>
+                ) : null}
                 {latestError ? (
                   <li className="rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-primary)]">
                     <span className="mr-2 font-semibold text-[var(--pp-status-failed-text)]">Error</span>
@@ -188,15 +213,31 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
       <ul className="mt-1 flex-1 min-h-0 space-y-2 overflow-auto overscroll-contain pr-1 text-sm">
         {events.length > 0 ? (
           renderedEvents.length > 0 ? (
-            renderedEvents.map((event, index) => {
+          renderedEvents.map((event, index) => {
               const meta = eventMeta(event);
+              const source = sourceMeta(event);
               return (
-                <li key={`${event.ts ?? "evt"}-${index}`} className={`rounded-md border bg-[var(--pp-surface-raised)] p-2.5 ${meta.cardClass}`}>
+                <li
+                  key={`${event.ts ?? "evt"}-${index}`}
+                  data-testid={event.source === "user_action" ? "timeline-row-user-action" : undefined}
+                  className={`rounded-md border bg-[var(--pp-surface-raised)] p-2.5 ${meta.cardClass}`}
+                >
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <p className="text-xs text-[var(--pp-text-dim)]">{event.ts ? new Date(event.ts).toLocaleTimeString() : "-"}</p>
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>
-                      {meta.badge}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {source ? (
+                        <span
+                          data-testid="timeline-source-user-action"
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${source.badgeClass}`}
+                        >
+                          {source.icon}
+                          {source.badge}
+                        </span>
+                      ) : null}
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>
+                        {meta.badge}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="mt-0.5">{meta.icon}</span>

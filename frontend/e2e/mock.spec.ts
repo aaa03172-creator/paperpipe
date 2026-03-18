@@ -11,6 +11,8 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
   await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByLabel("Reasoning").first()).toBeVisible();
+  await expect(page.getByLabel("Profile").first()).toBeVisible();
 
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Cell 1 Claim")).toBeVisible();
@@ -54,7 +56,8 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
   const viewer = page.locator('[data-testid="pdf-viewer"]').first();
   const highlight = page.locator('[data-testid="claim-highlight"]').first();
   await expect(page).toHaveURL(/focus=issues/);
-  await expect(page.getByText("Issue focus enabled: prioritizing risk-related claims.")).toBeVisible();
+  await expect(page.getByTestId("content-review-notice")).toContainText("3 content review flags available.");
+  await expect(page.getByTestId("content-review-notice")).toContainText("Issue focus is enabled.");
   await expect(page.getByText("Claim Link · p.1")).toBeVisible();
   await expect(highlight).toBeVisible();
 
@@ -90,6 +93,19 @@ test("issue button routes with focus=issues and selects risk claim", async ({ pa
       Math.abs(beforeBox.height - afterBox.height);
     expect(movedDelta).toBeGreaterThan(12);
   }
+});
+
+test("not analyzed papers do not masquerade as clear content review", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+
+  const row = page.locator("tbody tr").filter({ hasText: "Systems Omics Review for Metabolic Resilience" }).first();
+  await expect(row.getByTestId("triage-content-review-button")).toContainText("Review unavailable");
+  await expect(row.getByTestId("triage-review-badge")).toContainText("Unavailable");
+  await expect(row.getByTestId("triage-review-hint")).toContainText("Content review has not been generated");
+  await expect(row.getByTestId("triage-review-detail")).toContainText("Not analyzed");
 });
 
 test("runtime guard shows fallback and missing-text notices when claim evidence is incomplete", async ({ page }) => {
@@ -152,6 +168,73 @@ test("stats snapshot disambiguates target claim by text signal", async ({ page }
   await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
 });
 
+test("mirror grounding badges surface resolved and review-needed evidence states", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-ambiguous");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  await expect(mirrorPanel).toBeVisible();
+
+  await expect(mirrorPanel.getByTestId("workbench-mirror-claim-grounding-claim-1")).toContainText("Grounded");
+  await expect(mirrorPanel.getByTestId("workbench-mirror-stat-grounding-mock-check-2")).toContainText("Needs review");
+});
+
+test("timeline surfaces user-triggered actions distinctly", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-ambiguous");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  const timelinePanel = page.locator("section").filter({ hasText: "Timeline" }).first();
+  await expect(timelinePanel).toBeVisible();
+
+  await expect(timelinePanel.getByTestId("timeline-pinned-user-action")).toContainText("User queued deep read");
+  await expect(timelinePanel.getByTestId("timeline-source-user-action").first()).toContainText("USER");
+  await expect(timelinePanel.getByTestId("timeline-row-user-action").first()).toContainText("User queued deep read");
+});
+
+test("notebook artifact normalization supports zero-based pages and mixed bbox units", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-notebook-normalized");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+
+  const pdfPanel = page.locator("section").filter({ hasText: "PDF Renderer" }).first();
+  await expect(pdfPanel.getByText("Claim Link · p.1")).toBeVisible();
+
+  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
+  const highlight = page.locator('[data-testid="claim-highlight"]').first();
+  await expect(viewer).toBeVisible();
+  await expect(highlight).toBeVisible();
+
+  const viewerBox = await viewer.boundingBox();
+  const highlightBox = await highlight.boundingBox();
+  expect(viewerBox).not.toBeNull();
+  expect(highlightBox).not.toBeNull();
+  if (viewerBox && highlightBox) {
+    expect(highlightBox.width).toBeGreaterThan(viewerBox.width * 0.08);
+    expect(highlightBox.height).toBeGreaterThan(viewerBox.height * 0.08);
+    expect(highlightBox.x).toBeGreaterThanOrEqual(viewerBox.x - 2);
+    expect(highlightBox.y).toBeGreaterThanOrEqual(viewerBox.y - 2);
+    expect(highlightBox.x + highlightBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(highlightBox.y + highlightBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
+  }
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await claimsPanel.getByRole("button").nth(1).click();
+  await expect(pdfPanel.getByText("Claim Link · p.2")).toBeVisible();
+  const secondHighlight = page.locator('[data-testid="claim-highlight"]').first();
+  await expect(secondHighlight).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
+
+  const secondHighlightBox = await secondHighlight.boundingBox();
+  expect(secondHighlightBox).not.toBeNull();
+  if (viewerBox && secondHighlightBox) {
+    expect(secondHighlightBox.width).toBeGreaterThan(viewerBox.width * 0.2);
+    expect(secondHighlightBox.height).toBeGreaterThan(viewerBox.height * 0.15);
+    expect(secondHighlightBox.x + secondHighlightBox.width).toBeLessThanOrEqual(viewerBox.x + viewerBox.width + 2);
+    expect(secondHighlightBox.y + secondHighlightBox.height).toBeLessThanOrEqual(viewerBox.y + viewerBox.height + 2);
+  }
+});
+
 test.describe("mobile UX scenarios", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -172,6 +255,9 @@ test.describe("mobile UX scenarios", () => {
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
+    const runViewControls = controlsSummary.locator("xpath=..");
+    await expect(runViewControls.getByLabel("Reasoning")).toBeVisible();
+    await expect(runViewControls.getByLabel("Profile")).toBeVisible();
     await expect(page.getByRole("button", { name: "Deep Read Run" }).first()).toBeVisible();
     await expect(page.getByText("Errors / Done")).toBeVisible();
     await expect(page.getByText("Pinned Events")).toBeVisible();

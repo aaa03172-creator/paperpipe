@@ -9,15 +9,19 @@ import {
   getJobsForPaper,
   getObsidianMirror,
   getPaper,
+  getPaperNoteStructuredStateByPaperId,
   getPaperPdfBlobUrl,
   getPapers,
   getPersonas,
   getRunTimeline,
+  logClientUserAction,
   syncToObsidian,
   repairStats,
 } from "../lib/api";
 import { connectJobStream, StreamSubscription } from "../lib/sse";
 import { mapStage } from "../lib/ui";
+import { deriveContentReviewSummary } from "../lib/contentReview";
+import { derivePaperNoteOpsSummary } from "../lib/paperNoteOps";
 import { buildBestHighlightMap, getClaimLinkState, summarizeClaimGuard } from "../lib/claimGuard";
 import {
   ArtifactBundle,
@@ -27,13 +31,15 @@ import {
   PaperDetail,
   PaperSummary,
   PersonaOption,
+  ReasoningPersonaId,
   TimelineEvent,
 } from "../lib/types";
-import { getNotebookFromBundle } from "../lib/mock";
+import { getNotebookFromBundle, getNotebookFromStructuredState } from "../lib/mock";
 import { useAppStore } from "../store/useAppStore";
 import { Rail } from "../components/Rail";
 import { ArtifactPanel } from "../components/ArtifactPanel";
 import { TimelinePanel } from "../components/TimelinePanel";
+import { PanelErrorBoundary } from "../components/PanelErrorBoundary";
 import { WorkbenchLayout } from "../layouts/WorkbenchLayout";
 
 const PdfPanel = lazy(async () => {
@@ -97,9 +103,14 @@ function chooseActiveClaimId(
   return notebook.claims[0]?.claim_id ?? null;
 }
 
-type RepairStatsFeedback =
+type StatsActionMode = "repair" | "rebuild";
+type WorkbenchActionMode = StatsActionMode | "sync";
+type ReasoningSelection = ReasoningPersonaId | "auto";
+
+type WorkbenchActionFeedback =
   | {
       tone: "success" | "error";
+      mode: WorkbenchActionMode;
       message: string;
     }
   | null;
@@ -112,6 +123,57 @@ function getInlineNoticeClassName(tone: "warning" | "success" | "error"): string
     return "rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] px-3 py-2 text-xs text-[var(--pp-status-failed-text)]";
   }
   return "rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)]";
+}
+
+function getActionFeedbackTestId(mode: WorkbenchActionMode, tone: "success" | "error"): string {
+  if (mode === "sync") {
+    return `sync-obsidian-${tone}`;
+  }
+  return `${mode}-stats-${tone}`;
+}
+
+function getActionFeedbackTitle(mode: WorkbenchActionMode, tone: "success" | "error"): string {
+  if (tone === "success") {
+    if (mode === "repair") {
+      return "Stats repair completed.";
+    }
+    if (mode === "rebuild") {
+      return "Stats rebuild completed.";
+    }
+    return "Obsidian sync completed.";
+  }
+
+  if (mode === "repair") {
+    return "Stats repair failed.";
+  }
+  if (mode === "rebuild") {
+    return "Stats rebuild failed.";
+  }
+  return "Obsidian sync failed.";
+}
+
+function inferPersonaKind(option: PersonaOption): PersonaOption["kind"] {
+  if (option.kind) {
+    return option.kind;
+  }
+  if (option.id === "default") {
+    return "compatibility";
+  }
+  return option.source === "builtin" ? "reasoning_persona" : "profile";
+}
+
+function buildRunSelection(reasoning: ReasoningSelection, profileId: string): {
+  personaId: string;
+  reasoningPersona?: ReasoningPersonaId;
+  profileId?: string;
+} {
+  const trimmedProfileId = profileId.trim();
+  const resolvedReasoning = reasoning === "auto" ? undefined : reasoning;
+  return {
+    personaId: trimmedProfileId || resolvedReasoning || "default",
+    reasoningPersona: resolvedReasoning,
+    profileId: trimmedProfileId || undefined,
+  };
 }
 
 export function AnalysisWorkbench() {
@@ -132,8 +194,8 @@ export function AnalysisWorkbench() {
   const [obsidianMirror, setObsidianMirror] = useState<ObsidianMirror | null>(null);
   const [loadingObsidianMirror, setLoadingObsidianMirror] = useState(false);
   const [syncingObsidian, setSyncingObsidian] = useState(false);
-  const [repairingStats, setRepairingStats] = useState(false);
-  const [repairStatsFeedback, setRepairStatsFeedback] = useState<RepairStatsFeedback>(null);
+  const [runningStatsAction, setRunningStatsAction] = useState<StatsActionMode | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<WorkbenchActionFeedback>(null);
   const [runVerify, setRunVerify] = useState(true);
   const [cleanReindex, setCleanReindex] = useState(false);
   const [panelDensity, setPanelDensity] = useState<"detail" | "compact">("detail");
@@ -145,8 +207,10 @@ export function AnalysisWorkbench() {
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const activeClaimId = useAppStore((state) => state.activeClaimId);
   const setActiveClaimId = useAppStore((state) => state.setActiveClaimId);
-  const selectedPersonaId = useAppStore((state) => state.selectedPersonaId);
-  const setSelectedPersonaId = useAppStore((state) => state.setSelectedPersonaId);
+  const selectedReasoningPersona = useAppStore((state) => state.selectedReasoningPersona);
+  const setSelectedReasoningPersona = useAppStore((state) => state.setSelectedReasoningPersona);
+  const selectedProfileId = useAppStore((state) => state.selectedProfileId);
+  const setSelectedProfileId = useAppStore((state) => state.setSelectedProfileId);
   const terminalOpen = useAppStore((state) => state.terminalOpen);
   const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
   const toggleTerminal = useAppStore((state) => state.toggleTerminal);
@@ -156,6 +220,55 @@ export function AnalysisWorkbench() {
   const clearMockMode = useAppStore((state) => state.clearMockMode);
   const themeMode = useAppStore((state) => state.themeMode);
   const setThemeMode = useAppStore((state) => state.setThemeMode);
+  const paperNoteOpsByPaperId = useMemo(
+    () =>
+      Object.fromEntries(
+        papers
+          .filter((entry) => entry.ops_summary)
+          .map((entry) => [entry.paper_id, entry.ops_summary!]),
+      ),
+    [papers],
+  );
+  const currentOpsSummary = useMemo(
+    () =>
+      paperNoteOpsByPaperId[paperId] ??
+      derivePaperNoteOpsSummary({
+        hasClaimset:
+          Boolean(artifactBundle?.files.claimset_resolved?.exists) ||
+          Boolean(artifactBundle?.files.claimset?.exists) ||
+          Boolean(obsidianMirror?.has_claimset) ||
+          Boolean(obsidianMirror?.claims.length),
+        hasStatsReport:
+          Boolean(artifactBundle?.files.stats_report?.exists) ||
+          Boolean(obsidianMirror?.has_stats_report) ||
+          Boolean(obsidianMirror?.stats_checks.length),
+        statsCheckCount: obsidianMirror?.stats_checks.length ?? 0,
+        latestRunId: job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null,
+      }),
+    [artifactBundle, job?.run_id, obsidianMirror, paperId, paperNoteOpsByPaperId],
+  );
+  const contentReviewSummary = useMemo(
+    () =>
+      paper
+        ? deriveContentReviewSummary(paper.issues, {
+            focusIssues,
+            issuesLabel: paper.issues_label,
+            issuesState: paper.issues_state,
+          })
+        : null,
+    [focusIssues, paper],
+  );
+  const showContentReviewSummary =
+    contentReviewSummary !== null &&
+    (focusIssues || contentReviewSummary.issueCount > 0 || contentReviewSummary.state === "unavailable");
+  const reasoningOptions = useMemo(
+    () => personas.filter((option) => inferPersonaKind(option) === "reasoning_persona"),
+    [personas],
+  );
+  const profileOptions = useMemo(
+    () => personas.filter((option) => inferPersonaKind(option) === "profile"),
+    [personas],
+  );
 
   const filteredPapers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -173,6 +286,22 @@ export function AnalysisWorkbench() {
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
   const focusIssuesRef = useRef<boolean>(focusIssues);
   const pdfBlobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (selectedReasoningPersona !== "auto" && !reasoningOptions.some((option) => option.id === selectedReasoningPersona)) {
+      setSelectedReasoningPersona("auto");
+    }
+    if (selectedProfileId && !profileOptions.some((option) => option.id === selectedProfileId)) {
+      setSelectedProfileId("");
+    }
+  }, [
+    profileOptions,
+    reasoningOptions,
+    selectedProfileId,
+    selectedReasoningPersona,
+    setSelectedProfileId,
+    setSelectedReasoningPersona,
+  ]);
 
   const replacePdfBlobUrl = useCallback((nextUrl: string | null) => {
     if (pdfBlobUrlRef.current && pdfBlobUrlRef.current !== nextUrl) {
@@ -202,6 +331,21 @@ export function AnalysisWorkbench() {
       }
     },
     [paperId, markMockMode],
+  );
+
+  const resolveNotebook = useCallback(
+    async (bundle: ArtifactBundle): Promise<NotebookArtifact> => {
+      const structuredResult = await getPaperNoteStructuredStateByPaperId(paperId);
+      if (structuredResult.isMock) {
+        markMockMode(structuredResult.reason);
+      }
+      const structuredState = structuredResult.data?.structured_state;
+      if (structuredState && structuredState.claimset.length > 0) {
+        return getNotebookFromStructuredState(structuredState, bundle);
+      }
+      return getNotebookFromBundle(bundle);
+    },
+    [markMockMode, paperId],
   );
 
   useEffect(() => {
@@ -247,7 +391,7 @@ export function AnalysisWorkbench() {
       }
 
       setLoadError(null);
-      setRepairStatsFeedback(null);
+      setActionFeedback(null);
       clearMockMode();
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
@@ -281,7 +425,7 @@ export function AnalysisWorkbench() {
 
         const bundle = artifactResult.data;
         setArtifactBundle(bundle);
-        const notebookData = getNotebookFromBundle(bundle);
+        const notebookData = await resolveNotebook(bundle);
         setNotebook(notebookData);
         setActiveClaimId(chooseActiveClaimId(notebookData, focusIssues, null));
         try {
@@ -347,7 +491,7 @@ export function AnalysisWorkbench() {
     return () => {
       mounted = false;
     };
-  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, markMockMode, replacePdfBlobUrl, setActiveClaimId]);
+  }, [paperId, focusIssues, clearMockMode, loadObsidianMirror, markMockMode, replacePdfBlobUrl, resolveNotebook, setActiveClaimId]);
 
   const streamJobId = job?.job_id;
   const streamRunId = job?.run_id;
@@ -420,12 +564,16 @@ export function AnalysisWorkbench() {
         },
         onArtifactReady: async () => {
           try {
-            const nextArtifacts = await getArtifactsLatest(paperId);
+            const [nextArtifacts, nextPapers] = await Promise.all([getArtifactsLatest(paperId), getPapers()]);
             if (nextArtifacts.isMock) {
               markMockMode(nextArtifacts.reason);
             }
+            if (nextPapers.isMock) {
+              markMockMode(nextPapers.reason);
+            }
+            setPapers(nextPapers.data);
             setArtifactBundle(nextArtifacts.data);
-            const nextNotebook = getNotebookFromBundle(nextArtifacts.data);
+            const nextNotebook = await resolveNotebook(nextArtifacts.data);
             setNotebook(nextNotebook);
             setActiveClaimId(
               chooseActiveClaimId(nextNotebook, focusIssuesRef.current, activeClaimIdRef.current),
@@ -448,7 +596,7 @@ export function AnalysisWorkbench() {
     return () => {
       subscription?.close();
     };
-  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, markMockMode, setActiveClaimId]);
+  }, [streamJobId, streamRunId, streamStatus, mockMode, paperId, loadObsidianMirror, markMockMode, resolveNotebook, setActiveClaimId]);
 
   async function refreshData() {
     if (!paperId) {
@@ -456,9 +604,10 @@ export function AnalysisWorkbench() {
     }
     try {
       setLoadError(null);
-      const [jobResult, artifactResult] = await Promise.all([
+      const [jobResult, artifactResult, papersResult] = await Promise.all([
         job ? getJob(job.job_id) : Promise.resolve(null),
         getArtifactsLatest(paperId),
+        getPapers(),
       ]);
 
       if (jobResult && jobResult.isMock) {
@@ -467,13 +616,17 @@ export function AnalysisWorkbench() {
       if (artifactResult.isMock) {
         markMockMode(artifactResult.reason);
       }
+      if (papersResult.isMock) {
+        markMockMode(papersResult.reason);
+      }
 
       if (jobResult) {
         setJob(jobResult.data);
       }
 
+      setPapers(papersResult.data);
       setArtifactBundle(artifactResult.data);
-      const nextNotebook = getNotebookFromBundle(artifactResult.data);
+      const nextNotebook = await resolveNotebook(artifactResult.data);
       setNotebook(nextNotebook);
       setActiveClaimId(chooseActiveClaimId(nextNotebook, focusIssues, activeClaimId));
       const runIdForMirror = jobResult?.data.run_id ?? artifactResult.data.run_id ?? job?.run_id ?? null;
@@ -485,47 +638,54 @@ export function AnalysisWorkbench() {
     }
   }
 
-  async function handleRepairStats() {
+  async function handleStatsAction(mode: StatsActionMode) {
     if (!paperId) {
       return;
     }
     const targetRunId = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
+    const skipExisting = mode === "repair";
     try {
-      setRepairingStats(true);
+      setRunningStatsAction(mode);
       setLoadError(null);
-      setRepairStatsFeedback(null);
+      setActionFeedback(null);
       const repairResult = await repairStats({
         paper_ids: [paperId],
         run_id: targetRunId,
-        skip_existing: true,
+        skip_existing: skipExisting,
         write_bootstrap_meta: true,
         dry_run: false,
       });
       if (repairResult.isMock) {
         markMockMode(repairResult.reason);
       }
-      const summary = `repair-stats summary: seeded=${repairResult.data.seeded}, skipped=${repairResult.data.skipped}, total=${repairResult.data.total}`;
+      const summary = `repair-stats summary: mode=${mode}, seeded=${repairResult.data.seeded}, skipped=${repairResult.data.skipped}, total=${repairResult.data.total}`;
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][INFO] ${summary}`]);
-      setRepairStatsFeedback({
+      setActionFeedback({
         tone: "success",
+        mode,
         message:
-          repairResult.data.seeded > 0
-            ? `Stats snapshot rebuilt from claimset. ${repairResult.data.seeded} artifact bundle updated.`
-            : "Stats repair completed without changes.",
+          mode === "repair"
+            ? repairResult.data.seeded > 0
+              ? `Stats snapshot rebuilt from claimset. ${repairResult.data.seeded} artifact bundle updated.`
+              : "Stats repair completed without changes."
+            : repairResult.data.seeded > 0
+              ? `Existing Stats Snapshot was replaced from the current claimset fallback. ${repairResult.data.seeded} artifact bundle updated.`
+              : "Stats rebuild completed without changes.",
       });
       setTerminalOpen(true);
       await refreshData();
     } catch (error) {
       const message = getApiErrorMessage(error);
       setLoadError(message);
-      setRepairStatsFeedback({
+      setActionFeedback({
         tone: "error",
-        message: `Repair Stats failed: ${message}`,
+        mode,
+        message: `${mode === "repair" ? "Repair Stats" : "Rebuild Stats"} failed: ${message}`,
       });
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
       setTerminalOpen(true);
     } finally {
-      setRepairingStats(false);
+      setRunningStatsAction(null);
     }
   }
 
@@ -536,25 +696,43 @@ export function AnalysisWorkbench() {
     const runId = job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null;
     if (!runId) {
       setLoadError("No run id available for Obsidian sync.");
+      setActionFeedback({
+        tone: "error",
+        mode: "sync",
+        message: "No run id available for Obsidian sync.",
+      });
       return;
     }
 
     try {
       setSyncingObsidian(true);
       setLoadError(null);
+      setActionFeedback(null);
       const syncResult = await syncToObsidian(paperId, runId);
       if (syncResult.isMock) {
         markMockMode(syncResult.reason);
       }
       await loadObsidianMirror(runId);
+      const syncMessage = syncResult.data.message ?? "Obsidian note updated.";
+      setActionFeedback({
+        tone: "success",
+        mode: "sync",
+        message: syncMessage,
+      });
       setTerminalLogs((prev) => [
         ...prev.slice(-499),
-        `[${new Date().toISOString()}][INFO] ${syncResult.data.message ?? "Obsidian sync completed"}`,
+        `[${new Date().toISOString()}][INFO] obsidian-sync summary: ${syncMessage}`,
       ]);
     } catch (error) {
       const message = getApiErrorMessage(error);
       setLoadError(message);
+      setActionFeedback({
+        tone: "error",
+        mode: "sync",
+        message: `Sync to Obsidian failed: ${message}`,
+      });
       setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+      setTerminalOpen(true);
     } finally {
       setSyncingObsidian(false);
     }
@@ -566,12 +744,15 @@ export function AnalysisWorkbench() {
     }
     try {
       setLoadError(null);
-      setRepairStatsFeedback(null);
+      setActionFeedback(null);
+      const runSelection = buildRunSelection(selectedReasoningPersona, selectedProfileId);
       const enqueueResult = await enqueueDeepRead({
         paper_id: paperId,
         run_verify: runVerify,
         clean_reindex: cleanReindex,
-        persona_id: selectedPersonaId,
+        persona_id: runSelection.personaId,
+        reasoning_persona: runSelection.reasoningPersona,
+        profile_id: runSelection.profileId,
       });
 
       if (enqueueResult.isMock) {
@@ -582,6 +763,9 @@ export function AnalysisWorkbench() {
         job_id: enqueueResult.data.job_id,
         paper_id: paperId,
         run_id: enqueueResult.data.run_id ?? `run-${Date.now()}`,
+        persona_id: runSelection.personaId,
+        reasoning_persona: runSelection.reasoningPersona,
+        profile_id: runSelection.profileId,
         status: "queued",
         progress: 0,
         stage: "ingest",
@@ -624,24 +808,46 @@ export function AnalysisWorkbench() {
     Boolean(obsidianMirror?.has_stats_report) ||
     Boolean(obsidianMirror?.stats_checks.length);
   const canRepairStats = !loadingObsidianMirror && hasClaimsetArtifact && !hasStatsArtifact;
+  const canRebuildStats = !loadingObsidianMirror && hasClaimsetArtifact && hasStatsArtifact;
+  const repairingStats = runningStatsAction !== null;
+  const actionBusy = repairingStats || syncingObsidian;
   const hasClaimGuardNotice = claimGuard.fallbackCount > 0 || claimGuard.missingCount > 0 || claimGuard.missingTextCount > 0;
   const showNotice =
-    focusIssues ||
+    showContentReviewSummary ||
     loadError ||
     hasClaimGuardNotice ||
     canRepairStats ||
     repairingStats ||
-    Boolean(repairStatsFeedback);
+    syncingObsidian ||
+    Boolean(actionFeedback);
+  const showRebuildNotice = runningStatsAction === "rebuild";
   const controlsDesktop = (
     <>
       <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
-        Persona
+        Reasoning
         <select
-          value={selectedPersonaId}
-          onChange={(event) => setSelectedPersonaId(event.target.value)}
+          value={selectedReasoningPersona}
+          onChange={(event) => setSelectedReasoningPersona(event.target.value as ReasoningSelection)}
           className="bg-transparent text-[var(--pp-text-primary)] outline-none"
         >
-          {personas.map((persona) => (
+          <option value="auto">Auto</option>
+          {reasoningOptions.map((persona) => (
+            <option key={persona.id} value={persona.id}>
+              {persona.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
+        Profile
+        <select
+          value={selectedProfileId}
+          onChange={(event) => setSelectedProfileId(event.target.value)}
+          className="bg-transparent text-[var(--pp-text-primary)] outline-none"
+        >
+          <option value="">No profile</option>
+          {profileOptions.map((persona) => (
             <option key={persona.id} value={persona.id}>
               {persona.title}
             </option>
@@ -670,13 +876,37 @@ export function AnalysisWorkbench() {
       {canRepairStats ? (
         <button
           type="button"
-          onClick={() => void handleRepairStats()}
-          disabled={repairingStats}
+          onClick={() => void handleStatsAction("repair")}
+          disabled={actionBusy}
           className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2.5 py-1.5 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Wrench className="h-3.5 w-3.5" />
-          {repairingStats ? "Repairing..." : "Repair Stats"}
+          {runningStatsAction === "repair" ? "Repairing..." : "Repair Stats"}
         </button>
+      ) : null}
+
+      {canRebuildStats || runningStatsAction === "rebuild" ? (
+        <details
+          data-testid="stats-advanced-controls"
+          className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+        >
+          <summary className="cursor-pointer font-semibold text-[var(--pp-text-dim)]">Advanced actions</summary>
+          <div className="mt-2 grid gap-2">
+            <p className="max-w-[18rem] text-[11px] leading-5 text-[var(--pp-text-dim)]">
+              Rebuild overwrites the current Stats Snapshot with a fresh claimset fallback. Use this only when the
+              existing snapshot is stale or inconsistent.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleStatsAction("rebuild")}
+              disabled={actionBusy}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2.5 py-1.5 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              {runningStatsAction === "rebuild" ? "Rebuilding..." : "Rebuild Stats"}
+            </button>
+          </div>
+        </details>
       ) : null}
 
       <label className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
@@ -731,13 +961,30 @@ export function AnalysisWorkbench() {
   const controlsMobile = (
     <>
       <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
-        Persona
+        Reasoning
         <select
-          value={selectedPersonaId}
-          onChange={(event) => setSelectedPersonaId(event.target.value)}
+          value={selectedReasoningPersona}
+          onChange={(event) => setSelectedReasoningPersona(event.target.value as ReasoningSelection)}
           className="max-w-[62%] bg-transparent text-right text-[var(--pp-text-primary)] outline-none"
         >
-          {personas.map((persona) => (
+          <option value="auto">Auto</option>
+          {reasoningOptions.map((persona) => (
+            <option key={persona.id} value={persona.id}>
+              {persona.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
+        Profile
+        <select
+          value={selectedProfileId}
+          onChange={(event) => setSelectedProfileId(event.target.value)}
+          className="max-w-[62%] bg-transparent text-right text-[var(--pp-text-primary)] outline-none"
+        >
+          <option value="">No profile</option>
+          {profileOptions.map((persona) => (
             <option key={persona.id} value={persona.id}>
               {persona.title}
             </option>
@@ -768,20 +1015,37 @@ export function AnalysisWorkbench() {
       {canRepairStats ? (
         <button
           type="button"
-          onClick={() => void handleRepairStats()}
-          disabled={repairingStats}
+          onClick={() => void handleStatsAction("repair")}
+          disabled={actionBusy}
           className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Wrench className="h-3.5 w-3.5" />
-          {repairingStats ? "Repairing..." : "Repair Stats"}
+          {runningStatsAction === "repair" ? "Repairing..." : "Repair Stats"}
         </button>
       ) : null}
 
-      <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
+      <details data-testid="stats-advanced-controls" className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
         <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
           Advanced controls
         </summary>
         <div className="mt-2 grid gap-2">
+          {canRebuildStats || runningStatsAction === "rebuild" ? (
+            <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2">
+              <p className="text-[11px] leading-5 text-[var(--pp-text-dim)]">
+                Rebuild overwrites the current Stats Snapshot with a fresh claimset fallback.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleStatsAction("rebuild")}
+                disabled={actionBusy}
+                className="mt-2 inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+                {runningStatsAction === "rebuild" ? "Rebuilding..." : "Rebuild Stats"}
+              </button>
+            </div>
+          ) : null}
+
           <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-xs text-[var(--pp-text-secondary)]">
             <span>Stats Verify</span>
             <input type="checkbox" checked={runVerify} onChange={(event) => setRunVerify(event.target.checked)} />
@@ -843,16 +1107,16 @@ export function AnalysisWorkbench() {
       mockReason={mockReason}
       notice={showNotice ? (
         <div className="grid gap-2">
-          {canRepairStats || repairingStats ? (
+          {canRepairStats || runningStatsAction === "repair" ? (
             <div data-testid="repair-stats-warning" className={getInlineNoticeClassName("warning")}>
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div>
                   <p className="font-semibold">
-                    {repairingStats ? "Repairing stats snapshot..." : "Stats report is missing or empty."}
+                    {runningStatsAction === "repair" ? "Repairing stats snapshot..." : "Stats report is missing or empty."}
                   </p>
                   <p className="mt-1 text-[11px]">
-                    {repairingStats
+                    {runningStatsAction === "repair"
                       ? "Rebuilding Stats Snapshot from the current claimset. The artifact panel refreshes when the repair finishes."
                       : "This paper already has claimset data but no stats_report artifact. Use Repair Stats to rebuild the Stats Snapshot from the current claimset."}
                   </p>
@@ -860,28 +1124,73 @@ export function AnalysisWorkbench() {
               </div>
             </div>
           ) : null}
-          {repairStatsFeedback ? (
+          {showContentReviewSummary ? (
+            <div data-testid="content-review-notice" className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Content Review</p>
+              <p className="mt-1 text-sm text-[var(--pp-text-primary)]">
+                {contentReviewSummary!.state === "flagged"
+                  ? `${contentReviewSummary!.issueCount} content review flag${contentReviewSummary!.issueCount === 1 ? "" : "s"} available.`
+                  : contentReviewSummary!.state === "unavailable"
+                    ? "Content review is not available yet."
+                  : "No content flags recorded."}
+              </p>
+              {contentReviewSummary!.state !== "clear" && contentReviewSummary!.detail ? (
+                <p data-testid="content-review-notice-detail" className="mt-1 text-[11px] text-[var(--pp-text-dim)]">
+                  {contentReviewSummary!.detail}
+                </p>
+              ) : null}
+              <p className="mt-1 text-[11px] text-[var(--pp-text-dim)]">
+                {focusIssues
+                  ? "Issue focus is enabled. Risk-related claims are prioritized separately from artifact health."
+                  : "Content review is separate from artifact health and only affects claim-priority guidance."}
+              </p>
+            </div>
+          ) : null}
+          {showRebuildNotice ? (
+            <div data-testid="rebuild-stats-warning" className={getInlineNoticeClassName("warning")}>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Rebuilding stats snapshot...</p>
+                  <p className="mt-1 text-[11px]">
+                    Rebuild Stats overwrites the current Stats Snapshot from the latest claimset fallback. The artifact
+                    panel refreshes when the rebuild finishes.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {syncingObsidian ? (
+            <div data-testid="sync-obsidian-warning" className={getInlineNoticeClassName("warning")}>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Syncing Obsidian mirror...</p>
+                  <p className="mt-1 text-[11px]">
+                    The current generated markdown is being written back to the vault note. The preview refreshes when
+                    sync finishes.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {actionFeedback ? (
             <div
-              data-testid={`repair-stats-${repairStatsFeedback.tone}`}
-              className={getInlineNoticeClassName(repairStatsFeedback.tone)}
+              data-testid={getActionFeedbackTestId(actionFeedback.mode, actionFeedback.tone)}
+              className={getInlineNoticeClassName(actionFeedback.tone)}
             >
               <div className="flex items-start gap-2">
-                {repairStatsFeedback.tone === "success" ? (
+                {actionFeedback.tone === "success" ? (
                   <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 ) : (
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 )}
                 <div>
-                  <p className="font-semibold">
-                    {repairStatsFeedback.tone === "success" ? "Stats repair completed." : "Stats repair failed."}
-                  </p>
-                  <p className="mt-1 text-[11px]">{repairStatsFeedback.message}</p>
+                  <p className="font-semibold">{getActionFeedbackTitle(actionFeedback.mode, actionFeedback.tone)}</p>
+                  <p className="mt-1 text-[11px]">{actionFeedback.message}</p>
                 </div>
               </div>
             </div>
-          ) : null}
-          {focusIssues ? (
-            <p className="text-xs text-[var(--pp-warning-text)]">Issue focus enabled: prioritizing risk-related claims.</p>
           ) : null}
           {claimGuard.fallbackCount > 0 ? (
             <p data-testid="claim-guard-fallback" className="text-xs text-[var(--pp-warning-text)]">
@@ -906,41 +1215,73 @@ export function AnalysisWorkbench() {
       rail={
         <Rail
           papers={filteredPapers}
+          paperNoteOpsByPaperId={paperNoteOpsByPaperId}
           selectedPaperId={paperId}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onSelectPaper={(nextPaperId) => navigate(`/workbench/${encodeURIComponent(nextPaperId)}`)}
+          onSelectPaper={(nextPaperId) => {
+            logClientUserAction({
+              paper_id: nextPaperId,
+              action_type: "workbench_select_paper",
+              payload: {
+                origin: "workbench_rail",
+                from_paper_id: paperId,
+              },
+            });
+            navigate(`/workbench/${encodeURIComponent(nextPaperId)}`);
+          }}
         />
       }
       pdfPanel={
-        <Suspense
+        <PanelErrorBoundary
+          resetKey={pdfUrl}
+          onError={(error) => {
+            setLoadError((prev) => prev ?? `PDF viewer runtime error: ${error.message}`);
+          }}
           fallback={
             <section className="surface-card flex min-h-0 flex-col p-3">
-              <div className="flex min-h-[420px] items-center justify-center text-sm text-[var(--pp-text-dim)]">
-                Loading PDF viewer...
+              <div className="flex min-h-[420px] flex-col items-center justify-center gap-2 text-center">
+                <p className="text-sm text-[var(--pp-text-primary)]">PDF viewer failed to render.</p>
+                <p className="text-xs text-[var(--pp-text-dim)]">
+                  Try refreshing this paper. If the issue persists, re-open workbench from the paper list.
+                </p>
               </div>
             </section>
           }
         >
-          <PdfPanel
-            title={paper?.title ?? "Selected Paper"}
-            paperId={paperId}
-            pdfUrl={pdfUrl}
-            pdfAvailable={pdfAvailable}
-            claims={notebook.claims}
-            highlights={notebook.highlights}
-            activeClaimId={activeClaimId}
-            highlightMode={highlightMode}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <section className="surface-card flex min-h-0 flex-col p-3">
+                <div className="flex min-h-[420px] items-center justify-center text-sm text-[var(--pp-text-dim)]">
+                  Loading PDF viewer...
+                </div>
+              </section>
+            }
+          >
+            <PdfPanel
+              title={paper?.title ?? "Selected Paper"}
+              paperId={paperId}
+              pdfUrl={pdfUrl}
+              pdfAvailable={pdfAvailable}
+              claims={notebook.claims}
+              highlights={notebook.highlights}
+              activeClaimId={activeClaimId}
+              highlightMode={highlightMode}
+            />
+          </Suspense>
+        </PanelErrorBoundary>
       }
       artifactPanel={
         <ArtifactPanel
+          paperId={paperId}
+          runId={job?.run_id ?? artifactBundle?.run_id ?? obsidianMirror?.run_id ?? null}
           notebook={notebook}
           highlights={notebook.highlights}
           rawArtifact={artifactBundle?.files ?? {}}
           obsidianMirror={obsidianMirror}
-          syncEnabled={Boolean(runIdForObsidianSync)}
+          opsSummary={currentOpsSummary}
+          contentReviewSummary={showContentReviewSummary ? contentReviewSummary : null}
+          syncEnabled={Boolean(runIdForObsidianSync) && !repairingStats}
           syncing={syncingObsidian}
           onSyncObsidian={() => void handleSyncObsidian()}
           activeClaimId={activeClaimId}

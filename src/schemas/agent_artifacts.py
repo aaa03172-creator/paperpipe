@@ -81,6 +81,10 @@ class DocumentChunk(BaseModel):
     text: str
     vector_id: Optional[str] = None 
     section_name: str
+    page_hint: Optional[int] = None
+    section_ordinal: Optional[int] = None
+    chunk_ordinal: Optional[int] = None
+    chunk_id_version: Optional[str] = None
     embedding: Optional[List[float]] = None
 
 class IndexArtifact(BaseModel):
@@ -99,13 +103,13 @@ class EvidenceSpan(BaseModel):
     Evidence location within the document.
     Updated for Milestone 5 Strict Compliance.
     """
-    page: Optional[int] = Field(0, description="0-indexed PDF page number")
+    page: Optional[int] = Field(None, description="0-indexed PDF page number")
     chunk_id: Optional[str] = Field("unknown", description="Standard chunk_id from DocumentArtifact")
     char_start: Optional[int] = Field(None, description="Start offset in chunk")
     char_end: Optional[int] = Field(None, description="End offset in chunk")
     
     # Text Content
-    raw_text: str = Field(..., description="Extracted raw text or table caption")
+    raw_text: Optional[str] = Field(None, description="Extracted raw text or table caption")
     quote: Optional[str] = Field(None, description="Short excerpt (recommended < 25 words)")
     rationale: Optional[str] = Field(None, description="MANDATORY: Why this evidence supports the claim (1-2 sentences)")
 
@@ -132,6 +136,45 @@ class EvidenceSpan(BaseModel):
     section: Optional[str] = None
     source_span: Optional[List[int]] = None
 
+    @model_validator(mode="after")
+    def validate_evidence_payload(self):
+        raw_text = (self.raw_text or "").strip()
+        table_id = (self.table_id or "").strip()
+        cell_id = (self.cell_id or "").strip()
+
+        # Keep table link semantics explicit.
+        if (table_id and not cell_id) or (cell_id and not table_id):
+            raise ValueError("table_id and cell_id must be provided together")
+        has_table_link = bool(table_id and cell_id)
+
+        # Evidence must contain either text payload or explicit table cell link.
+        if not raw_text and not has_table_link:
+            raise ValueError("EvidenceSpan requires raw_text or table_id+cell_id")
+
+        if self.bbox_pdf is not None:
+            if len(self.bbox_pdf) != 4:
+                raise ValueError("bbox_pdf must contain 4 numeric values")
+            x0, y0, x1, y1 = self.bbox_pdf
+            if min(x0, y0, x1, y1) < 0:
+                raise ValueError("bbox_pdf values must be non-negative")
+            if x0 > x1 or y0 > y1:
+                raise ValueError("bbox_pdf must satisfy x0<=x1 and y0<=y1")
+
+        if self.bbox_pct is not None:
+            required = {"left", "top", "width", "height"}
+            if not required.issubset(set(self.bbox_pct.keys())):
+                raise ValueError("bbox_pct must include left/top/width/height")
+
+        # Normalize whitespace payloads to None.
+        if self.raw_text is not None and not raw_text:
+            self.raw_text = None
+        if self.table_id is not None and not table_id:
+            self.table_id = None
+        if self.cell_id is not None and not cell_id:
+            self.cell_id = None
+
+        return self
+
 class ScientificClaim(BaseModel):
     claim_id: str = Field(..., description="Unique ID (e.g. CLM-001)")
     type: str = Field(..., description="e.g. efficacy, safety, mechanism")
@@ -139,6 +182,8 @@ class ScientificClaim(BaseModel):
     evidence_spans: List[EvidenceSpan] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
     confidence: float = Field(..., ge=0, le=1.0)
+    unknown: bool = False
+    unknown_reason: Optional[str] = None
 
     @field_validator("type", mode="before")
     @classmethod
@@ -149,6 +194,12 @@ class ScientificClaim(BaseModel):
         if v == "modeling":
             return "methods"
         return v
+
+    @model_validator(mode="after")
+    def normalize_unknown(self):
+        if self.unknown and not (self.unknown_reason or "").strip():
+            self.unknown_reason = "UNSPECIFIED"
+        return self
     
 class ClaimSet(BaseModel):
     doc_id: str

@@ -7,13 +7,14 @@ interface TerminalDrawerProps {
 }
 
 export function TerminalDrawer({ open, logs, onClose }: TerminalDrawerProps) {
+  if (!open) {
+    return null;
+  }
+
   return (
     <aside
-      className={[
-        "fixed right-0 top-0 z-40 h-full w-full max-w-xl border-l border-[var(--pp-border)] bg-[var(--pp-surface)] shadow-xl transition-transform duration-200",
-        open ? "translate-x-0" : "translate-x-full",
-      ].join(" ")}
-      aria-hidden={!open}
+      className="fixed right-0 top-0 z-40 h-full w-full max-w-xl border-l border-[var(--pp-border)] bg-[var(--pp-surface)] shadow-xl"
+      aria-hidden={false}
     >
       <header className="flex items-center justify-between border-b border-[var(--pp-border)] px-4 py-3">
         <div className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pp-text-primary)]">

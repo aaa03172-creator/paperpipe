@@ -88,6 +88,8 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
         paper_id: String(payload.paper_id ?? options.paperId),
         run_id: String(payload.run_id ?? options.runId),
         persona_id: payload.persona_id ? String(payload.persona_id) : undefined,
+        reasoning_persona: payload.reasoning_persona ? String(payload.reasoning_persona) as JobStatus["reasoning_persona"] : undefined,
+        profile_id: payload.profile_id ? String(payload.profile_id) : undefined,
         status: String(payload.status ?? "running") as JobStatus["status"],
         progress: Number(payload.progress ?? 0),
         stage: payload.stage ? String(payload.stage) : undefined,

@@ -1,14 +1,23 @@
 import { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleHelp, FlaskConical, NotebookPen } from "lucide-react";
-import { EvidenceHighlight, NotebookArtifact, ObsidianMirror } from "../lib/types";
+import { logClientUserAction } from "../lib/api";
+import { EvidenceHighlight, NotebookArtifact, ObsidianMirror, PaperNoteOpsSummary } from "../lib/types";
 import { buildBestHighlightMap, getClaimLinkState } from "../lib/claimGuard";
+import { ContentReviewSummary as ContentReviewSummaryModel } from "../lib/contentReview";
 import { circledNumber } from "../lib/ui";
+import { ContentReviewSummary } from "./ContentReviewSummary";
+import { OperationalStateSummary } from "./OperationalStateSummary";
+import { Badge } from "./ui/badge";
 
 interface ArtifactPanelProps {
+  paperId?: string | null;
+  runId?: string | null;
   notebook: NotebookArtifact;
   highlights: EvidenceHighlight[];
   rawArtifact: unknown;
   obsidianMirror: ObsidianMirror | null;
+  opsSummary?: PaperNoteOpsSummary | null;
+  contentReviewSummary?: ContentReviewSummaryModel | null;
   syncEnabled: boolean;
   syncing: boolean;
   onSyncObsidian: () => void;
@@ -78,6 +87,36 @@ function scoreClaimTextAgainstSignals(claimText: string, signals: string[]): num
     score += overlap / signalTokens.length;
   }
   return score;
+}
+
+function getGroundingBadge(grounded?: boolean | null, resolution?: string | null): { label: string; className: string } | null {
+  if (grounded === true) {
+    if (resolution === "NORMALIZED_MATCH") {
+      return {
+        label: "Grounded (normalized)",
+        className:
+          "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]",
+      };
+    }
+    return {
+      label: "Grounded",
+      className:
+        "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]",
+    };
+  }
+  if (grounded === false) {
+    if (resolution === "AMBIGUOUS_MATCH") {
+      return {
+        label: "Needs review",
+        className: "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]",
+      };
+    }
+    return {
+      label: "Unresolved",
+      className: "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]",
+    };
+  }
+  return null;
 }
 
 function resolveMirrorClaimTargetId(
@@ -176,10 +215,14 @@ function resolveStatsCheckTargetId(
 }
 
 export function ArtifactPanel({
+  paperId,
+  runId,
   notebook,
   highlights,
   rawArtifact,
   obsidianMirror,
+  opsSummary,
+  contentReviewSummary,
   syncEnabled,
   syncing,
   onSyncObsidian,
@@ -187,6 +230,17 @@ export function ArtifactPanel({
   onSelectClaim,
   density,
 }: ArtifactPanelProps) {
+  const logEvidenceReviewAction = (actionType: string, payload: Record<string, unknown>) => {
+    logClientUserAction({
+      paper_id: paperId ?? null,
+      action_type: actionType,
+      source: "ui",
+      payload: {
+        run_id: runId ?? null,
+        ...payload,
+      },
+    });
+  };
   const verdict = verdictStyle(notebook.verdict.level);
   const highlightMap = buildBestHighlightMap(highlights);
   const compact = density === "compact";
@@ -262,7 +316,16 @@ export function ArtifactPanel({
                   <li key={claim.claim_id}>
                     <button
                       type="button"
-                      onClick={() => onSelectClaim(claim.claim_id)}
+                      onClick={() => {
+                        logEvidenceReviewAction("workbench_select_claim", {
+                          origin: "claim_list",
+                          claim_id: claim.claim_id,
+                          link_health: linkState.health,
+                          page: linkState.page ?? null,
+                          text_missing: linkState.textMissing === true,
+                        });
+                        onSelectClaim(claim.claim_id);
+                      }}
                       className={[
                         "w-full rounded-md border px-3 py-2 text-left text-sm",
                         active
@@ -334,6 +397,29 @@ export function ArtifactPanel({
           <p className="mt-1 text-sm">{notebook.verdict.detail}</p>
         </article>
 
+        {contentReviewSummary ? (
+          <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3" data-testid="workbench-content-review-summary">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Content Review</div>
+            <ContentReviewSummary
+              summary={contentReviewSummary}
+              badgeTestId="workbench-content-review-badge"
+              hintTestId="workbench-content-review-hint"
+              detailTestId="workbench-content-review-detail"
+            />
+          </article>
+        ) : null}
+
+        {opsSummary ? (
+          <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3" data-testid="workbench-ops-summary">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Operational State</div>
+            <OperationalStateSummary
+              summary={opsSummary}
+              badgeTestId="workbench-ops-badge"
+              reasonTestId="workbench-ops-reason"
+            />
+          </article>
+        ) : null}
+
         <article className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Obsidian Mirror</div>
@@ -375,6 +461,7 @@ export function ArtifactPanel({
                     {obsidianMirror.claims.slice(0, 8).map((claim) => {
                       const targetClaimId = resolveMirrorClaimTargetId(claim.claim_id, claim.statement, notebook);
                       const canJump = Boolean(targetClaimId);
+                      const groundingBadge = getGroundingBadge(claim.evidence_grounded, claim.evidence_resolution);
                       return (
                         <li key={claim.claim_id}>
                           <button
@@ -382,6 +469,15 @@ export function ArtifactPanel({
                             disabled={!canJump}
                             onClick={() => {
                               if (targetClaimId) {
+                                logEvidenceReviewAction("workbench_jump_mirror_claim", {
+                                  origin: "mirror_claim",
+                                  mirror_claim_id: claim.claim_id,
+                                  target_claim_id: targetClaimId,
+                                  evidence_page: claim.evidence_page ?? null,
+                                  evidence_chunk_id: claim.evidence_chunk_id ?? null,
+                                  evidence_grounded: claim.evidence_grounded ?? null,
+                                  evidence_resolution: claim.evidence_resolution ?? null,
+                                });
                                 onSelectClaim(targetClaimId);
                               }
                             }}
@@ -396,6 +492,16 @@ export function ArtifactPanel({
                             <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
                               {`${claim.claim_type} · confidence ${claim.confidence.toFixed(2)}${claim.evidence_page !== null && claim.evidence_page !== undefined ? ` · p.${claim.evidence_page}` : ""}${canJump ? " · Jump to PDF" : " · Jump unavailable"}`}
                             </p>
+                            {groundingBadge ? (
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                <Badge
+                                  className={groundingBadge.className}
+                                  data-testid={`workbench-mirror-claim-grounding-${claim.claim_id}`}
+                                >
+                                  {groundingBadge.label}
+                                </Badge>
+                              </div>
+                            ) : null}
                           </button>
                         </li>
                       );
@@ -414,6 +520,7 @@ export function ArtifactPanel({
                       const targetClaimId = resolveStatsCheckTargetId(check, notebook, highlights, activeClaimId);
                       const canJump = Boolean(targetClaimId);
                       const isActive = Boolean(targetClaimId && targetClaimId === activeClaimId);
+                      const groundingBadge = getGroundingBadge(check.evidence_grounded, check.evidence_resolution);
                       return (
                         <li key={check.check_id}>
                           <button
@@ -421,6 +528,15 @@ export function ArtifactPanel({
                             disabled={!canJump}
                             onClick={() => {
                               if (targetClaimId) {
+                                logEvidenceReviewAction("workbench_jump_stats_check", {
+                                  origin: "stats_snapshot",
+                                  check_id: check.check_id,
+                                  target_claim_id: targetClaimId,
+                                  evidence_page: check.evidence_page ?? null,
+                                  evidence_chunk_id: check.evidence_chunk_id ?? null,
+                                  evidence_grounded: check.evidence_grounded ?? null,
+                                  evidence_resolution: check.evidence_resolution ?? null,
+                                });
                                 onSelectClaim(targetClaimId);
                               }
                             }}
@@ -437,6 +553,16 @@ export function ArtifactPanel({
                             <p className="mt-1 text-[10px] text-[var(--pp-text-dim)]">
                               {`${check.verdict}${check.decision_error ? " · decision error" : ""}${check.evidence_page !== null && check.evidence_page !== undefined ? ` · p.${check.evidence_page}` : ""}${canJump ? " · Jump to PDF" : " · Jump unavailable"}${check.notes ? ` · ${check.notes}` : ""}`}
                             </p>
+                            {groundingBadge ? (
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                <Badge
+                                  className={groundingBadge.className}
+                                  data-testid={`workbench-mirror-stat-grounding-${check.check_id}`}
+                                >
+                                  {groundingBadge.label}
+                                </Badge>
+                              </div>
+                            ) : null}
                           </button>
                         </li>
                       );

@@ -1,5 +1,4 @@
 import asyncio
-import uuid
 import json
 import logging
 import traceback
@@ -17,7 +16,11 @@ from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
-from src.profiles.profile_store import DEFAULT_PROFILE_PATH, load_profiles
+from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
+from src.profiles.profile_store import load_profiles
+from src.services.event_log import log_job_event
+from src.services.identity import new_run_id
+from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
     build_stats_markdown,
@@ -25,6 +28,7 @@ from src.services.deepread_note_writer import (
 )
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
+from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
 from src.verify import resolve_anchor_api_context
 
 logger = logging.getLogger("paperpipe.backend")
@@ -104,6 +108,36 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
                                 return note_path
         except Exception:
             continue
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        aliases = [paper_id]
+        if ":" in paper_id:
+            aliases.append(paper_id.split(":", 1)[1])
+        seen: set[str] = set()
+        for alias in aliases:
+            alias = str(alias or "").strip()
+            if not alias or alias in seen:
+                continue
+            seen.add(alias)
+            row = conn.execute(
+                "SELECT obsidian_path FROM papers WHERE paper_id = ? LIMIT 1",
+                (alias,),
+            ).fetchone()
+            if not row:
+                continue
+            raw = str(row["obsidian_path"] or "").strip()
+            if not raw:
+                continue
+            note_path = vault_path / raw
+            if note_path.exists():
+                return note_path
+    except Exception as exc:
+        logger.debug("DB note_path lookup failed for %s: %s", paper_id, exc)
+    finally:
+        if conn is not None:
+            conn.close()
     return None
 
 
@@ -464,6 +498,8 @@ async def run_deepread_job(
     job_id: str,
     paper_id: str,
     persona_id: str = "default",
+    reasoning_persona: str | None = None,
+    profile_id: str | None = None,
     run_verify: bool = False,
     clean_reindex: bool = False,
     run_id: str = None,
@@ -476,12 +512,17 @@ async def run_deepread_job(
     Emits events to JOB_QUEUES[job_id].
     """
     if not run_id:
-        run_id = str(uuid.uuid4())
+        run_id = new_run_id()
     
     queue = JOB_QUEUES.get(job_id)
     artifact_dir: Optional[Path] = None
     bootstrap_meta: Optional[Dict[str, Any]] = None
     run_meta: Optional[Dict[str, Any]] = None
+    selection = normalize_persona_selection(
+        persona_id=persona_id,
+        reasoning_persona=reasoning_persona,
+        profile_id=profile_id,
+    )
 
     async def is_cancelled() -> bool:
         if not cancel_check:
@@ -501,6 +542,18 @@ async def run_deepread_job(
             "level": level,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        try:
+            log_job_event(
+                job_id=job_id,
+                run_id=run_id,
+                level=level,
+                event_type="progress",
+                message=message,
+                payload=event,
+                ts=str(event["timestamp"]),
+            )
+        except Exception as exc:
+            logger.debug("Structured job event logging failed for %s: %s", job_id, exc)
         if queue:
             await queue.put({"event": "progress", "data": json.dumps(event)})
             if level == "ERROR":
@@ -554,7 +607,7 @@ async def run_deepread_job(
         logger.info(f"✅ Found PDF: {pdf_path}")
 
         # Prepare Artifact Storage
-        artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+        artifact_dir = artifact_run_dir(paper_id, run_id)
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         snapshots_dir = artifact_dir / "snapshots"
@@ -563,14 +616,16 @@ async def run_deepread_job(
             "job_id": job_id,
             "run_id": run_id,
             "paper_id": paper_id,
-            "persona_id": persona_id,
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
             "run_verify": bool(run_verify),
             "clean_reindex_requested": bool(clean_reindex),
             "pdf_path": str(pdf_path),
             "pdf_sha256": _sha256_file(pdf_path),
             "pdf_mtime": datetime.fromtimestamp(pdf_path.stat().st_mtime, timezone.utc).isoformat(),
-            "config_snapshot": _snapshot_copy(Path("config.yaml"), snapshots_dir / "config.yaml"),
-            "prompts_snapshot": _snapshot_copy(DEFAULT_PROFILE_PATH, snapshots_dir / "profiles.yaml"),
+            "config_snapshot": _snapshot_copy(config_file_path(), snapshots_dir / "config.yaml"),
+            "prompts_snapshot": _snapshot_copy(profiles_config_path(), snapshots_dir / "profiles.yaml"),
             "models_used": {"reader": None, "verifier": None},
             "parser_backend": None,
             "llm_params": _collect_llm_params(config),
@@ -587,7 +642,9 @@ async def run_deepread_job(
             "job_id": job_id,
             "run_id": run_id,
             "paper_id": paper_id,
-            "persona_id": persona_id,
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
             "persona_applied": False,
             "similar_feedback_count": 0,
             "similar_feedback_paper_ids": [],
@@ -711,7 +768,14 @@ async def run_deepread_job(
             _mark_run_meta("cancelled")
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
-        persona_hint = _resolve_persona_hint(persona_id)
+        hint_sections: list[str] = []
+        reasoning_hint = resolve_reasoning_persona_hint(selection.reasoning_persona)
+        if reasoning_hint:
+            hint_sections.append(reasoning_hint)
+        profile_hint = _resolve_persona_hint(selection.profile_id) if selection.profile_id else None
+        if profile_hint:
+            hint_sections.append(profile_hint)
+        persona_hint = "\n\n".join(section for section in hint_sections if section) or None
 
         # Dynamic Few-Shot Injection based on persona
         feedback_query_text = persona_hint if persona_hint else paper_id
@@ -728,7 +792,12 @@ async def run_deepread_job(
             await emit("read", 53, f"Similar feedback injected: {len(similar_feedback)}")
         if persona_hint:
             bootstrap_meta["persona_applied"] = True
-            await emit("read", 52, f"Persona applied: {persona_id}")
+            if selection.reasoning_persona:
+                await emit("read", 51, f"Reasoning persona applied: {selection.reasoning_persona}")
+            if selection.profile_id:
+                await emit("read", 52, f"Profile context applied: {selection.profile_id}")
+            if not selection.reasoning_persona and not selection.profile_id:
+                await emit("read", 52, f"Persona applied: {selection.persona_id}")
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         main_model = _resolve_main_model(config)
         bootstrap_meta["reader_model"] = main_model
@@ -750,13 +819,29 @@ async def run_deepread_job(
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
         claim_set = enforce_claimset_evidence_policy(claim_set)
+        resolved_claim_set = resolve_claimset_grounding(claim_set, index_artifact)
              
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
             f.write(claim_set.model_dump_json(indent=2))
+        with open(artifact_dir / "claimset.resolved.json", "w") as f:
+            f.write(resolved_claim_set.model_dump_json(indent=2))
         bootstrap_meta["artifact_claimset_written"] = True
+        bootstrap_meta["artifact_claimset_resolved_written"] = True
         claim_count = len(claim_set.claims)
         bootstrap_meta["claimset_claim_count"] = claim_count
+        bootstrap_meta["claimset_grounded_span_count"] = sum(
+            1
+            for claim in resolved_claim_set.claims
+            for span in claim.evidence_spans
+            if span.grounded is True
+        )
+        bootstrap_meta["claimset_unresolved_span_count"] = sum(
+            1
+            for claim in resolved_claim_set.claims
+            for span in claim.evidence_spans
+            if span.grounded is False
+        )
         if claim_count > 0:
             bootstrap_meta["claimset_readiness"] = "ready"
             bootstrap_meta["claimset_ready"] = True
@@ -860,7 +945,7 @@ async def run_deepread_job(
                 stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
                 deepread_md = build_deepread_markdown(
                     model_name=getattr(reader_agent, "model_name", "reader"),
-                    claims_set=claim_set,
+                    claims_set=resolved_claim_set,
                     stats_md=stats_md,
                 )
                 note_content = note_path.read_text(encoding="utf-8")

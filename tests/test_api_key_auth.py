@@ -47,6 +47,9 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
         skills_run = client.post("/skills/run", json={"slug": "paper_auth_001", "action": "validate_citations"})
         assert skills_run.status_code == 401
 
+        user_action = client.post("/user-actions", json={"paper_id": "paper_auth_001", "action_type": "open_workbench"})
+        assert user_action.status_code == 401
+
         research_dna_create = client.post(
             "/research-dna",
             json={
@@ -206,6 +209,13 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             headers=headers,
         )
         assert skills_run.status_code == 200
+
+        user_action = client.post(
+            "/user-actions",
+            json={"paper_id": "paper_auth_allow_001", "action_type": "open_workbench", "source": "ui"},
+            headers=headers,
+        )
+        assert user_action.status_code == 200
 
         monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(tmp_path / "research_dna"))
         research_dna_create = client.post(

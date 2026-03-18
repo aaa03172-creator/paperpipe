@@ -28,6 +28,7 @@ from src.schemas.ops import (
     StatsRepairRequest,
     StatsRepairResponse,
     StatsRepairResult,
+    UserActionCreateRequest,
     UserActionEntry,
     UserActionListResponse,
 )
@@ -60,20 +61,6 @@ from src.profiles.research_dna_service import (
 )
 from src.profiles.research_dna_projection import sync_research_dna_profile
 from src.profiles.research_dna_store import ResearchDNARevisionConflictError, load_research_dna
-from src.schemas.ops import (
-    ArtifactBundleResponse,
-    ArtifactFileEntry,
-    DownloaderOpsMetricsResponse,
-    PersonaListResponse,
-    PersonaOption,
-    RunTimelineEvent,
-    RunTimelineResponse,
-    StatsRepairRequest,
-    StatsRepairResponse,
-    StatsRepairResult,
-    UserActionEntry,
-    UserActionListResponse,
-)
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
@@ -137,7 +124,7 @@ def _requires_api_key(method: str, path: str) -> bool:
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run"}:
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
@@ -450,6 +437,15 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
             elif action_type == "skill_run":
                 skill_action = str(payload.get("action") or "").strip()
                 message = f"User ran skill: {skill_action}" if skill_action else "User ran skill"
+            elif action_type == "workbench_select_claim":
+                claim_id = str(payload.get("claim_id") or "").strip()
+                message = f"User selected claim: {claim_id}" if claim_id else "User selected claim"
+            elif action_type == "workbench_jump_mirror_claim":
+                target_claim_id = str(payload.get("target_claim_id") or "").strip()
+                message = f"User jumped from mirror claim to: {target_claim_id}" if target_claim_id else "User jumped from mirror claim"
+            elif action_type == "workbench_jump_stats_check":
+                check_id = str(payload.get("check_id") or "").strip()
+                message = f"User jumped from stats check: {check_id}" if check_id else "User jumped from stats check"
             user_action_events.append(
                 RunTimelineEvent(
                     event="status",
@@ -1118,20 +1114,6 @@ def enqueue_job(job_req: JobCreate):
         },
     )
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
-@app.get("/user-actions", response_model=UserActionListResponse)
-def get_user_actions(
-    paper_id: str | None = Query(default=None),
-    action_type: str | None = Query(default=None),
-    source: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=1000),
-):
-    actions = list_user_actions(
-        paper_id=paper_id,
-        action_type=action_type,
-        source=source,
-        limit=limit,
-    )
-    return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
 
 
 @app.post("/ops/repair-stats", response_model=StatsRepairResponse)
@@ -1223,6 +1205,44 @@ def get_run_timeline(run_id: str, limit: int = Query(default=500, ge=1, le=5000)
         raise HTTPException(status_code=404, detail="Run not found")
     events = _timeline_events_from_job(job, limit=limit)
     return RunTimelineResponse(run_id=run_id, job_id=job.job_id, paper_id=job.paper_id, events=events)
+
+
+@app.get("/user-actions", response_model=UserActionListResponse)
+def get_user_actions(
+    paper_id: str | None = Query(default=None),
+    action_type: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+):
+    actions = list_user_actions(
+        paper_id=paper_id,
+        action_type=action_type,
+        source=source,
+        limit=limit,
+    )
+    return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
+
+
+@app.post("/user-actions", response_model=UserActionEntry)
+def create_user_action(req: UserActionCreateRequest):
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).isoformat()
+    action_id = log_user_action(
+        paper_id=req.paper_id,
+        action_type=req.action_type,
+        source=req.source,
+        payload=req.payload if isinstance(req.payload, dict) else req.payload,
+        ts=ts,
+    )
+    return UserActionEntry(
+        action_id=action_id,
+        ts=ts,
+        paper_id=req.paper_id,
+        action_type=req.action_type,
+        source=req.source,
+        payload=req.payload,
+    )
 
 
 @app.get("/jobs/{job_id}/bootstrap-meta", response_model=JobBootstrapMeta)

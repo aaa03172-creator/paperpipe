@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, LayoutGrid } from "lucide-react";
-import { getApiErrorMessage, getHealth, getPapers } from "../lib/api";
+import { getApiErrorMessage, getHealth, getPapers, logClientUserAction } from "../lib/api";
+import { deriveContentReviewSummary } from "../lib/contentReview";
 import { PaperSummary } from "../lib/types";
+import { ContentReviewSummary } from "../components/ContentReviewSummary";
+import { OperationalStateSummary } from "../components/OperationalStateSummary";
 import { Rail } from "../components/Rail";
 import { StatusChip } from "../components/StatusChip";
 import { useAppStore } from "../store/useAppStore";
@@ -21,6 +24,15 @@ export function TriageDashboard() {
   const clearMockMode = useAppStore((state) => state.clearMockMode);
   const themeMode = useAppStore((state) => state.themeMode);
   const setThemeMode = useAppStore((state) => state.setThemeMode);
+  const paperNoteOpsByPaperId = useMemo(
+    () =>
+      Object.fromEntries(
+        papers
+          .filter((paper) => paper.ops_summary)
+          .map((paper) => [paper.paper_id, paper.ops_summary!]),
+      ),
+    [papers],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -63,6 +75,10 @@ export function TriageDashboard() {
     };
   }, [clearMockMode, markMockMode]);
 
+  useEffect(() => {
+    document.title = "Lattice Analysis Workbench";
+  }, []);
+
   const filteredPapers = useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
     if (!keyword) {
@@ -74,7 +90,15 @@ export function TriageDashboard() {
     });
   }, [papers, searchQuery]);
 
-  function moveToWorkbench(paperId: string, options?: { focusIssues?: boolean }) {
+  function moveToWorkbench(paperId: string, options?: { focusIssues?: boolean; origin?: string }) {
+    logClientUserAction({
+      paper_id: paperId,
+      action_type: options?.focusIssues ? "open_workbench_focus_issues" : "open_workbench",
+      payload: {
+        origin: options?.origin ?? "triage_dashboard",
+        focus_issues: options?.focusIssues === true,
+      },
+    });
     const encoded = encodeURIComponent(paperId);
     if (options?.focusIssues) {
       navigate(`/workbench/${encoded}?focus=issues`);
@@ -83,8 +107,19 @@ export function TriageDashboard() {
     navigate(`/workbench/${encoded}`);
   }
 
-  function issueLabel(paper: PaperSummary): string {
-    return paper.issues_label ?? (paper.issues ? `⚠️ ${paper.issues} Issues` : "No critical issues");
+  function getContentReviewSummary(paper: PaperSummary) {
+    return deriveContentReviewSummary(paper.issues, { issuesLabel: paper.issues_label, issuesState: paper.issues_state });
+  }
+
+  function reviewIssueButtonClassName(paper: PaperSummary): string {
+    const summary = getContentReviewSummary(paper);
+    if (summary.state === "flagged") {
+      return "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]";
+    }
+    if (summary.state === "unavailable") {
+      return "border-[var(--pp-border)] bg-[var(--pp-surface-raised)] text-[var(--pp-text-dim)]";
+    }
+    return "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-secondary)]";
   }
 
   function formatUpdatedAt(updatedAt?: string): string {
@@ -113,6 +148,24 @@ export function TriageDashboard() {
                 Mock mode
               </span>
             ) : null}
+            <Link
+              to="/papers"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Paper Notes
+            </Link>
+            <Link
+              to="/meeting-packs"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Meeting Packs
+            </Link>
+            <Link
+              to="/method-comparisons"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Method Comparisons
+            </Link>
             <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
               Theme
               <select
@@ -139,9 +192,10 @@ export function TriageDashboard() {
         <div className="min-h-0">
           <Rail
             papers={filteredPapers}
+            paperNoteOpsByPaperId={paperNoteOpsByPaperId}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            onSelectPaper={(paperId) => navigate(`/workbench/${encodeURIComponent(paperId)}`)}
+            onSelectPaper={(paperId) => moveToWorkbench(paperId, { origin: "triage_rail" })}
           />
         </div>
 
@@ -156,8 +210,10 @@ export function TriageDashboard() {
           ) : (
             <div className="space-y-3">
               <div className="space-y-2 md:hidden">
-                {filteredPapers.map((paper) => (
-                  <article key={paper.paper_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                {filteredPapers.map((paper) => {
+                  const contentReview = getContentReviewSummary(paper);
+                  return (
+                    <article key={paper.paper_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="line-clamp-2 text-sm font-medium text-[var(--pp-text-primary)]">{paper.title}</p>
@@ -166,33 +222,55 @@ export function TriageDashboard() {
                       <StatusChip status={paper.status ?? "not_started"} />
                     </div>
 
+                    <div className="mt-2">
+                      <OperationalStateSummary
+                        summary={paperNoteOpsByPaperId[paper.paper_id]}
+                        badgeTestId="triage-ops-badge"
+                        reasonTestId="triage-ops-reason"
+                        compact
+                      />
+                    </div>
+
                     <p className="mt-2 text-xs text-[var(--pp-text-dim)]">Updated: {formatUpdatedAt(paper.updated_at)}</p>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => moveToWorkbench(paper.paper_id)}
-                        className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-2 text-xs font-medium text-[var(--pp-accent-text)]"
-                      >
-                        Open Workbench
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveToWorkbench(paper.paper_id, { focusIssues: true })}
-                        disabled={(paper.issues ?? 0) === 0}
-                        className={[
-                          "inline-flex items-center justify-center rounded-md border px-2.5 py-2 text-xs",
-                          (paper.issues ?? 0) > 0
-                            ? "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]"
-                            : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
-                        ].join(" ")}
-                      >
-                        {(paper.issues ?? 0) > 0 ? `Issues first · ${issueLabel(paper)}` : "No critical issues"}
-                      </button>
+                    <div className="mt-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--pp-text-dim)]">Content review</p>
+                      </div>
+                      <ContentReviewSummary
+                        summary={contentReview}
+                        badgeTestId="triage-review-badge"
+                        hintTestId="triage-review-hint"
+                        detailTestId="triage-review-detail"
+                        className="mt-1"
+                        compact
+                      />
+                      <div className="mt-3 grid grid-cols-1 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => moveToWorkbench(paper.paper_id, { origin: "triage_mobile_open" })}
+                          className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-2 text-xs font-medium text-[var(--pp-accent-text)]"
+                        >
+                          Open Workbench
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveToWorkbench(paper.paper_id, { focusIssues: true, origin: "triage_mobile_content_review" })}
+                          disabled={contentReview.issueCount === 0}
+                          data-testid="triage-content-review-button"
+                          className={[
+                            "inline-flex items-center justify-center rounded-md border px-2.5 py-2 text-xs",
+                            reviewIssueButtonClassName(paper),
+                          ].join(" ")}
+                        >
+                          {contentReview.reviewLabel}
+                        </button>
+                      </div>
                     </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
 
               <div className="hidden overflow-auto rounded-md border border-[var(--pp-border)] md:block">
@@ -201,21 +279,31 @@ export function TriageDashboard() {
                     <tr>
                       <th className="border-b border-[var(--pp-border)] px-3 py-2 text-left">Paper</th>
                       <th className="border-b border-[var(--pp-border)] px-3 py-2 text-left">Status</th>
-                      <th className="border-b border-[var(--pp-border)] px-3 py-2 text-left">Issues</th>
+                      <th className="border-b border-[var(--pp-border)] px-3 py-2 text-left">Content Review</th>
                       <th className="border-b border-[var(--pp-border)] px-3 py-2 text-left">Updated</th>
                       <th className="border-b border-[var(--pp-border)] px-3 py-2 text-right">Open</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPapers.map((paper) => (
+                    {filteredPapers.map((paper) => {
+                      const contentReview = getContentReviewSummary(paper);
+                      return (
                       <tr
                         key={paper.paper_id}
                         className="cursor-pointer bg-[var(--pp-surface-raised)] hover:bg-[var(--pp-surface-selected)]"
-                        onClick={() => moveToWorkbench(paper.paper_id)}
+                        onClick={() => moveToWorkbench(paper.paper_id, { origin: "triage_table_row" })}
                       >
                         <td className="border-b border-[var(--pp-border)] px-3 py-3">
                           <p className="font-medium text-[var(--pp-text-primary)]">{paper.title}</p>
                           <p className="text-xs text-[var(--pp-text-dim)]">{paper.paper_id}</p>
+                          <div className="mt-2">
+                            <OperationalStateSummary
+                              summary={paperNoteOpsByPaperId[paper.paper_id]}
+                              badgeTestId="triage-ops-badge"
+                              reasonTestId="triage-ops-reason"
+                              compact
+                            />
+                          </div>
                         </td>
                         <td className="border-b border-[var(--pp-border)] px-3 py-3">
                           <StatusChip status={paper.status ?? "not_started"} />
@@ -225,18 +313,25 @@ export function TriageDashboard() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              moveToWorkbench(paper.paper_id, { focusIssues: true });
+                              moveToWorkbench(paper.paper_id, { focusIssues: true, origin: "triage_table_content_review" });
                             }}
-                            disabled={(paper.issues ?? 0) === 0}
+                            disabled={contentReview.issueCount === 0}
+                            data-testid="triage-content-review-button"
                             className={[
                               "inline-flex items-center rounded-full border px-2.5 py-1 text-xs",
-                              (paper.issues ?? 0) > 0
-                                ? "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]"
-                                : "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+                              reviewIssueButtonClassName(paper),
                             ].join(" ")}
                           >
-                            {issueLabel(paper)}
+                            {contentReview.reviewLabel}
                           </button>
+                          <ContentReviewSummary
+                            summary={contentReview}
+                            badgeTestId="triage-review-badge"
+                            hintTestId="triage-review-hint"
+                            detailTestId="triage-review-detail"
+                            className="mt-1"
+                            compact
+                          />
                         </td>
                         <td className="border-b border-[var(--pp-border)] px-3 py-3 text-xs text-[var(--pp-text-dim)]">
                           {formatUpdatedAt(paper.updated_at)}
@@ -246,7 +341,7 @@ export function TriageDashboard() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              moveToWorkbench(paper.paper_id);
+                              moveToWorkbench(paper.paper_id, { origin: "triage_table_open" });
                             }}
                             className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--pp-accent-text)]"
                           >
@@ -255,7 +350,8 @@ export function TriageDashboard() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
