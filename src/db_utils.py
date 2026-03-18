@@ -543,22 +543,29 @@ def update_paper_status(paper_id: str, new_status: str, updates: Optional[Dict[s
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
-    params = [new_status]
-    
-    if updates:
-        for key, value in updates.items():
-            fields.append(f"{key} = ?")
-            params.append(value)
-    
-    params.append(paper_id)
-    
-    query = f"UPDATE papers SET {', '.join(fields)} WHERE paper_id = ?"
-    
-    cursor.execute(query, params)
-    conn.commit()
-    conn.close()
+    try:
+        fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+        params = [new_status]
+
+        if updates:
+            allowed_update_columns = _get_paper_columns(cursor) - {"paper_id", "status", "updated_at"}
+            invalid_keys = sorted(key for key in updates if key not in allowed_update_columns)
+            if invalid_keys:
+                raise ValueError(
+                    "Unsupported paper update columns: " + ", ".join(invalid_keys)
+                )
+            for key, value in updates.items():
+                fields.append(f"{key} = ?")
+                params.append(value)
+
+        params.append(paper_id)
+
+        query = f"UPDATE papers SET {', '.join(fields)} WHERE paper_id = ?"
+
+        cursor.execute(query, params)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_run_stats_table() -> None:
