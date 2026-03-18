@@ -66,6 +66,8 @@ def test_research_dna_api_roundtrip_and_pilot(tmp_path, monkeypatch):
         },
     )
     assert created.status_code == 200
+    assert created.json()["dna"]["status"] == "DRAFT"
+    assert created.json()["dna"]["revision"] == 0
     dna_id = created.json()["dna"]["id"]
 
     interview = client.post(
@@ -88,6 +90,7 @@ def test_research_dna_api_roundtrip_and_pilot(tmp_path, monkeypatch):
     )
     assert approved.status_code == 200
     assert approved.json()["dna"]["status"] == "PILOT"
+    assert approved.json()["dna"]["governance"]["approved_for_pilot_by"] == "human_api:tester"
 
     refined = client.post(
         f"/research-dna/{dna_id}/refine",
