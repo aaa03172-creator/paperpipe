@@ -1,8 +1,8 @@
 # Committed Backend/API Stack Summary
 
-Status: Active PR-packaging note
+Status: Active clean-replay PR-packaging note
 Date: 2026-03-18
-Branch observed: `codex/agents-smoke-ci-check`
+Branch observed: `codex/backend-api-packaging-stack`
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
 - `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
@@ -67,14 +67,15 @@ Implication:
 Confirmed green checks used during the latest recheck:
 
 - `PR-M0` baseline verification command -> `97 passed`
-- post-baseline targeted backend/API suite -> `57 passed, 7 warnings`
+- clean replay scoped backend/API suite -> `219 passed, 7 warnings`
 - `python3 scripts/lint_docs.py` -> `docs lint passed`
 
 Meaning:
 
 - the committed stack is test-backed enough to package as a PR narrative
-- the current blocker is not runtime breakage
-- the current blocker is repository legibility in a still-dirty workspace
+- the clean replay resolves the unrelated merge-history conflict that blocked PR `#108`
+- one minimal replay-only follow-up was required to keep `load_config()` aligned with `PAPERPIPE_CONFIG_PATH`
+- the current blocker is no longer runtime breakage inside the packaged backend/API scope
 
 ## 4. Remaining Dirty Tails That Should Stay Separate
 
