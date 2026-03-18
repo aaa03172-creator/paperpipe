@@ -96,6 +96,17 @@ def test_method_comparisons_api_generate_roundtrip_and_csv_export(tmp_path, monk
     assert payload["comparison"]["comparison_id"] == "methodcmp_api_demo"
     assert payload["comparison"]["rows"][0]["paper_slug"] == "paper-alpha"
     assert payload["comparison"]["rows"][0]["title"] == "Alpha Trial"
+    assert [column["field_id"] for column in payload["comparison"]["columns"]] == [
+        "intervention",
+        "comparator",
+        "primary_readout",
+        "sample_size",
+    ]
+    assert payload["comparison"]["source_summary"]["source_priority"] == [
+        "claimset.resolved.json",
+        "document_artifact",
+        "paper_note_state",
+    ]
     assert "Ketone ester" in payload["csv_text"]
     assert "## Comparison" in payload["markdown"]
     assert (output_root / "methodcmp_api_demo" / "comparison.json").exists()
