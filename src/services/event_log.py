@@ -156,6 +156,7 @@ def log_user_action(
     action_type: str,
     source: str,
     payload: dict[str, Any] | None = None,
+    ts: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> str:
     action_id = new_job_id()
@@ -167,7 +168,7 @@ def log_user_action(
             INSERT INTO user_actions (action_id, ts, paper_id, action_type, source, payload_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (action_id, _utc_now(), paper_id, action_type, source, _dump_json(payload)),
+            (action_id, ts or _utc_now(), paper_id, action_type, source, _dump_json(payload)),
         )
         if owns_conn:
             connection.commit()

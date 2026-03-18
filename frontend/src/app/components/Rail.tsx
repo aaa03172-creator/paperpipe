@@ -1,10 +1,14 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, FileText, Search, TriangleAlert } from "lucide-react";
-import { PaperSummary } from "../lib/types";
-import { statusLabel } from "../lib/ui";
+import { ChevronDown, FileText, Search } from "lucide-react";
+import { deriveContentReviewSummary } from "../lib/contentReview";
+import { PaperNoteOpsSummary, PaperSummary } from "../lib/types";
+import { OperationalStateSummary } from "./OperationalStateSummary";
+import { StatusChip } from "./StatusChip";
+import { StatusBadge } from "./StatusBadge";
 
 interface RailProps {
   papers: PaperSummary[];
+  paperNoteOpsByPaperId?: Record<string, PaperNoteOpsSummary>;
   selectedPaperId?: string;
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -12,21 +16,9 @@ interface RailProps {
   mobileCollapsedByDefault?: boolean;
 }
 
-function statusClasses(status: PaperSummary["status"]): string {
-  if (status === "processing") {
-    return "bg-[var(--pp-status-processing-bg)] text-[var(--pp-status-processing-text)] border-[var(--pp-status-processing-border)]";
-  }
-  if (status === "completed") {
-    return "bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)] border-[var(--pp-status-completed-border)]";
-  }
-  if (status === "failed") {
-    return "bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)] border-[var(--pp-status-failed-border)]";
-  }
-  return "bg-[var(--pp-status-idle-bg)] text-[var(--pp-status-idle-text)] border-[var(--pp-status-idle-border)]";
-}
-
 export function Rail({
   papers,
+  paperNoteOpsByPaperId = {},
   selectedPaperId,
   searchQuery,
   onSearchChange,
@@ -49,6 +41,13 @@ export function Rail({
 
   const paperButtons = filteredPapers.map((paper) => {
     const active = paper.paper_id === selectedPaperId;
+    const opsSummary = paperNoteOpsByPaperId[paper.paper_id] ?? null;
+    const contentReviewSummary = deriveContentReviewSummary(paper.issues, {
+      issuesLabel: paper.issues_label,
+      issuesState: paper.issues_state,
+    });
+    const issueCount = contentReviewSummary.issueCount;
+    const reviewDetail = active && contentReviewSummary.detail ? contentReviewSummary.detail : null;
     return (
       <button
         key={paper.paper_id}
@@ -70,22 +69,43 @@ export function Rail({
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span
-            className={[
-              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-              statusClasses(paper.status),
-            ].join(" ")}
-          >
-            {statusLabel(paper.status ?? "not_started")}
-          </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <StatusChip status={paper.status ?? "not_started"} />
+          </div>
 
-          {(paper.issues ?? 0) > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--pp-warning-text)]">
-              <TriangleAlert className="h-3 w-3" />
-              {paper.issues}
-            </span>
+          {issueCount > 0 ? (
+            <StatusBadge
+              label={`QA ${issueCount}`}
+              tone="danger"
+              iconTone="danger"
+              className="px-2"
+              testId="rail-review-issues-badge"
+            />
+          ) : contentReviewSummary.state === "unavailable" ? (
+            <StatusBadge
+              label="QA unavailable"
+              tone="muted"
+              className="px-2"
+              testId="rail-review-unavailable-badge"
+            />
           ) : null}
         </div>
+        {reviewDetail ? (
+          <p data-testid="rail-review-detail" className="mt-2 line-clamp-2 text-[11px] text-[var(--pp-text-dim)]">
+            {reviewDetail}
+          </p>
+        ) : null}
+        {opsSummary ? (
+          <div className="mt-2">
+            <OperationalStateSummary
+              summary={opsSummary}
+              badgeTestId="rail-ops-badge"
+              reasonTestId="rail-ops-reason"
+              compact
+              showActionHint={false}
+            />
+          </div>
+        ) : null}
       </button>
     );
   });

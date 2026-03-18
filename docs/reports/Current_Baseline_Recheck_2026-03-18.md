@@ -5,8 +5,9 @@ Date: 2026-03-18
 Owner: Repository maintainers
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
-- `/Users/jangseongjin/paperpipe/docs/PR_R0_Baseline_Adoption_Manifest_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Repository_Baseline_Adoption_2026-03-13.md`
 - `/Users/jangseongjin/paperpipe/docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/reports/Memory_Ready_Hardening_Baseline_2026-03-18.md`
 
 ## 0. Purpose
 
@@ -46,16 +47,17 @@ These items should be treated as the "hold steady and adopt cleanly" slice.
 
 ### 2.1 Repository-freeze boundary
 
-Keep using the existing baseline manifests as the actual include/exclude authority:
+Keep using the current tracked baseline-boundary notes as the include/exclude guardrail:
 
-- `/Users/jangseongjin/paperpipe/docs/PR_R0_Baseline_Adoption_Manifest_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Repository_Baseline_Adoption_2026-03-13.md`
 - `/Users/jangseongjin/paperpipe/docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
 
 Reason:
 
-- they already define the narrow repository-baseline shape
-- they already separate baseline freeze from broader product expansion
-- they are still the right guardrail in a heavily dirty workspace
+- together they preserve the narrow repository-baseline shape, the executed Meeting Pack baseline slice, and the current separate-lane guardrails
+- they still separate baseline freeze from broader product expansion
+- they are the tracked guardrail surface in a heavily dirty workspace
 
 ### 2.2 Treat these as stable product lanes, not reopen points
 
@@ -112,11 +114,13 @@ Reason:
 - method comparison layer
 - DeerFlow/LangGraph/Claude-style runtime adoption
 - heavy frontend preview tooling as a product dependency
+- broad external-reference adoption interpreted as a new architecture search rather than bounded fit-review work
 
 Reason:
 
 - these add complexity without improving the current biomedical core loop enough
 - current repo value already comes from bounded `Research DNA`, `Meeting Pack`, and evidence-linked local state
+- recent external references should stay in a bounded `sidecar / fallback / benchmark / dataset / reference` frame, not as inputs for a fresh architecture search
 
 ## 4. Immediate Execution Suggestion
 
@@ -132,14 +136,75 @@ Implication:
 - the current manifests are still executable as written
 - recent additive hardening should be treated as adjacent follow-up work, not as a trigger to reopen the baseline boundary
 
+### Current execution baseline recheck
+
+The runtime hardening lane was rechecked again on 2026-03-18 after the latest client-gesture logging and timeline visibility follow-up:
+
+- `/Users/jangseongjin/paperpipe` -> `pytest -q` -> `645 passed, 1 skipped`
+- `/Users/jangseongjin/paperpipe/frontend` -> `npm run build` -> success
+- `/Users/jangseongjin/paperpipe/frontend` -> mock Playwright recheck -> `2 passed`
+- `/Users/jangseongjin/paperpipe/frontend` -> backend Playwright `user_action` timeline recheck -> `1 passed`
+- `python3 /Users/jangseongjin/paperpipe/scripts/lint_docs.py` -> `docs lint passed`
+
+Implication:
+
+- execution baseline is currently green across Python runtime, frontend build, mock UI coverage, backend timeline coverage, and docs hygiene
+- the main remaining risk is repository-baseline breadth, not active runtime instability
+
 ### Do next
 
 1. Treat repository baseline adoption for the Meeting Pack slice as already executed via `5c09619`, and keep the later backend/API commits as additive follow-up lanes rather than as reasons to reopen `PR-M0`.
 2. Package the now-committed backend/API stack using `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md`.
-3. If code work resumes, leave `context_trace` API/debug-only and start a separate `agent_artifacts` contract-hardening lane instead of widening the baseline bundle.
+3. If code work resumes after packaging, leave `context_trace` API/debug-only and keep any additional `agent_artifacts` work bounded to schema/test hardening instead of widening the baseline bundle or reopening reader/runtime design.
+
+### Memory-ready hardening status
+
+The memory-ready hardening lane now includes:
+
+- stable runtime identity/path helpers
+- deterministic chunk ids
+- additive event logging
+- `user_actions` write/read/timeline integration
+- grounding-preserving output bridge
+- timeline UI visibility for `user_action`
+- client-only navigation-intent logging
+- evidence-review gesture logging for claim/stat jumps
+
+Implication:
+
+- this lane no longer has a required immediate follow-up
+- the next step, if reopened, should target explicit reviewer-intent actions rather than more baseline hardening
 
 ### Explicitly skip
 
 1. Do not widen baseline-freeze work with framework migration, memory-platform work, or plugin/hook systems.
 2. Do not reopen Meeting Pack selector semantics during baseline adoption.
 3. Do not prioritize frontend preview/polish work ahead of biomedical search/evidence reliability.
+
+## 5. Reopen Conditions For Recent External References
+
+Recent external references should remain closed unless new repository-grounded evidence justifies reopening them as bounded follow-up lanes.
+
+- `GLM-OCR` / `Docling` / `GROBID` / parser-adjacent document tools
+  - reopen only if a hard-document subset (`scanned`, `image-based`, `table-heavy`, `text-poor`) shows a repeatable quality gain over the current parser/OCR baseline
+- `OpenAlex` / `Semantic Scholar` / source-enrichment references
+  - reopen only if a bounded metadata, citation-graph, or enrichment gap appears that the current source stack and local artifacts cannot already cover cleanly
+- `MedCPT` / retrieval-rerank baselines
+  - reopen only if offline evaluation on existing `Research DNA` queries shows a meaningful gain in ranking usefulness (`include@k`, precision proxy, or bounded benchmark recall)
+- `PubTator Central` / biomedical annotation sidecars
+  - reopen only if entity/relation annotations measurably improve grounding, extraction review, or note-linking usefulness on real corpus slices
+- `EBM-NLP` / extraction training-eval datasets
+  - reopen only if extraction evaluation or supervision becomes the active bottleneck and the dataset still matches the target task closely enough to justify bounded offline use
+- `Scientific Taste`-style judge layers
+  - reopen only if local preference assets become strong enough to evaluate them without collapsing into citation-based shortcuts
+- `Trialstreamer` / SR-RCT workflow references
+  - reopen only if SR-RCT support becomes an active lane and the current pipeline needs a bounded benchmark or workflow reference there
+- `PaperQA2` / agentic RAG references
+  - reopen only if current answer assembly or evidence-citation behavior shows a specific, measurable gap that can be evaluated without recentering the system around a new RAG architecture
+- `Ars Contexta`-style note or ops concepts
+  - reopen only if they improve operator reliability or maintenance visibility without becoming a new system center
+
+Implication:
+
+- these are recheck triggers, not new roadmap items
+- until those conditions are met, keep them in a bounded `sidecar / fallback / benchmark / dataset / reference` frame

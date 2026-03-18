@@ -14,6 +14,8 @@ from src.institutional_access import (
     generate_institutional_proxy_url,
     upsert_institutional_proxy_link,
 )
+from src.services.runtime_paths import artifact_paper_dir, artifacts_root
+from src.services.runtime_paths import artifacts_root
 
 logger = logging.getLogger(__name__)
 
@@ -184,10 +186,7 @@ def _extract_claimset_claims(feedback: Dict[str, Any]) -> Optional[List[Dict[str
     return None
 
 def _claimset_artifacts_root() -> Path:
-    env_root = os.getenv("PAPERPIPE_ARTIFACTS_DIR")
-    if env_root:
-        return Path(env_root).expanduser()
-    return Path(__file__).resolve().parents[1] / "storage" / "artifacts"
+    return artifacts_root()
 
 def _is_test_fixture_paper(paper: Dict[str, Any]) -> bool:
     paper_id = str(paper.get("paper_id") or "")
@@ -214,10 +213,14 @@ def _extract_claimset_claims_from_file(path: Path) -> Optional[List[Dict[str, An
 
 def _extract_claimset_claims_from_artifacts(paper_id: str) -> Optional[List[Dict[str, Any]]]:
     root = _claimset_artifacts_root()
-    paper_dir = root / paper_id
+    paper_dir = artifact_paper_dir(paper_id)
     if not paper_dir.exists():
         return None
-    candidates = sorted(paper_dir.glob("*/claimset.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    candidates = sorted(
+        list(paper_dir.glob("*/claimset.resolved.json")) + list(paper_dir.glob("*/claimset.json")),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     for candidate in candidates:
         claims = _extract_claimset_claims_from_file(candidate)
         if claims is not None:
@@ -257,6 +260,8 @@ def _format_claimset_section(paper: Dict[str, Any], claims: Optional[List[Dict[s
         statement = claim.get("statement") or "N/A"
         limitations = claim.get("limitations")
         confidence = claim.get("confidence", "N/A")
+        unknown = bool(claim.get("unknown"))
+        unknown_reason = claim.get("unknown_reason") or "N/A"
         evidence_spans = claim.get("evidence_spans")
         evidence_line = "Evidence: unavailable"
 
@@ -269,6 +274,15 @@ def _format_claimset_section(paper: Dict[str, Any], claims: Optional[List[Dict[s
                 page_hint = str(page_num)
             link = _resolve_evidence_link(paper, page_num if isinstance(page_num, int) else None)
             evidence_parts = [f'quote="{quote}"', f"page_num={page_hint}"]
+            table_id = span.get("table_id")
+            cell_id = span.get("cell_id")
+            bbox_pdf = span.get("bbox_pdf")
+            if isinstance(table_id, str) and table_id.strip():
+                evidence_parts.append(f"table_id={table_id.strip()}")
+            if isinstance(cell_id, str) and cell_id.strip():
+                evidence_parts.append(f"cell_id={cell_id.strip()}")
+            if isinstance(bbox_pdf, list) and len(bbox_pdf) == 4:
+                evidence_parts.append(f"bbox_pdf={bbox_pdf}")
             if link:
                 evidence_parts.append(f"link={link}")
             evidence_line = "Evidence: " + ", ".join(evidence_parts)
@@ -283,6 +297,7 @@ def _format_claimset_section(paper: Dict[str, Any], claims: Optional[List[Dict[s
                 f"### Claim {idx}",
                 f"- Claim: {statement}",
                 f"- {evidence_line}",
+                f"- Unknown: {unknown} (reason={unknown_reason})",
                 f"- Limitations: {limitations_text}",
                 f"- Confidence: {confidence}",
             ]
@@ -299,7 +314,21 @@ def _span_missing_location(span: Any) -> bool:
     has_page = isinstance(page, int) and page >= 0
     has_source_span = isinstance(span.get("source_span"), list) and len(span.get("source_span")) >= 2
     has_char = span.get("char_start") is not None and span.get("char_end") is not None
-    return not (has_page or has_source_span or has_char)
+    has_bbox_pdf = isinstance(span.get("bbox_pdf"), list) and len(span.get("bbox_pdf")) == 4
+    bbox_pct = span.get("bbox_pct")
+    has_bbox_pct = (
+        isinstance(bbox_pct, dict)
+        and {"left", "top", "width", "height"}.issubset(set(bbox_pct.keys()))
+    )
+    table_id = span.get("table_id")
+    cell_id = span.get("cell_id")
+    has_table_cell = (
+        isinstance(table_id, str)
+        and table_id.strip() != ""
+        and isinstance(cell_id, str)
+        and cell_id.strip() != ""
+    )
+    return not (has_page or has_source_span or has_char or has_bbox_pdf or has_bbox_pct or has_table_cell)
 
 def _feedback_needs_stats_check(feedback: Dict[str, Any]) -> bool:
     targets = {"unverifiable", "inconsistent"}

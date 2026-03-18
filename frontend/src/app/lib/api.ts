@@ -4,20 +4,35 @@ import {
   ArtifactBundle,
   JobEnqueueResponse,
   JobStatus,
+  MethodComparisonListResponse,
+  MethodComparisonResponse,
+  MeetingPackListResponse,
+  MeetingPackResponse,
+  MeetingPackTraceResponse,
+  MeetingPackValidationResponse,
   ObsidianMirror,
   ObsidianSyncResponse,
   PaperDetail,
   PaperNoteDetailResponse,
   PaperNoteListResponse,
+  PaperNoteStructuredStateLookupResponse,
   PaperSummary,
   PersonaListResponse,
-  StatsRepairResponse,
+  ReasoningPersonaId,
+  SkillRunResponse,
   TimelineResponse,
+  StatsRepairResponse,
 } from "./types";
 import {
   createMockJob,
   getMockArtifactsLatest,
   getMockHealth,
+  getMockMethodComparison,
+  getMockMethodComparisonIndex,
+  getMockMeetingPackIndex,
+  getMockMeetingPack,
+  getMockMeetingPackTrace,
+  getMockMeetingPackValidation,
   getMockJob,
   getMockJobs,
   getMockObsidianMirror,
@@ -34,7 +49,9 @@ interface DeepReadRequest {
   paper_id: string;
   run_verify: boolean;
   clean_reindex: boolean;
-  persona_id: string;
+  persona_id?: string;
+  reasoning_persona?: ReasoningPersonaId;
+  profile_id?: string;
 }
 
 interface RepairStatsRequest {
@@ -45,6 +62,20 @@ interface RepairStatsRequest {
   write_bootstrap_meta?: boolean;
   skip_existing?: boolean;
   dry_run?: boolean;
+}
+
+interface SkillRunRequest {
+  slug: string;
+  action: "extract_markdown" | "validate_citations" | "critical_appraisal";
+  append_markdown_summary?: boolean;
+  force?: boolean;
+}
+
+interface ClientUserActionRequest {
+  paper_id?: string | null;
+  action_type: string;
+  source?: string;
+  payload?: Record<string, unknown>;
 }
 
 class ApiHttpError extends Error {
@@ -151,6 +182,24 @@ async function fetchBlobFromUrl(url: string, init?: RequestInit): Promise<Blob> 
   }
 }
 
+async function looksLikePdfBlob(blob: Blob): Promise<boolean> {
+  if (blob.size <= 0) {
+    return false;
+  }
+
+  const mimeType = blob.type.toLowerCase();
+  if (mimeType.includes("pdf")) {
+    return true;
+  }
+
+  const headerBytes = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+  if (headerBytes.length < 5) {
+    return false;
+  }
+  const header = String.fromCharCode(...headerBytes);
+  return header.startsWith("%PDF-");
+}
+
 async function firstSuccess<T>(paths: string[], init?: RequestInit): Promise<T> {
   let lastError: unknown;
   for (const path of paths) {
@@ -198,6 +247,19 @@ export function getApiErrorMessage(error: unknown): string {
 function normalizePaper(raw: Record<string, unknown>): PaperSummary {
   const status = normalizePaperStatus(typeof raw.status === "string" ? raw.status : undefined);
   const issues = typeof raw.issues === "number" ? raw.issues : status === "failed" ? 1 : 0;
+  const issuesLabel = typeof raw.issues_label === "string" && raw.issues_label.trim()
+    ? raw.issues_label.trim()
+    : issues > 0
+      ? `⚠️ ${issues} Issues`
+      : "No critical issues";
+  const issuesState =
+    raw.issues_state === "flagged" || raw.issues_state === "clear" || raw.issues_state === "unavailable"
+      ? raw.issues_state
+      : undefined;
+  const rawOpsSummary =
+    raw.ops_summary && typeof raw.ops_summary === "object" && !Array.isArray(raw.ops_summary)
+      ? (raw.ops_summary as Record<string, unknown>)
+      : null;
 
   return {
     paper_id: String(raw.paper_id ?? "unknown-paper"),
@@ -208,8 +270,25 @@ function normalizePaper(raw: Record<string, unknown>): PaperSummary {
     pdf_path: raw.pdf_path ? String(raw.pdf_path) : undefined,
     status,
     issues,
-    issues_label: issues > 0 ? `⚠️ ${issues} Issues` : "No critical issues",
+    issues_label: issuesLabel,
+    issues_state: issuesState,
     updated_at: raw.updated_at ? String(raw.updated_at) : undefined,
+    ops_summary: rawOpsSummary
+      ? {
+          state: rawOpsSummary.state === "healthy" ? "healthy" : "action_needed",
+          label: String(rawOpsSummary.label ?? ""),
+          reason: String(rawOpsSummary.reason ?? ""),
+          recommended_action:
+            rawOpsSummary.recommended_action === "repair_stats" || rawOpsSummary.recommended_action === "open_workbench"
+              ? rawOpsSummary.recommended_action
+              : "none",
+          latest_run_id: rawOpsSummary.latest_run_id ? String(rawOpsSummary.latest_run_id) : null,
+          has_claimset: rawOpsSummary.has_claimset === true,
+          has_stats_report: rawOpsSummary.has_stats_report === true,
+          stats_check_count:
+            typeof rawOpsSummary.stats_check_count === "number" ? rawOpsSummary.stats_check_count : 0,
+        }
+      : null,
   };
 }
 
@@ -268,6 +347,7 @@ interface PaperNoteListQuery {
   tag?: string;
   tags?: string[];
   status?: string;
+  structuredOnly?: boolean;
   sortBy?: "date_processed" | "confidence";
   sortOrder?: "asc" | "desc";
   page?: number;
@@ -296,6 +376,9 @@ function buildPaperNotesQuery(params?: PaperNoteListQuery): string {
   }
   if (params?.status?.trim()) {
     query.set("status", params.status.trim());
+  }
+  if (params?.structuredOnly) {
+    query.set("structured_only", "true");
   }
   if (params?.sortBy) {
     query.set("sort_by", params.sortBy);
@@ -354,6 +437,8 @@ export async function getPaperNoteDetail(slug: string): Promise<ApiResult<PaperN
         body_markdown: "# Mock note\n\nMock mode enabled.",
         related: [],
         references: [],
+        structured_state: null,
+        available_actions: [],
       },
       isMock: true,
       reason: FORCE_MOCK_REASON,
@@ -364,6 +449,182 @@ export async function getPaperNoteDetail(slug: string): Promise<ApiResult<PaperN
     data: await firstSuccess<PaperNoteDetailResponse>([`/paper-notes/${encodeURIComponent(slug)}`]),
     isMock: false,
   };
+}
+
+export async function getPaperNoteStructuredStateByPaperId(
+  paperId: string,
+): Promise<ApiResult<PaperNoteStructuredStateLookupResponse | null>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: null,
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<PaperNoteStructuredStateLookupResponse>([
+        `/paper-notes/resolve-by-paper-id?paper_id=${encodeURIComponent(paperId)}`,
+      ]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      return {
+        data: null,
+        isMock: false,
+        reason: "structured paper note not found",
+      };
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: null,
+      isMock: true,
+      reason: "structured paper note lookup unavailable",
+    };
+  }
+}
+
+export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
+    isMock: false,
+  };
+}
+
+export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
+    isMock: false,
+  };
+}
+
+export async function getMethodComparison(comparisonId: string): Promise<ApiResult<MethodComparisonResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMethodComparison(comparisonId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MethodComparisonResponse>([
+      `/method-comparisons/${encodeURIComponent(comparisonId)}`,
+    ]),
+    isMock: false,
+  };
+}
+
+export async function getMethodComparisonIndex(): Promise<ApiResult<MethodComparisonListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMethodComparisonIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MethodComparisonListResponse>(["/method-comparisons"]),
+    isMock: false,
+  };
+}
+
+export function getMethodComparisonCsvUrl(comparisonId: string): string {
+  return apiPath(`/method-comparisons/${encodeURIComponent(comparisonId)}/export.csv`);
+}
+
+export async function getMeetingPackTrace(packId: string): Promise<ApiResult<MeetingPackTraceResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackTrace(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
+    isMock: false,
+  };
+}
+
+export async function getMeetingPackValidation(packId: string): Promise<ApiResult<MeetingPackValidationResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackValidation(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<MeetingPackValidationResponse>([
+      `/meeting-packs/${encodeURIComponent(packId)}/validate`,
+    ]),
+    isMock: false,
+  };
+}
+
+export async function regenerateMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await fetchJson<MeetingPackResponse>(`/meeting-packs/${encodeURIComponent(packId)}/regenerate`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
+}
+
+export async function rerenderMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await fetchJson<MeetingPackResponse>(`/meeting-packs/${encodeURIComponent(packId)}/rerender`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
+}
+
+export async function runSkillAction(payload: SkillRunRequest): Promise<SkillRunResponse> {
+  return firstSuccess<SkillRunResponse>(["/skills/run"], {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getJobsForPaper(paperId: string): Promise<ApiResult<JobStatus[]>> {
@@ -422,6 +683,25 @@ export async function enqueueDeepRead(payload: DeepReadRequest): Promise<ApiResu
   }
 }
 
+export function logClientUserAction(payload: ClientUserActionRequest): void {
+  if (APP_CONFIG.forceMock) {
+    return;
+  }
+
+  const body = JSON.stringify({
+    paper_id: payload.paper_id ?? null,
+    action_type: payload.action_type,
+    source: payload.source ?? "ui",
+    payload: payload.payload ?? null,
+  });
+
+  void fetch(apiPath("/user-actions"), {
+    method: "POST",
+    body,
+    headers: requestHeaders(undefined),
+    keepalive: true,
+  }).catch(() => undefined);
+}
 
 export async function repairStats(payload: RepairStatsRequest): Promise<ApiResult<StatsRepairResponse>> {
   if (APP_CONFIG.forceMock) {
@@ -639,6 +919,9 @@ export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<str
   const apiPdfUrl = apiPath(`/papers/${encodeURIComponent(paperId)}/pdf`);
   if (APP_CONFIG.forceMock) {
     const mockBlob = await fetchBlobFromUrl(SAMPLE_PDF);
+    if (!(await looksLikePdfBlob(mockBlob))) {
+      throw new Error("mock sample PDF is invalid");
+    }
     return {
       data: URL.createObjectURL(mockBlob),
       isMock: true,
@@ -648,6 +931,9 @@ export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<str
 
   try {
     const pdfBlob = await fetchBlobFromUrl(apiPdfUrl);
+    if (!(await looksLikePdfBlob(pdfBlob))) {
+      throw new Error(`invalid PDF payload from ${apiPdfUrl}`);
+    }
     return {
       data: URL.createObjectURL(pdfBlob),
       isMock: false,
@@ -657,6 +943,9 @@ export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<str
       throw error;
     }
     const mockBlob = await fetchBlobFromUrl(SAMPLE_PDF);
+    if (!(await looksLikePdfBlob(mockBlob))) {
+      throw error;
+    }
     return {
       data: URL.createObjectURL(mockBlob),
       isMock: true,

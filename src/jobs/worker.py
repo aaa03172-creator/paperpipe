@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
 from backend.services.job_runner import run_deepread_job
+from src.services.event_log import get_execution_run_params, log_job_event
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -64,10 +65,13 @@ class Worker:
                 with open(log_file, "a") as f:
                     f.write(json.dumps(event) + "\n")
 
+            run_params = get_execution_run_params(job.run_id)
             run_kwargs = {
                 "job_id": job.job_id,
                 "paper_id": job.paper_id,
-                "persona_id": job.persona_id or "default",
+                "persona_id": str(run_params.get("persona_id") or job.persona_id or "default"),
+                "reasoning_persona": run_params.get("reasoning_persona"),
+                "profile_id": run_params.get("profile_id"),
                 "run_verify": bool(job.run_verify),
                 "clean_reindex": bool(getattr(job, "clean_reindex", 0)),
                 "run_id": job.run_id,
@@ -78,10 +82,24 @@ class Worker:
                 result = asyncio.run(run_deepread_job(**run_kwargs))
             except TypeError:
                 # Compatibility for patched test doubles that still use the old signature.
-                run_kwargs.pop("clean_reindex", None)
-                result = asyncio.run(run_deepread_job(**run_kwargs))
+                compatibility_kwargs = dict(run_kwargs)
+                compatibility_kwargs.pop("reasoning_persona", None)
+                compatibility_kwargs.pop("profile_id", None)
+                try:
+                    result = asyncio.run(run_deepread_job(**compatibility_kwargs))
+                except TypeError:
+                    compatibility_kwargs.pop("clean_reindex", None)
+                    result = asyncio.run(run_deepread_job(**compatibility_kwargs))
 
             if result and result.get("status") == "cancelled":
+                log_job_event(
+                    job_id=job.job_id,
+                    run_id=job.run_id,
+                    level="INFO",
+                    event_type="job_cancelled",
+                    message="cancelled during execution",
+                    payload={"status": "cancelled"},
+                )
                 logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
                 return
             elif result and result.get("status") == "succeeded":
@@ -92,6 +110,14 @@ class Worker:
                     "stage": "completed",
                     "artifact_dir": result.get("artifact_dir"),
                 })
+                log_job_event(
+                    job_id=job.job_id,
+                    run_id=job.run_id,
+                    level="INFO",
+                    event_type="job_completed",
+                    message="completed",
+                    payload={"status": "completed", "artifact_dir": result.get("artifact_dir")},
+                )
                 logger.info(f"✅ Job {job.job_id} completed.")
             else:
                 error_message = (result or {}).get("error", "Deep Read pipeline failed")
@@ -100,6 +126,14 @@ class Worker:
                     "error_message": error_message,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                 })
+                log_job_event(
+                    job_id=job.job_id,
+                    run_id=job.run_id,
+                    level="ERROR",
+                    event_type="job_failed",
+                    message=error_message,
+                    payload={"status": "failed", "error": error_message},
+                )
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
 
         except KeyboardInterrupt:
@@ -116,6 +150,14 @@ class Worker:
                 updates["stage"] = "cancelled"
                 updates["error_message"] = "worker interrupted"
             self.queue.update_job(job.job_id, updates)
+            log_job_event(
+                job_id=job.job_id,
+                run_id=job.run_id,
+                level="ERROR" if updates.get("status") != "completed" else "INFO",
+                event_type="worker_interrupt",
+                message=str(updates.get("error_message") or updates.get("status") or "interrupted"),
+                payload=updates,
+            )
             raise
             
         except Exception as e:
@@ -126,6 +168,14 @@ class Worker:
                 "error_message": str(e),
                 "finished_at": datetime.now(timezone.utc).isoformat()
             })
+            log_job_event(
+                job_id=job.job_id,
+                run_id=job.run_id,
+                level="ERROR",
+                event_type="worker_exception",
+                message=str(e),
+                payload={"error": str(e)},
+            )
 
 if __name__ == "__main__":
     worker = Worker()

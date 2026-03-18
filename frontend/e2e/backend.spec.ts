@@ -9,6 +9,9 @@ const requireRealSmokeCandidates = process.env.PAPERPIPE_REAL_SMOKE_REQUIRE_CAND
 const backendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
 const noteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
+const noteBackedWorkbenchPaperId = "paper-e2e-note-backed-bbox-001";
+const methodComparisonAlphaPaperId = "paper-e2e-methodcmp-alpha-001";
+const methodComparisonBetaPaperId = "paper-e2e-methodcmp-beta-001";
 const structuredNoteSlug = "zoterostructuredSkillsClaimset2026";
 const actionNoteSlug = "zoteroliveValidateCitations2026";
 const quietActionNoteSlug = "zoteroquietValidateCitations2026";
@@ -20,6 +23,13 @@ const structuredClaimId = "claim_structured_001";
 const structuredEvidenceId = "evidence_structured_001";
 const e2eSpecDir = path.dirname(fileURLToPath(import.meta.url));
 const e2eVaultPath = path.resolve(e2eSpecDir, "..", ".e2e-backend-runtime", "obsidian");
+const e2eMethodComparisonsRoot = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "storage",
+  "method_comparisons",
+);
 
 function focusDomId(kind: "run" | "claim" | "evidence", id: string): string {
   return `#pp-focus-${kind}-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -67,6 +77,12 @@ interface RealSmokeCandidate {
   paperId: string;
   firstClaimIndex: number;
   secondClaimIndex: number;
+}
+
+interface BackendUserAction {
+  action_type?: string;
+  source?: string;
+  payload?: Record<string, unknown> | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -195,6 +211,24 @@ async function waitForOptionalVisible(locator: Locator, timeout = 10_000): Promi
   }
 }
 
+async function listUserActions(request: APIRequestContext, paperId: string): Promise<BackendUserAction[]> {
+  const response = await request.get(`${backendBaseUrl}/user-actions?paper_id=${encodeURIComponent(paperId)}&limit=200`);
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as unknown;
+  const root = asRecord(payload);
+  if (!root || !Array.isArray(root.actions)) {
+    return [];
+  }
+  return root.actions
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item) => ({
+      action_type: typeof item.action_type === "string" ? item.action_type : undefined,
+      source: typeof item.source === "string" ? item.source : undefined,
+      payload: asRecord(item.payload),
+    }));
+}
+
 test("backend mode stays out of mock fallback", async ({ page }) => {
   await page.goto("/");
 
@@ -210,6 +244,8 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
   await expect(page).toHaveURL(/\/workbench\/paper-e2e-001/);
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByLabel("Reasoning").first()).toBeVisible();
+  await expect(page.getByLabel("Profile").first()).toBeVisible();
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Obsidian sync payload preview")).toBeVisible();
   await expect(page.getByText("Claim text missing")).toHaveCount(0);
@@ -226,6 +262,91 @@ test("backend triage separates content review cues from operational state", asyn
   await expect(row.getByTestId("triage-ops-badge")).toContainText("Action needed");
   await expect(row.getByTestId("triage-content-review-button")).toContainText("Review clear");
   await expect(row.getByTestId("triage-review-hint")).toContainText("No content flags");
+});
+
+test("backend method comparison viewer loads a generated comparison and keeps export on the real csv route", async ({
+  page,
+  request,
+}) => {
+  const comparisonId = "methodcmp_backend_e2e_multi_fixture";
+  const response = await request.post(`${backendBaseUrl}/method-comparisons/generate`, {
+    data: {
+      comparison_id: comparisonId,
+      title: "E2E Multi-paper Method Comparison",
+      paper_ids: [methodComparisonBetaPaperId, methodComparisonAlphaPaperId],
+      field_ids: ["intervention", "duration_or_timepoint", "sample_size"],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    comparison?: {
+      comparison_id?: string;
+      title?: string;
+      rows?: Array<{
+        paper_id?: string;
+        title?: string;
+        cells?: Array<{ field_id?: string; value?: string | number | null; status?: string }>;
+      }>;
+    };
+  };
+  expect(payload.comparison?.comparison_id).toBe(comparisonId);
+  expect(payload.comparison?.rows?.map((row) => row.paper_id)).toEqual([
+    methodComparisonBetaPaperId,
+    methodComparisonAlphaPaperId,
+  ]);
+  expect(payload.comparison?.rows?.[0]?.title).toBe("E2E Method Comparison Beta");
+  expect(payload.comparison?.rows?.[1]?.title).toBe("E2E Method Comparison Alpha");
+  expect(payload.comparison?.rows?.[0]?.cells?.map((cell) => cell.field_id)).toEqual([
+    "intervention",
+    "duration_or_timepoint",
+    "sample_size",
+  ]);
+  const comparisonJsonPath = path.join(e2eMethodComparisonsRoot, comparisonId, "comparison.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(comparisonJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  const exportResponse = await request.get(`${backendBaseUrl}/method-comparisons/${comparisonId}/export.csv`);
+  expect(exportResponse.ok()).toBeTruthy();
+  expect(exportResponse.headers()["content-disposition"]).toContain(`attachment; filename="${comparisonId}.csv"`);
+  const exportText = await exportResponse.text();
+  expect(exportText).toContain(
+    "paper_id,paper_slug,citekey,title,intervention,intervention__status,intervention__refs,duration_or_timepoint,duration_or_timepoint__status,duration_or_timepoint__refs,sample_size,sample_size__status,sample_size__refs",
+  );
+  const exportLines = exportText.trim().split("\n");
+  expect(exportLines[1]).toContain(methodComparisonBetaPaperId);
+  expect(exportLines[1]).toContain("MCT oil");
+  expect(exportLines[1]).toContain("week 24");
+  expect(exportLines[2]).toContain(methodComparisonAlphaPaperId);
+  expect(exportLines[2]).toContain("Ketone ester");
+  expect(exportLines[2]).toContain("12 weeks");
+
+  await page.goto(`/method-comparisons/${comparisonId}`);
+
+  await expect(page.getByRole("heading", { name: "E2E Multi-paper Method Comparison" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Comparison Grid" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source Discipline" })).toBeVisible();
+  const comparisonTable = page.locator("table").first();
+  await expect(comparisonTable.getByText("E2E Method Comparison Beta", { exact: true })).toBeVisible();
+  await expect(comparisonTable.getByText("E2E Method Comparison Alpha", { exact: true })).toBeVisible();
+  await expect(comparisonTable.getByText("MCT oil", { exact: true })).toBeVisible();
+  await expect(comparisonTable.getByText("Ketone ester", { exact: true })).toBeVisible();
+  await expect(comparisonTable.getByText("week 24", { exact: true })).toBeVisible();
+  await expect(comparisonTable.getByText("12 weeks", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Export CSV" })).toHaveAttribute(
+    "href",
+    new RegExp(`/method-comparisons/${comparisonId}/export\\.csv$`),
+  );
+  await expect(page.getByRole("link", { name: "Open note" })).toHaveCount(2);
 });
 
 test("backend triage content review action carries flagged context into workbench", async ({ page }) => {
@@ -248,6 +369,33 @@ test("backend triage content review action carries flagged context into workbenc
   await expect(page.getByTestId("workbench-content-review-hint")).toContainText("Content QA flags are separate from artifact health.");
   await expect(page.getByTestId("workbench-content-review-detail")).toContainText("2 mapping ambiguities");
   await expect(page.getByTestId("workbench-ops-badge")).toContainText("Healthy");
+});
+
+test("backend keeps unavailable content review distinct from clear state", async ({ page }) => {
+  await page.goto("/");
+
+  const row = page.locator("tbody tr").filter({ hasText: "E2E Content Review Unavailable Paper" }).first();
+  await expect(row.getByTestId("triage-ops-badge")).toContainText("Healthy");
+  await expect(row.getByTestId("triage-content-review-button")).toContainText("Review unavailable");
+  await expect(row.getByTestId("triage-content-review-button")).toBeDisabled();
+  await expect(row.getByTestId("triage-review-badge")).toContainText("Unavailable");
+  await expect(row.getByTestId("triage-review-hint")).toContainText("Content review has not been generated");
+  await expect(row.getByTestId("triage-review-detail")).toContainText("Not analyzed");
+  await row.click();
+
+  await expect(page).toHaveURL(/\/workbench\/paper-e2e-content-review-unavailable-001$/);
+  await expect(page.getByTestId("content-review-notice")).toContainText("Content review is not available yet.");
+  await expect(page.getByTestId("content-review-notice-detail")).toContainText("Not analyzed");
+  await expect(page.getByTestId("workbench-content-review-badge")).toContainText("Unavailable");
+  await expect(page.getByTestId("workbench-content-review-hint")).toContainText("Content review has not been generated");
+  await expect(page.getByTestId("workbench-content-review-detail")).toContainText("Not analyzed");
+  await expect(page.getByTestId("workbench-ops-badge")).toContainText("Healthy");
+  await expect(
+    page.locator("aside").getByRole("button").filter({ hasText: "E2E Content Review Unavailable Paper" }).getByTestId("rail-review-unavailable-badge"),
+  ).toContainText("QA unavailable");
+  await expect(
+    page.locator("aside").getByRole("button").filter({ hasText: "E2E Content Review Unavailable Paper" }).getByTestId("rail-review-detail"),
+  ).toContainText("Not analyzed");
 });
 
 test("backend seeded fixture bootstrap meta matches available artifacts", async ({ request }) => {
@@ -374,6 +522,33 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
   }
 });
 
+test("backend workbench prefers canonical structured bbox highlight over stale artifact text-match fallback", async ({ page }) => {
+  await page.goto(`/workbench/${encodeURIComponent(noteBackedWorkbenchPaperId)}`);
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await expect(claimsPanel.getByRole("button", { name: /The intervention shows an initial improvement window during early follow-up\./ })).toBeVisible();
+  await expect(claimsPanel.getByText("Stale artifact claim should be replaced by canonical sidecar state.")).toHaveCount(0);
+
+  const pdfPanel = page.locator("section").filter({ hasText: "PDF Renderer" }).first();
+  await expect(pdfPanel.getByText("Claim Link · p.1")).toBeVisible();
+  await expect(pdfPanel.getByText("Text Match")).toHaveCount(0);
+
+  const highlight = page.locator('[data-testid="claim-highlight"]').first();
+  await expect(highlight).toBeVisible();
+  await expect(page.locator('[data-testid="claim-search-highlight"]')).toHaveCount(0);
+
+  const highlightBox = await highlight.boundingBox();
+  expect(highlightBox).not.toBeNull();
+  if (highlightBox) {
+    expect(highlightBox.width).toBeGreaterThan(24);
+    expect(highlightBox.height).toBeGreaterThan(24);
+  }
+});
+
 test("backend stats snapshot disambiguates claim target by text signal", async ({ page }) => {
   await page.goto("/workbench/paper-e2e-001");
 
@@ -389,6 +564,53 @@ test("backend stats snapshot disambiguates claim target by text signal", async (
 
   await expect(page.getByText("Claim Link · p.2")).toBeVisible();
   await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+});
+
+test("backend evidence review gestures append user actions", async ({ page, request }) => {
+  await page.goto("/workbench/paper-e2e-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  const mirrorPanel = page.locator("article").filter({ hasText: "Obsidian Mirror" }).first();
+  await expect(claimsPanel).toBeVisible();
+  await expect(mirrorPanel).toBeVisible();
+
+  await claimsPanel.getByRole("button").nth(1).click();
+  await mirrorPanel.locator("details").filter({ hasText: "Claims Snapshot" }).first().getByRole("button").first().click();
+  await mirrorPanel.getByRole("button").filter({ hasText: "effect-size-disambiguation" }).first().click();
+
+  await expect.poll(async () => {
+    const actions = await listUserActions(request, "paper-e2e-001");
+    return {
+      selectClaim: actions.some(
+        (action) =>
+          action.action_type === "workbench_select_claim" &&
+          action.source === "ui" &&
+          action.payload?.origin === "claim_list" &&
+          action.payload?.run_id === "run_e2e_fixture_001",
+      ),
+      mirrorJump: actions.some(
+        (action) =>
+          action.action_type === "workbench_jump_mirror_claim" &&
+          action.source === "ui" &&
+          action.payload?.origin === "mirror_claim" &&
+          action.payload?.run_id === "run_e2e_fixture_001",
+      ),
+      statsJump: actions.some(
+        (action) =>
+          action.action_type === "workbench_jump_stats_check" &&
+          action.source === "ui" &&
+          action.payload?.origin === "stats_snapshot" &&
+          action.payload?.run_id === "run_e2e_fixture_001",
+      ),
+    };
+  }).toEqual({
+    selectClaim: true,
+    mirrorJump: true,
+    statsJump: true,
+  });
 });
 
 test("backend cross-page claim change keeps viewer mounted and re-targets highlight", async ({ page }) => {
@@ -435,6 +657,19 @@ test("backend timeline falls back to all when status events are unavailable", as
   await expect(timelinePanel).toBeVisible();
   await expect(timelinePanel.getByText("No events in this filter yet.")).toHaveCount(0);
   await expect(timelinePanel.getByText("Repair fixture loaded")).toBeVisible();
+});
+
+test("backend timeline surfaces user-triggered actions distinctly", async ({ page }) => {
+  await page.goto("/workbench/paper-e2e-001");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  const timelinePanel = page.locator("section").filter({ hasText: "Timeline" }).first();
+  await expect(timelinePanel).toBeVisible();
+  await expect(timelinePanel.getByTestId("timeline-pinned-user-action")).toContainText("User");
+  await expect(timelinePanel.getByTestId("timeline-source-user-action").first()).toContainText("USER");
+  await expect(timelinePanel.getByText("User queued deep read")).toBeVisible();
 });
 
 test("backend repair stats action appears only when stats artifact is missing and hides after repair", async ({ page }) => {
@@ -605,6 +840,21 @@ test.describe("mobile backend UX", () => {
     await expect(sheet).toContainText("Strong: 2 claims, avg confidence 0.81, 0 inconsistent checks.");
     await expect(sheet).toContainText("CSF biomarker evidence aligns with early detection criteria.");
   });
+
+  test("mobile paper notes detail keeps builder debug mode in the sheet ordering", async ({ page }) => {
+    await page.goto(`/papers/${structuredNoteSlug}?view=builder_debug`);
+
+    await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
+    await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Builder / Debug mode lifts");
+    const sidePanelButton = page.getByTestId("paper-note-open-side-panel");
+    await expect(sidePanelButton).toBeVisible();
+    await sidePanelButton.click();
+
+    const sheet = page.getByTestId("paper-note-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading").nth(1)).toHaveText("Actions");
+    await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
+  });
 });
 
 test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
@@ -648,6 +898,20 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   await expect(page.getByRole("banner").getByRole("heading")).toBeVisible();
 });
 
+test("paper notes detail supports learner and builder debug view modes", async ({ page }) => {
+  await page.goto(`/papers/${structuredNoteSlug}?view=builder_debug`);
+
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
+  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Builder / Debug mode lifts");
+  const rightAside = page.locator("main > aside").nth(1);
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Actions");
+
+  await page.getByRole("button", { name: "Learner" }).click();
+  await expect(page).toHaveURL(new RegExp(`/papers/${structuredNoteSlug}$`));
+  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Learner mode keeps related papers");
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Properties");
+});
+
 test("paper notes detail renders structured actions, automation results, and claimset cards", async ({ page }) => {
   await page.goto(`/papers/${structuredNoteSlug}`);
 
@@ -662,9 +926,14 @@ test("paper notes detail renders structured actions, automation results, and cla
   await expect(actionsPanel.getByRole("button", { name: "Extract Markdown" })).toBeVisible();
   await expect(actionsPanel.getByRole("button", { name: "Validate Citations" })).toBeVisible();
   await expect(actionsPanel.getByRole("button", { name: "Critical Appraisal" })).toBeVisible();
+  await expect(actionsPanel.getByRole("button", { name: "Critical Appraisal" })).toBeDisabled();
   await expect(actionsPanel).toContainText("markitdown");
   await expect(actionsPanel).toContainText("citation-management");
   await expect(actionsPanel).toContainText("peer-review");
+  await expect(actionsPanel).toContainText("secret E2E_REVIEW_SECRET");
+  await expect(actionsPanel.getByTestId("paper-note-action-disabled-reason-critical_appraisal")).toContainText(
+    "Blocked: missing required secret E2E_REVIEW_SECRET.",
+  );
 
   const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Automation Results", exact: true }) }).first();
   await expect(automationPanel).toContainText("critical_appraisal");
@@ -764,9 +1033,15 @@ test("paper notes detail can run validate citations and persist a structured res
   await expect(runsContainer).toHaveCount(initialRunCount + 1);
   await expect(automationPanel).toContainText("validate_citations");
   await expect(automationPanel).toContainText("succeeded");
-  await expect(automationPanel.getByText("state updated")).toBeVisible();
-  await expect(automationPanel.getByText("frontmatter updated")).toBeVisible();
-  await expect(automationPanel.getByText("body summary")).toBeVisible();
+  await expect(automationPanel.getByText("state updated").first()).toBeVisible();
+  await expect(automationPanel.getByText("frontmatter updated").first()).toBeVisible();
+  await expect(automationPanel.getByText("body summary").first()).toBeVisible();
+  const signalDiff = page.getByTestId("paper-note-signal-diff");
+  await expect(signalDiff).toContainText("Signal updates");
+  await expect(signalDiff).toContainText("citations: 3 -> 4");
+  await expect(signalDiff).toContainText("new runs: 1");
+  await expect(signalDiff).toContainText("new last action: validate_citations");
+  await expect(signalDiff).toContainText("new last status: succeeded");
 
   const notePath = notePathFor(actionNoteSlug);
   const statePath = statePathFor(actionNoteSlug);
@@ -828,6 +1103,7 @@ test("paper notes detail can run validate citations and persist a structured res
   await expect(page.getByRole("banner").getByRole("heading", { name: "Live Validate Citations Fixture" })).toBeVisible();
   await expect(automationPanel.locator("article")).toHaveCount(initialRunCount + 1);
   await expect(automationPanel).toContainText("validate_citations");
+  await expect(page.getByTestId("paper-note-signal-diff")).toHaveCount(0);
 });
 
 test("paper notes detail can run validate citations without appending a markdown summary", async ({ page }) => {
@@ -857,6 +1133,7 @@ test("paper notes detail can run validate citations without appending a markdown
   await expect(automationPanel.getByText("state updated")).toBeVisible();
   await expect(automationPanel.getByText("frontmatter updated")).toBeVisible();
   await expect(automationPanel.getByText("body skipped")).toBeVisible();
+  await expect(page.getByTestId("paper-note-signal-diff")).toContainText("citations: 3 -> 4");
 
   const notePath = notePathFor(quietActionNoteSlug);
   const statePath = statePathFor(quietActionNoteSlug);
@@ -925,6 +1202,7 @@ test("paper notes detail resets quiet-run controls when navigating to another no
   await expect(page.getByRole("banner").getByRole("heading", { name: "Live Validate Citations Fixture" })).toBeVisible();
   await expect(page.getByLabel("Add short note summary")).toBeChecked();
   await expect(page.getByText("Structured state updated without markdown summary.")).toHaveCount(0);
+  await expect(page.getByTestId("paper-note-signal-diff")).toHaveCount(0);
 });
 
 test("paper notes list supports command-style tag selection", async ({ page }) => {

@@ -364,3 +364,43 @@ def test_user_actions_api_lists_and_filters_rows(tmp_path, monkeypatch):
         assert filtered_payload["actions"][0]["payload"]["run_id"] == "run-1"
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_user_actions_api_creates_row(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        response = client.post(
+            "/user-actions",
+            json={
+                "paper_id": "paper_action_create_001",
+                "action_type": "open_workbench",
+                "source": "ui",
+                "payload": {"origin": "triage_dashboard"},
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["paper_id"] == "paper_action_create_001"
+        assert payload["action_type"] == "open_workbench"
+        assert payload["source"] == "ui"
+        assert payload["payload"]["origin"] == "triage_dashboard"
+
+        conn = db_utils.get_db_connection()
+        row = conn.execute(
+            "SELECT paper_id, action_type, source, payload_json FROM user_actions WHERE action_id = ?",
+            (payload["action_id"],),
+        ).fetchone()
+        conn.close()
+
+        assert row is not None
+        assert row["paper_id"] == "paper_action_create_001"
+        assert row["action_type"] == "open_workbench"
+        assert row["source"] == "ui"
+        assert json.loads(row["payload_json"])["origin"] == "triage_dashboard"
+    finally:
+        db_utils.DB_PATH = original_db_path

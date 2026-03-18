@@ -1,6 +1,4 @@
-
 import logging
-import uuid
 from typing import List, Optional
 import chromadb
 from chromadb.config import Settings
@@ -9,8 +7,13 @@ from src.schemas.agent_artifacts import DocumentArtifact, IndexArtifact, Documen
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.config import load_config
+from src.services.identity import make_chunk_id
 
 logger = logging.getLogger(__name__)
+
+CHUNK_ID_VERSION = "det-v1"
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 class IndexerAgent:
     """
@@ -65,13 +68,23 @@ class IndexerAgent:
         embeddings = []
         metadatas = []
         documents = []
+        page_chunk_counts: dict[int, int] = {}
         
         # Section-aware chunking
         for section in iter_text_sections(doc):
-            section_chunks = self._chunk_text(section.text, chunk_size=1000, overlap=200)
+            section_chunks = self._chunk_text(section.text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
             
-            for i, text_chunk in enumerate(section_chunks):
-                chunk_id = str(uuid.uuid4())
+            for i, text_chunk in enumerate(section_chunks, start=1):
+                if section.page_hint is not None:
+                    chunk_ordinal = page_chunk_counts.get(section.page_hint, 0) + 1
+                    page_chunk_counts[section.page_hint] = chunk_ordinal
+                else:
+                    chunk_ordinal = i
+                chunk_id = make_chunk_id(
+                    page_hint=section.page_hint,
+                    section_ordinal=section.ordinal,
+                    chunk_ordinal=chunk_ordinal,
+                )
                 
                 # Create embedding
                 embedding = self.adapter.embed(text_chunk, model=self.embedding_model)
@@ -86,8 +99,12 @@ class IndexerAgent:
                     "doc_id": header.doc_id,
                     "title": header.title,
                     "section": section.name,
-                    "chunk_index": i,
-                    "source": header.source_ref
+                    "chunk_index": i - 1,
+                    "chunk_ordinal": chunk_ordinal,
+                    "section_ordinal": section.ordinal,
+                    "page_hint": section.page_hint,
+                    "chunk_id_version": CHUNK_ID_VERSION,
+                    "source": header.source_ref,
                 })
                 documents.append(text_chunk)
                 
@@ -96,7 +113,11 @@ class IndexerAgent:
                     chunk_id=chunk_id,
                     text=text_chunk,
                     vector_id=chunk_id,
-                    section_name=section.name
+                    section_name=section.name,
+                    page_hint=section.page_hint,
+                    section_ordinal=section.ordinal,
+                    chunk_ordinal=chunk_ordinal,
+                    chunk_id_version=CHUNK_ID_VERSION,
                 ))
         
         # Batch upsert to Chroma
