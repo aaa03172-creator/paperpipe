@@ -184,10 +184,15 @@ def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
 
     connection = get_db_connection()
     try:
-        row = connection.execute(
-            "SELECT params_json FROM execution_runs WHERE run_id = ? LIMIT 1",
-            (normalized,),
-        ).fetchone()
+        try:
+            row = connection.execute(
+                "SELECT params_json FROM execution_runs WHERE run_id = ? LIMIT 1",
+                (normalized,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table: execution_runs" in str(exc).lower():
+                return {}
+            raise
         if not row:
             return {}
         payload = _load_json(row["params_json"])
@@ -268,7 +273,12 @@ def list_user_actions(
         sql += " ORDER BY ts DESC, rowid DESC LIMIT ?"
         params.append(max(1, int(limit)))
 
-        rows = connection.execute(sql, params).fetchall()
+        try:
+            rows = connection.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table: user_actions" in str(exc).lower():
+                return []
+            raise
         output: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
