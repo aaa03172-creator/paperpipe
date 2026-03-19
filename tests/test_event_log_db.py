@@ -8,6 +8,7 @@ from backend import main as api_main
 from src.jobs.queue import JobQueue
 from src.services.event_log import (
     ensure_execution_run,
+    get_execution_run_params,
     list_job_events,
     list_run_events,
     list_user_actions,
@@ -238,6 +239,62 @@ def test_list_run_events_returns_empty_for_legacy_job_events_without_run_id(tmp_
         conn.close()
 
         assert list_run_events("run-legacy-001") == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_get_execution_run_params_returns_empty_for_legacy_db_without_execution_runs_table(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        assert get_execution_run_params("run-legacy-001") == {}
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_list_user_actions_returns_empty_for_legacy_db_without_user_actions_table(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        assert list_user_actions(paper_id="paper-legacy-001") == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_listing_tolerates_legacy_db_without_execution_runs_table(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_legacy_jobs_001")
+        job = queue.get_job(job_id)
+        assert job is not None
+
+        conn = db_utils.get_db_connection()
+        conn.execute("DROP TABLE execution_runs")
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        response = client.get("/jobs")
+
+        assert response.status_code == 200
+        rows = response.json()
+        assert any(item["job_id"] == job_id for item in rows)
     finally:
         db_utils.DB_PATH = original_db_path
 
