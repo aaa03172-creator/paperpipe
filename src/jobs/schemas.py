@@ -1,12 +1,15 @@
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, Literal, List
 from datetime import datetime
+from src.persona_modes import ReasoningPersonaId
 
 class JobCreate(BaseModel):
     paper_id: str
     clean_reindex: bool = False
     run_verify: bool = False
     persona_id: str = "default"
+    reasoning_persona: Optional[ReasoningPersonaId] = None
+    profile_id: Optional[str] = None
 
 
 class JobEnqueueResponse(BaseModel):
@@ -20,6 +23,8 @@ class JobStatus(BaseModel):
     paper_id: Optional[str]
     run_id: Optional[str]
     persona_id: Optional[str]
+    reasoning_persona: Optional[ReasoningPersonaId] = None
+    profile_id: Optional[str] = None
     run_verify: Optional[int]
     clean_reindex: Optional[int] = None
     status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']
@@ -37,10 +42,13 @@ class JobStatus(BaseModel):
     artifact_document_written: Optional[bool] = None
     artifact_index_written: Optional[bool] = None
     artifact_claimset_written: Optional[bool] = None
+    artifact_claimset_resolved_written: Optional[bool] = None
     artifact_stats_written: Optional[bool] = None
     claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
     claimset_ready: Optional[bool] = None
     claimset_claim_count: Optional[int] = None
+    claimset_grounded_span_count: Optional[int] = None
+    claimset_unresolved_span_count: Optional[int] = None
     claimset_readiness_reason: Optional[str] = None
     claimset_readiness_badge: Optional[str] = None
     claimset_ops_action: Optional[str] = None
@@ -55,6 +63,8 @@ class JobBootstrapMeta(BaseModel):
     run_id: Optional[str] = None
     paper_id: Optional[str] = None
     persona_id: Optional[str] = None
+    reasoning_persona: Optional[ReasoningPersonaId] = None
+    profile_id: Optional[str] = None
     persona_applied: Optional[bool] = None
     similar_feedback_count: Optional[int] = None
     similar_feedback_paper_ids: List[str] = []
@@ -69,10 +79,13 @@ class JobBootstrapMeta(BaseModel):
     artifact_document_written: Optional[bool] = None
     artifact_index_written: Optional[bool] = None
     artifact_claimset_written: Optional[bool] = None
+    artifact_claimset_resolved_written: Optional[bool] = None
     artifact_stats_written: Optional[bool] = None
     claimset_readiness: Optional[Literal["unknown", "ready", "not_ready"]] = None
     claimset_ready: Optional[bool] = None
     claimset_claim_count: Optional[int] = None
+    claimset_grounded_span_count: Optional[int] = None
+    claimset_unresolved_span_count: Optional[int] = None
     claimset_readiness_reason: Optional[str] = None
     claimset_readiness_badge: Optional[str] = None
     claimset_ops_action: Optional[str] = None
