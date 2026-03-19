@@ -5,8 +5,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
-from src.services.runtime_paths import config_file_path
-
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
     log_level: str = "INFO"
@@ -154,7 +152,7 @@ class AppConfig(BaseModel):
 
 
 def load_config(config_path: str = "config.yaml") -> AppConfig:
-    path = config_file_path(config_path)
+    path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found at {path.absolute()}")
     

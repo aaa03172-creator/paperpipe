@@ -3,19 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-DEFAULT_ALLOWED_DOCS_WITH_CODE = {
-    "docs/API_CHAT_CONTRACT.md",
-    "docs/Current_Code_Baseline_Audit_2026-03-13.md",
-    "docs/MEETING_PACK.md",
-    "docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md",
-    "docs/Pending_PR_Queue.md",
-    "docs/Repository_Baseline_Adoption_2026-03-13.md",
-    "docs/archive/PR_M0_Staged_Candidate_Validation_2026-03-17.md",
-    "docs/archive/PR_M0_Staging_Dry_Run_2026-03-17.md",
-    "docs/reports/Backend_API_PR_Packaging_2026-03-18.md",
-    "docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md",
-    "docs/reports/Current_Baseline_Recheck_2026-03-18.md",
-}
+DEFAULT_ALLOWED_DOCS_WITH_CODE = {"docs/Pending_PR_Queue.md"}
 
 
 @dataclass(frozen=True)

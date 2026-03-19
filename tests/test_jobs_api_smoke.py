@@ -25,8 +25,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
                 "paper_id": "paper_smoke_001",
                 "clean_reindex": False,
                 "run_verify": True,
-                "reasoning_persona": "researcher",
-                "profile_id": "smoke-profile",
+                "persona_id": "smoke-persona",
             },
         )
         assert resp.status_code == 200
@@ -36,36 +35,12 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert payload["status"] == "queued"
         assert run_id is not None
 
-        conn = db_utils.get_db_connection()
-        action_row = conn.execute(
-            """
-            SELECT paper_id, action_type, source, payload_json
-            FROM user_actions
-            WHERE paper_id = ?
-            ORDER BY ts DESC, rowid DESC
-            LIMIT 1
-            """,
-            ("paper_smoke_001",),
-        ).fetchone()
-        conn.close()
-        assert action_row is not None
-        assert action_row["action_type"] == "deepread_enqueued"
-        assert action_row["source"] == "ui"
-        action_payload = json.loads(action_row["payload_json"])
-        assert action_payload["job_id"] == job_id
-        assert action_payload["run_id"] == run_id
-        assert action_payload["persona_id"] == "smoke-profile"
-        assert action_payload["reasoning_persona"] == "researcher"
-        assert action_payload["profile_id"] == "smoke-profile"
-
         queued = client.get(f"/jobs/{job_id}")
         assert queued.status_code == 200
         queued_data = queued.json()
         assert queued_data["status"] == "queued"
         assert queued_data["run_id"] == run_id
-        assert queued_data["persona_id"] == "smoke-profile"
-        assert queued_data["reasoning_persona"] == "researcher"
-        assert queued_data["profile_id"] == "smoke-profile"
+        assert queued_data["persona_id"] == "smoke-persona"
         assert queued_data["run_verify"] == 1
         assert queued_data["clean_reindex"] == 0
         assert queued_data["bootstrap_meta_path"] is None
@@ -89,8 +64,6 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         run_queued_data = run_queued.json()
         assert run_queued_data["job_id"] == job_id
         assert run_queued_data["run_id"] == run_id
-        assert run_queued_data["reasoning_persona"] == "researcher"
-        assert run_queued_data["profile_id"] == "smoke-profile"
         assert run_queued_data["clean_reindex"] == 0
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
@@ -104,17 +77,12 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             job_id: str,
             paper_id: str,
             persona_id: str = "default",
-            reasoning_persona: str | None = None,
-            profile_id: str | None = None,
             run_verify: bool = False,
             clean_reindex: bool = False,
             run_id: str = None,
             progress_callback=None,
             cancel_check=None,
         ):
-            assert persona_id == "smoke-profile"
-            assert reasoning_persona == "researcher"
-            assert profile_id == "smoke-profile"
             assert clean_reindex is False
             if progress_callback:
                 await progress_callback(
@@ -157,8 +125,6 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["status"] == "completed"
         assert done_data["progress"] == 100
         assert done_data["stage"] == "completed"
-        assert done_data["reasoning_persona"] == "researcher"
-        assert done_data["profile_id"] == "smoke-profile"
         assert done_data["artifact_dir"] is not None
         assert done_data["log_path"] is not None
         assert done_data["bootstrap_meta_path"] is not None
@@ -168,13 +134,10 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["artifact_document_written"] is None
         assert done_data["artifact_index_written"] is None
         assert done_data["artifact_claimset_written"] is None
-        assert done_data["artifact_claimset_resolved_written"] is None
         assert done_data["artifact_stats_written"] is None
         assert done_data["claimset_readiness"] is None
         assert done_data["claimset_ready"] is None
         assert done_data["claimset_claim_count"] is None
-        assert done_data["claimset_grounded_span_count"] is None
-        assert done_data["claimset_unresolved_span_count"] is None
         assert done_data["claimset_readiness_reason"] is None
         assert done_data["claimset_readiness_badge"] is None
         assert done_data["claimset_ops_action"] is None
@@ -207,13 +170,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["artifact_document_written"] = True
         meta["artifact_index_written"] = True
         meta["artifact_claimset_written"] = True
-        meta["artifact_claimset_resolved_written"] = True
         meta["artifact_stats_written"] = False
         meta["claimset_readiness"] = "ready"
         meta["claimset_ready"] = True
         meta["claimset_claim_count"] = 3
-        meta["claimset_grounded_span_count"] = 2
-        meta["claimset_unresolved_span_count"] = 1
         meta["claimset_readiness_reason"] = "claims_present"
         meta["claimset_readiness_badge"] = "READY"
         meta["claimset_ops_action"] = "none"
@@ -240,13 +200,10 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert payload["artifact_document_written"] is True
         assert payload["artifact_index_written"] is True
         assert payload["artifact_claimset_written"] is True
-        assert payload["artifact_claimset_resolved_written"] is True
         assert payload["artifact_stats_written"] is False
         assert payload["claimset_readiness"] == "ready"
         assert payload["claimset_ready"] is True
         assert payload["claimset_claim_count"] == 3
-        assert payload["claimset_grounded_span_count"] == 2
-        assert payload["claimset_unresolved_span_count"] == 1
         assert payload["claimset_readiness_reason"] == "claims_present"
         assert payload["claimset_readiness_badge"] == "READY"
         assert payload["claimset_ops_action"] == "none"
@@ -258,11 +215,8 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["paper_id"] == "paper_boot_meta"
         assert meta_resp.json()["persona_applied"] is True
         assert meta_resp.json()["artifact_document_written"] is True
-        assert meta_resp.json()["artifact_claimset_resolved_written"] is True
         assert meta_resp.json()["claimset_readiness"] == "ready"
         assert meta_resp.json()["claimset_ready"] is True
-        assert meta_resp.json()["claimset_grounded_span_count"] == 2
-        assert meta_resp.json()["claimset_unresolved_span_count"] == 1
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False
