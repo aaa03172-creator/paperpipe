@@ -11,12 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import src.db_utils as db_utils
-from src.db_utils import get_db_connection
+from src.db_utils import get_db_connection, init_db
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
-from src.persona_modes import list_reasoning_personas, normalize_persona_selection
-from src.schemas.chat import ChatRequest, ChatStubResponse
-from src.output_modes import resolve_chat_output_mode_family
 from src.schemas.ops import (
     ArtifactBundleResponse,
     ArtifactFileEntry,
@@ -25,82 +22,11 @@ from src.schemas.ops import (
     PersonaOption,
     RunTimelineEvent,
     RunTimelineResponse,
-    StatsRepairRequest,
-    StatsRepairResponse,
-    StatsRepairResult,
-    UserActionEntry,
-    UserActionListResponse,
-)
-from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
-from src.schemas.research_dna import (
-    ResearchDNAActorRequest,
-    ResearchDNACreateRequest,
-    ResearchDNAEnvelope,
-    ResearchDNAInterviewEnvelope,
-    ResearchDNAInterviewRequest,
-    ResearchDNAProjectedProfileEnvelope,
-    ResearchDNAProjectProfileRequest,
-    ResearchDNAPilotRunEnvelope,
-    ResearchDNAPilotRunRequest,
-    ResearchDNARefineRequest,
-    ResearchDNAScreeningRequest,
-    ResearchDNAUpdateRequest,
-)
-from src.profiles.research_dna_service import (
-    ResearchDNAStateError,
-    approve_pilot,
-    create_research_dna,
-    lock_research_dna,
-    log_interview_response,
-    refine_query_version,
-    run_pilot,
-    submit_screening_decision,
-    unlock_research_dna,
-    update_research_dna,
-)
-from src.profiles.research_dna_projection import sync_research_dna_profile
-from src.profiles.research_dna_store import ResearchDNARevisionConflictError, load_research_dna
-from src.schemas.ops import (
-    ArtifactBundleResponse,
-    ArtifactFileEntry,
-    DownloaderOpsMetricsResponse,
-    PersonaListResponse,
-    PersonaOption,
-    RunTimelineEvent,
-    RunTimelineResponse,
-    StatsRepairRequest,
-    StatsRepairResponse,
-    StatsRepairResult,
-    UserActionEntry,
-    UserActionListResponse,
 )
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
-from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
-from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
-from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
-from src.services.stats_repair import seed_stats_reports_from_claimset
-from .routers import feedback, meeting_packs, method_comparisons, obsidian, paper_notes, skills
-
-
-def _best_effort_log_user_action(
-    *,
-    paper_id: str | None,
-    action_type: str,
-    source: str,
-    payload: dict[str, Any] | None = None,
-) -> None:
-    try:
-        log_user_action(
-            paper_id=paper_id,
-            action_type=action_type,
-            source=source,
-            payload=payload,
-        )
-    except Exception:
-        # User-action logging must never block the primary workflow.
-        pass
+from .routers import feedback, obsidian, paper_notes
 
 def _resolve_cors_allow_origins() -> list[str]:
     raw = (
@@ -122,28 +48,12 @@ def _resolve_api_key() -> str:
     ).strip()
 
 
-def _is_chat_enabled() -> bool:
-    raw = (
-        os.getenv("CHAT_ENABLED")
-        or os.getenv("LATTICE_CHAT_ENABLED")
-        or os.getenv("PAPERPIPE_CHAT_ENABLED")
-        or "false"
-    ).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
 def _requires_api_key(method: str, path: str) -> bool:
     if method.upper() != "POST":
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run"}:
-        return True
-    if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
-        return True
-    if normalized.startswith("/meeting-packs/"):
-        return True
-    if normalized.startswith("/method-comparisons/"):
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync"}:
         return True
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
@@ -216,27 +126,6 @@ ARTIFACT_ALIAS_MAP: dict[str, str] = {
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
-def _derive_paper_issues_state(item: dict[str, Any]) -> str:
-    explicit_state = str(item.get("issues_state") or "").strip().lower()
-    if explicit_state in {"flagged", "clear", "unavailable"}:
-        return explicit_state
-    issues_value = item.get("issues")
-    issue_count = issues_value if isinstance(issues_value, int) else 0
-    if issue_count > 0:
-        return "flagged"
-    issues_label = str(item.get("issues_label") or "").strip()
-    if issues_label and re.search(r"not analy[sz]ed|unavailable|not available|pending|not reviewed|not run", issues_label, re.IGNORECASE):
-        return "unavailable"
-    status_value = str(item.get("status") or "").strip().upper()
-    if status_value in {"NEW", "FETCHED", "PDF_MISSING", "GATED"}:
-        return "unavailable"
-    if status_value in {"PENDING_REVIEW", "QUARANTINED", "FAILED"}:
-        return "flagged"
-    if status_value in {"APPROVED", "INDEXED"}:
-        return "clear"
-    return "clear"
-
-
 def _public_path(path_value: str | None) -> str | None:
     if path_value is None:
         return None
@@ -267,12 +156,6 @@ def _read_bootstrap_meta(meta_path: str | None) -> dict:
 def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
     meta_path = _resolve_bootstrap_meta_path(job)
     meta = _read_bootstrap_meta(meta_path)
-    params = get_execution_run_params(getattr(job, "run_id", None))
-    selection = normalize_persona_selection(
-        persona_id=meta.get("persona_id") or params.get("persona_id") or getattr(job, "persona_id", None),
-        reasoning_persona=meta.get("reasoning_persona") or params.get("reasoning_persona") or getattr(job, "reasoning_persona", None),
-        profile_id=meta.get("profile_id") or params.get("profile_id") or getattr(job, "profile_id", None),
-    )
     readiness = meta.get("claimset_readiness")
     badge = meta.get("claimset_readiness_badge")
     if badge is None:
@@ -287,21 +170,15 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "artifact_dir": _public_path(getattr(job, "artifact_dir", None)),
             "log_path": _public_path(getattr(job, "log_path", None)),
             "bootstrap_meta_path": _public_path(meta_path),
-            "persona_id": selection.persona_id,
-            "reasoning_persona": selection.reasoning_persona,
-            "profile_id": selection.profile_id,
             "similar_feedback_count": meta.get("similar_feedback_count"),
             "persona_applied": meta.get("persona_applied"),
             "artifact_document_written": meta.get("artifact_document_written"),
             "artifact_index_written": meta.get("artifact_index_written"),
             "artifact_claimset_written": meta.get("artifact_claimset_written"),
-            "artifact_claimset_resolved_written": meta.get("artifact_claimset_resolved_written"),
             "artifact_stats_written": meta.get("artifact_stats_written"),
             "claimset_readiness": meta.get("claimset_readiness"),
             "claimset_ready": meta.get("claimset_ready"),
             "claimset_claim_count": meta.get("claimset_claim_count"),
-            "claimset_grounded_span_count": meta.get("claimset_grounded_span_count"),
-            "claimset_unresolved_span_count": meta.get("claimset_unresolved_span_count"),
             "claimset_readiness_reason": meta.get("claimset_readiness_reason"),
             "claimset_readiness_badge": badge,
             "claimset_ops_action": meta.get("claimset_ops_action"),
@@ -312,7 +189,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
 
 
 def _artifact_run_dir(paper_id: str, run_id: str) -> Path:
-    return artifact_run_dir(paper_id, run_id)
+    return Path("storage/artifacts") / paper_id / run_id
 
 
 def _safe_read_json(path: Path) -> Any:
@@ -372,7 +249,7 @@ def _latest_run_id_for_paper(paper_id: str) -> str | None:
     finally:
         conn.close()
 
-    paper_dir = artifact_paper_dir(paper_id)
+    paper_dir = Path("storage/artifacts") / paper_id
     if not paper_dir.exists():
         return None
     candidates = [p for p in paper_dir.iterdir() if p.is_dir()]
@@ -427,41 +304,7 @@ def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[
 
 
 def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEvent]:
-    db_events = []
-    if job.run_id:
-        db_events = list_run_events(str(job.run_id), limit=limit)
-    user_action_events: list[RunTimelineEvent] = []
-    if job.paper_id and job.run_id:
-        action_rows = list_user_actions(paper_id=str(job.paper_id), limit=max(limit * 3, 50))
-        for row in reversed(action_rows):
-            payload = row.get("payload")
-            if not isinstance(payload, dict):
-                continue
-            if str(payload.get("run_id") or "").strip() != str(job.run_id):
-                continue
-            action_type = str(row.get("action_type") or "").strip()
-            message = action_type
-            if action_type == "deepread_enqueued":
-                message = "User queued deep read"
-            elif action_type == "repair_stats":
-                message = "User requested stats repair"
-            elif action_type == "obsidian_sync":
-                message = "User synced note to Obsidian"
-            elif action_type == "skill_run":
-                skill_action = str(payload.get("action") or "").strip()
-                message = f"User ran skill: {skill_action}" if skill_action else "User ran skill"
-            user_action_events.append(
-                RunTimelineEvent(
-                    event="status",
-                    source="user_action",
-                    ts=str(row.get("ts") or ""),
-                    stage=action_type or "user_action",
-                    level="INFO",
-                    message=message,
-                )
-            )
-
-    log_events: list[RunTimelineEvent] = []
+    events: list[RunTimelineEvent] = []
     if job.log_path and Path(job.log_path).exists():
         lines = [
             line.strip()
@@ -473,7 +316,7 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                 payload = json.loads(raw)
                 level = str(payload.get("level") or "INFO")
                 evt = "error" if level.upper() == "ERROR" else "log"
-                log_events.append(
+                events.append(
                     RunTimelineEvent(
                         event=evt,
                         source="job_log",
@@ -485,72 +328,13 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                     )
                 )
             except Exception:
-                log_events.append(
+                events.append(
                     RunTimelineEvent(
                         event="log",
                         source="job_log",
                         raw=raw,
                     )
                 )
-
-    if db_events:
-        events: list[RunTimelineEvent] = []
-        for row in db_events[-limit:]:
-            payload: dict[str, Any] = {}
-            try:
-                payload_raw = row.get("payload_json")
-                if payload_raw:
-                    payload = json.loads(str(payload_raw))
-            except Exception:
-                payload = {}
-
-            level = str(row.get("level") or payload.get("level") or "INFO")
-            event_name = "error" if level.upper() == "ERROR" else "log"
-            events.append(
-                RunTimelineEvent(
-                    event=event_name,
-                    source="db_event",
-                    ts=str(row.get("ts") or ""),
-                    stage=payload.get("stage") or payload.get("status"),
-                    progress=int(payload.get("progress")) if payload.get("progress") is not None else None,
-                    level=level,
-                    message=str(row.get("message") or payload.get("message") or row.get("event_type") or ""),
-                )
-            )
-
-        events.extend(log_events)
-        events.extend(user_action_events)
-        terminal = (
-            RunTimelineEvent(
-                event="done",
-                source="synthetic",
-                ts=str(job.finished_at or job.started_at or job.created_at),
-                stage=job.status,
-                progress=job.progress,
-                level="ERROR" if job.status == "failed" else "INFO",
-                message=job.error_message or job.status,
-            )
-            if job.status in TERMINAL_JOB_STATUSES
-            else RunTimelineEvent(
-                event="status",
-                source="synthetic",
-                ts=str(job.started_at or job.created_at),
-                stage=job.stage or job.status,
-                progress=job.progress,
-                level="INFO",
-                message=job.status,
-            )
-        )
-        events.append(terminal)
-        if len(events) > limit:
-            return events[-limit:]
-        return events
-
-    events: list[RunTimelineEvent] = []
-    if log_events:
-        events.extend(log_events)
-    if user_action_events:
-        events.extend(user_action_events)
 
     terminal = (
         RunTimelineEvent(
@@ -637,22 +421,9 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
             id="default",
             title="Default (No Persona Override)",
             enabled=True,
-            kind="compatibility",
-            notes="Compatibility alias. New clients should split reasoning persona and profile context explicitly.",
             source="builtin",
         )
     ]
-    for definition in list_reasoning_personas():
-        options.append(
-            PersonaOption(
-                id=definition.id,
-                title=definition.title,
-                enabled=True,
-                kind="reasoning_persona",
-                notes=definition.notes,
-                source="builtin",
-            )
-        )
     conf = load_profiles()
     for profile in conf.profiles:
         if not include_disabled and not profile.enabled:
@@ -662,7 +433,6 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
                 id=profile.id,
                 title=profile.title,
                 enabled=profile.enabled,
-                kind="profile",
                 notes=profile.notes,
                 schedule=profile.schedule,
                 query_focus=profile.query.to_boolean_string(),
@@ -674,259 +444,6 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
-
-
-@app.post("/api/chat", response_model=ChatStubResponse)
-def chat_stub(req: ChatRequest):
-    output_mode_family = resolve_chat_output_mode_family(req.output_mode_family)
-    if not _is_chat_enabled():
-        return JSONResponse(
-            status_code=501,
-            content=ChatStubResponse(
-                chat_enabled=False,
-                output_mode_family=output_mode_family,
-                message=(
-                    "CHAT_ENABLED=false. /api/chat is a stub only in this sprint; "
-                    "no LLM provider, memory, or RAG call is executed."
-                ),
-            ).model_dump(),
-        )
-    return JSONResponse(
-        status_code=501,
-        content=ChatStubResponse(
-            chat_enabled=True,
-            output_mode_family=output_mode_family,
-            message=(
-                "/api/chat is intentionally stubbed. This sprint does not implement "
-                "LLM execution, conversation storage, or retrieval."
-            ),
-        ).model_dump(),
-    )
-
-
-@app.post("/research-dna", response_model=ResearchDNAEnvelope)
-def create_research_dna_endpoint(req: ResearchDNACreateRequest):
-    try:
-        dna = create_research_dna(
-            topic=req.topic,
-            intent=req.intent,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-            dna_id=req.dna_id,
-            title=req.title,
-            recommended_databases=req.recommended_databases,
-            available_databases=req.available_databases,
-        )
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to create Research DNA: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.get("/research-dna/{dna_id}", response_model=ResearchDNAEnvelope)
-def get_research_dna_endpoint(dna_id: str):
-    try:
-        dna = load_research_dna(dna_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load Research DNA: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/approve-pilot", response_model=ResearchDNAEnvelope)
-def approve_research_dna_pilot_endpoint(dna_id: str, req: ResearchDNAActorRequest):
-    try:
-        dna = approve_pilot(
-            dna_id,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to approve pilot: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/update", response_model=ResearchDNAEnvelope)
-def update_research_dna_endpoint(dna_id: str, req: ResearchDNAUpdateRequest):
-    try:
-        dna = update_research_dna(
-            dna_id,
-            patch=req.patch,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to update Research DNA: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/interview", response_model=ResearchDNAInterviewEnvelope)
-def log_research_dna_interview_endpoint(dna_id: str, req: ResearchDNAInterviewRequest):
-    try:
-        dna, interview = log_interview_response(
-            dna_id,
-            round=req.round,
-            question_id=req.question_id,
-            question=req.question,
-            answer=req.answer,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to log interview response: {exc}")
-    return ResearchDNAInterviewEnvelope(dna=dna, interview=interview)
-
-
-@app.post("/research-dna/{dna_id}/pilot", response_model=ResearchDNAPilotRunEnvelope)
-def run_research_dna_pilot_endpoint(dna_id: str, req: ResearchDNAPilotRunRequest):
-    try:
-        pilot_run = run_pilot(
-            dna_id,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            run_id=req.run_id,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to run pilot: {exc}")
-    return ResearchDNAPilotRunEnvelope(pilot_run=pilot_run)
-
-
-@app.post("/research-dna/{dna_id}/screening", response_model=ResearchDNAEnvelope)
-def submit_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreeningRequest):
-    try:
-        dna = submit_screening_decision(
-            dna_id,
-            run_id=req.run_id,
-            candidate_id=req.candidate_id,
-            decision=req.decision,
-            reason_code=req.reason_code,
-            note=req.note,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to submit screening decision: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/refine", response_model=ResearchDNAEnvelope)
-def refine_research_dna_endpoint(dna_id: str, req: ResearchDNARefineRequest):
-    try:
-        dna = refine_query_version(
-            dna_id,
-            query_version=req.query_version,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to refine query version: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/lock", response_model=ResearchDNAEnvelope)
-def lock_research_dna_endpoint(dna_id: str, req: ResearchDNAActorRequest):
-    try:
-        dna = lock_research_dna(
-            dna_id,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to lock Research DNA: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
-
-
-@app.post("/research-dna/{dna_id}/project-profile", response_model=ResearchDNAProjectedProfileEnvelope)
-def project_research_dna_profile_endpoint(dna_id: str, req: ResearchDNAProjectProfileRequest):
-    try:
-        projection = sync_research_dna_profile(
-            dna_id,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-            query_version_name=req.query_version,
-            database=req.database,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to project Research DNA profile: {exc}")
-    return ResearchDNAProjectedProfileEnvelope(projection=projection)
-
-
-@app.post("/research-dna/{dna_id}/unlock", response_model=ResearchDNAEnvelope)
-def unlock_research_dna_endpoint(dna_id: str, req: ResearchDNAActorRequest):
-    try:
-        dna = unlock_research_dna(
-            dna_id,
-            actor_type=req.actor_type,
-            actor_id=req.actor_id,
-            reason=req.reason,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Research DNA not found")
-    except ResearchDNARevisionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ResearchDNAStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to unlock Research DNA: {exc}")
-    return ResearchDNAEnvelope(dna=dna)
 
 
 @app.get("/personas", response_model=PersonaListResponse)
@@ -960,23 +477,15 @@ def get_downloader_metrics(
         bad_content_warn=bad_content_warn,
         policy_block_warn=policy_block_warn,
     )
-    metrics = collect_metrics(db_utils.get_db_path(), hours)
+    metrics = collect_metrics(db_utils.DB_PATH, hours)
     alerts = evaluate_alerts(metrics, thresholds)
     return DownloaderOpsMetricsResponse(metrics=metrics, alerts=alerts)
 
 @app.get("/papers")
-def list_papers(
-    limit: int = Query(default=50, ge=1, le=5000),
-    offset: int = Query(default=0, ge=0),
-) -> list[PaperSummaryResponse]:
+def list_papers():
     conn = get_db_connection()
-    papers = conn.execute(
-        "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-        (limit, offset),
-    ).fetchall()
+    papers = conn.execute("SELECT * FROM papers ORDER BY updated_at DESC LIMIT 50").fetchall()
     conn.close()
-    artifacts_path = artifacts_root()
-    artifact_cache: ArtifactSnapshotCache = {}
     out = []
     for p in papers:
         item = dict(p)
@@ -986,14 +495,12 @@ def list_papers(
         item["pdf_path"] = _public_path(pdf_path)
         if not pdf_exists and pdf_path:
             item["pdf_status"] = "missing"
-        item["issues_state"] = _derive_paper_issues_state(item)
-        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, str(item.get("paper_id") or ""), artifact_cache)
         out.append(item)
     return out
 
 
 @app.get("/papers/{paper_id}")
-def get_paper(paper_id: str) -> PaperDetailResponse:
+def get_paper(paper_id: str):
     conn = get_db_connection()
     row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
     conn.close()
@@ -1007,8 +514,6 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     item["pdf_path"] = _public_path(pdf_path)
     if not pdf_exists and pdf_path:
         item["pdf_status"] = "missing"
-    item["issues_state"] = _derive_paper_issues_state(item)
-    item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
     return item
 
 
@@ -1031,7 +536,7 @@ def get_paper_pdf(paper_id: str):
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
-@app.get("/artifacts/{paper_id:path}/latest", response_model=ArtifactBundleResponse)
+@app.get("/artifacts/{paper_id}/latest", response_model=ArtifactBundleResponse)
 def get_latest_artifacts(paper_id: str):
     run_id = _latest_run_id_for_paper(paper_id)
     if not run_id:
@@ -1039,12 +544,12 @@ def get_latest_artifacts(paper_id: str):
     return _build_artifact_bundle(paper_id, run_id)
 
 
-@app.get("/artifacts", response_model=ArtifactBundleResponse)
-def get_artifacts_for_run_query(paper_id: str, run_id: str):
+@app.get("/artifacts/{paper_id}/{run_id}", response_model=ArtifactBundleResponse)
+def get_artifacts_for_run(paper_id: str, run_id: str):
     return _build_artifact_bundle(paper_id, run_id)
 
 
-@app.get("/artifacts/{paper_id:path}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry)
+@app.get("/artifacts/{paper_id}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry)
 def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
     artifact_key = _resolve_artifact_key(artifact_name)
     if not artifact_key:
@@ -1059,26 +564,14 @@ def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
         )
     return entry
 
-
-@app.get("/artifacts/{paper_id:path}/{run_id}", response_model=ArtifactBundleResponse)
-def get_artifacts_for_run(paper_id: str, run_id: str):
-    return _build_artifact_bundle(paper_id, run_id)
-
 @app.post("/jobs/deepread", response_model=JobEnqueueResponse)
 def enqueue_job(job_req: JobCreate):
-    selection = normalize_persona_selection(
-        persona_id=job_req.persona_id,
-        reasoning_persona=job_req.reasoning_persona,
-        profile_id=job_req.profile_id,
-    )
     try:
         job_id = queue.enqueue(
             job_req.paper_id,
             job_req.clean_reindex,
             job_req.run_verify,
             job_req.persona_id,
-            job_req.reasoning_persona,
-            job_req.profile_id,
         )
     except DuplicateOpenJobError as exc:
         raise HTTPException(
@@ -1103,92 +596,7 @@ def enqueue_job(job_req: JobCreate):
             },
         )
     job = queue.get_job(job_id)
-    _best_effort_log_user_action(
-        paper_id=job_req.paper_id,
-        action_type="deepread_enqueued",
-        source="ui",
-        payload={
-            "job_id": job_id,
-            "run_id": job.run_id if job else None,
-            "persona_id": selection.persona_id,
-            "reasoning_persona": selection.reasoning_persona,
-            "profile_id": selection.profile_id,
-            "run_verify": bool(job_req.run_verify),
-            "clean_reindex": bool(job_req.clean_reindex),
-        },
-    )
     return JobEnqueueResponse(job_id=job_id, run_id=job.run_id if job else None, status="queued")
-@app.get("/user-actions", response_model=UserActionListResponse)
-def get_user_actions(
-    paper_id: str | None = Query(default=None),
-    action_type: str | None = Query(default=None),
-    source: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=1000),
-):
-    actions = list_user_actions(
-        paper_id=paper_id,
-        action_type=action_type,
-        source=source,
-        limit=limit,
-    )
-    return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
-
-
-@app.post("/ops/repair-stats", response_model=StatsRepairResponse)
-def repair_stats(req: StatsRepairRequest):
-    paper_ids = [str(pid).strip() for pid in (req.paper_ids or []) if str(pid).strip()]
-    if not paper_ids:
-        raise HTTPException(status_code=400, detail="paper_ids must include at least one id")
-
-    try:
-        results = seed_stats_reports_from_claimset(
-            paper_ids=paper_ids,
-            artifacts_root=Path(req.artifacts_root),
-            run_id=req.run_id,
-            max_checks=int(req.max_checks),
-            write_bootstrap_meta=bool(req.write_bootstrap_meta),
-            skip_existing=bool(req.skip_existing),
-            dry_run=bool(req.dry_run),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"repair-stats failed: {exc}")
-
-    serialized = [
-        StatsRepairResult(
-            paper_id=item.paper_id,
-            run_id=item.run_id,
-            status=item.status,  # type: ignore[arg-type]
-            checks=int(item.checks),
-            reason=str(item.reason),
-        )
-        for item in results
-    ]
-    for item in serialized:
-        _best_effort_log_user_action(
-            paper_id=item.paper_id,
-            action_type="repair_stats",
-            source="ui",
-            payload={
-                "run_id": item.run_id,
-                "status": item.status,
-                "checks": int(item.checks),
-                "reason": str(item.reason),
-                "skip_existing": bool(req.skip_existing),
-                "write_bootstrap_meta": bool(req.write_bootstrap_meta),
-                "dry_run": bool(req.dry_run),
-                "max_checks": int(req.max_checks),
-            },
-        )
-    seeded = sum(1 for item in serialized if item.status == "seeded")
-    planned = sum(1 for item in serialized if item.status == "planned")
-    skipped = sum(1 for item in serialized if item.status == "skipped")
-    return StatsRepairResponse(
-        seeded=seeded,
-        planned=planned,
-        skipped=skipped,
-        total=len(serialized),
-        results=serialized,
-    )
 
 
 @app.get("/jobs", response_model=list[JobStatus])
@@ -1311,6 +719,3 @@ async def job_events(job_id: str, request: Request):
 app.include_router(obsidian.router)
 app.include_router(feedback.router)
 app.include_router(paper_notes.router)
-app.include_router(skills.router)
-app.include_router(meeting_packs.router)
-app.include_router(method_comparisons.router)

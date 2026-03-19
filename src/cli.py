@@ -7,10 +7,8 @@ import subprocess
 import sys
 import time
 import webbrowser
-import json
 from pathlib import Path
 import requests
-import yaml
 from rich.console import Console
 from src.config import load_config
 from src.db_utils import (
@@ -34,7 +32,6 @@ if os.getenv("OPENAI_API_KEY"):
 
 # Setup App & Logger
 app = typer.Typer(no_args_is_help=True)
-research_dna_app = typer.Typer(no_args_is_help=True)
 console = Console()
 
 # Initialize Centralized Logger
@@ -45,10 +42,6 @@ except Exception:
     log_level = "INFO"
 
 logger = setup_logging(log_level=log_level)
-
-
-def _emit_json(payload: dict) -> None:
-    typer.echo(json.dumps(payload, ensure_ascii=False))
 
 
 def bootstrap_database() -> Path:
@@ -104,15 +97,11 @@ def main():
     """PaperPipe Automation Tool"""
     pass
 
-
-app.add_typer(research_dna_app, name="research-dna")
-
 # 1. Environment Doctor
 @app.command()
 def doctor():
     """Check environment, config, and dependencies."""
     console.print("[bold blue]🩺 Checking Environment...[/bold blue]")
-    llm_mode = "local"
     
     try:
         config = load_config()
@@ -146,10 +135,10 @@ def doctor():
             llm_config = config.llm
             
             # Helper to check mode safely
-            llm_mode = getattr(llm_config, "mode", "local")
+            mode = getattr(llm_config, 'mode', 'cloud') 
             
-            if llm_mode in ["local", "hybrid"]:
-                 console.print(f"   - LLM Mode: [bold cyan]{llm_mode}[/bold cyan] (Ollama Active)")
+            if mode in ["local", "hybrid"]:
+                 console.print(f"   - LLM Mode: [bold cyan]{mode}[/bold cyan] (Ollama Active)")
                  if hasattr(llm_config, 'local') and llm_config.local:
                      url = llm_config.local.base_url
                      try:
@@ -164,7 +153,7 @@ def doctor():
                      except ImportError:
                          console.print("   - Ollama: ⚠️ 'ollama' package not installed.", style="yellow")
             else:
-                 console.print(f"   - LLM Mode: {llm_mode} (Cloud Only)")
+                 console.print(f"   - LLM Mode: {mode} (Cloud Only)")
                  
         except Exception as e:
             console.print(f"   - LLM Check: ⚠️ Error checking LLM config: {e}")
@@ -179,23 +168,11 @@ def doctor():
     except Exception as e:
         console.print(f"❌ Database Error: {e}", style="bold red")
     
-    # Check OpenAI Key (mode-aware)
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if llm_mode == "cloud":
-        if openai_key:
-            console.print("✅ OpenAI API Key detected.")
-        else:
-            console.print("❌ OpenAI API Key missing! (required for cloud mode)", style="bold red")
-    elif llm_mode == "hybrid":
-        if openai_key:
-            console.print("✅ OpenAI API Key detected. (hybrid cloud path available)")
-        else:
-            console.print("⚠️ OpenAI API Key missing. (hybrid cloud path disabled)", style="yellow")
+    # Check OpenAI Key
+    if os.getenv("OPENAI_API_KEY"):
+        console.print("✅ OpenAI API Key detected.")
     else:
-        if openai_key:
-            console.print("✅ OpenAI API Key detected. (optional in local mode)")
-        else:
-            console.print("ℹ️ OpenAI API Key not required in local mode.")
+        console.print("❌ OpenAI API Key missing!", style="bold red")
 
     if Path("logs/paperpipe.log").exists():
         console.print("✅ Log file accessible.")
@@ -759,94 +736,13 @@ def done(
 @app.command()
 def deepread(
     identifier: str = typer.Argument(..., help="Paper ID or DOI"),
-    verify: bool = typer.Option(False, "--verify", help="Run strict statistical verification on claims"),
-    reader_timeout_sec: int = typer.Option(
-        0,
-        "--reader-timeout-sec",
-        min=0,
-        help="Reader step timeout seconds (0 = auto budget)",
-    ),
-    stats_timeout_sec: int = typer.Option(
-        0,
-        "--stats-timeout-sec",
-        min=0,
-        help="Stats verification step timeout seconds (0 = auto budget)",
-    ),
-    adaptive_step_timeout: bool = typer.Option(
-        True,
-        "--adaptive-step-timeout/--no-adaptive-step-timeout",
-        help="Use page/table aware adaptive timeout budget.",
-    ),
+    verify: bool = typer.Option(False, "--verify", help="Run strict statistical verification on claims")
 ):
     """
     [v3.0] Run Agentic Deep Read pipeline: Ingest -> Index -> Read.
     Appends structured analysis to the Obsidian note.
     """
-    run_deepread_workflow(
-        identifier,
-        verify,
-        console,
-        reader_timeout_sec=reader_timeout_sec,
-        stats_timeout_sec=stats_timeout_sec,
-        adaptive_step_timeout=adaptive_step_timeout,
-    )
-
-
-@app.command(name="repair-stats")
-def repair_stats(
-    paper_id: list[str] = typer.Option(
-        [],
-        "--paper-id",
-        help="Target paper id (repeatable). Default uses curated 3-paper set.",
-    ),
-    run_id: str = typer.Option("", "--run-id", help="Optional run id override."),
-    artifacts_root: str = typer.Option(
-        "storage/artifacts",
-        "--artifacts-root",
-        help="Artifacts root directory.",
-    ),
-    max_checks: int = typer.Option(6, "--max-checks", min=1, help="Max checks per paper."),
-    write_bootstrap_meta: bool = typer.Option(
-        True,
-        "--write-bootstrap-meta/--no-write-bootstrap-meta",
-        help="Update bootstrap_meta flags when writing stats_report.",
-    ),
-    skip_existing: bool = typer.Option(
-        True,
-        "--skip-existing/--overwrite-existing",
-        help="Skip runs where stats_report.json already exists.",
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; do not write files."),
-):
-    """
-    Seed missing stats_report.json from claimset artifacts.
-    """
-    from src.services.stats_repair import (
-        DEFAULT_STATS_REPAIR_PAPER_IDS,
-        seed_stats_reports_from_claimset,
-    )
-
-    target_ids = paper_id if paper_id else list(DEFAULT_STATS_REPAIR_PAPER_IDS)
-    results = seed_stats_reports_from_claimset(
-        paper_ids=[str(pid) for pid in target_ids],
-        artifacts_root=Path(artifacts_root),
-        run_id=(run_id or None),
-        max_checks=max_checks,
-        write_bootstrap_meta=write_bootstrap_meta,
-        skip_existing=skip_existing,
-        dry_run=dry_run,
-    )
-
-    for item in results:
-        console.print(
-            f"{item.paper_id} | run={item.run_id or '-'} | {item.status} | checks={item.checks} | {item.reason}"
-        )
-
-    seeded = sum(1 for item in results if item.status == "seeded")
-    planned = sum(1 for item in results if item.status == "planned")
-    skipped = sum(1 for item in results if item.status == "skipped")
-    console.print(f"summary: seeded={seeded}, planned={planned}, skipped={skipped}, total={len(results)}")
-
+    run_deepread_workflow(identifier, verify, console)
 
 @app.command()
 def ask(
@@ -939,12 +835,7 @@ def profiles_chat(
     [v3.0] Chat with the Strict Data Librarian to update search profiles.
     """
     try:
-        from src.profiles.profile_store import (
-            ProfileRevisionConflictError,
-            load_profiles,
-            upsert_profile,
-        )
-        from src.profiles.profile_metadata import is_research_dna_projection_profile
+        from src.profiles.profile_store import load_profiles, save_profiles
         from src.profiles.patch_apply import apply_patch
         from src.profiles.risk_rules import validate_profile
         from src.agents.profile_chat_agent import ProfileChatAgent
@@ -983,13 +874,6 @@ def profiles_chat(
         
         if not selected_profile:
             console.print("[bold red]❌ Invalid profile selected.[/bold red]")
-            return
-
-        if is_research_dna_projection_profile(selected_profile):
-            console.print(
-                "[bold yellow]⚠️ This profile is a ResearchDNA compatibility projection and is read-only here.[/bold yellow]"
-            )
-            console.print("[dim]Update the source Research DNA and re-run `research-dna project-profile` instead.[/dim]")
             return
 
         console.print(f"\n[bold green]✅ Selected: {selected_profile.title} ({selected_profile.id})[/bold green]")
@@ -1058,13 +942,7 @@ def profiles_chat(
                     break
             
             # Save
-            try:
-                upsert_profile(new_profile, expected_revision=selected_profile.revision)
-            except ProfileRevisionConflictError as exc:
-                console.print("[bold red]❌ Profile changed on disk while you were editing it.[/bold red]")
-                console.print(f"[dim]{exc}[/dim]")
-                console.print("[dim]Reload the profile and retry so you review the latest diff first.[/dim]")
-                return
+            save_profiles(config)
             console.print("[bold green]✅ Profile Updated & Saved![/bold green]")
         else:
             console.print("[yellow]❌ Changes discarded.[/yellow]")
@@ -1081,12 +959,7 @@ def profiles_audit(
     """
     [v3.0] Audit profiles for performance issues (limit hits) & Auto-Fix.
     """
-    from src.profiles.profile_store import (
-        ProfileRevisionConflictError,
-        load_profiles,
-        upsert_profile,
-    )
-    from src.profiles.profile_metadata import is_research_dna_projection_profile
+    from src.profiles.profile_store import load_profiles, save_profiles
     from src.profiles.patch_apply import apply_patch
     from src.profiles.risk_rules import validate_profile
     from src.agents.profile_chat_agent import ProfileChatAgent
@@ -1103,9 +976,6 @@ def profiles_audit(
     issues_found = 0
     
     for profile in config.profiles:
-        if is_research_dna_projection_profile(profile):
-            console.print(f"[dim]Skipping ResearchDNA projection profile: {profile.id}[/dim]")
-            continue
         stats = get_profile_stats(profile.id, days=days)
         if not stats:
             continue
@@ -1155,13 +1025,7 @@ def profiles_audit(
                         if p.id == profile.id:
                             config.profiles[i] = new_profile
                             break
-                    try:
-                        upsert_profile(new_profile, expected_revision=profile.revision)
-                    except ProfileRevisionConflictError as exc:
-                        console.print("   [red]❌ Fix not saved because the profile changed on disk.[/red]")
-                        console.print(f"   [dim]{exc}[/dim]")
-                        console.print("   [dim]Reload and rerun audit before applying another fix.[/dim]")
-                        continue
+                    save_profiles(config)
                     console.print("   ✅ Fixed & Saved.")
                 else:
                     console.print("   💨 Skipped.")
@@ -1171,229 +1035,6 @@ def profiles_audit(
              
     if issues_found == 0:
         console.print("\n[bold green]✅ All profiles healthy![/bold green]")
-
-
-@research_dna_app.command("create")
-def research_dna_create(
-    topic: str = typer.Argument(..., help="Research topic"),
-    intent: str = typer.Option(..., "--intent", help="explore | systematic_review | update"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why this DNA is being created"),
-    dna_id: str | None = typer.Option(None, "--dna-id", help="Optional explicit DNA ID"),
-    title: str | None = typer.Option(None, "--title", help="Optional explicit title"),
-    recommended_db: list[str] = typer.Option(None, "--recommended-db", help="Recommended database"),
-    available_db: list[str] = typer.Option(None, "--available-db", help="Available database"),
-):
-    from src.profiles.research_dna_service import create_research_dna
-
-    dna = create_research_dna(
-        topic=topic,
-        intent=intent,  # type: ignore[arg-type]
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-        dna_id=dna_id,
-        title=title,
-        recommended_databases=recommended_db or [],
-        available_databases=available_db or [],
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("show")
-def research_dna_show(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-):
-    from src.profiles.research_dna_store import load_research_dna
-
-    dna = load_research_dna(dna_id)
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("approve-pilot")
-def research_dna_approve_pilot(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the pilot is approved"),
-):
-    from src.profiles.research_dna_service import approve_pilot
-
-    dna = approve_pilot(
-        dna_id,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("update")
-def research_dna_update(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    patch_file: Path = typer.Option(..., "--patch-file", exists=True, help="ResearchDNAUpdate JSON/YAML file"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the DNA is being updated"),
-):
-    from src.profiles.research_dna_schema import ResearchDNAUpdate
-    from src.profiles.research_dna_service import update_research_dna
-
-    payload = yaml.safe_load(patch_file.read_text(encoding="utf-8"))
-    patch = ResearchDNAUpdate(**payload)
-    dna = update_research_dna(
-        dna_id,
-        patch=patch,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("interview")
-def research_dna_interview(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    round: str = typer.Option(..., "--round", help="researcher | librarian"),
-    question_id: str = typer.Option(..., "--question-id", help="Stable question ID"),
-    question: str = typer.Option(..., "--question", help="Interview question text"),
-    answer: str = typer.Option(..., "--answer", help="Interview answer text"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-):
-    from src.profiles.research_dna_service import log_interview_response
-
-    dna, interview = log_interview_response(
-        dna_id,
-        round=round,  # type: ignore[arg-type]
-        question_id=question_id,
-        question=question,
-        answer=answer,
-        actor_type="human_cli",
-        actor_id=actor_id,
-    )
-    _emit_json(
-        {
-            "dna": dna.model_dump(mode="json", exclude_none=True),
-            "interview": interview.model_dump(mode="json", exclude_none=True),
-        }
-    )
-
-
-@research_dna_app.command("refine")
-def research_dna_refine(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    query_version_file: Path = typer.Option(..., "--query-version-file", exists=True, help="QueryVersion JSON/YAML file"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the query is refined"),
-):
-    from src.profiles.research_dna_schema import QueryVersion
-    from src.profiles.research_dna_service import refine_query_version
-
-    payload = yaml.safe_load(query_version_file.read_text(encoding="utf-8"))
-    query_version = QueryVersion(**payload)
-    dna = refine_query_version(
-        dna_id,
-        query_version=query_version,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("pilot")
-def research_dna_run_pilot(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    run_id: str | None = typer.Option(None, "--run-id", help="Optional explicit pilot run ID"),
-):
-    from src.profiles.research_dna_service import run_pilot
-
-    pilot_run = run_pilot(
-        dna_id,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        run_id=run_id,
-    )
-    _emit_json(pilot_run.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("screening")
-def research_dna_submit_screening(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
-    candidate_id: str = typer.Option(..., "--candidate-id", help="Screening candidate ID"),
-    decision: str = typer.Option(..., "--decision", help="include | exclude | unclear"),
-    reason_code: str = typer.Option(..., "--reason-code", help="Structured reason code"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    note: str | None = typer.Option(None, "--note", help="Optional screening note"),
-):
-    from src.profiles.research_dna_service import submit_screening_decision
-
-    dna = submit_screening_decision(
-        dna_id,
-        run_id=run_id,
-        candidate_id=candidate_id,
-        decision=decision,  # type: ignore[arg-type]
-        reason_code=reason_code,  # type: ignore[arg-type]
-        note=note,
-        actor_type="human_cli",
-        actor_id=actor_id,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("lock")
-def research_dna_lock(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the DNA is being locked"),
-):
-    from src.profiles.research_dna_service import lock_research_dna
-
-    dna = lock_research_dna(
-        dna_id,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("unlock")
-def research_dna_unlock(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the DNA is being unlocked"),
-):
-    from src.profiles.research_dna_service import unlock_research_dna
-
-    dna = unlock_research_dna(
-        dna_id,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-    )
-    _emit_json(dna.model_dump(mode="json", exclude_none=True))
-
-
-@research_dna_app.command("project-profile")
-def research_dna_project_profile(
-    dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
-    reason: str = typer.Option(..., "--reason", help="Why the projection is being materialized"),
-    query_version: str | None = typer.Option(None, "--query-version", help="Optional explicit query version"),
-    database: str | None = typer.Option(None, "--database", help="Optional explicit database key"),
-):
-    from src.profiles.research_dna_projection import sync_research_dna_profile
-
-    projection = sync_research_dna_profile(
-        dna_id,
-        actor_type="human_cli",
-        actor_id=actor_id,
-        reason=reason,
-        query_version_name=query_version,
-        database=database,
-    )
-    _emit_json(projection.model_dump(mode="json", exclude_none=True))
 
 
 def entrypoint():
