@@ -19,7 +19,6 @@ from src.contracts.output_bridge import (
     normalize_claimset_payload,
 )
 from src.fetch.openalex import OpenAlexFetcher
-from src.sandbox.docker_runner import DockerSandbox
 from src.schemas.skills import (
     SkillClaimCard,
     SkillRunRecord,
@@ -464,6 +463,8 @@ print(json.dumps({{
 
 
 def _run_critical_appraisal_in_sandbox(claimset_path: Path, stats_path: Path | None, timeout_seconds: int) -> tuple[dict[str, Any], str]:
+    from src.sandbox.docker_runner import DockerSandbox
+
     work_dir = claimset_path.parent / "_skills_sandbox"
     work_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(work_dir / claimset_path.name, claimset_path.read_text(encoding="utf-8"))
