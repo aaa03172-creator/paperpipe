@@ -1,6 +1,6 @@
 from typing import List, Optional, Union, Dict, Any, Literal
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import uuid
 
 # -----------------------------------------------------------------------------
@@ -108,6 +108,25 @@ class EvidenceSpan(BaseModel):
     raw_text: str = Field(..., description="Extracted raw text or table caption")
     quote: Optional[str] = Field(None, description="Short excerpt (recommended < 25 words)")
     rationale: Optional[str] = Field(None, description="MANDATORY: Why this evidence supports the claim (1-2 sentences)")
+
+    # Precise location hints (additive)
+    bbox_pdf: Optional[List[float]] = Field(
+        None,
+        description="[x0, y0, x1, y1] in PDF points (top-left origin canonical)",
+    )
+    bbox_pct: Optional[Dict[str, float]] = Field(
+        None,
+        description="UI-friendly percentage bbox with keys: left, top, width, height",
+    )
+    highlight_source: Optional[Literal["bbox", "text_match", "approx"]] = Field(
+        None,
+        description="Explicit evidence-to-PDF mapping quality for frontend rendering",
+    )
+    table_id: Optional[str] = None
+    cell_id: Optional[str] = None
+    unknown_reason: Optional[str] = None
+    grounded: Optional[bool] = Field(None, description="Set by runtime resolver after quote-to-chunk verification")
+    resolution: Optional[str] = Field(None, description="Runtime grounding result (e.g. OK, NORMALIZED_MATCH, FAILED_MATCH)")
 
     # Backwards compatibility fields (Optional)
     section: Optional[str] = None
