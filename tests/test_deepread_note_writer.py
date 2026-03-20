@@ -74,3 +74,40 @@ def test_upsert_deepread_section_with_service_contract():
     updated = upsert_deepread_section(content, md)
     assert updated.count(DEEPREAD_HEADER) == 1
     assert "Claim." in updated
+
+
+def test_build_deepread_markdown_handles_missing_page_and_section():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="efficacy",
+                statement="Fallback location claim.",
+                confidence=0.6,
+                evidence_spans=[EvidenceSpan(raw_text="Fallback evidence")],
+            )
+        ],
+    )
+
+    md = build_deepread_markdown("model-x", claimset)
+    assert "Fallback evidence" in md
+    assert "(Section: Unknown)" in md
+
+
+def test_build_deepread_markdown_renders_table_evidence_without_raw_text():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="efficacy",
+                statement="Table-backed claim.",
+                confidence=0.6,
+                evidence_spans=[EvidenceSpan(raw_text=" ", table_id="tbl-1", cell_id="r1c1")],
+            )
+        ],
+    )
+
+    md = build_deepread_markdown("model-x", claimset)
+    assert "Table tbl-1, cell r1c1" in md

@@ -11,6 +11,7 @@ from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
+CHUNK_ID_VERSION = "legacy-uuid-v1"
 
 class IndexerAgent:
     """
@@ -67,10 +68,16 @@ class IndexerAgent:
         documents = []
         
         # Section-aware chunking
-        for section in iter_text_sections(doc):
+        for section_ordinal, section in enumerate(iter_text_sections(doc), start=1):
             section_chunks = self._chunk_text(section.text, chunk_size=1000, overlap=200)
+            page_hint: Optional[int] = None
+            if section.name.startswith("page_"):
+                suffix = section.name.removeprefix("page_").strip()
+                if suffix.isdigit():
+                    page_hint = max(int(suffix) - 1, 0)
             
             for i, text_chunk in enumerate(section_chunks):
+                chunk_ordinal = i + 1
                 chunk_id = str(uuid.uuid4())
                 
                 # Create embedding
@@ -87,6 +94,10 @@ class IndexerAgent:
                     "title": header.title,
                     "section": section.name,
                     "chunk_index": i,
+                    "section_ordinal": section_ordinal,
+                    "chunk_ordinal": chunk_ordinal,
+                    "page_hint": page_hint,
+                    "chunk_id_version": CHUNK_ID_VERSION,
                     "source": header.source_ref
                 })
                 documents.append(text_chunk)
@@ -96,7 +107,11 @@ class IndexerAgent:
                     chunk_id=chunk_id,
                     text=text_chunk,
                     vector_id=chunk_id,
-                    section_name=section.name
+                    section_name=section.name,
+                    page_hint=page_hint,
+                    section_ordinal=section_ordinal,
+                    chunk_ordinal=chunk_ordinal,
+                    chunk_id_version=CHUNK_ID_VERSION,
                 ))
         
         # Batch upsert to Chroma
