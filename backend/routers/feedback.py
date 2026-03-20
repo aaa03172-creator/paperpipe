@@ -11,9 +11,14 @@ logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 FEEDBACK_FILE = Path("storage/feedback.jsonl")
+_feedback_retriever: FeedbackRetriever | None = None
 
-# Singleton or instantiated per request
-feedback_retriever = FeedbackRetriever()
+
+def _get_feedback_retriever() -> FeedbackRetriever:
+    global _feedback_retriever
+    if _feedback_retriever is None:
+        _feedback_retriever = FeedbackRetriever()
+    return _feedback_retriever
 
 @router.post("")
 async def submit_feedback(feedback: FeedbackCase):
@@ -33,7 +38,7 @@ async def submit_feedback(feedback: FeedbackCase):
 
         # [NEW] Dynamic Few-Shot Injection: Index to ChromaDB if accepted
         if feedback.accepted:
-            success = feedback_retriever.add_feedback(feedback)
+            success = _get_feedback_retriever().add_feedback(feedback)
             if success:
                 logger.info(f"Feedback {feedback.feedback_id} from run {feedback.run_id} indexed for future few-shot injection.")
             else:

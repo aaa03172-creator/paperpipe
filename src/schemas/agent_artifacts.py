@@ -82,6 +82,10 @@ class DocumentChunk(BaseModel):
     vector_id: Optional[str] = None 
     section_name: str
     embedding: Optional[List[float]] = None
+    page_hint: Optional[int] = Field(None, description="0-indexed page hint when known")
+    section_ordinal: Optional[int] = Field(None, description="1-indexed section position in the source document")
+    chunk_ordinal: Optional[int] = Field(None, description="1-indexed chunk position within the section")
+    chunk_id_version: Optional[str] = Field(None, description="Chunk-id strategy label for downstream compatibility")
 
 class IndexArtifact(BaseModel):
     doc_id: str
@@ -99,19 +103,48 @@ class EvidenceSpan(BaseModel):
     Evidence location within the document.
     Updated for Milestone 5 Strict Compliance.
     """
-    page: Optional[int] = Field(0, description="0-indexed PDF page number")
+    page: Optional[int] = Field(None, description="0-indexed PDF page number")
     chunk_id: Optional[str] = Field("unknown", description="Standard chunk_id from DocumentArtifact")
     char_start: Optional[int] = Field(None, description="Start offset in chunk")
     char_end: Optional[int] = Field(None, description="End offset in chunk")
     
     # Text Content
-    raw_text: str = Field(..., description="Extracted raw text or table caption")
+    raw_text: Optional[str] = Field(None, description="Extracted raw text or table caption")
     quote: Optional[str] = Field(None, description="Short excerpt (recommended < 25 words)")
     rationale: Optional[str] = Field(None, description="MANDATORY: Why this evidence supports the claim (1-2 sentences)")
 
     # Backwards compatibility fields (Optional)
     section: Optional[str] = None
     source_span: Optional[List[int]] = None
+
+    @model_validator(mode="after")
+    def validate_evidence_payload(self):
+        self.raw_text = (self.raw_text or "").strip() or None
+        self.table_id = (self.table_id or "").strip() or None
+        self.cell_id = (self.cell_id or "").strip() or None
+
+        has_raw_text = self.raw_text is not None
+        has_table_ref = self.table_id is not None or self.cell_id is not None
+        if has_table_ref and (self.table_id is None or self.cell_id is None):
+            raise ValueError("EvidenceSpan table evidence requires both table_id and cell_id")
+        if not has_raw_text and not (self.table_id and self.cell_id):
+            raise ValueError("EvidenceSpan requires raw_text or a table_id/cell_id pair")
+
+        if self.bbox_pdf is not None:
+            if len(self.bbox_pdf) != 4:
+                raise ValueError("EvidenceSpan bbox_pdf must contain exactly four coordinates")
+            x0, y0, x1, y1 = self.bbox_pdf
+            if min(x0, y0, x1, y1) < 0:
+                raise ValueError("EvidenceSpan bbox_pdf coordinates must be non-negative")
+            if x0 > x1 or y0 > y1:
+                raise ValueError("EvidenceSpan bbox_pdf must satisfy x0<=x1 and y0<=y1")
+
+        if self.bbox_pct is not None:
+            required_keys = {"left", "top", "width", "height"}
+            if not required_keys.issubset(self.bbox_pct):
+                raise ValueError("EvidenceSpan bbox_pct must include left, top, width, and height")
+
+        return self
 
 class ScientificClaim(BaseModel):
     claim_id: str = Field(..., description="Unique ID (e.g. CLM-001)")
@@ -120,6 +153,8 @@ class ScientificClaim(BaseModel):
     evidence_spans: List[EvidenceSpan] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
     confidence: float = Field(..., ge=0, le=1.0)
+    unknown: bool = False
+    unknown_reason: Optional[str] = None
 
     @field_validator("type", mode="before")
     @classmethod
@@ -130,6 +165,13 @@ class ScientificClaim(BaseModel):
         if v == "modeling":
             return "methods"
         return v
+
+    @model_validator(mode="after")
+    def normalize_unknown(self):
+        self.unknown_reason = (self.unknown_reason or "").strip() or None
+        if self.unknown and self.unknown_reason is None:
+            self.unknown_reason = "UNSPECIFIED"
+        return self
     
 class ClaimSet(BaseModel):
     doc_id: str
