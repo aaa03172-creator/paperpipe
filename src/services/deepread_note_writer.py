@@ -42,8 +42,10 @@ def build_deepread_markdown(model_name: str, claims_set: ClaimSet, stats_md: str
         md_output += f"- **Confidence**: {claim.confidence}\n"
         if claim.evidence_spans:
             span = claim.evidence_spans[0]
-            evidence_text = span.quote if span.quote else span.raw_text
-            section_name = span.section if span.section else "Page " + str(span.page)
+            evidence_text = span.quote or span.raw_text or (
+                f"Table {span.table_id}, cell {span.cell_id}" if span.table_id and span.cell_id else "Evidence unavailable"
+            )
+            section_name = span.section or (f"Page {span.page}" if span.page is not None else "Unknown")
             md_output += f"- **Evidence**: \"{evidence_text}\" (Section: {section_name})\n"
         if claim.limitations:
             md_output += f"- **Limitations**: {', '.join(claim.limitations)}\n"

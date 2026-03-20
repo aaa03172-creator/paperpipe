@@ -33,6 +33,7 @@ class Limits(BaseModel):
 
 class Profile(BaseModel):
     id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    revision: int = Field(default=0, ge=0)
     title: str
     enabled: bool = True
     schedule: Literal["daily", "weekly", "manual"] = "daily"

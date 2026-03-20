@@ -1,13 +1,33 @@
 import sqlite3
 import json
 import logging
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from src.services.runtime_paths import state_db_path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("storage/state.db")
+DB_PATH = state_db_path()
+_IMPORTED_DB_PATH = Path(DB_PATH)
+
+
+def get_db_path() -> Path:
+    global DB_PATH
+    env_value = os.getenv("PAPERPIPE_DB_PATH")
+    if env_value:
+        resolved = Path(env_value).expanduser().resolve()
+        DB_PATH = resolved
+        return resolved
+
+    configured = Path(DB_PATH).expanduser().resolve()
+    if configured != _IMPORTED_DB_PATH:
+        return configured
+
+    resolved = state_db_path()
+    DB_PATH = resolved
+    return resolved
 
 
 def _get_paper_columns(cursor: sqlite3.Cursor) -> set[str]:
@@ -25,8 +45,9 @@ def _paper_lookup_conditions(columns: set[str]) -> list[str]:
 
 def init_db():
     """Initialize runtime tables and apply lightweight compatibility migrations."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -37,6 +58,8 @@ def init_db():
             run_id TEXT,
             paper_id TEXT,
             persona_id TEXT DEFAULT 'default',
+            reasoning_persona TEXT,
+            profile_id TEXT,
             run_verify INTEGER DEFAULT 0,
             clean_reindex INTEGER DEFAULT 0,
             status TEXT DEFAULT 'queued',
@@ -57,10 +80,68 @@ def init_db():
     existing_cols = {row[1] for row in cursor.fetchall()}
     if "persona_id" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN persona_id TEXT DEFAULT 'default'")
+    if "reasoning_persona" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN reasoning_persona TEXT")
+    if "profile_id" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN profile_id TEXT")
     if "run_verify" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
     if "clean_reindex" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN clean_reindex INTEGER DEFAULT 0")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS execution_runs (
+            run_id TEXT PRIMARY KEY,
+            paper_id TEXT,
+            trigger_source TEXT,
+            pipeline_profile TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TEXT,
+            finished_at TEXT,
+            params_json TEXT,
+            metrics_json TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_events (
+            event_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            run_id TEXT,
+            ts TEXT NOT NULL,
+            level TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            payload_json TEXT,
+            FOREIGN KEY(job_id) REFERENCES jobs(job_id)
+        )
+        """
+    )
+    cursor.execute("PRAGMA table_info(job_events)")
+    job_event_cols = {row[1] for row in cursor.fetchall()}
+    if "run_id" not in job_event_cols:
+        cursor.execute("ALTER TABLE job_events ADD COLUMN run_id TEXT")
+    if "payload_json" not in job_event_cols:
+        cursor.execute("ALTER TABLE job_events ADD COLUMN payload_json TEXT")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_actions (
+            action_id TEXT PRIMARY KEY,
+            ts TEXT NOT NULL,
+            paper_id TEXT,
+            action_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            payload_json TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_execution_runs_paper ON execution_runs(paper_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_run ON job_events(run_id, ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_actions_paper ON user_actions(paper_id, ts)")
 
     # Lightweight papers migration used by downloader metrics/dashboard.
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='papers'")
@@ -69,6 +150,8 @@ def init_db():
             paper_cols = _get_paper_columns(cursor)
             if "download_attempts" not in paper_cols:
                 cursor.execute("ALTER TABLE papers ADD COLUMN download_attempts TEXT")
+            if "issues_state" not in paper_cols:
+                cursor.execute("ALTER TABLE papers ADD COLUMN issues_state TEXT")
         except sqlite3.OperationalError:
             pass
 
@@ -108,9 +191,11 @@ def init_db():
     conn.close()
 
 def get_db_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -171,6 +256,7 @@ def save_paper_state(
     feedback_json: Optional[str] = None,
     download_attempts: Optional[List[Dict[str, Any]]] = None,
     status: Optional[str] = None,
+    issues_state: Optional[str] = None,
 ) -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -248,6 +334,10 @@ def save_paper_state(
             insert_cols.append("download_attempts")
             insert_vals.append(attempts_payload)
             update_set.append("download_attempts=excluded.download_attempts")
+        if "issues_state" in columns and issues_state is not None:
+            insert_cols.append("issues_state")
+            insert_vals.append(issues_state)
+            update_set.append("issues_state=excluded.issues_state")
 
         if not insert_cols:
             return
@@ -371,6 +461,7 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
     new_count = 0
     conn = get_db_connection()
     cursor = conn.cursor()
+    paper_columns = _get_paper_columns(cursor)
 
     for item in items:
         paper_id = item.get('citationKey')
@@ -411,10 +502,31 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
         else:
             # Insert new
             try:
-                cursor.execute("""
-                    INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
-                    VALUES (?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (paper_id, title, summary, pdf_path))
+                if "issues_state" in paper_columns:
+                    cursor.execute(
+                        """
+                        INSERT INTO papers (
+                            paper_id,
+                            title,
+                            summary,
+                            status,
+                            issues_state,
+                            pdf_path,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (?, ?, ?, 'NEW', 'unavailable', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        (paper_id, title, summary, pdf_path),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
+                        VALUES (?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        (paper_id, title, summary, pdf_path),
+                    )
                 new_count += 1
             except sqlite3.IntegrityError:
                 pass # Should not happen given check above, but safe to ignore
@@ -458,22 +570,29 @@ def update_paper_status(paper_id: str, new_status: str, updates: Optional[Dict[s
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
-    params = [new_status]
-    
-    if updates:
-        for key, value in updates.items():
-            fields.append(f"{key} = ?")
-            params.append(value)
-    
-    params.append(paper_id)
-    
-    query = f"UPDATE papers SET {', '.join(fields)} WHERE paper_id = ?"
-    
-    cursor.execute(query, params)
-    conn.commit()
-    conn.close()
+    try:
+        fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+        params = [new_status]
+
+        if updates:
+            allowed_update_columns = _get_paper_columns(cursor) - {"paper_id", "status", "updated_at"}
+            invalid_keys = sorted(key for key in updates if key not in allowed_update_columns)
+            if invalid_keys:
+                raise ValueError(
+                    "Unsupported paper update columns: " + ", ".join(invalid_keys)
+                )
+            for key, value in updates.items():
+                fields.append(f"{key} = ?")
+                params.append(value)
+
+        params.append(paper_id)
+
+        query = f"UPDATE papers SET {', '.join(fields)} WHERE paper_id = ?"
+
+        cursor.execute(query, params)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_run_stats_table() -> None:

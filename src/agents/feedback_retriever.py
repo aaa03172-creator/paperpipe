@@ -38,7 +38,8 @@ class FeedbackRetriever:
         self.embedding_model = embedding_model
         self.collection_name = collection_name
         self.min_similarity = min_similarity
-        self.adapter = OllamaModelAdapter()
+        self.adapter = None
+        self._adapter_init_failed = False
 
         persist_path = "storage/feedback_index"
         try:
@@ -53,13 +54,30 @@ class FeedbackRetriever:
         self._index_dir.mkdir(parents=True, exist_ok=True)
         self._index_file = self._index_dir / f"{self.collection_name}.jsonl"
 
+    def _get_adapter(self):
+        if self.adapter is not None:
+            return self.adapter
+        if self._adapter_init_failed:
+            return None
+        try:
+            self.adapter = OllamaModelAdapter()
+        except Exception as exc:
+            self._adapter_init_failed = True
+            logger.warning("FeedbackRetriever adapter init failed; retrieval/indexing disabled: %s", exc)
+            return None
+        return self.adapter
+
     def add_feedback(self, case: FeedbackCase) -> bool:
         text_to_embed = (case.user_correction or "").strip()
         if not text_to_embed:
             logger.warning("FeedbackCase has no user_correction. Skipping index.")
             return False
 
-        embedding = self.adapter.embed(text_to_embed, model=self.embedding_model)
+        adapter = self._get_adapter()
+        if adapter is None:
+            return False
+
+        embedding = adapter.embed(text_to_embed, model=self.embedding_model)
         if not embedding:
             logger.error("Failed to embed feedback for paper_id=%s run_id=%s", case.paper_id, case.run_id)
             return False
@@ -89,7 +107,11 @@ class FeedbackRetriever:
         if not query_text:
             return []
 
-        query_embedding = self.adapter.embed(query_text, model=self.embedding_model)
+        adapter = self._get_adapter()
+        if adapter is None:
+            return []
+
+        query_embedding = adapter.embed(query_text, model=self.embedding_model)
         if not query_embedding:
             logger.error("Failed to embed feedback query.")
             return []
