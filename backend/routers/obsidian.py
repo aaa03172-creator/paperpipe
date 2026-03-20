@@ -11,11 +11,26 @@ from typing import Iterator
 
 from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
-from src.schemas.ops import ArtifactFileEntry, ObsidianArtifactsResponse
+from src.schemas.ops import (
+    ArtifactFileEntry,
+    ObsidianArtifactsResponse,
+    ObsidianMirrorClaim,
+    ObsidianMirrorResponse,
+    ObsidianMirrorStatCheck,
+)
+from src.services.event_log import log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
+from src.services.runtime_paths import artifact_run_dir
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
+
+
+def _best_effort_log_user_action(*, paper_id: str | None, action_type: str, source: str, payload: dict | None = None) -> None:
+    try:
+        log_user_action(paper_id=paper_id, action_type=action_type, source=source, payload=payload)
+    except Exception:
+        pass
 
 class SyncRequest(BaseModel):
     paper_id: str
@@ -34,7 +49,7 @@ except Exception:  # pragma: no cover - non-POSIX fallback
     fcntl = None
 
 def _load_artifact(paper_id: str, run_id: str, filename: str):
-    path = Path(f"storage/artifacts/{paper_id}/{run_id}/{filename}")
+    path = artifact_run_dir(paper_id, run_id) / filename
     if not path.exists():
         return None
     with open(path, "r") as f:
@@ -55,6 +70,27 @@ def _load_claimset_for_obsidian(paper_id: str, run_id: str) -> dict | None:
         if data:
             return data
     return None
+
+
+def _display_page(page: int | None) -> int | None:
+    if not isinstance(page, int) or page < 0:
+        return None
+    return page + 1
+
+
+def _find_note_candidates(vault_path: Path, paper_id: str) -> list[Path]:
+    candidates = list(vault_path.rglob(f"*{paper_id}*.md"))
+    if not candidates and "/" in paper_id:
+        clean_id = paper_id.replace("/", "_")
+        candidates = list(vault_path.rglob(f"*{clean_id}*.md"))
+    return sorted(candidates)
+
+
+def _find_existing_note_path(vault_path: Path, paper_id: str) -> Path | None:
+    candidates = _find_note_candidates(vault_path, paper_id)
+    if not candidates:
+        return None
+    return candidates[0]
 
 
 def _merge_agent_block(original_content: str, new_content: str) -> str:
@@ -132,7 +168,7 @@ async def get_obsidian_artifacts(
     paper_id: str = Query(..., min_length=1),
     run_id: str = Query(..., min_length=1),
 ):
-    run_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+    run_dir = artifact_run_dir(paper_id, run_id)
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail=f"Artifacts not found for paper_id={paper_id}, run_id={run_id}")
 
@@ -150,7 +186,7 @@ async def get_obsidian_artifacts(
         stats_report=_artifact_entry(run_dir / "stats_report.json"),
     )
 
-def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
+def _format_markdown(claim_set_data: dict | None, stats_report_data: dict | None) -> str:
     """Format Agent Output into verified Markdown."""
     md = []
     md.append(f"{MARKER_START}\n")
@@ -165,8 +201,13 @@ def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
                 icon = "🟢" if c.confidence > 0.8 else "🟡" if c.confidence > 0.5 else "🔴"
                 md.append(f"#### {icon} {c.type.title()}: {c.statement}\n")
                 if c.evidence_spans:
-                    quote = c.evidence_spans[0].quote or c.evidence_spans[0].raw_text
-                    md.append(f"> \"*{quote}*\" (Page {c.evidence_spans[0].page})\n")
+                    primary = c.evidence_spans[0]
+                    quote = primary.quote or primary.raw_text
+                    page = _display_page(primary.page)
+                    if page is not None:
+                        md.append(f"> \"*{quote}*\" (Page {page})\n")
+                    else:
+                        md.append(f"> \"*{quote}*\"\n")
                 if c.limitations:
                     md.append(f"**Limitations**: {', '.join(c.limitations)}\n")
                 md.append("\n")
@@ -190,6 +231,88 @@ def _format_markdown(claim_set_data: dict, stats_report_data: dict) -> str:
     md.append(f"\n{MARKER_END}")
     return "".join(md)
 
+
+def _build_mirror_claims(claim_set_data: dict | None) -> list[ObsidianMirrorClaim]:
+    if not claim_set_data:
+        return []
+    try:
+        parsed = ClaimSet(**claim_set_data)
+    except Exception:
+        return []
+
+    items: list[ObsidianMirrorClaim] = []
+    for claim in parsed.claims:
+        primary = claim.evidence_spans[0] if claim.evidence_spans else None
+        items.append(
+            ObsidianMirrorClaim(
+                claim_id=claim.claim_id,
+                claim_type=claim.type,
+                statement=claim.statement,
+                confidence=claim.confidence,
+                evidence_quote=(
+                    primary.quote if primary and primary.quote else (primary.raw_text if primary else None)
+                ),
+                evidence_page=(_display_page(primary.page) if primary else None),
+                evidence_chunk_id=(primary.chunk_id if primary else None),
+                evidence_grounded=(getattr(primary, "grounded", None) if primary else None),
+                evidence_resolution=(getattr(primary, "resolution", None) if primary else None),
+                limitations=list(claim.limitations or []),
+            )
+        )
+    return items
+
+
+def _build_mirror_stats(stats_report_data: dict | None) -> list[ObsidianMirrorStatCheck]:
+    if not stats_report_data:
+        return []
+    try:
+        parsed = StatsReport(**stats_report_data)
+    except Exception:
+        return []
+
+    items: list[ObsidianMirrorStatCheck] = []
+    for check in parsed.checks:
+        primary_evidence = check.evidence[0] if check.evidence else None
+        items.append(
+            ObsidianMirrorStatCheck(
+                check_id=check.check_id,
+                test_type=check.test_type,
+                verdict=(check.verdict.value if hasattr(check.verdict, "value") else str(check.verdict)),
+                claim_id=check.check_id,
+                evidence_page=(_display_page(primary_evidence.page) if primary_evidence else None),
+                evidence_chunk_id=(primary_evidence.chunk_id if primary_evidence else None),
+                evidence_grounded=(getattr(primary_evidence, "grounded", None) if primary_evidence else None),
+                evidence_resolution=(getattr(primary_evidence, "resolution", None) if primary_evidence else None),
+                hypothesis=check.hypothesis,
+                notes=check.notes,
+                decision_error=bool(check.decision_error),
+            )
+        )
+    return items
+
+
+@router.get("/mirror", response_model=ObsidianMirrorResponse)
+async def get_obsidian_mirror(
+    paper_id: str = Query(..., min_length=1),
+    run_id: str = Query(..., min_length=1),
+):
+    claim_set = _load_claimset_for_obsidian(paper_id, run_id)
+    stats_report = _load_artifact(paper_id, run_id, "stats_report.json")
+    if not claim_set and not stats_report:
+        raise HTTPException(status_code=404, detail="No artifacts found for this run.")
+    claims = _build_mirror_claims(claim_set)
+    stats_checks = _build_mirror_stats(stats_report)
+
+    return ObsidianMirrorResponse(
+        paper_id=paper_id,
+        run_id=run_id,
+        generated_markdown=_format_markdown(claim_set, stats_report),
+        has_claimset=bool(claim_set),
+        has_stats_report=bool(stats_report),
+        claims=claims,
+        stats_checks=stats_checks,
+    )
+
 @router.post("/sync")
 async def sync_to_obsidian(req: SyncRequest):
     config = load_config()
@@ -207,27 +330,15 @@ async def sync_to_obsidian(req: SyncRequest):
     new_content = _format_markdown(claim_set, stats_report)
     
     # 3. Find Note
-    # Heuristic: Look for any .md file with paper_id in name in vault
-    # Assuming paper_id is citekey-like
-    target_file = None
-    
-    # Try exact match first
-    # Or search
-    candidates = list(vault_path.rglob(f"*{req.paper_id}*.md"))
-    if not candidates and "/" in req.paper_id:
-             clean_id = req.paper_id.replace("/", "_")
-             candidates = list(vault_path.rglob(f"*{clean_id}*.md"))
-             
-    if not candidates:
-        # Create new note in Inbox if not found
+    target_file = _find_existing_note_path(vault_path, req.paper_id)
+    if not target_file:
+        # Create a new note in Inbox if no matching note is found.
         inbox_dir = vault_path / "Inbox"
         inbox_dir.mkdir(parents=True, exist_ok=True)
         target_file = inbox_dir / f"{req.paper_id}.md"
         with _note_file_lock(target_file):
             if not target_file.exists():
                 _atomic_write_text(target_file, f"# {req.paper_id}\n\nCreated by Lattice.\n\n")
-    else:
-        target_file = candidates[0]
         
     # 4. Inject Content
     try:
@@ -237,7 +348,18 @@ async def sync_to_obsidian(req: SyncRequest):
                 original_content = target_file.read_text(encoding="utf-8")
             final_content = _merge_agent_block(original_content, new_content)
             _atomic_write_text(target_file, final_content)
-            
+
+        _best_effort_log_user_action(
+            paper_id=req.paper_id,
+            action_type="obsidian_sync",
+            source="obsidian",
+            payload={
+                "run_id": req.run_id,
+                "note_path": _public_path(str(target_file)),
+                "has_claimset": bool(claim_set),
+                "has_stats_report": bool(stats_report),
+            },
+        )
         return {"status": "synced", "file": _public_path(str(target_file)), "message": "Obsidian note updated."}
         
     except Exception as e:

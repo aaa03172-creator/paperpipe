@@ -1,4 +1,5 @@
 from src.services.pr_scope_guard import (
+    DEFAULT_ALLOWED_DOCS_WITH_CODE,
     classify_scope,
     classify_title_scope,
     infer_title_policy,
@@ -44,6 +45,25 @@ def test_classify_scope_allows_mixed_scope_for_queue_sync_doc():
     assert report.is_allowed is True
     assert report.allowed_doc_files == ["docs/Pending_PR_Queue.md"]
     assert report.blocked_doc_files == []
+
+
+def test_classify_scope_allows_backend_api_packaging_docs_with_code():
+    doc_files = [
+        "docs/API_CHAT_CONTRACT.md",
+        "docs/MEETING_PACK.md",
+        "docs/reports/Backend_API_PR_Packaging_2026-03-18.md",
+    ]
+    report = classify_scope(["src/processor.py", *doc_files])
+    assert report.has_mixed_scope is True
+    assert report.is_allowed is True
+    assert report.allowed_doc_files == sorted(doc_files)
+    assert report.blocked_doc_files == []
+
+
+def test_default_allowed_docs_with_code_stays_explicit():
+    assert "docs/Pending_PR_Queue.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
+    assert "docs/MEETING_PACK.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
+    assert "docs/reports/Current_Baseline_Recheck_2026-03-18.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
 
 
 def test_infer_title_policy_detects_docs_and_test_prefixes():
