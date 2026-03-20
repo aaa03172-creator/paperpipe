@@ -1,5 +1,13 @@
 # Pending PR Queue
 
+## Reference Guardrails
+- `OpenDataLoader PDF`
+  - Keep this as a bounded parser-side reference only. If reopened later, use a hard-document subset, batch-first execution, and sidecar-only outputs; do not treat it as a parser replacement or canonical schema change.
+  - Reference notes:
+    - `docs/archive/OpenDataLoader_PDF_Fit_Review_2026-03-20.md`
+    - `docs/archive/OpenDataLoader_PDF_Hard_Doc_Pilot_Spec_2026-03-20.md`
+    - `docs/archive/OpenDataLoader_PDF_Hard_Doc_Manifest_Spec_2026-03-20.md`
+
 ## Recently Completed (Runtime)
 - `PR-BE-JobContract-Hardening`
 - `PR-BE-Queue-Claim-Atomic`
