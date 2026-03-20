@@ -204,16 +204,21 @@ def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
 def list_job_events(job_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
     connection = get_db_connection()
     try:
-        rows = connection.execute(
-            """
-            SELECT event_id, job_id, run_id, ts, level, event_type, message, payload_json
-            FROM job_events
-            WHERE job_id = ?
-            ORDER BY ts ASC, rowid ASC
-            LIMIT ?
-            """,
-            (job_id, limit),
-        ).fetchall()
+        try:
+            rows = connection.execute(
+                """
+                SELECT event_id, job_id, run_id, ts, level, event_type, message, payload_json
+                FROM job_events
+                WHERE job_id = ?
+                ORDER BY ts ASC, rowid ASC
+                LIMIT ?
+                """,
+                (job_id, limit),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table: job_events" in str(exc).lower():
+                return []
+            raise
         return [dict(row) for row in rows]
     finally:
         connection.close()
