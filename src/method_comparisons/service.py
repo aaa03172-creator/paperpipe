@@ -31,7 +31,7 @@ from src.schemas.method_comparison import (
     MethodComparisonRequest,
     build_method_comparison_columns,
 )
-from src.skills.storage import load_structured_state, resolve_note_path, safe_read_text, split_frontmatter
+from src.skills.storage import resolve_note_path, resolve_note_slug_by_paper_id, safe_read_text, split_frontmatter
 
 
 @dataclass(frozen=True)
@@ -159,11 +159,11 @@ def _resolve_paper_slug(
         return override, None
 
     if vault_path is not None:
-        slug = _find_slug_by_candidate_id(vault_path, paper_id)
+        slug = resolve_note_slug_by_paper_id(vault_path, paper_id)
         if slug:
             return slug, None
         if source.claimset_doc_id:
-            slug = _find_slug_by_candidate_id(vault_path, source.claimset_doc_id)
+            slug = resolve_note_slug_by_paper_id(vault_path, source.claimset_doc_id)
             if slug:
                 return slug, None
 
@@ -219,49 +219,6 @@ def _new_method_comparison_id(
 ) -> str:
     digest = sha1("|".join([*paper_ids, *field_ids]).encode("utf-8")).hexdigest()[:8]
     return f"methodcmp_{now.strftime('%Y%m%dT%H%M%SZ')}_{digest}"
-
-
-def _find_slug_by_candidate_id(vault_path: Path, candidate_id: str) -> str | None:
-    target_variants = _identifier_variants(candidate_id)
-    if not target_variants:
-        return None
-    sidecar_root = vault_path / ".pp"
-    if not sidecar_root.exists():
-        return None
-
-    direct_state = load_structured_state(vault_path, candidate_id, None)
-    if direct_state is not None:
-        return candidate_id
-
-    for state_path in sorted(sidecar_root.glob("*/state.json")):
-        slug = state_path.parent.name
-        variants = {slug.lower()}
-        state = load_structured_state(vault_path, slug, None)
-        if state is not None:
-            variants.update(_identifier_variants(state.paper_slug))
-        note_path = resolve_note_path(vault_path, slug)
-        if note_path is not None:
-            frontmatter, _body = split_frontmatter(safe_read_text(note_path))
-            for key in ("id", "doi"):
-                variants.update(_identifier_variants(frontmatter.get(key)))
-        if target_variants & variants:
-            return slug
-    return None
-
-
-def _identifier_variants(value: Any) -> set[str]:
-    text = str(value or "").strip().lower()
-    if not text:
-        return set()
-    variants = {text}
-    if text.startswith("doi:"):
-        variants.add(text.split(":", 1)[1].strip())
-    if "doi.org/" in text:
-        variants.add(text.split("doi.org/", 1)[1].strip("/"))
-    if text.startswith("zotero:"):
-        variants.add(text.split(":", 1)[1].strip())
-    return {variant for variant in variants if variant}
-
 
 def _paper_title(vault_path: Path, slug: str) -> str:
     note_path = resolve_note_path(vault_path, slug)

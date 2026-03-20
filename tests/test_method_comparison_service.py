@@ -146,6 +146,80 @@ def test_generate_method_comparison_resolves_title_from_db_when_available(tmp_pa
     assert result.comparison.rows[0].title == "DB Title"
 
 
+def test_generate_method_comparison_resolves_slug_via_normalized_note_identifier(tmp_path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "method_comparisons"
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    _write_note(vault_path, "alpha-note", note_id="doi:10.1000/abc", title="Alpha Trial")
+    _write_claimset(
+        artifacts_root / "doi101000abc" / "run_001",
+        {
+            "doc_id": "doi101000abc",
+            "claims": [
+                {
+                    "claim_id": "CLM-001",
+                    "statement": "Intervention: Ketone ester.",
+                    "evidence_spans": [{"quote": "Intervention: Ketone ester.", "page": 1}],
+                }
+            ],
+        },
+    )
+
+    result = generate_method_comparison(
+        request=MethodComparisonRequest(
+            comparison_id="methodcmp_normalized_slug",
+            paper_ids=["doi101000abc"],
+            field_ids=["intervention"],
+        ),
+        root=output_root,
+        artifacts_root=artifacts_root,
+        vault_path=vault_path,
+    )
+
+    assert result.comparison.rows[0].paper_slug == "alpha-note"
+    assert result.comparison.rows[0].title == "Alpha Trial"
+
+
+def test_generate_method_comparison_ignores_non_paper_note_id_collisions(tmp_path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "method_comparisons"
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    (vault_path / "aaa-scratch.md").write_text(
+        "---\nid: doi:10.1000/abc\n---\n\n# Scratch note\n",
+        encoding="utf-8",
+    )
+    _write_note(vault_path, "paper-alpha", note_id="doi:10.1000/abc", title="Alpha Trial")
+    _write_claimset(
+        artifacts_root / "doi101000abc" / "run_001",
+        {
+            "doc_id": "doi101000abc",
+            "claims": [
+                {
+                    "claim_id": "CLM-001",
+                    "statement": "Intervention: Ketone ester.",
+                    "evidence_spans": [{"quote": "Intervention: Ketone ester.", "page": 1}],
+                }
+            ],
+        },
+    )
+
+    result = generate_method_comparison(
+        request=MethodComparisonRequest(
+            comparison_id="methodcmp_note_collision",
+            paper_ids=["doi101000abc"],
+            field_ids=["intervention"],
+        ),
+        root=output_root,
+        artifacts_root=artifacts_root,
+        vault_path=vault_path,
+    )
+
+    assert result.comparison.rows[0].paper_slug == "paper-alpha"
+    assert result.comparison.rows[0].title == "Alpha Trial"
+
+
 def test_generate_method_comparison_requires_slug_resolution_without_explicit_fallback(tmp_path) -> None:
     artifacts_root = tmp_path / "artifacts"
     output_root = tmp_path / "method_comparisons"
