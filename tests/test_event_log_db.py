@@ -242,7 +242,6 @@ def test_list_run_events_returns_empty_for_legacy_job_events_without_run_id(tmp_
     finally:
         db_utils.DB_PATH = original_db_path
 
-
 def test_get_execution_run_params_returns_empty_for_legacy_db_without_execution_runs_table(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original_db_path = db_utils.DB_PATH
@@ -254,6 +253,21 @@ def test_get_execution_run_params_returns_empty_for_legacy_db_without_execution_
         conn.close()
 
         assert get_execution_run_params("run-legacy-001") == {}
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_list_run_events_returns_empty_when_job_events_table_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        assert list_run_events("run-missing-table-001") == []
     finally:
         db_utils.DB_PATH = original_db_path
 
