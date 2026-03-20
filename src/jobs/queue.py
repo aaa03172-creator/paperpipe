@@ -1,14 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 import os
 import sqlite3
-import uuid
 from pathlib import Path
 from typing import Optional, Dict, List
 
 from src.db_utils import get_db_connection
 from src.jobs.schemas import JobStatus
+from src.persona_modes import normalize_persona_selection
+from src.services.identity import new_job_id, new_run_id
+from src.services.event_log import ensure_execution_run, log_job_event, update_execution_run
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +64,19 @@ class JobQueue:
         clean_reindex: bool = False,
         run_verify: bool = False,
         persona_id: str = "default",
+        reasoning_persona: str | None = None,
+        profile_id: str | None = None,
+        trigger_source: str = "api",
+        pipeline_profile: str = "deepread",
     ) -> str:
         """Enqueue a new job for the given paper_id."""
-        job_id = str(uuid.uuid4())
-        run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        job_id = new_job_id()
+        run_id = new_run_id()
+        selection = normalize_persona_selection(
+            persona_id=persona_id,
+            reasoning_persona=reasoning_persona,
+            profile_id=profile_id,
+        )
         
         conn = get_db_connection()
         try:
@@ -104,9 +115,45 @@ class JobQueue:
                     )
 
             cursor.execute("""
-                INSERT INTO jobs (job_id, run_id, paper_id, persona_id, run_verify, clean_reindex, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
-            """, (job_id, run_id, paper_id, persona_id, int(bool(run_verify)), int(bool(clean_reindex))))
+                INSERT INTO jobs (
+                    job_id, run_id, paper_id, persona_id, reasoning_persona, profile_id,
+                    run_verify, clean_reindex, status, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', CURRENT_TIMESTAMP)
+            """, (
+                job_id,
+                run_id,
+                paper_id,
+                selection.persona_id,
+                selection.reasoning_persona,
+                selection.profile_id,
+                int(bool(run_verify)),
+                int(bool(clean_reindex)),
+            ))
+            ensure_execution_run(
+                run_id=run_id,
+                paper_id=paper_id,
+                trigger_source=trigger_source,
+                pipeline_profile=pipeline_profile,
+                status="queued",
+                params={
+                    "persona_id": selection.persona_id,
+                    "reasoning_persona": selection.reasoning_persona,
+                    "profile_id": selection.profile_id,
+                    "run_verify": bool(run_verify),
+                    "clean_reindex": bool(clean_reindex),
+                },
+                conn=conn,
+            )
+            log_job_event(
+                job_id=job_id,
+                run_id=run_id,
+                level="INFO",
+                event_type="job_enqueued",
+                message="queued",
+                payload={"status": "queued", "paper_id": paper_id},
+                conn=conn,
+            )
             conn.commit()
             logger.info(f"Enqueued job {job_id} for paper {paper_id}")
             return job_id
@@ -116,7 +163,10 @@ class JobQueue:
     def get_job(self, job_id: str) -> Optional[JobStatus]:
         conn = get_db_connection()
         try:
-            row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            try:
+                row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            except sqlite3.OperationalError:
+                return None
             if row:
                 # Convert row to dict, then handle datetime strings if needed by Pydantic
                 d = dict(row)
@@ -176,6 +226,28 @@ class JobQueue:
                 SET status = 'running', started_at = CURRENT_TIMESTAMP 
                 WHERE job_id = ?
             """, (job_id,))
+            run_row = cursor.execute(
+                "SELECT run_id, paper_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if run_row:
+                ts = datetime.now(timezone.utc).isoformat()
+                update_execution_run(
+                    run_id=str(run_row["run_id"] or ""),
+                    status="running",
+                    started_at=ts,
+                    conn=conn,
+                )
+                log_job_event(
+                    job_id=job_id,
+                    run_id=str(run_row["run_id"] or ""),
+                    level="INFO",
+                    event_type="job_started",
+                    message="running",
+                    payload={"status": "running", "paper_id": run_row["paper_id"]},
+                    ts=ts,
+                    conn=conn,
+                )
             conn.commit()
             
             # 4. Return full object
@@ -201,6 +273,22 @@ class JobQueue:
                 
             params.append(job_id)
             conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE job_id = ?", params)
+            if "status" in updates:
+                row = conn.execute(
+                    "SELECT run_id FROM jobs WHERE job_id = ?",
+                    (job_id,),
+                ).fetchone()
+                if row and row["run_id"]:
+                    finished_at = None
+                    status = str(updates["status"])
+                    if status in {"completed", "failed", "cancelled"}:
+                        finished_at = str(updates.get("finished_at") or datetime.now(timezone.utc).isoformat())
+                    update_execution_run(
+                        run_id=str(row["run_id"]),
+                        status=status,
+                        finished_at=finished_at,
+                        conn=conn,
+                    )
             conn.commit()
         finally:
             conn.close()
@@ -213,6 +301,28 @@ class JobQueue:
                 SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP
                 WHERE job_id = ? AND status IN ('queued', 'running')
             """, (job_id,))
+            row = conn.execute(
+                "SELECT run_id, paper_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if row and row["run_id"]:
+                ts = datetime.now(timezone.utc).isoformat()
+                update_execution_run(
+                    run_id=str(row["run_id"]),
+                    status="cancelled",
+                    finished_at=ts,
+                    conn=conn,
+                )
+                log_job_event(
+                    job_id=job_id,
+                    run_id=str(row["run_id"]),
+                    level="INFO",
+                    event_type="job_cancelled",
+                    message="cancelled",
+                    payload={"status": "cancelled", "paper_id": row["paper_id"]},
+                    ts=ts,
+                    conn=conn,
+                )
             conn.commit()
         finally:
             conn.close()

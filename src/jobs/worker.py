@@ -68,6 +68,8 @@ class Worker:
                 "job_id": job.job_id,
                 "paper_id": job.paper_id,
                 "persona_id": job.persona_id or "default",
+                "reasoning_persona": getattr(job, "reasoning_persona", None),
+                "profile_id": getattr(job, "profile_id", None),
                 "run_verify": bool(job.run_verify),
                 "clean_reindex": bool(getattr(job, "clean_reindex", 0)),
                 "run_id": job.run_id,
@@ -77,9 +79,15 @@ class Worker:
             try:
                 result = asyncio.run(run_deepread_job(**run_kwargs))
             except TypeError:
-                # Compatibility for patched test doubles that still use the old signature.
-                run_kwargs.pop("clean_reindex", None)
-                result = asyncio.run(run_deepread_job(**run_kwargs))
+                # Compatibility for the current runner and older patched test doubles.
+                retry_kwargs = dict(run_kwargs)
+                retry_kwargs.pop("reasoning_persona", None)
+                retry_kwargs.pop("profile_id", None)
+                try:
+                    result = asyncio.run(run_deepread_job(**retry_kwargs))
+                except TypeError:
+                    retry_kwargs.pop("clean_reindex", None)
+                    result = asyncio.run(run_deepread_job(**retry_kwargs))
 
             if result and result.get("status") == "cancelled":
                 logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
