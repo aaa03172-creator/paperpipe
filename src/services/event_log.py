@@ -239,10 +239,10 @@ def list_run_events(run_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
                 (run_id, limit),
             ).fetchall()
         except sqlite3.OperationalError as exc:
-            # Older local/E2E DB snapshots may still miss job_events entirely
-            # or still have job_events without run_id.
-            lowered = str(exc).lower()
-            if "no such table: job_events" in lowered or "no such column: run_id" in lowered:
+            # Older local/E2E DB snapshots may still be missing the table entirely
+            # or may still have job_events without run_id.
+            message = str(exc).lower()
+            if "no such table: job_events" in message or "no such column: run_id" in message:
                 return []
             raise
         return [dict(row) for row in rows]
