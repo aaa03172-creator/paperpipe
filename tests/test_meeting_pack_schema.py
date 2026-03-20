@@ -152,6 +152,7 @@ def _sample_pack() -> MeetingPack:
 def test_meeting_pack_schema_accepts_valid_example():
     pack = _sample_pack()
     assert pack.mode == "journal_club"
+    assert pack.output_mode_family == "lab_meeting"
     assert pack.readiness == "evidence_backed"
     assert pack.slides[0].evidence_refs == ["evref_01"]
     assert pack.evidence_refs[0].locator.section == "Abstract"
@@ -176,6 +177,7 @@ def test_meeting_pack_response_schema_accepts_markdown_sync():
 
     assert response.markdown_sync is not None
     assert response.markdown_sync.status == "drifted"
+    assert response.pack.output_mode_family == "lab_meeting"
 
 
 def test_meeting_pack_validation_response_schema_accepts_legacy_strategy():

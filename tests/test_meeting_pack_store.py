@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import pytest
 
 import src.meeting_packs.store as meeting_pack_store
@@ -73,6 +74,7 @@ def test_meeting_pack_store_roundtrip_creates_expected_layout(tmp_path):
     assert md_path == meeting_pack_markdown_path(pack.id, root)
     assert loaded.id == pack.id
     assert loaded.title == pack.title
+    assert loaded.output_mode_family == "lab_meeting"
     assert loaded.generation_request is not None
     assert loaded.generation_request.max_slides == 6
     assert loaded_markdown == markdown
@@ -140,3 +142,19 @@ def test_meeting_pack_store_does_not_leave_partial_new_bundle_if_markdown_write_
         save_meeting_pack_bundle(pack, "# First", root)
 
     assert list_meeting_pack_ids(root) == []
+
+
+def test_meeting_pack_store_backfills_output_mode_family_for_legacy_json(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = _sample_pack()
+    json_path = meeting_pack_json_path(pack.id, root)
+    md_path = meeting_pack_markdown_path(pack.id, root)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = pack.model_dump(mode="json")
+    payload.pop("output_mode_family", None)
+    json_path.write_text(json.dumps(payload), encoding="utf-8")
+    md_path.write_text("# Draft", encoding="utf-8")
+
+    loaded = load_meeting_pack(pack.id, root)
+
+    assert loaded.output_mode_family == "lab_meeting"

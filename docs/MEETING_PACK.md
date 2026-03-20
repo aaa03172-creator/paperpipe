@@ -139,6 +139,36 @@ Related docs:
 - pack generation may persist additive `retrieval_trace[]`, but that trace is observability metadata only and does not become scientific truth.
 - any future selector/debug inspector API must remain operational metadata only and must not be treated as scientific truth or reader-facing evidence.
 
+## Source Trace Contract
+`Meeting Pack` and paper-note detail now share the same narrow trace principle:
+- deterministic
+- path/id grounded
+- operational metadata only
+- never scientific truth by itself
+
+`Meeting Pack` side:
+- `meeting_pack.json.retrieval_trace[]`
+- `GET /meeting-packs/{pack_id}/trace`
+- intended to explain:
+  - which selector was accepted
+  - which paper slugs were matched
+  - which `state.json` paths were loaded
+  - whether a selector was deduped, resolved, or loaded
+
+paper-note detail side:
+- `GET /paper-notes/{slug}` optional `context_trace`
+- intended to explain:
+  - note load path
+  - markdown section filtering
+  - reference resolution order
+  - related-paper derivation
+  - `state.json` load vs missing
+
+Shared rule:
+- traces may justify operational behavior
+- traces may not override claim/evidence truth
+- traces should stay additive and cheap enough to persist without opening a new observability subsystem
+
 ## V1 Checklist Review (2026-03-13)
 `Meeting Pack` v1 checklist review는 `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`에 기록한다.
 
