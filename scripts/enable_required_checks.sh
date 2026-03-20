@@ -16,7 +16,7 @@ PAYLOAD="$(cat <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["e2e-mock", "e2e-backend"]
+    "contexts": ["guard", "agents-smoke", "meeting-pack-verify", "e2e-mock", "e2e-backend"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": null,
@@ -56,5 +56,8 @@ if [[ ${STATUS} -ne 0 ]]; then
 fi
 
 echo "Applied required checks on ${OWNER}/${REPO}:${BRANCH}"
+echo "- guard"
+echo "- agents-smoke"
+echo "- meeting-pack-verify"
 echo "- e2e-mock"
 echo "- e2e-backend"

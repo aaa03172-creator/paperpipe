@@ -20,3 +20,6 @@ jobs:
             --base "${{ github.event.pull_request.base.sha }}" \
             --head "${{ github.event.pull_request.head.sha }}" \
             --title "${{ github.event.pull_request.title }}"
+
+      - name: Lint docs conventions
+        run: python3 scripts/lint_docs.py
