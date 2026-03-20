@@ -143,3 +143,18 @@ Implication:
 1. Do not widen baseline-freeze work with framework migration, memory-platform work, or plugin/hook systems.
 2. Do not reopen Meeting Pack selector semantics during baseline adoption.
 3. Do not prioritize frontend preview/polish work ahead of biomedical search/evidence reliability.
+
+## 5. OpenDataLoader PDF Reopen Guardrail
+
+Treat `OpenDataLoader PDF` only as a bounded parser-side reference.
+
+- keep the current parser baseline and OCR fallback as the default path
+- reopen only if a hard-document subset shows repeatable parser-quality gains over the current baseline
+- if reopened, keep the evaluation batch-first and sidecar-only
+- do not treat Markdown/JSON output as a canonical runtime schema replacement
+
+Use these historical reference notes if that bounded parser lane is reopened:
+
+- `docs/archive/OpenDataLoader_PDF_Fit_Review_2026-03-20.md`
+- `docs/archive/OpenDataLoader_PDF_Hard_Doc_Pilot_Spec_2026-03-20.md`
+- `docs/archive/OpenDataLoader_PDF_Hard_Doc_Manifest_Spec_2026-03-20.md`

@@ -92,6 +92,8 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 현재 범위: `DocumentChunk` metadata 확장, `EvidenceSpan` text-vs-table payload/bbox sanity, `ScientificClaim.unknown*` normalization
   - 현재 검증: `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py` -> `12 passed`
   - guardrail: schema/test lane로만 열고 reader/runtime redesign으로 확장하지 않는다.
+- OpenDataLoader PDF guardrail: interpret `OpenDataLoader PDF` only as a bounded parser-side reference
+  - 이유: 현재 parser baseline과 OCR fallback을 유지하는 것이 기본값이다. 이 후보는 hard-document subset에서만 batch-first, sidecar-only pilot으로 다시 열 수 있고 parser replacement 근거로 쓰면 안 된다.
 - Guardrail note: projection-backed profile selectors are usable only when the latest screened include set maps to existing vault `state.json`
   - 이유: query/profile text만으로 pack을 만들면 `state.json` first evidence boundary가 무너진다.
 - Follow-up after that: tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
