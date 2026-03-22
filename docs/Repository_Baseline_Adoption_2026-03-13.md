@@ -18,9 +18,12 @@ As of this snapshot:
 
 This document identifies which files should be treated as repository-baseline candidates, why they matter, and in what order they should be adopted.
 
-For the executable include/exclude boundary of the actual baseline-freeze PR, use:
+Current tracked execution references:
 
-- `/Users/jangseongjin/paperpipe/docs/PR_R0_Baseline_Adoption_Manifest_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
+- `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+
+This note remains a historical repository-baseline candidate review, not the current tracked include/exclude authority.
 
 ## 1. Current Execution Baseline
 

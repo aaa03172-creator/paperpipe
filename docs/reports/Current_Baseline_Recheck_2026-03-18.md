@@ -185,7 +185,7 @@ Implication:
 
 Recent external references should remain closed unless new repository-grounded evidence justifies reopening them as bounded follow-up lanes.
 
-- `GLM-OCR` / `Docling` / `GROBID` / parser-adjacent document tools
+- `GLM-OCR` / `Docling` / `GROBID` / `OpenDataLoader PDF` / parser-adjacent document tools
   - reopen only if a hard-document subset (`scanned`, `image-based`, `table-heavy`, `text-poor`) shows a repeatable quality gain over the current parser/OCR baseline
 - `OpenAlex` / `Semantic Scholar` / source-enrichment references
   - reopen only if a bounded metadata, citation-graph, or enrichment gap appears that the current source stack and local artifacts cannot already cover cleanly
