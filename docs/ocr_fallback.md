@@ -1,5 +1,11 @@
 # OCR Fallback (PR#3)
 
+Status: Active reference  
+Date: 2026-03-09  
+Owner: Ingest/runtime maintainers  
+Canonical: `docs/ocr_fallback.md`  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 ## Goal
 - Handle scanned/partial-scanned PDFs by adding an OCR text layer before ingest.
 - Keep fail-safe behavior: no crash, never overwrite original.

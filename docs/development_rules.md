@@ -1,5 +1,10 @@
 # Development Rules & Principles (PaperPipe Legacy)
 
+Status: Legacy reference  
+Date: 2026-03-09  
+Owner: Repository maintainers  
+Canonical parent: `AGENTS.md`
+
 이 문서는 PaperPipe 프로젝트를 진행하며 정립된 **개발 원칙, 효율화 규칙, 오류 방지 가이드라인**을 정리한 것입니다. 향후 다른 프로젝트 개발 시에도 참고하여 생산성과 안정성을 유지하는 데 사용합니다.
 
 ---

@@ -1,5 +1,10 @@
-# /ux-review Report — Triage + Analysis Workbench
+# /ux-review Report — Triage + Analysis Workbench (Historical Example)
+Status: Historical example  
+Date: 2026-03-05  
+Owner: Lattice runtime maintainers  
+Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
+Use `docs/UX_REVIEW_TEMPLATE.md` and `docs/UX_REVIEW_REPORT_<flow>.md` for new reviews.  
 Date: 2026-03-05  
 Reviewer: Codex (runtime verification + code inspection)
 
@@ -137,4 +142,3 @@ Reviewer: Codex (runtime verification + code inspection)
 1. PR-1: Triage 모바일 카드화 + row action 단순화 (`TriageDashboard.tsx`)
 2. PR-2: Workbench 상단 컨트롤 그룹화/모바일 collapse (`AnalysisWorkbench.tsx`, `WorkbenchLayout.tsx`)
 3. PR-3: Timeline 중요 이벤트 summary/pinning (`TimelinePanel.tsx`)
-

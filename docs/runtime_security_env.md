@@ -1,5 +1,11 @@
 # Lattice Runtime Security Env
 
+Status: Active  
+Date: 2026-03-09  
+Owner: Runtime/security maintainers  
+Canonical runbook: `docs/runtime_security_env.md`  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 ## Recommended Local Defaults
 
 ```bash

@@ -1,5 +1,10 @@
 # Indexer Model Policy Blueprint (2026-02-18)
 
+Status: Active policy blueprint  
+Date: 2026-02-18  
+Owner: Indexing maintainers  
+Canonical: `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
+
 ## 1) Current Snapshot (as-is)
 - Branch/HEAD: `master` @ `d61cdd2`
 - `src/indexer.py` default model is currently `NeuML/pubmedbert-base-embeddings` (working tree policy realignment).

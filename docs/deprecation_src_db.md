@@ -1,7 +1,9 @@
 # Deprecation Notice: `src/db.py`
 
-Date: 2026-02-21
 Status: Deprecated (compatibility wrapper still available)
+Date: 2026-02-21
+Owner: Runtime/data maintainers
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 
 ## Summary
 `src/db.py` is now a legacy compatibility module.
