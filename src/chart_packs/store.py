@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from src.schemas.chart_pack import ChartPack
+from src.services.runtime_paths import chart_packs_root as default_chart_packs_root
+
+
+def chart_pack_dir(chart_pack_id: str, root: Path | None = None) -> Path:
+    base = (root or default_chart_packs_root()).expanduser().resolve()
+    return base / chart_pack_id
+
+
+def chart_pack_json_path(chart_pack_id: str, root: Path | None = None) -> Path:
+    return chart_pack_dir(chart_pack_id, root) / "chart_pack.json"
+
+
+def chart_pack_markdown_path(chart_pack_id: str, root: Path | None = None) -> Path:
+    return chart_pack_dir(chart_pack_id, root) / "chart_pack.md"
+
+
+def chart_pack_data_dir(chart_pack_id: str, root: Path | None = None) -> Path:
+    return chart_pack_dir(chart_pack_id, root) / "data"
+
+
+def chart_pack_specs_dir(chart_pack_id: str, root: Path | None = None) -> Path:
+    return chart_pack_dir(chart_pack_id, root) / "specs"
+
+
+def chart_pack_renders_dir(chart_pack_id: str, root: Path | None = None) -> Path:
+    return chart_pack_dir(chart_pack_id, root) / "renders"
+
+
+def chart_pack_data_csv_path(chart_pack_id: str, chart_id: str, root: Path | None = None) -> Path:
+    return chart_pack_data_dir(chart_pack_id, root) / f"{chart_id}.csv"
+
+
+def chart_pack_spec_json_path(chart_pack_id: str, chart_id: str, root: Path | None = None) -> Path:
+    return chart_pack_specs_dir(chart_pack_id, root) / f"{chart_id}.json"
+
+
+def chart_pack_render_path(
+    chart_pack_id: str,
+    chart_id: str,
+    extension: str = "png",
+    root: Path | None = None,
+) -> Path:
+    normalized_extension = str(extension or "png").strip().lstrip(".") or "png"
+    return chart_pack_renders_dir(chart_pack_id, root) / f"{chart_id}.{normalized_extension}"
+
+
+def save_chart_pack(chart_pack: ChartPack, root: Path | None = None) -> Path:
+    path = chart_pack_json_path(chart_pack.chart_pack_id, root)
+    payload = json.dumps(chart_pack.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2)
+    _atomic_write_text(path, payload)
+    return path
+
+
+def load_chart_pack(chart_pack_id: str, root: Path | None = None) -> ChartPack:
+    path = chart_pack_json_path(chart_pack_id, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Chart Pack JSON not found: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return ChartPack(**payload)
+    except Exception as exc:
+        raise ValueError(f"Failed to load Chart Pack from {path}: {exc}") from exc
+
+
+def save_chart_pack_markdown(chart_pack_id: str, markdown: str, root: Path | None = None) -> Path:
+    path = chart_pack_markdown_path(chart_pack_id, root)
+    _atomic_write_text(path, markdown)
+    return path
+
+
+def load_chart_pack_markdown(chart_pack_id: str, root: Path | None = None) -> str:
+    path = chart_pack_markdown_path(chart_pack_id, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Chart Pack markdown not found: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def save_chart_pack_data_csv(chart_pack_id: str, chart_id: str, csv_text: str, root: Path | None = None) -> Path:
+    path = chart_pack_data_csv_path(chart_pack_id, chart_id, root)
+    _atomic_write_text(path, csv_text)
+    return path
+
+
+def load_chart_pack_data_csv(chart_pack_id: str, chart_id: str, root: Path | None = None) -> str:
+    path = chart_pack_data_csv_path(chart_pack_id, chart_id, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Chart Pack data CSV not found: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def save_chart_pack_spec(
+    chart_pack_id: str,
+    chart_id: str,
+    spec_payload: Any,
+    root: Path | None = None,
+) -> Path:
+    path = chart_pack_spec_json_path(chart_pack_id, chart_id, root)
+    payload = json.dumps(spec_payload, ensure_ascii=False, indent=2)
+    _atomic_write_text(path, payload)
+    return path
+
+
+def load_chart_pack_spec(chart_pack_id: str, chart_id: str, root: Path | None = None) -> Any:
+    path = chart_pack_spec_json_path(chart_pack_id, chart_id, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Chart Pack spec JSON not found: {path}")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Failed to load Chart Pack spec from {path}: {exc}") from exc
+
+
+def save_chart_pack_bundle(
+    chart_pack: ChartPack,
+    markdown: str,
+    *,
+    data_snapshots: dict[str, str] | None = None,
+    specs: dict[str, Any] | None = None,
+    root: Path | None = None,
+) -> dict[str, Path]:
+    data_snapshots = dict(data_snapshots or {})
+    specs = dict(specs or {})
+    valid_chart_ids = {chart.chart_id for chart in chart_pack.charts}
+    extra_snapshot_ids = sorted(set(data_snapshots) - valid_chart_ids)
+    extra_spec_ids = sorted(set(specs) - valid_chart_ids)
+    if extra_snapshot_ids:
+        raise ValueError(f"Unknown chart_id(s) in data_snapshots: {', '.join(extra_snapshot_ids)}")
+    if extra_spec_ids:
+        raise ValueError(f"Unknown chart_id(s) in specs: {', '.join(extra_spec_ids)}")
+
+    json_path = chart_pack_json_path(chart_pack.chart_pack_id, root)
+    markdown_path = chart_pack_markdown_path(chart_pack.chart_pack_id, root)
+    snapshot_paths: dict[str, Path] = {}
+    for chart_id in sorted(data_snapshots):
+        snapshot_paths[chart_id] = chart_pack_data_csv_path(chart_pack.chart_pack_id, chart_id, root)
+
+    spec_paths: dict[str, Path] = {}
+    for chart_id in sorted(specs):
+        spec_paths[chart_id] = chart_pack_spec_json_path(chart_pack.chart_pack_id, chart_id, root)
+
+    expected_paths = {
+        json_path,
+        markdown_path,
+        *snapshot_paths.values(),
+        *spec_paths.values(),
+    }
+    tracked_paths: dict[Path, str | None] = {
+        path: _optional_text(path)
+        for path in sorted(
+            {
+                *expected_paths,
+                *_existing_managed_paths(chart_pack.chart_pack_id, root),
+            },
+            key=lambda item: str(item),
+        )
+    }
+
+    payload = json.dumps(chart_pack.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2)
+
+    try:
+        _atomic_write_text(json_path, payload)
+        _atomic_write_text(markdown_path, markdown)
+        for chart_id, path in snapshot_paths.items():
+            _atomic_write_text(path, data_snapshots[chart_id])
+        for chart_id, path in spec_paths.items():
+            _atomic_write_text(path, json.dumps(specs[chart_id], ensure_ascii=False, indent=2))
+        for stale_path in sorted(set(tracked_paths) - expected_paths, key=lambda item: str(item)):
+            if stale_path.exists():
+                os.remove(stale_path)
+        _remove_empty_dirs(chart_pack_data_dir(chart_pack.chart_pack_id, root), stop_at=chart_pack_dir(chart_pack.chart_pack_id, root))
+        _remove_empty_dirs(chart_pack_specs_dir(chart_pack.chart_pack_id, root), stop_at=chart_pack_dir(chart_pack.chart_pack_id, root))
+    except Exception:
+        for path, previous in tracked_paths.items():
+            _restore_optional_text(path, previous)
+        _remove_empty_dirs(
+            chart_pack_dir(chart_pack.chart_pack_id, root),
+            stop_at=(root or default_chart_packs_root()).expanduser().resolve(),
+        )
+        raise
+
+    result: dict[str, Path] = {
+        "json": json_path,
+        "markdown": markdown_path,
+    }
+    result.update({f"data:{chart_id}": path for chart_id, path in snapshot_paths.items()})
+    result.update({f"spec:{chart_id}": path for chart_id, path in spec_paths.items()})
+    return result
+
+
+def list_chart_pack_ids(root: Path | None = None) -> list[str]:
+    base = (root or default_chart_packs_root()).expanduser().resolve()
+    if not base.exists():
+        return []
+    return sorted(entry.name for entry in base.iterdir() if entry.is_dir())
+
+
+def _existing_managed_paths(chart_pack_id: str, root: Path | None = None) -> set[Path]:
+    pack_dir = chart_pack_dir(chart_pack_id, root)
+    managed: set[Path] = set()
+    for path in (
+        chart_pack_json_path(chart_pack_id, root),
+        chart_pack_markdown_path(chart_pack_id, root),
+    ):
+        if path.exists():
+            managed.add(path)
+    for directory, pattern in (
+        (chart_pack_data_dir(chart_pack_id, root), "*.csv"),
+        (chart_pack_specs_dir(chart_pack_id, root), "*.json"),
+    ):
+        if directory.exists():
+            managed.update(path for path in directory.glob(pattern) if path.is_file())
+    return managed
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    temp_path = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{path.stem}.",
+            suffix=f"{path.suffix}.tmp",
+            dir=str(path.parent),
+        )
+        os.close(fd)
+        temp_path = Path(temp_name)
+        temp_path.write_text(content, encoding="utf-8")
+        os.replace(temp_path, path)
+    except Exception as exc:
+        if temp_path and temp_path.exists():
+            os.remove(temp_path)
+        raise IOError(f"Failed to write Chart Pack file to {path}: {exc}") from exc
+
+
+def _optional_text(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _restore_optional_text(path: Path, content: str | None) -> None:
+    if content is None:
+        if path.exists():
+            os.remove(path)
+        return
+    _atomic_write_text(path, content)
+
+
+def _remove_empty_dirs(path: Path, *, stop_at: Path | None = None) -> None:
+    current = path
+    stop_path = stop_at.resolve() if stop_at is not None else None
+    while current.exists() and current.is_dir() and not any(current.iterdir()):
+        if stop_path is not None and current == stop_path:
+            break
+        parent = current.parent
+        current.rmdir()
+        current = parent
