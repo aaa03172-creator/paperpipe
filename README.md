@@ -46,7 +46,18 @@ curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
   -d '{"paper_id":"paper_001","persona_id":"default","clean_reindex":false,"run_verify":true}'
 ```
 
-## Frontend E2E Required Checks
+## CI Verification Gates
+
+Run the agent smoke gate locally:
+
+```bash
+./scripts/run_agents_smoke.sh
+```
+
+This runs the targeted Ruff + pytest smoke set for the currently supported agent surface.
+
+GitHub Actions entry point:
+- `.github/workflows/agents-smoke.yml`
 
 Run the full frontend verification gate locally:
 
@@ -69,13 +80,13 @@ Notes:
 - It does not start the seeded E2E backend harness.
 - GitHub Actions entry point: `.github/workflows/frontend-real-smoke.yml` (manual, self-hosted only).
 - GitHub can dispatch this workflow by filename only after the file exists on the repository default branch. The repository default branch is currently `main`, so the workflow is registered on `main` even when the actual implementation ref lives on `master` or a feature branch.
-- Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`.
+- Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/<your-branch> -f config_path=config.yaml`.
 - If the repository has no matching `self-hosted`, `paperpipe-real-smoke` runner online, the run will stay `queued` until a runner comes online.
 - The dedicated self-hosted runner path expects `python3`, `node`, and `npm` to already exist on the runner machine. It uses runner-local Python instead of `actions/setup-python`.
 
 Branch note:
 - The repository default branch is `main`.
-- The current frontend PR workflow `.github/workflows/frontend-e2e.yml` is still scoped to `pull_request` events targeting `master`.
+- The current PR workflows `.github/workflows/pr-scope-guard.yml`, `.github/workflows/agents-smoke.yml`, and `.github/workflows/frontend-e2e.yml` are scoped to `pull_request` events targeting `master`.
 - Keep that split explicit until the repo's integration branch strategy is unified.
 
 Repository plan limitations can block branch protection/ruleset APIs on private repos.
@@ -86,6 +97,8 @@ After enabling GitHub Pro/Team (or making the repo public), enforce PR required 
 ```
 
 This applies the following required contexts on `master`:
+- `guard`
+- `agents-smoke`
 - `e2e-mock`
 - `e2e-backend`
 
