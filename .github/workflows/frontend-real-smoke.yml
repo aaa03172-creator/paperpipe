@@ -1,0 +1,117 @@
+name: frontend-real-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: "Runner-local PaperPipe config path"
+        required: true
+        type: string
+      storage_dir:
+        description: "Runner-local storage root override (optional)"
+        required: false
+        type: string
+      db_path:
+        description: "Runner-local state.db override (optional)"
+        required: false
+        type: string
+      artifacts_dir:
+        description: "Runner-local artifacts root override (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-real-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-smoke:
+    name: real-smoke
+    timeout-minutes: 45
+    runs-on:
+      - self-hosted
+      - paperpipe-real-smoke
+    env:
+      PAPERPIPE_CONFIG_PATH: ${{ inputs.config_path }}
+      PAPERPIPE_STORAGE_DIR: ${{ inputs.storage_dir }}
+      PAPERPIPE_DB_PATH: ${{ inputs.db_path }}
+      PAPERPIPE_ARTIFACTS_DIR: ${{ inputs.artifacts_dir }}
+      PAPERPIPE_REAL_SMOKE: "1"
+      PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify Python runtime
+        run: |
+          python3 --version
+          python3 -m pip --version
+
+      - name: Install backend dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+          python3 -m pip install -r requirements.txt
+
+      - name: Preflight runner-local paths
+        run: |
+          python3 scripts/check_frontend_real_smoke_env.py --require-candidates | tee frontend-real-smoke-preflight.json
+
+      - name: Append preflight summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f frontend-real-smoke-preflight.json ]]; then
+            {
+              echo "## Frontend Real Smoke Preflight"
+              echo
+              echo '```json'
+              cat frontend-real-smoke-preflight.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Frontend Real Smoke Preflight" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "preflight output was not generated because an earlier setup step failed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install chromium
+
+      - name: Run backend real smoke
+        working-directory: frontend
+        run: npm run e2e:backend:real-smoke
+
+      - name: Upload real smoke Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-backend-real-smoke-artifacts
+          if-no-files-found: ignore
+          path: |
+            frontend-real-smoke-preflight.json
+            frontend/playwright-report
+            frontend/test-results

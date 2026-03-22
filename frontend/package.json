@@ -15,6 +15,7 @@
     "verify:frontend:mock": "npm run build && npm run e2e:mock",
     "verify:frontend:backend": "npm run e2e:backend:preflight && npm run e2e:backend:full",
     "verify:frontend": "npm run verify:frontend:mock && npm run verify:frontend:backend",
+    "e2e:backend:real-smoke": "PAPERPIPE_REAL_SMOKE=1 PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES=1 playwright test -c playwright.backend.real.config.ts e2e/backend.spec.ts -g \"backend real-paper smoke\"",
     "e2e:backend:canary": "PAPERPIPE_E2E_CANARY=1 playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g \"soft-gate canary\"",
     "e2e:mock:update": "playwright test -c playwright.mock.config.ts --update-snapshots",
     "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
