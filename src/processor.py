@@ -38,6 +38,25 @@ STATE_PENDING = "PENDING_REVIEW"
 STATE_INDEXED = "INDEXED"
 STATE_FAILED = "FAILED"
 
+
+def derive_saved_issues_state(processing_status: PaperStatus | str, *, analysis_available: bool) -> str:
+    """Map producer-owned processing results to content-review state for persisted paper rows."""
+    if not analysis_available:
+        return "unavailable"
+
+    status_value = processing_status.value if isinstance(processing_status, PaperStatus) else str(processing_status)
+    normalized = status_value.strip().upper()
+    if normalized in {PaperStatus.APPROVED.value, PaperStatus.INDEXED.value}:
+        return "clear"
+    if normalized in {
+        PaperStatus.PENDING_REVIEW.value,
+        PaperStatus.QUARANTINED.value,
+        PaperStatus.FAILED.value,
+    }:
+        return "flagged"
+    return "unavailable"
+
+
 def last_consecutive_failures(current_streak, success_count, failure_count):
     """Updates the consecutive failure streak"""
     if success_count > 0:
@@ -86,8 +105,10 @@ class PaperProcessor:
                 processed, failed = self._process_step(candidates, self._step_finalize)
                 remaining_budget -= processed
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
+                if processed > 0:
+                    progress_made = True
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    break
                 
             # Step 3: Gate (GATED -> APPROVED/...)
             if remaining_budget > 0:
@@ -95,8 +116,10 @@ class PaperProcessor:
                 processed, failed = self._process_step(candidates, self._step_gate)
                 remaining_budget -= processed
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
+                if processed > 0:
+                    progress_made = True
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    break
 
             # Step 2: Analyze (FETCHED -> GATED)
             if remaining_budget > 0:
@@ -104,8 +127,10 @@ class PaperProcessor:
                 processed, failed = self._process_step(candidates, self._step_analyze)
                 remaining_budget -= processed
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
+                if processed > 0:
+                    progress_made = True
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    break
                 
             # Step 1: Fetch (NEW -> FETCHED)
             if remaining_budget > 0:
@@ -113,8 +138,10 @@ class PaperProcessor:
                 processed, failed = self._process_step(candidates, self._step_fetch)
                 remaining_budget -= processed
                 consecutive_failures = last_consecutive_failures(consecutive_failures, processed, failed)
-                if processed > 0: progress_made = True
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES: break
+                if processed > 0:
+                    progress_made = True
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    break
             
             if not progress_made:
                 break
@@ -133,7 +160,8 @@ class PaperProcessor:
         success = 0
         failure = 0
         for paper_row in papers:
-            if not paper_row: continue
+            if not paper_row:
+                continue
             pid = paper_row['paper_id']
             try:
                 handler(paper_row)
@@ -275,7 +303,7 @@ class PaperProcessor:
         feedback_json = row['feedback_json']
         if feedback_json:
             try:
-                data = json.loads(feedback_json)
+                json.loads(feedback_json)
                 # Construct result_dict for Obsidian (Mock)
                 logger.info("      -> Prepared for Obsidian (Mock)")
             except Exception as e:
@@ -327,6 +355,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
     """Legacy batch pipeline used by older tests/scripts."""
     config = load_config()
     llm = get_llm_provider(config.llm, config.entity_aliases)
+    analysis_available = bool(llm and llm.is_available())
     slots = getattr(config.search, "slots", {}) or {}
     fetchers = get_fetchers(config)
     results: List[Dict[str, Any]] = []
@@ -355,7 +384,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
 
                 tags: list[str] = []
                 confidence = 0.0
-                if llm and llm.is_available():
+                if analysis_available:
                     tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
                     tags = tag_payload.get("soft_tags", []) or []
                     confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
@@ -420,6 +449,10 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                         feedback_json=row.get("feedback_json"),
                         download_attempts=row.get("download_attempts"),
                         status=row["processing_status"].value if hasattr(row["processing_status"], "value") else str(row["processing_status"]),
+                        issues_state=derive_saved_issues_state(
+                            row["processing_status"],
+                            analysis_available=analysis_available,
+                        ),
                     )
                 except Exception:
                     pass
