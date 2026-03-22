@@ -1,12 +1,14 @@
 # Research DNA Artifacts Staging Prep
 
-Status: staging-prep manifest
+Status: historical staging-prep manifest
 Date: 2026-03-22
 Lane: `research-dna-artifacts`
 
 ## Purpose
 
 Define the self-contained Research DNA artifacts lane: canonical docs, probe data, and test coverage for the already-clean runtime implementation.
+
+This note is historical context after the docs-only staging bundle was merged on 2026-03-22 (`1542c44`).
 
 ## In Scope
 
@@ -36,6 +38,6 @@ Define the self-contained Research DNA artifacts lane: canonical docs, probe dat
 2. docs review of `/Users/jangseongjin/paperpipe/docs/RESEARCH_DNA.md`
 3. probe artifact inventory under `/Users/jangseongjin/paperpipe/research_dna/`
 
-## Safe Next Git Step
+## Historical Git Step
 
-Stage only the paths listed above and inspect `git diff --cached --name-only` before commit.
+The bounded docs-only staging step for this lane has already been executed. Reuse this note only as scope history if a later Research DNA artifact audit is reopened.

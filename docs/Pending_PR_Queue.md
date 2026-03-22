@@ -72,9 +72,11 @@ Canonical: `docs/Pending_PR_Queue.md`
   - v1 non-goals: PPTX export, Google Slides export, auto-designed slide visuals, chatbot integration.
   - current limitation: bounded legacy regenerate fallback policy, branch-required rollout / API escalation policy for the new Meeting Pack CI verify lane (currently blocked on this private repo by GitHub branch-protection `403` plan limits), broader synonym coverage beyond the small alias map, looser cross-focus majority/outlier semantics beyond the current same-source-population guard, and deeper note/context-derived tuning beyond the current framing layer는 아직 follow-up이다.
 
-## Next Up (2026-03-18)
-- Recommended next: package the already-committed backend/API stack into a PR/change-summary bundle
-  - 이유: `PR-M0` baseline adoption은 이미 commit `5c09619`로 실행됐고, 그 뒤의 Meeting Pack/runtime/paper-notes/skills/obsidian/method-comparison follow-up lane도 개별 commit으로 고정됐다. 현재 남은 ambiguity는 baseline adoption 여부가 아니라, 이 committed stack을 어떤 narrative로 묶고 어떤 dirty tail을 별도 lane으로 남길지다.
+## Historical Next-Step Notes (2026-03-18 snapshot)
+- Current repo-wide next-step posture (rechecked on 2026-03-22): there is no mandatory immediate repo-wide lane queued on `origin/master`.
+  - 이유: `backend/API packaging`은 이미 merged PR `#108`로 닫혔고, bounded `agent_artifacts` replay hardening도 merged PR `#111`로 닫혔다. `Research DNA` artifacts staging prep 역시 docs-only merge commit `1542c44`까지 반영돼 있어, 현재는 stale queue item을 이어붙일 단계가 아니다.
+- Historical recommended next at the time: package the already-committed backend/API stack into a PR/change-summary bundle
+  - 이유: `PR-M0` baseline adoption은 이미 commit `5c09619`로 실행됐고, 그 뒤의 Meeting Pack/runtime/paper-notes/skills/obsidian/method-comparison follow-up lane도 개별 commit으로 고정됐다. 당시 남은 ambiguity는 baseline adoption 여부가 아니라, 이 committed stack을 어떤 narrative로 묶고 어떤 dirty tail을 별도 lane으로 남길지였다.
 - Current stack note: keep `docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` as the historical backend/API packaging summary
   - 이유: 이 note는 `5c09619` baseline anchor 이후의 additive commit stack을 묶은 historical packaging summary로 유지한다. 실제 packaging PR은 이미 `#108`로 머지됐다.
 - PR packaging note: keep `docs/reports/Backend_API_PR_Packaging_2026-03-18.md` as the historical PR packaging draft
