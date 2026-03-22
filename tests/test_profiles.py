@@ -5,7 +5,7 @@ from src.profiles.profile_schema import Profile, QuerySpec, Limits, ProfileConfi
 from src.profiles.patch_schema import PatchRequest, PatchOp
 from src.profiles.patch_apply import apply_patch
 from src.profiles.risk_rules import validate_profile
-from src.profiles.profile_store import save_profiles, load_profiles
+from src.profiles.profile_store import save_profiles_snapshot, load_profiles
 
 class TestProfileSystem(unittest.TestCase):
     def setUp(self):
@@ -81,11 +81,12 @@ class TestProfileSystem(unittest.TestCase):
     def test_store_io(self):
         """Test save and load."""
         config = ProfileConfig(profiles=[self.profile])
-        save_profiles(config, self.test_yaml)
+        save_profiles_snapshot(config, self.test_yaml)
         
         loaded = load_profiles(self.test_yaml)
         self.assertEqual(len(loaded.profiles), 1)
         self.assertEqual(loaded.profiles[0].id, "neuro_test")
+        self.assertEqual(loaded.profiles[0].revision, 0)
 
 if __name__ == '__main__':
     unittest.main()
