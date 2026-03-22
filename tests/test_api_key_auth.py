@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 import src.db_utils as db_utils
 from backend import main as api_main
 from backend.routers import method_comparisons as method_comparisons_router
+from src.schemas.agent_artifacts import StatCheckEntry, StatsReport, VerificationStatus
 from src.skills import runner as skills_runner
 
 
@@ -70,6 +71,27 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
             json={"paper_ids": ["paper_auth_001"], "field_ids": ["intervention"]},
         )
         assert method_comparison_generate.status_code == 401
+
+        chart_pack_generate = client.post(
+            "/chart-packs/generate",
+            json={
+                "charts": [
+                    {
+                        "template_id": "stats_check_status_counts",
+                        "source_ref": {
+                            "source_kind": "stats_report",
+                            "paper_id": "paper_auth_001",
+                            "run_id": "run_auth_001",
+                        },
+                        "field_mappings": [
+                            {"target_field": "status", "source_field": "status"},
+                            {"target_field": "value", "source_field": "count"},
+                        ],
+                    }
+                ]
+            },
+        )
+        assert chart_pack_generate.status_code == 401
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -253,6 +275,7 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         monkeypatch.setenv("PAPERPIPE_CONFIG_PATH", str(config_path))
         monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(tmp_path / "meeting_packs"))
         monkeypatch.setenv("PAPERPIPE_METHOD_COMPARISONS_DIR", str(tmp_path / "method_comparisons"))
+        monkeypatch.setenv("PAPERPIPE_CHART_PACKS_DIR", str(tmp_path / "chart_packs"))
         monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
 
         structured_state_path = vault_dir / ".pp" / "paper_auth_allow_001" / "state.json"
@@ -293,6 +316,24 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             ),
             encoding="utf-8",
         )
+        (artifact_run_dir / "stats_report.json").write_text(
+            StatsReport(
+                doc_id="paper_auth_allow_001",
+                run_id="run_auth_allow_001",
+                checks=[
+                    StatCheckEntry(
+                        check_id="c1",
+                        test_type="t-test",
+                        reported_p="0.05",
+                        computed_p=0.04,
+                        code="print('ok')",
+                        outputs="ok",
+                        verdict=VerificationStatus.VERIFIED,
+                    )
+                ],
+            ).model_dump_json(indent=2, exclude_none=True),
+            encoding="utf-8",
+        )
 
         meeting_pack_generate = client.post(
             "/meeting-packs/generate",
@@ -324,6 +365,29 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             headers=headers,
         )
         assert method_comparison_generate.status_code == 200
+
+        chart_pack_generate = client.post(
+            "/chart-packs/generate",
+            json={
+                "chart_pack_id": "chartpack_auth_allow_001",
+                "charts": [
+                    {
+                        "template_id": "stats_check_status_counts",
+                        "source_ref": {
+                            "source_kind": "stats_report",
+                            "paper_id": "paper_auth_allow_001",
+                            "run_id": "run_auth_allow_001",
+                        },
+                        "field_mappings": [
+                            {"target_field": "status", "source_field": "status"},
+                            {"target_field": "value", "source_field": "count"},
+                        ],
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        assert chart_pack_generate.status_code == 200
     finally:
         db_utils.DB_PATH = original_db_path
 

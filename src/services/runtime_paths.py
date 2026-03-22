@@ -112,6 +112,13 @@ def search_eval_root() -> Path:
     return (storage_root() / "search_eval").resolve()
 
 
+def chart_packs_root() -> Path:
+    value = os.getenv("PAPERPIPE_CHART_PACKS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "chart_packs").resolve()
+
+
 def meeting_packs_root() -> Path:
     value = os.getenv("PAPERPIPE_MEETING_PACKS_DIR")
     if value:
