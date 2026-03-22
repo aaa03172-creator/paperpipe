@@ -2,7 +2,13 @@
 
 Status: Executed via commit `5c09619`; retained as the historical baseline-adoption note for the Meeting Pack runtime slice
 Date: 2026-03-17
-Parent roadmap: `/Users/jangseongjin/paperpipe/docs/Audit_Driven_Roadmap_2026-03-13.md`
+Current navigation parents:
+- `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
+- `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+
+Historical provenance note:
+- the execution anchor for this note is commit `5c09619`
+- the parent links above are current tracked navigation links, not a claim about the original planning source
 
 ## 0. Intent
 

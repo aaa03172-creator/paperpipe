@@ -55,6 +55,7 @@ Implication:
 
 ### 2.4 Paper notes / skills / obsidian / method comparisons
 
+- `3881326` `feat(papers): add ops summary and artifact query routes`
 - `93d2db6` `feat(paper-notes): add structured detail and action catalog`
 - `deef8f2` `feat(skills): add run api and structured note execution`
 - `6150f43` `feat(paper-notes): enrich list search and operational signals`
@@ -76,6 +77,13 @@ Meaning:
 - the current blocker is not runtime breakage
 - the current blocker is repository legibility in a still-dirty workspace
 
+Supporting docs-only branch tail after the backend/API stack:
+
+- `d05ef99` `docs(repo): record committed backend api packaging state`
+- `2e13498` `docs(queue): add external reference guardrails`
+
+These commits help package and constrain the stack, but they are not themselves backend/API feature slices.
+
 ## 4. Remaining Dirty Tails That Should Stay Separate
 
 These should not be silently folded into the committed stack summary:
@@ -85,7 +93,13 @@ These should not be silently folded into the committed stack summary:
   - low value as a standalone follow-up unless it is bundled with a real feature lane
 - `/Users/jangseongjin/paperpipe/src/schemas/agent_artifacts.py`
   - remaining diff is a broader schema-contract hardening lane
-  - includes `DocumentChunk` metadata expansion, `EvidenceSpan` validation, and `ScientificClaim.unknown*`
+  - includes `DocumentChunk` metadata expansion (`page_hint`, ordinals, `chunk_id_version`)
+  - includes stricter `EvidenceSpan` payload validation for text-vs-table grounding and bbox sanity
+  - includes `ScientificClaim.unknown` / `unknown_reason` normalization
+  - bounded schema rechecks are green:
+    - `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py tests/test_indexer_agent_chunk_ids.py tests/test_job_runner_ingest_backend.py` -> `27 passed`
+    - `pytest -q tests/test_citation_grounding.py tests/test_deepread_note_writer.py tests/test_worker_job_runner_chain.py tests/test_paper_notes_api.py` -> `26 passed`
+  - current evidence indicates this lane can stay bounded to schema/test hardening without reopening reader/runtime design
   - should be treated as a separate contract lane if reopened
 
 ## 5. Recommended Next Step
@@ -93,3 +107,4 @@ These should not be silently folded into the committed stack summary:
 1. Treat the current stack as ready for PR/change-summary packaging.
 2. Do not spend another slice on `backend/main.py` move-only cleanup.
 3. If code work resumes, reopen a separate `agent_artifacts` contract-hardening lane instead of mixing it into this packaged stack.
+4. Keep that lane bounded to schema/test hardening first; do not turn it into a broad reader/runtime redesign.

@@ -1,8 +1,9 @@
 # Backend/API PR Packaging
 
-Status: Ready-to-use PR packaging draft
+Status: Open PR packaging note
 Date: 2026-03-18
-Branch observed: `codex/agents-smoke-ci-check`
+Branch observed: `codex/backend-api-packaging-stack`
+Opened PR: `#108` `https://github.com/aaa03172-creator/paperpipe/pull/108`
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md`
 - `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
@@ -13,6 +14,11 @@ Canonical parents:
 Provide a ready-to-paste PR title/body/review plan for the already-committed backend/API stack on this branch.
 
 This note is for packaging, not for reopening scope.
+
+Current sync status:
+
+- the packaged backend/API stack is aligned with the current branch through the supporting docs-only tail
+- use this draft as the current change-summary baseline unless a new non-doc backend/API commit lands after `2e13498`
 
 ## 1. Proposed PR Title
 
@@ -27,6 +33,7 @@ It includes:
 - Meeting Pack runtime baseline and follow-up debug/list surfaces
 - additive runtime hardening for identity, jobs, ops, personas, auth, and DB-path handling
 - Research DNA API/service projection surfaces and output/chat bridge additions
+- papers ops-summary and artifact query routes
 - paper-notes structured detail and operational list enrichment
 - skills run API, Obsidian inspection routes, and method-comparison generation API
 
@@ -43,6 +50,7 @@ Included surfaces:
 
 - Meeting Pack runtime baseline plus list/trace debug follow-ups
 - Research DNA service/API projection flows
+- papers ops-summary and artifact query routes
 - paper-notes structured detail and operational list signals
 - skills run API and structured note execution
 - Obsidian mirror/artifact inspection routes
@@ -91,6 +99,7 @@ This PR therefore packages the committed stack without reopening baseline scope.
 
 ### Paper notes / skills / obsidian / method comparisons
 
+- `3881326` `feat(papers): add ops summary and artifact query routes`
 - `93d2db6` `feat(paper-notes): add structured detail and action catalog`
 - `deef8f2` `feat(skills): add run api and structured note execution`
 - `6150f43` `feat(paper-notes): enrich list search and operational signals`
@@ -135,12 +144,27 @@ Do not silently expand this packaged PR with:
 - new frontend viewer polish
 - broader Meeting Pack synonym/selector work
 
+Current branch note:
+
+- the branch also contains supporting docs-only commits after the packaged backend/API stack
+- `d05ef99` records the packaging state and `2e13498` adds external-reference guardrails
+- include them only as supporting documentation context, not as reasons to broaden the backend/API scope
+
 ## 6. If Code Work Resumes After Packaging
 
 The highest-value next code lane is:
 
 1. `/Users/jangseongjin/paperpipe/src/schemas/agent_artifacts.py` contract hardening
+   - keep it bounded to schema/test hardening first
+   - current bounded rechecks are green:
+     - `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py tests/test_indexer_agent_chunk_ids.py tests/test_job_runner_ingest_backend.py` -> `27 passed`
+     - `pytest -q tests/test_citation_grounding.py tests/test_deepread_note_writer.py tests/test_worker_job_runner_chain.py tests/test_paper_notes_api.py` -> `26 passed`
+   - do not reopen reader/runtime design from this lane
 
 The low-value next code lane is:
 
 1. `/Users/jangseongjin/paperpipe/backend/main.py` move-only cleanup
+
+Only after the packaging step and the bounded schema/test lane should the next separate follow-up be reopened:
+
+1. tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
