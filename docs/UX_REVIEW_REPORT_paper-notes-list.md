@@ -113,3 +113,35 @@ Reviewer: Codex
 1. 실제 query miss 사례가 쌓일 때만 weighted token scoring이나 stronger ranking을 검토하기
 2. quick filter family가 더 늘어날 때만 collapsed `Focus` 그룹을 검토하기
 3. empty-state suggestion이 자주 쓰이면 raw token order 대신 structured signal strength 기반 정렬을 검토하기
+
+## 9) Header Copy and Orientation Checkpoint (2026-03-22)
+- Screen/Flow: `/papers` first-load scan, filter orientation, search handoff into detail
+- Goal action: 사용자가 첫 스캔에서 이 화면이 note storage 설명이 아니라 실제 검색/선별 작업 표면이라는 점을 바로 이해한다.
+- Primary persona: 많은 논문 노트를 빠르게 찾고 structured signal이 있는 note를 열어보려는 연구자
+- Current friction:
+  - `Lattice · Paper Notes Viewer`, `Obsidian vault note index...` 같은 문구는 제품 언어보다 내부/저장소 언어에 가깝다.
+  - search placeholder도 읽기 동작보다 필드 나열처럼 느껴진다.
+- Quick decision:
+  - H1, route, filter 구조는 유지한다.
+  - 대신 eyebrow, subtitle, search placeholder를 작업 중심 언어로 바꾼다.
+- BMAP:
+  - Motivation: 높음. 사용자는 note를 찾고 싶은 것이지 vault 구조 설명을 읽고 싶지 않다.
+  - Ability: 첫 화면 문구를 더 직접적으로 바꾸면 시작 비용이 줄어든다.
+  - Prompt: `Search notes...` 수준의 직접적 문구가 가장 적절하다.
+- B.I.A.S:
+  - Block: 내부 구현 맥락이 먼저 보이면 작업 의미가 늦게 읽힌다.
+  - Interpret: storage 설명 대신 search/filter/open 흐름을 먼저 보여주면 즉시 해석된다.
+  - Act: placeholder와 subtitle이 다음 행동을 짧게 가리킨다.
+  - Store: 첫 인상이 calmer working surface로 남아 장기 사용 피로를 낮춘다.
+- Peak-End:
+  - Peak는 첫 스캔에서 "이제 여기서 note를 찾으면 된다"가 바로 읽히는 순간이다.
+  - Pit는 vault/debug 냄새가 강해 product surface보다 internal browser처럼 보이는 순간이다.
+  - Transition은 search -> row scan -> detail open이며, copy가 이 전환을 직접 지원해야 한다.
+- Ethics:
+  - Regret: 통과. 더 직접적이고 덜 내부적인 언어로 시간을 절약한다.
+  - Black Mirror: 통과. 과장된 promise나 urgency 없이 작업 의미만 분명히 한다.
+  - In Real-Life: 통과. 친절한 연구 도구처럼 읽힌다.
+- Concrete change:
+  - eyebrow를 `Paper note index`로 교체
+  - subtitle을 `Search notes, filter structured signals, and open the paper detail you need.`로 교체
+  - search placeholder를 `Title, alias, or slug`로 정리
