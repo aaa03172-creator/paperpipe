@@ -74,6 +74,36 @@ def _backend_available(ingest: IngestAgent, requested_backend: str) -> tuple[boo
     return True, None
 
 
+def _table_summary(table: Any) -> dict[str, Any]:
+    data = list(getattr(table, "data", None) or [])
+    rows = len(data)
+    cols = max((len(row) for row in data), default=0)
+    flattened = [str(cell or "").strip() for row in data for cell in row]
+    non_empty_cells = sum(1 for cell in flattened if cell)
+    alpha_cells = sum(1 for cell in flattened if any(ch.isalpha() for ch in cell))
+    return {
+        "table_id": str(getattr(table, "table_id", "") or ""),
+        "source_page": int(getattr(table, "source_page", 0) or 0),
+        "rows": rows,
+        "cols": cols,
+        "non_empty_cells": non_empty_cells,
+        "alpha_cells": alpha_cells,
+    }
+
+
+def _is_meaningful_table(summary: dict[str, Any]) -> bool:
+    return (
+        int(summary.get("rows") or 0) >= 2
+        and int(summary.get("cols") or 0) >= 2
+        and int(summary.get("non_empty_cells") or 0) >= 6
+        and int(summary.get("alpha_cells") or 0) >= 2
+    )
+
+
+def _meaningful_table_count(row: dict[str, Any]) -> int:
+    return sum(1 for summary in row.get("table_summaries") or [] if _is_meaningful_table(summary))
+
+
 def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, Any]:
     pdf_path = pdf_path.expanduser().resolve()
     row: dict[str, Any] = {
@@ -95,7 +125,9 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
         "section_count": 0,
         "text_char_count": 0,
         "table_count": 0,
+        "meaningful_table_count": 0,
         "table_pages": [],
+        "table_summaries": [],
         "ocr_applied": False,
         "table_extraction_pass": None,
         "table_failure_taxonomy": [],
@@ -131,6 +163,8 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
     row["section_count"] = len(artifact.sections)
     row["text_char_count"] = sum(len(section.text or "") for section in artifact.sections)
     row["table_count"] = len(artifact.tables)
+    row["table_summaries"] = [_table_summary(table) for table in artifact.tables]
+    row["meaningful_table_count"] = _meaningful_table_count(row)
     row["table_pages"] = sorted(
         {
             int(table.source_page)
@@ -155,6 +189,9 @@ def _backend_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "backend_unavailable_count": sum(1 for row in rows if row.get("backend_available") is False),
         "docs_with_doi_count": sum(1 for row in success_rows if row.get("has_doi")),
         "docs_with_tables_count": sum(1 for row in success_rows if int(row.get("table_count") or 0) > 0),
+        "docs_with_meaningful_tables_count": sum(
+            1 for row in success_rows if int(row.get("meaningful_table_count") or 0) > 0
+        ),
         "docs_with_text_count": sum(1 for row in success_rows if int(row.get("text_char_count") or 0) > 0),
         "avg_text_char_count": mean(text_counts) if text_counts else 0.0,
         "table_failure_taxonomy_counts": _taxonomy_counts(rows),
@@ -179,7 +216,7 @@ def compare_backend_rows(
     max_error_increase_docs: int = 0,
     max_empty_text_increase_docs: int = 0,
     max_doi_loss_docs: int = 0,
-    max_table_loss_docs: int = 0,
+    max_meaningful_table_loss_docs: int = 0,
     max_low_text_ratio_docs: int = 0,
 ) -> dict[str, Any]:
     baseline_by_pdf = {str(row["pdf_path"]): row for row in baseline_rows}
@@ -190,8 +227,10 @@ def compare_backend_rows(
     empty_text_increase_docs: list[dict[str, Any]] = []
     backend_unavailable_docs: list[dict[str, Any]] = []
     doi_loss_docs: list[dict[str, Any]] = []
-    table_loss_docs: list[dict[str, Any]] = []
-    table_gain_docs: list[dict[str, Any]] = []
+    meaningful_table_loss_docs: list[dict[str, Any]] = []
+    meaningful_table_gain_docs: list[dict[str, Any]] = []
+    raw_table_loss_docs: list[dict[str, Any]] = []
+    raw_table_gain_docs: list[dict[str, Any]] = []
     doi_gain_docs: list[dict[str, Any]] = []
     low_text_ratio_docs: list[dict[str, Any]] = []
 
@@ -246,7 +285,7 @@ def compare_backend_rows(
         baseline_table_count = int(baseline.get("table_count") or 0)
         candidate_table_count = int(candidate.get("table_count") or 0)
         if candidate_table_count < baseline_table_count:
-            table_loss_docs.append(
+            raw_table_loss_docs.append(
                 {
                     "pdf_path": pdf_path,
                     "baseline_table_count": baseline_table_count,
@@ -254,9 +293,32 @@ def compare_backend_rows(
                 }
             )
         if candidate_table_count > baseline_table_count:
-            table_gain_docs.append(
+            raw_table_gain_docs.append(
                 {
                     "pdf_path": pdf_path,
+                    "baseline_table_count": baseline_table_count,
+                    "candidate_table_count": candidate_table_count,
+                }
+            )
+
+        baseline_meaningful_table_count = _meaningful_table_count(baseline)
+        candidate_meaningful_table_count = _meaningful_table_count(candidate)
+        if candidate_meaningful_table_count < baseline_meaningful_table_count:
+            meaningful_table_loss_docs.append(
+                {
+                    "pdf_path": pdf_path,
+                    "baseline_meaningful_table_count": baseline_meaningful_table_count,
+                    "candidate_meaningful_table_count": candidate_meaningful_table_count,
+                    "baseline_table_count": baseline_table_count,
+                    "candidate_table_count": candidate_table_count,
+                }
+            )
+        if candidate_meaningful_table_count > baseline_meaningful_table_count:
+            meaningful_table_gain_docs.append(
+                {
+                    "pdf_path": pdf_path,
+                    "baseline_meaningful_table_count": baseline_meaningful_table_count,
+                    "candidate_meaningful_table_count": candidate_meaningful_table_count,
                     "baseline_table_count": baseline_table_count,
                     "candidate_table_count": candidate_table_count,
                 }
@@ -271,8 +333,8 @@ def compare_backend_rows(
         failed_checks.append("empty_text_increase_docs")
     if len(doi_loss_docs) > max_doi_loss_docs:
         failed_checks.append("doi_loss_docs")
-    if len(table_loss_docs) > max_table_loss_docs:
-        failed_checks.append("table_loss_docs")
+    if len(meaningful_table_loss_docs) > max_meaningful_table_loss_docs:
+        failed_checks.append("meaningful_table_loss_docs")
     if len(low_text_ratio_docs) > max_low_text_ratio_docs:
         failed_checks.append("low_text_ratio_docs")
 
@@ -283,8 +345,10 @@ def compare_backend_rows(
         "empty_text_increase_docs": empty_text_increase_docs,
         "doi_loss_docs": doi_loss_docs,
         "doi_gain_docs": doi_gain_docs,
-        "table_loss_docs": table_loss_docs,
-        "table_gain_docs": table_gain_docs,
+        "meaningful_table_loss_docs": meaningful_table_loss_docs,
+        "meaningful_table_gain_docs": meaningful_table_gain_docs,
+        "raw_table_loss_docs": raw_table_loss_docs,
+        "raw_table_gain_docs": raw_table_gain_docs,
         "low_text_ratio_docs": low_text_ratio_docs,
         "decision": {
             "passed": len(failed_checks) == 0,
@@ -295,7 +359,7 @@ def compare_backend_rows(
                 "max_error_increase_docs": max_error_increase_docs,
                 "max_empty_text_increase_docs": max_empty_text_increase_docs,
                 "max_doi_loss_docs": max_doi_loss_docs,
-                "max_table_loss_docs": max_table_loss_docs,
+                "max_meaningful_table_loss_docs": max_meaningful_table_loss_docs,
                 "max_low_text_ratio_docs": max_low_text_ratio_docs,
             },
         },
@@ -314,7 +378,7 @@ def run_comparison(
     max_error_increase_docs: int,
     max_empty_text_increase_docs: int,
     max_doi_loss_docs: int,
-    max_table_loss_docs: int,
+    max_meaningful_table_loss_docs: int,
     max_low_text_ratio_docs: int,
     manifest: str | None,
 ) -> Path:
@@ -337,7 +401,7 @@ def run_comparison(
         max_error_increase_docs=max_error_increase_docs,
         max_empty_text_increase_docs=max_empty_text_increase_docs,
         max_doi_loss_docs=max_doi_loss_docs,
-        max_table_loss_docs=max_table_loss_docs,
+        max_meaningful_table_loss_docs=max_meaningful_table_loss_docs,
         max_low_text_ratio_docs=max_low_text_ratio_docs,
     )
 
@@ -395,7 +459,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-error-increase-docs", type=int, default=0)
     parser.add_argument("--max-empty-text-increase-docs", type=int, default=0)
     parser.add_argument("--max-doi-loss-docs", type=int, default=0)
-    parser.add_argument("--max-table-loss-docs", type=int, default=0)
+    parser.add_argument("--max-meaningful-table-loss-docs", type=int, default=0)
     parser.add_argument("--max-low-text-ratio-docs", type=int, default=0)
     return parser
 
@@ -420,7 +484,7 @@ def main() -> None:
         max_error_increase_docs=int(args.max_error_increase_docs),
         max_empty_text_increase_docs=int(args.max_empty_text_increase_docs),
         max_doi_loss_docs=int(args.max_doi_loss_docs),
-        max_table_loss_docs=int(args.max_table_loss_docs),
+        max_meaningful_table_loss_docs=int(args.max_meaningful_table_loss_docs),
         max_low_text_ratio_docs=int(args.max_low_text_ratio_docs),
         manifest=(str(args.manifest).strip() or None),
     )
