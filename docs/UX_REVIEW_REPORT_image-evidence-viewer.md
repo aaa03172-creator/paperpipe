@@ -66,6 +66,39 @@ Canonical parent: `docs/ux-review.md`
 - Visual level: keep backend visual snapshots for the detail shell so the metadata-first layout does not drift into gallery-like image UI.
 - Index shell: keep backend visual snapshots for the search panel and saved-bundle cards so warning badges and bundle rhythms remain stable.
 
+## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
+- Screen/Flow: `/image-evidence` index header and `/image-evidence/:imageEvidenceId` detail header
+- Goal action: 사용자가 이 route를 generic viewer shell이 아니라 saved image-evidence review surface로 즉시 이해한다.
+- Primary persona: raw image source, warning state, derived lineage를 검토한 뒤 note나 external viewer로 handoff하려는 운영자
+- Current friction:
+  - `Lattice · Image Evidence Viewer`는 내부 shell 이름처럼 읽히고, route 책임을 직접적으로 말하지 않는다.
+  - `Search Bundles`, `Saved Bundles`도 의미는 맞지만 image-evidence context보다 generic storage vocabulary에 가깝다.
+- Quick decision:
+  - route 구조, card layout, button set, trust-boundary model은 유지한다.
+  - header eyebrow, subtitle, index section titles만 더 직접적인 review language로 정리한다.
+- BMAP:
+  - Motivation: 높음. 이 surface는 low-trust image metadata를 빠르게 검토하는 곳이다.
+  - Ability: copy만 정리해도 first-read cost가 줄어든다.
+  - Prompt: header와 index section title이 bundle review responsibility를 직접 말하는 게 가장 안전하다.
+- B.I.A.S:
+  - Block: viewer shell language는 metadata QA surface를 한 단계 더 추상적으로 느끼게 만든다.
+  - Interpret: `Image evidence review`는 route 책임을 더 빠르게 해석하게 한다.
+  - Act: `Search image bundles`와 `Saved image bundles`는 index의 다음 행동을 더 직접적으로 보여준다.
+  - Store: image-evidence lane도 core viewer routes와 같은 restrained product language를 갖게 된다.
+- Peak-End:
+  - Peak는 첫 진입에서 “여기서 saved image bundle을 검토한다”가 바로 읽히는 순간이다.
+  - Pit는 route가 generic viewer shell로 읽혀 metadata QA 목적이 늦게 드러나는 순간이다.
+  - Transition은 index search -> bundle detail -> note/external handoff이며, header copy가 그 시작점을 분명히 해야 한다.
+- Ethics:
+  - Regret: 통과. 기능 과장 없이 route responsibility만 더 직접적으로 말한다.
+  - Black Mirror: 통과. image interpretation이나 claim validation을 더 강하게 암시하지 않는다.
+  - In Real-Life: 통과. 운영자가 “저장된 이미지 번들을 검토한다”는 수준의 조용한 안내다.
+- Concrete change:
+  - eyebrow를 `Image evidence review`로 교체
+  - subtitle을 `Review saved image-evidence metadata before reuse in notes, packs, or external viewers.`로 정리
+  - `Search Bundles`를 `Search image bundles`로 교체
+  - `Saved Bundles`를 `Saved image bundles`로 교체
+
 ## Ethics check results
 - Regret: Low if warnings and trust-boundary copy stay visible.
 - Black Mirror: Risk appears if the viewer looks like a microscopy tool and causes users to infer pixel-level validation. Countermeasure is a metadata-first layout and explicit non-goals copy.

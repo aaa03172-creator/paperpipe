@@ -76,7 +76,7 @@ export function TriageDashboard() {
   }, [clearMockMode, markMockMode]);
 
   useEffect(() => {
-    document.title = "Lattice Analysis Workbench";
+    document.title = "Triage | Lattice";
   }, []);
 
   const filteredPapers = useMemo(() => {
@@ -131,15 +131,17 @@ export function TriageDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
-      <header className="surface-card mb-4 p-3">
+      <header className="surface-card mb-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="max-w-2xl">
             <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
               <LayoutGrid className="h-3.5 w-3.5" />
-              Phase 3 Control UI
+              Research queue
             </p>
             <h1 className="mt-1 text-lg font-semibold text-[var(--pp-text-primary)]">Triage Dashboard</h1>
-            <p className="text-sm text-[var(--pp-text-secondary)]">Paper selection and issue-first routing into Analysis Workbench.</p>
+            <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
+              Review paper status, check content review signals, and open the workbench.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -165,6 +167,18 @@ export function TriageDashboard() {
               className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
             >
               Method Comparisons
+            </Link>
+            <Link
+              to="/chart-packs"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Chart Packs
+            </Link>
+            <Link
+              to="/image-evidence"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Image Evidence
             </Link>
             <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
               Theme
@@ -201,12 +215,12 @@ export function TriageDashboard() {
 
         <section className="surface-card min-h-0 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-[var(--pp-text-primary)]">Paper Queue</h2>
-            <p className="text-xs text-[var(--pp-text-dim)]">{filteredPapers.length} items</p>
+            <h2 className="text-sm font-semibold text-[var(--pp-text-primary)]">Papers in queue</h2>
+            <p className="text-xs text-[var(--pp-text-dim)]">{filteredPapers.length} results</p>
           </div>
 
           {loading ? (
-            <p className="text-sm text-[var(--pp-text-dim)]">Loading papers...</p>
+            <p className="text-sm text-[var(--pp-text-dim)]">Loading triage queue...</p>
           ) : (
             <div className="space-y-3">
               <div className="space-y-2 md:hidden">

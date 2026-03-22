@@ -43,7 +43,7 @@ function parseViewerOutputMode(value: string | null): ViewerOutputMode {
 }
 
 function formatViewerOutputModeLabel(value: ViewerOutputMode): string {
-  return value === "builder_debug" ? "Builder / Debug" : "Learner";
+  return value === "builder_debug" ? "Inspect" : "Learner";
 }
 
 function buildViewerModeSearchParams(searchParams: URLSearchParams, mode: ViewerOutputMode): URLSearchParams {
@@ -58,7 +58,7 @@ function buildViewerModeSearchParams(searchParams: URLSearchParams, mode: Viewer
 
 function getViewerModeSummary(value: ViewerOutputMode): string {
   if (value === "builder_debug") {
-    return "Builder / Debug mode lifts actions, automation results, and the ClaimSet ahead of supporting context.";
+    return "Inspect mode lifts actions, run history, and structured claims ahead of supporting context.";
   }
   return "Learner mode keeps related papers, references, and reading context closer to the markdown flow.";
 }
@@ -178,7 +178,7 @@ const SIGNAL_DIFF_LABELS: Record<string, string> = {
   run_count: "runs",
   claim_count: "claims",
   evidence_count: "evidence",
-  has_claimset: "ClaimSet",
+  has_claimset: "structured claims",
   last_appraisal: "appraisal",
   last_action: "last action",
   last_status: "last status",
@@ -502,7 +502,7 @@ function PropertiesPanel({
               <dd className="mt-1 text-[var(--pp-text-primary)]">{citationCount ?? "-"}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-[var(--pp-text-dim)]">claimset</dt>
+              <dt className="text-xs uppercase tracking-wide text-[var(--pp-text-dim)]">structured claims</dt>
               <dd className="mt-1 text-[var(--pp-text-primary)]">{hasClaimset ? "yes" : "no"}</dd>
             </div>
             <div>
@@ -722,8 +722,8 @@ function ActionsPanel({
             <div>
               <p className="text-sm font-medium text-[var(--pp-text-primary)]">Add short note summary</p>
               <p className="mt-1 text-xs text-[var(--pp-text-dim)]">
-                Structured state stays canonical. This only controls whether the short Automation Results section is
-                appended to the markdown body.
+                Structured state stays canonical. This only controls whether a short run summary is appended to the
+                markdown body.
               </p>
             </div>
           </div>
@@ -802,8 +802,8 @@ function AutomationResultsPanel({
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>Automation Results</CardTitle>
-        <CardDescription>Structured runs read from the note sidecar state.</CardDescription>
+        <CardTitle>Run history</CardTitle>
+        <CardDescription>Structured runs recorded in the note sidecar state.</CardDescription>
       </CardHeader>
       <Separator />
       <CardContent className="pt-4">
@@ -817,7 +817,7 @@ function AutomationResultsPanel({
           </div>
         ) : null}
         {runs.length === 0 ? (
-          <p className="text-sm text-[var(--pp-text-dim)]">No structured skill runs recorded yet.</p>
+          <p className="text-sm text-[var(--pp-text-dim)]">No structured runs recorded yet.</p>
         ) : (
           <div className="grid gap-3">
             {runs.map((run: SkillRunRecord) => {
@@ -873,13 +873,13 @@ function ClaimSetPanel({
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>ClaimSet</CardTitle>
-        <CardDescription>Claim cards rendered from structured JSON for review and retrieval.</CardDescription>
+        <CardTitle>Structured claims</CardTitle>
+        <CardDescription>Claim cards rendered from structured state for review and retrieval.</CardDescription>
       </CardHeader>
       <Separator />
       <CardContent className="pt-4">
         {claims.length === 0 ? (
-          <p className="text-sm text-[var(--pp-text-dim)]">No structured ClaimSet is available for this note.</p>
+          <p className="text-sm text-[var(--pp-text-dim)]">No structured claims are available for this note.</p>
         ) : (
           <div className="grid gap-3">
             {claims.map((claim) => (
@@ -1137,8 +1137,11 @@ export function PaperNoteDetailPage() {
       <header className="surface-card mb-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Lattice · Paper Notes Viewer</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Paper note detail</p>
             <h1 className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">{note?.title ?? slug}</h1>
+            <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
+              Review note content, related papers, and references before opening the workbench.
+            </p>
             {note?.id ? <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{note.id}</p> : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1156,7 +1159,7 @@ export function PaperNoteDetailPage() {
               data-testid="paper-note-open-side-panel"
             >
               <PanelRightOpen className="h-3.5 w-3.5" />
-              Properties & Links
+              Review details
             </Button>
             {workbenchPaperId ? (
               <Link
@@ -1200,9 +1203,9 @@ export function PaperNoteDetailPage() {
               variant={viewerMode === "builder_debug" ? "secondary" : "ghost"}
               onClick={() => handleViewerModeChange("builder_debug")}
             >
-              Builder / Debug
+              Inspect
             </Button>
-            <Badge variant="outline">Presentation lane: {formatViewerOutputModeLabel(viewerMode)}</Badge>
+            <Badge variant="outline">Current focus: {formatViewerOutputModeLabel(viewerMode)}</Badge>
           </div>
           <p className="mt-2 text-sm text-[var(--pp-text-secondary)]" data-testid="paper-note-view-mode-summary">
             {getViewerModeSummary(viewerMode)}
@@ -1340,8 +1343,8 @@ export function PaperNoteDetailPage() {
       <Sheet
         open={sidePanelOpen}
         onOpenChange={setSidePanelOpen}
-        title="Properties & Links"
-        description="Note metadata, actions, automation results, claim cards, related papers, references, and outline."
+        title="Review details"
+        description="Metadata, outline, related papers, references, actions, and claim cards."
       >
         {!data ? null : (
           <div className="grid gap-4">
