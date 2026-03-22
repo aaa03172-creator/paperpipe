@@ -1,5 +1,11 @@
 # bootstrap_meta.json Schema
 
+Status: Active schema reference  
+Date: 2026-03-09  
+Owner: Artifact/runtime maintainers  
+Canonical: `docs/bootstrap_meta_schema.md`  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 This file is written per deepread run at:
 `storage/artifacts/<paper_id>/<run_id>/bootstrap_meta.json`
 
@@ -11,7 +17,9 @@ This file is written per deepread run at:
 - `job_id` (string): Queue job identifier.
 - `run_id` (string): Run identifier for artifact directory.
 - `paper_id` (string): Paper ID used for the run.
-- `persona_id` (string): Requested persona profile id.
+- `persona_id` (string): Compatibility alias recorded for legacy surfaces.
+- `reasoning_persona` (string|null): Core reasoning lane (`librarian` | `researcher` | `extractor_reviewer`).
+- `profile_id` (string|null): Profile-context overlay id when one was applied.
 - `persona_applied` (bool): Whether any persona/feedback hint was actually applied to reader prompt.
 - `similar_feedback_count` (int): Number of injected similar feedback examples.
 - `similar_feedback_paper_ids` (array[string]): Source paper IDs for injected feedback snippets.
@@ -40,7 +48,9 @@ This file is written per deepread run at:
   "job_id": "c826...",
   "run_id": "0d59...",
   "paper_id": "paper_chain_001",
-  "persona_id": "smoke-persona",
+  "persona_id": "coglab",
+  "reasoning_persona": "researcher",
+  "profile_id": "coglab",
   "persona_applied": true,
   "similar_feedback_count": 2,
   "similar_feedback_paper_ids": ["p123", "p456"],

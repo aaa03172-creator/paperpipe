@@ -1,5 +1,10 @@
 # PaperPipe Indexer
 
+Status: Active reference  
+Date: 2026-03-09  
+Owner: Indexing maintainers  
+Canonical parent: `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
+
 ## Overview
 - Local dense retrieval indexer for `papers` rows in SQLite.
 - Embeddings run locally with `sentence-transformers`.
