@@ -2,19 +2,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
+from src.timeout_policy import (
+    BatchTimeoutPolicy,
+    estimate_doc_timeout_seconds,
+    next_retry_timeout_seconds,
+)
 
 
 def _safe_read_json(path: Path) -> Dict[str, Any]:
@@ -26,7 +33,83 @@ def _safe_read_json(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _build_summary(rows: List[Dict[str, Any]], timeout_sec: int) -> Dict[str, Any]:
+def _tail_text(path: Path, max_chars: int = 1000) -> str:
+    if not path.exists():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    return text[-max_chars:].strip()
+
+
+def _terminate_process_group(proc: subprocess.Popen[str], grace_sec: int = 5) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=max(1, int(grace_sec)))
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=max(1, int(grace_sec)))
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _run_worker_with_timeout(cmd: List[str], timeout_sec: int) -> Tuple[int, bool, str]:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".log", delete=False) as lf:
+        log_path = Path(lf.name)
+
+    proc: subprocess.Popen[str] | None = None
+    try:
+        with log_path.open("a", encoding="utf-8") as log_fp:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_fp,
+                stderr=log_fp,
+                start_new_session=True,
+                text=True,
+            )
+            try:
+                returncode = proc.wait(timeout=max(1, int(timeout_sec)))
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _terminate_process_group(proc)
+                returncode = int(proc.returncode if proc.returncode is not None else -9)
+    finally:
+        log_tail = _tail_text(log_path)
+        try:
+            log_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return int(returncode), bool(timed_out), log_tail
+
+
+def _build_summary(rows: List[Dict[str, Any]], timeout_policy: BatchTimeoutPolicy, timeout_retry_limit: int) -> Dict[str, Any]:
     completed_like = [r for r in rows if r.get("status") in {"completed", "partial"}]
     pass_counter: Counter[str] = Counter()
     fail_tax_counter: Counter[str] = Counter()
@@ -61,17 +144,30 @@ def _build_summary(rows: List[Dict[str, Any]], timeout_sec: int) -> Dict[str, An
     completed_count = len([r for r in rows if r.get("status") == "completed"])
     partial_count = len([r for r in rows if r.get("status") == "partial"])
     timeout_count = len([r for r in rows if r.get("status") == "timeout"])
+    timeout_recovered_count = len([r for r in rows if bool(r.get("timeout_recovered"))])
     error_count = len([r for r in rows if r.get("status") == "error"])
     ingest_failed_count = len([r for r in rows if r.get("status") == "ingest_failed"])
     denominator = max(len(completed_like), 1)
+    effective_doc_timeouts = [int(r.get("doc_timeout_sec") or timeout_policy.base_timeout_sec) for r in rows]
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sample_size": sample_size,
-        "per_doc_timeout_sec": timeout_sec,
+        "per_doc_timeout_sec": int(timeout_policy.base_timeout_sec),
+        "timeout_policy": {
+            "strategy": str(timeout_policy.strategy),
+            "base_timeout_sec": int(timeout_policy.base_timeout_sec),
+            "min_timeout_sec": int(timeout_policy.min_timeout_sec),
+            "max_timeout_sec": int(timeout_policy.max_timeout_sec),
+            "size_weight_sec_per_mib": float(timeout_policy.size_weight_sec_per_mib),
+            "size_floor_mib": float(timeout_policy.size_floor_mib),
+            "page_weight_sec_per_page": float(timeout_policy.page_weight_sec_per_page),
+        },
+        "timeout_retry_limit": int(timeout_retry_limit),
         "completed": completed_count,
         "partial": partial_count,
         "timeout": timeout_count,
+        "timeout_recovered": timeout_recovered_count,
         "error": error_count,
         "ingest_failed": ingest_failed_count,
         "pass_distribution": dict(pass_counter),
@@ -92,19 +188,33 @@ def _build_summary(rows: List[Dict[str, Any]], timeout_sec: int) -> Dict[str, An
         "anchor_api_provider_distribution": dict(anchor_provider_counter),
         "no_doi_docs": int(anchor_status_counter.get("no_doi", 0)),
         "no_doi_ratio": round(anchor_status_counter.get("no_doi", 0) / denominator, 4) if completed_like else 0.0,
+        "effective_doc_timeout_min_sec": min(effective_doc_timeouts) if effective_doc_timeouts else int(timeout_policy.base_timeout_sec),
+        "effective_doc_timeout_max_sec": max(effective_doc_timeouts) if effective_doc_timeouts else int(timeout_policy.base_timeout_sec),
     }
 
 
 def _write_markdown(path: Path, summary: Dict[str, Any], rows: List[Dict[str, Any]]) -> None:
+    generated_at = str(summary.get("generated_at") or "")
+    generated_date = generated_at.split("T")[0] if "T" in generated_at else (generated_at[:10] if generated_at else "unknown-date")
     lines: List[str] = []
-    lines.append("# Local Batch Validation Full (2026-03-06, sample=30)")
+    lines.append(f"# Local Batch Validation Full ({generated_date}, sample={summary['sample_size']})")
     lines.append("")
     lines.append("- Scope: ingest + reader + stats + anchor context (step-level timeout worker)")
     lines.append(f"- Sample size: {summary['sample_size']}")
-    lines.append(f"- Per-doc timeout: {summary['per_doc_timeout_sec']}s")
+    lines.append(f"- Per-doc timeout base: {summary['per_doc_timeout_sec']}s")
+    timeout_policy = summary.get("timeout_policy") or {}
+    lines.append(f"- Timeout policy: {timeout_policy.get('strategy', 'fixed')}")
+    if "page_weight_sec_per_page" in timeout_policy:
+        lines.append(f"- Timeout page weight: {timeout_policy.get('page_weight_sec_per_page')}s/page")
+    lines.append(f"- Timeout retry limit: {summary.get('timeout_retry_limit', 0)}")
+    lines.append(
+        f"- Effective doc timeout range: {summary.get('effective_doc_timeout_min_sec', summary['per_doc_timeout_sec'])}"
+        f"~{summary.get('effective_doc_timeout_max_sec', summary['per_doc_timeout_sec'])}s"
+    )
     lines.append(f"- Completed: {summary['completed']}")
     lines.append(f"- Partial: {summary['partial']}")
     lines.append(f"- Timeout: {summary['timeout']}")
+    lines.append(f"- Timeout recovered by retry: {summary.get('timeout_recovered', 0)}")
     lines.append(f"- Error: {summary['error']}")
     lines.append(f"- Ingest failed: {summary['ingest_failed']}")
     lines.append(f"- Total checks: {summary['total_checks']}")
@@ -132,10 +242,13 @@ def _write_markdown(path: Path, summary: Dict[str, Any], rows: List[Dict[str, An
     lines.append("## Per-Document")
     for row in rows:
         lines.append(
-            "- {pdf}: status={status}, elapsed={elapsed_sec}s, reader={reader_status}, stats={stats_status}, checks={checks}, api={anchor_api_status}".format(
+            "- {pdf}: status={status}, elapsed={elapsed_sec}s, doc_timeout={doc_timeout_sec}s, "
+            "retries={timeout_retry_count}, reader={reader_status}, stats={stats_status}, checks={checks}, api={anchor_api_status}".format(
                 pdf=row.get("pdf"),
                 status=row.get("status"),
                 elapsed_sec=row.get("elapsed_sec"),
+                doc_timeout_sec=row.get("doc_timeout_sec"),
+                timeout_retry_count=row.get("timeout_retry_count", 0),
                 reader_status=row.get("reader_status"),
                 stats_status=row.get("stats_status"),
                 checks=row.get("checks"),
@@ -148,29 +261,54 @@ def _write_markdown(path: Path, summary: Dict[str, Any], rows: List[Dict[str, An
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full verify batch with per-document subprocess timeout.")
     parser.add_argument("--sample-size", type=int, default=30)
-    parser.add_argument("--per-doc-timeout-sec", type=int, default=80)
-    parser.add_argument("--reader-timeout-sec", type=int, default=20)
-    parser.add_argument("--stats-timeout-sec", type=int, default=25)
+    parser.add_argument("--timeout-policy", choices=("adaptive", "fixed"), default="adaptive")
+    parser.add_argument("--per-doc-timeout-sec", type=int, default=180, help="Base timeout seconds (or fixed timeout in fixed mode)")
+    parser.add_argument("--per-doc-timeout-min-sec", type=int, default=120, help="Adaptive mode minimum timeout seconds")
+    parser.add_argument("--per-doc-timeout-max-sec", type=int, default=600, help="Adaptive mode maximum timeout seconds")
+    parser.add_argument("--timeout-size-weight-sec-per-mib", type=float, default=35.0, help="Adaptive mode extra seconds per MiB")
+    parser.add_argument("--timeout-size-floor-mib", type=float, default=0.5, help="Adaptive mode minimum size floor (MiB)")
+    parser.add_argument("--timeout-page-weight-sec-per-page", type=float, default=10.0, help="Adaptive mode extra seconds per PDF page")
+    parser.add_argument("--timeout-retry-limit", type=int, default=1, help="Retry count when subprocess timeout occurs")
+    parser.add_argument("--timeout-retry-factor", type=float, default=1.75, help="Timeout multiplier for retry budget")
+    parser.add_argument("--timeout-retry-min-bump-sec", type=int, default=60, help="Minimum timeout increase on retry")
+    parser.add_argument("--reader-timeout-sec", type=int, default=30)
+    parser.add_argument("--stats-timeout-sec", type=int, default=40)
+    parser.add_argument("--adaptive-step-timeout", dest="adaptive_step_timeout", action="store_true")
+    parser.add_argument("--no-adaptive-step-timeout", dest="adaptive_step_timeout", action="store_false")
+    parser.set_defaults(adaptive_step_timeout=True)
     parser.add_argument(
         "--output-json",
-        default="docs/Local_Batch_Validation_2026-03-06_30_full_timeout.json",
+        default="docs/reports/Local_Batch_Validation_2026-03-06_30_full_timeout.json",
     )
     parser.add_argument(
         "--output-md",
-        default="docs/Local_Batch_Validation_2026-03-06_30_full_timeout.md",
+        default="docs/reports/Local_Batch_Validation_2026-03-06_30_full_timeout.md",
     )
     args = parser.parse_args()
 
     config = load_config()
     pdfs = sorted(Path(config.paths.library_dir).glob("*.pdf"))[: int(args.sample_size)]
     rows: List[Dict[str, Any]] = []
+    timeout_min_sec = max(1, int(args.per_doc_timeout_min_sec))
+    timeout_max_sec = max(timeout_min_sec, int(args.per_doc_timeout_max_sec))
+    timeout_policy = BatchTimeoutPolicy(
+        strategy=str(args.timeout_policy),
+        base_timeout_sec=max(1, int(args.per_doc_timeout_sec)),
+        min_timeout_sec=timeout_min_sec,
+        max_timeout_sec=timeout_max_sec,
+        size_weight_sec_per_mib=max(0.0, float(args.timeout_size_weight_sec_per_mib)),
+        size_floor_mib=max(0.1, float(args.timeout_size_floor_mib)),
+        page_weight_sec_per_page=max(0.0, float(args.timeout_page_weight_sec_per_page)),
+    )
+    timeout_retry_limit = max(0, int(args.timeout_retry_limit))
 
     worker_script = Path("scripts/full_verify_worker.py").resolve()
     for idx, pdf in enumerate(pdfs, start=1):
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
             out_path = Path(tf.name)
 
-        cmd = [
+        doc_timeout_sec = estimate_doc_timeout_seconds(pdf.resolve(), timeout_policy)
+        base_cmd = [
             "python3",
             str(worker_script),
             "--pdf",
@@ -183,58 +321,92 @@ def main() -> None:
             str(int(args.stats_timeout_sec)),
             "--skip-stats-when-no-claims",
         ]
+        if bool(args.adaptive_step_timeout):
+            base_cmd.append("--adaptive-step-timeout")
+        else:
+            base_cmd.append("--no-adaptive-step-timeout")
+        retry_count = 0
+        row: Dict[str, Any]
         try:
-            proc = subprocess.run(
-                cmd,
-                timeout=int(args.per_doc_timeout_sec),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            row = _safe_read_json(out_path)
-            if not row:
-                row = {
-                    "pdf": pdf.name,
-                    "status": "error",
-                    "error": "worker_no_output",
-                    "elapsed_sec": 0.0,
-                }
-            if proc.returncode != 0:
-                row.setdefault("status", "error")
-                row["status"] = "error"
-                row["worker_returncode"] = proc.returncode
-                stderr = (proc.stderr or "").strip()
-                if stderr:
-                    row["worker_stderr"] = stderr[-500:]
-            rows.append(row)
             print(
-                f"[{idx}/{len(pdfs)}] {pdf.name}: status={row.get('status')} "
-                f"elapsed={row.get('elapsed_sec')}s reader={row.get('reader_status')} stats={row.get('stats_status')}"
+                f"[{idx}/{len(pdfs)}] START {pdf.name}: timeout={doc_timeout_sec}s adaptive_step={bool(args.adaptive_step_timeout)}",
+                flush=True,
             )
-        except subprocess.TimeoutExpired:
-            rows.append(
-                {
-                    "pdf": pdf.name,
-                    "status": "timeout",
-                    "elapsed_sec": int(args.per_doc_timeout_sec),
-                }
-            )
-            print(f"[{idx}/{len(pdfs)}] {pdf.name}: timeout({args.per_doc_timeout_sec}s)")
+            while True:
+                cmd = [*base_cmd, "--doc-timeout-sec", str(int(doc_timeout_sec))]
+                worker_wait_timeout_sec = int(doc_timeout_sec) + 15
+                returncode, timed_out, log_tail = _run_worker_with_timeout(cmd, worker_wait_timeout_sec)
+                if timed_out:
+                    if retry_count >= timeout_retry_limit:
+                        row = {
+                            "pdf": pdf.name,
+                            "status": "timeout",
+                            "elapsed_sec": int(doc_timeout_sec),
+                            "doc_timeout_sec": int(doc_timeout_sec),
+                            "timeout_retry_count": int(retry_count),
+                            "timeout_recovered": False,
+                        }
+                        if log_tail:
+                            row["worker_stderr"] = log_tail
+                        print(
+                            f"[{idx}/{len(pdfs)}] {pdf.name}: timeout({doc_timeout_sec}s) retries={retry_count}/{timeout_retry_limit}"
+                        , flush=True)
+                        break
+
+                    next_timeout_sec = next_retry_timeout_seconds(
+                        int(doc_timeout_sec),
+                        retry_factor=float(args.timeout_retry_factor),
+                        min_bump_sec=int(args.timeout_retry_min_bump_sec),
+                        hard_cap_sec=timeout_max_sec,
+                    )
+                    retry_count += 1
+                    print(
+                        f"[{idx}/{len(pdfs)}] {pdf.name}: timeout({doc_timeout_sec}s) -> retry "
+                        f"{retry_count}/{timeout_retry_limit} with {next_timeout_sec}s"
+                    , flush=True)
+                    doc_timeout_sec = next_timeout_sec
+                    continue
+
+                row = _safe_read_json(out_path)
+                if not row:
+                    row = {
+                        "pdf": pdf.name,
+                        "status": "error",
+                        "error": "worker_no_output",
+                        "elapsed_sec": 0.0,
+                    }
+                if returncode != 0:
+                    row["worker_returncode"] = int(returncode)
+                    if str(row.get("status") or "") != "timeout":
+                        row.setdefault("status", "error")
+                        row["status"] = "error"
+                    if log_tail:
+                        row["worker_stderr"] = log_tail
+
+                row["doc_timeout_sec"] = int(doc_timeout_sec)
+                row["timeout_retry_count"] = int(retry_count)
+                row["timeout_recovered"] = bool(retry_count > 0 and row.get("status") in {"completed", "partial"})
+                print(
+                    f"[{idx}/{len(pdfs)}] {pdf.name}: status={row.get('status')} elapsed={row.get('elapsed_sec')}s "
+                    f"timeout={doc_timeout_sec}s retries={retry_count} reader={row.get('reader_status')} stats={row.get('stats_status')}"
+                , flush=True)
+                break
+            rows.append(row)
         finally:
             try:
                 out_path.unlink(missing_ok=True)
             except Exception:
                 pass
 
-    summary = _build_summary(rows, timeout_sec=int(args.per_doc_timeout_sec))
+    summary = _build_summary(rows, timeout_policy=timeout_policy, timeout_retry_limit=timeout_retry_limit)
     payload = {"summary": summary, "rows": rows}
     out_json = Path(args.output_json)
     out_md = Path(args.output_md)
     out_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     _write_markdown(out_md, summary=summary, rows=rows)
-    print(f"WROTE_JSON {out_json}")
-    print(f"WROTE_MD {out_md}")
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    print(f"WROTE_JSON {out_json}", flush=True)
+    print(f"WROTE_MD {out_md}", flush=True)
+    print(json.dumps(summary, indent=2, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
