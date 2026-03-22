@@ -26,6 +26,7 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
@@ -828,6 +829,7 @@ async def run_deepread_job(
             f.write(resolved_claim_set.model_dump_json(indent=2))
         bootstrap_meta["artifact_claimset_written"] = True
         bootstrap_meta["artifact_claimset_resolved_written"] = True
+        bootstrap_meta["artifact_reader_eval_written"] = False
         claim_count = len(claim_set.claims)
         bootstrap_meta["claimset_claim_count"] = claim_count
         bootstrap_meta["claimset_grounded_span_count"] = sum(
@@ -842,6 +844,24 @@ async def run_deepread_job(
             for span in claim.evidence_spans
             if span.grounded is False
         )
+        try:
+            reader_eval = build_reader_eval_sidecar(
+                paper_id=paper_id,
+                run_id=run_id,
+                claimset=claim_set,
+                resolved_claimset=resolved_claim_set,
+                index_artifact=index_artifact,
+            )
+            write_reader_eval_sidecar(reader_eval, artifact_dir)
+            bootstrap_meta["artifact_reader_eval_written"] = True
+            bootstrap_meta["reader_eval_claim_count"] = reader_eval.metrics.claim_count
+            bootstrap_meta["reader_eval_supported_claim_count"] = reader_eval.metrics.supported_claim_count
+            bootstrap_meta["reader_eval_unsupported_claim_count"] = reader_eval.metrics.unsupported_claim_count
+            bootstrap_meta["reader_eval_heuristic_backfill_claim_count"] = (
+                reader_eval.metrics.heuristic_backfill_claim_count
+            )
+        except Exception as exc:
+            logger.warning("Failed to build reader_eval sidecar: %s", exc)
         if claim_count > 0:
             bootstrap_meta["claimset_readiness"] = "ready"
             bootstrap_meta["claimset_ready"] = True
