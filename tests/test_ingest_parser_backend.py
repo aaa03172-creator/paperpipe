@@ -3,8 +3,13 @@ from pathlib import Path
 import fitz
 
 from src.agents.ingest_agent import IngestAgent
-from src.ingest.parser_backends import DoclingParserBackend, TableExtractionDiagnostics, TableExtractionResult
-from src.schemas.agent_artifacts import TableData
+from src.ingest.parser_backends import (
+    DoclingParserBackend,
+    FitzPdfPlumberBackend,
+    TableExtractionDiagnostics,
+    TableExtractionResult,
+)
+from src.schemas.agent_artifacts import Section, TableData
 
 
 def _make_pdf(path: Path, text: str | None = None) -> None:
@@ -131,6 +136,49 @@ def test_docling_backend_uses_conversion_when_available(monkeypatch) -> None:
     table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
     assert len(table_result.tables) == 1
     assert table_result.tables[0].data[0] == ["ColA", "ColB"]
+
+
+def test_docling_backend_falls_back_to_fitz_for_doi_when_conversion_text_misses_it(monkeypatch) -> None:
+    class FakeConversionDocument:
+        text = "Converted content without front-matter DOI."
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type(
+            "Meta",
+            (),
+            {"title": "x", "authors": [], "year": 0, "journal": "Unknown", "doi": None},
+        )(),
+    )
+    monkeypatch.setattr(
+        FitzPdfPlumberBackend,
+        "extract_text_and_meta",
+        lambda self, _path: (
+            type(
+                "Meta",
+                (),
+                {"title": "x", "authors": [], "year": 0, "journal": "Unknown", "doi": "10.1002/alz.12787"},
+            )(),
+            [Section(name="page_1", text="DOI: 10.1002/alz.12787", char_start=0, char_end=22, page_start=1, page_end=1)],
+            22,
+        ),
+    )
+
+    backend = DoclingParserBackend()
+    meta, sections, text_len = backend.extract_text_and_meta(Path("/tmp/unused.pdf"))
+
+    assert meta.doi == "10.1002/alz.12787"
+    assert len(sections) == 1
+    assert text_len > 0
 
 
 def test_ingest_records_table_failure_taxonomy_for_no_table_pdf(tmp_path: Path) -> None:

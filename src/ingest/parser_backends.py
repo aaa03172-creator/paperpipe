@@ -579,6 +579,15 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                     if len(snippets) >= 3:
                         break
                 setattr(paper_meta, "doi", _resolve_doi(path=path, text_snippets=snippets))
+            paper_doi = str(getattr(paper_meta, "doi", "") or "").strip()
+            if not paper_doi:
+                try:
+                    fallback_meta, _fallback_sections, _fallback_len = super().extract_text_and_meta(path)
+                    fallback_doi = str(getattr(fallback_meta, "doi", "") or "").strip()
+                    if fallback_doi:
+                        setattr(paper_meta, "doi", fallback_doi)
+                except Exception as exc:
+                    logger.warning("Docling DOI fallback via fitz failed for %s: %s", path, exc)
             total_len = sum(len(sec.text) for sec in sections)
             return paper_meta, sections, total_len
         except Exception as exc:
