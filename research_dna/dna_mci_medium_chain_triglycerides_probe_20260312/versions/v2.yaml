@@ -1,0 +1,15 @@
+schema_version: research_dna.query_snapshot.v1
+dna_id: dna_mci_medium_chain_triglycerides_probe_20260312
+query_version:
+  version: v2
+  mode: precision
+  per_db:
+    pubmed: ("mild cognitive impairment"[Title/Abstract] OR "mild neurocognitive disorder"[Title/Abstract])
+      AND (("medium-chain triglycerides"[Title/Abstract]) OR ("medium chain triglyceride"[Title/Abstract])
+      OR ("medium chain triglyceride oil"[Title/Abstract])) NOT (("systematic review"[Title])
+      OR ("meta-analysis"[Title]) OR ("narrative review"[Title]) OR (review[Publication
+      Type]) OR (hypothesis[Title]))
+  change_summary: remove ambiguous MCT acronym and block review-like titles/publication
+    type after v1 screening noise
+  created_at: '2026-03-12T00:30:00Z'
+  created_by: human_cli:codex
