@@ -49,13 +49,18 @@ class TestStatsAgent(unittest.TestCase):
             ],
         )
 
-    def test_graph_construction(self):
+    @patch("src.agents.stats_agent.load_config")
+    @patch("src.agents.stats_agent.OllamaModelAdapter")
+    def test_graph_construction(self, _mock_adapter, mock_load_config):
+        mock_load_config.return_value = MagicMock()
         agent = StatsVerificationAgent()
         self.assertIsNotNone(agent.workflow)
 
+    @patch("src.agents.stats_agent.load_config")
     @patch("src.agents.stats_agent.OllamaModelAdapter")
     @patch("src.agents.stats_agent.DockerSandbox")
-    def test_execution_flow(self, MockSandbox, MockAdapter):
+    def test_execution_flow(self, MockSandbox, MockAdapter, mock_load_config):
+        mock_load_config.return_value = MagicMock()
         agent = StatsVerificationAgent()
         
         # Mock LLM responses
