@@ -17,10 +17,22 @@ export interface PaperSummary {
   latest_job_id?: string;
   latest_run_id?: string;
   updated_at?: string;
+  ops_summary?: PaperNoteOpsSummary | null;
 }
 
 export interface PaperDetail extends PaperSummary {
   abstract?: string;
+}
+
+export interface PaperNoteOpsSummary {
+  state: "healthy" | "action_needed";
+  label: string;
+  reason: string;
+  recommended_action: "none" | "repair_stats" | "open_workbench";
+  latest_run_id?: string | null;
+  has_claimset: boolean;
+  has_stats_report: boolean;
+  stats_check_count: number;
 }
 
 export interface PaperNoteSummary {
@@ -36,6 +48,12 @@ export interface PaperNoteSummary {
   doi?: string | null;
   zotero_link?: string | null;
   updated_at?: string | null;
+  pp_signals?: Record<string, unknown>;
+  claim_tags?: string[];
+  entities?: string[];
+  mesh?: string[];
+  outcomes?: string[];
+  ops_summary?: PaperNoteOpsSummary | null;
 }
 
 export interface PaperNoteListResponse {
