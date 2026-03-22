@@ -28,6 +28,11 @@ def test_compare_backend_rows_flags_expected_regressions() -> None:
             "has_doi": True,
             "doi": "10.1/example",
             "table_count": 2,
+            "meaningful_table_count": 2,
+            "table_summaries": [
+                {"rows": 4, "cols": 3, "non_empty_cells": 10, "alpha_cells": 4},
+                {"rows": 3, "cols": 3, "non_empty_cells": 9, "alpha_cells": 3},
+            ],
             "text_char_count": 100,
         }
     ]
@@ -43,6 +48,8 @@ def test_compare_backend_rows_flags_expected_regressions() -> None:
             "has_doi": False,
             "doi": None,
             "table_count": 0,
+            "meaningful_table_count": 0,
+            "table_summaries": [],
             "text_char_count": 10,
         }
     ]
@@ -55,7 +62,7 @@ def test_compare_backend_rows_flags_expected_regressions() -> None:
         max_error_increase_docs=0,
         max_empty_text_increase_docs=0,
         max_doi_loss_docs=0,
-        max_table_loss_docs=0,
+        max_meaningful_table_loss_docs=0,
         max_low_text_ratio_docs=0,
     )
 
@@ -63,8 +70,64 @@ def test_compare_backend_rows_flags_expected_regressions() -> None:
     assert "backend_unavailable_docs" in report["decision"]["failed_checks"]
     assert "error_increase_docs" in report["decision"]["failed_checks"]
     assert "doi_loss_docs" in report["decision"]["failed_checks"]
-    assert "table_loss_docs" in report["decision"]["failed_checks"]
+    assert "meaningful_table_loss_docs" in report["decision"]["failed_checks"]
     assert "low_text_ratio_docs" in report["decision"]["failed_checks"]
+
+
+def test_compare_backend_rows_ignores_raw_table_fragments_when_meaningful_count_matches() -> None:
+    baseline_rows = [
+        {
+            "pdf_path": "/tmp/b.pdf",
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example2",
+            "table_count": 4,
+            "meaningful_table_count": 1,
+            "table_summaries": [
+                {"rows": 1, "cols": 2, "non_empty_cells": 1, "alpha_cells": 1},
+                {"rows": 7, "cols": 7, "non_empty_cells": 49, "alpha_cells": 0},
+                {"rows": 1, "cols": 2, "non_empty_cells": 2, "alpha_cells": 0},
+                {"rows": 10, "cols": 6, "non_empty_cells": 35, "alpha_cells": 6},
+            ],
+            "text_char_count": 100,
+        }
+    ]
+    candidate_rows = [
+        {
+            "pdf_path": "/tmp/b.pdf",
+            "requested_backend": "docling",
+            "effective_backend": "docling",
+            "backend_available": True,
+            "backend_fallback_note": None,
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example2",
+            "table_count": 1,
+            "meaningful_table_count": 1,
+            "table_summaries": [
+                {"rows": 10, "cols": 6, "non_empty_cells": 35, "alpha_cells": 6},
+            ],
+            "text_char_count": 105,
+        }
+    ]
+
+    report = compare_backend_rows(
+        baseline_rows=baseline_rows,
+        candidate_rows=candidate_rows,
+        min_candidate_text_ratio=0.5,
+        max_backend_unavailable_docs=0,
+        max_error_increase_docs=0,
+        max_empty_text_increase_docs=0,
+        max_doi_loss_docs=0,
+        max_meaningful_table_loss_docs=0,
+        max_low_text_ratio_docs=0,
+    )
+
+    assert "meaningful_table_loss_docs" not in report["decision"]["failed_checks"]
+    assert report["raw_table_loss_docs"][0]["baseline_table_count"] == 4
+    assert report["raw_table_loss_docs"][0]["candidate_table_count"] == 1
 
 
 def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> None:
@@ -111,3 +174,4 @@ def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> 
     assert any(row["requested_backend"] == "fitz_pdfplumber" for row in rows)
     assert any(row["requested_backend"] == "docling" for row in rows)
     assert any(row["has_doi"] for row in rows)
+    assert all("meaningful_table_count" in row for row in rows)
