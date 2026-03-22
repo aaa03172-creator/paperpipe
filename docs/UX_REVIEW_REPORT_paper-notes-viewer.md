@@ -281,6 +281,135 @@ Reviewer: Codex
   - terminal button copy를 `Terminal logs`로 축약
   - suspense fallback copy를 `Loading workspace...`로 교체
 
+## 7.10) Paper Note Detail Header Copy Checkpoint (2026-03-23)
+- Screen/Flow: `/papers/:slug` detail header before markdown reading and workbench handoff
+- Goal action: 사용자가 이 화면을 viewer shell이 아니라 실제 note review surface로 즉시 이해한다.
+- Primary persona: note 본문을 읽고 related/reference를 확인한 뒤 필요하면 workbench로 넘어가는 연구자
+- Current friction:
+  - `Lattice · Paper Notes Viewer`는 브랜드/내부 viewer shell처럼 읽히고, detail route의 즉각적 작업 의미를 직접 말하지 않는다.
+  - H1 아래에는 논문 title과 id는 있지만, 왜 이 surface가 존재하는지 알려주는 짧은 orientation 문구가 약하다.
+- Quick decision:
+  - H1, note id, back/workbench CTA, viewer mode controls, panel order는 유지한다.
+  - eyebrow와 subtitle만 작업 중심 문구로 교체한다.
+- BMAP:
+  - Motivation: 높음. 사용자는 note를 읽기 시작하기 전에 이 surface의 책임을 바로 알고 싶다.
+  - Ability: 짧은 subtitle 한 줄이면 별도 설명 panel 없이도 시작 비용이 줄어든다.
+  - Prompt: detail header가 reading context와 workbench handoff를 동시에 예고하면 충분하다.
+- B.I.A.S:
+  - Block: viewer shell 언어는 목적 해석을 한 단계 늦춘다.
+  - Interpret: `Paper note detail`과 direct subtitle이 화면 책임을 바로 설명한다.
+  - Act: subtitle이 `review -> open workbench` 흐름을 부드럽게 연결한다.
+  - Store: detail route도 list/triage와 같은 restrained product language로 기억된다.
+- Peak-End:
+  - Peak는 detail 진입 직후 “여기서 note를 읽고 관련 근거를 본다”가 바로 읽히는 순간이다.
+  - Pit는 title 아래가 metadata만 남아 surface purpose가 늦게 드러나는 순간이다.
+  - Transition은 list -> detail -> workbench이며, header copy가 그 handoff를 미리 설명해야 한다.
+- Ethics:
+  - Regret: 통과. 정보를 숨기지 않고 현재 작업 목적을 더 직접적으로 설명한다.
+  - Black Mirror: 통과. urgency, persuasion, branding mood를 추가하지 않는다.
+  - In Real-Life: 통과. 조용하지만 분명한 연구 도구의 안내다.
+- Concrete change:
+  - eyebrow를 `Paper note detail`로 교체
+  - subtitle을 `Review note content, related papers, and references before opening the workbench.`로 추가
+
+## 7.11) Mobile Detail Side Panel Naming Checkpoint (2026-03-23)
+- Screen/Flow: `/papers/:slug` mobile detail side panel trigger and sheet title
+- Goal action: 사용자가 mobile에서 여는 보조 패널이 단순 속성 창이 아니라 review support surface라는 점을 바로 이해한다.
+- Primary persona: mobile에서 note 본문을 읽다가 metadata, outline, related papers, references, actions, claim cards를 함께 확인하는 연구자
+- Current friction:
+  - `Properties & Links`는 일부 내용만 설명하고, actions/claim cards/outline까지 포함하는 실제 패널 역할을 충분히 말하지 못한다.
+  - 특히 mobile에서는 이 패널이 detail route의 핵심 보조 surface인데, naming이 너무 narrow하다.
+- Quick decision:
+  - side panel contents와 ordering은 유지한다.
+  - button label, sheet title, sheet description만 더 직접적인 review language로 바꾼다.
+- BMAP:
+  - Motivation: 높음. mobile에서는 이 패널이 supporting context의 핵심 진입점이다.
+  - Ability: broader but still direct naming만으로 패널 역할 이해가 쉬워진다.
+  - Prompt: `Review details` 정도가 가장 짧고 현재 내용 범위를 무리 없이 덮는다.
+- B.I.A.S:
+  - Block: 기존 명칭은 properties에만 시선을 묶어 outline/actions/claim cards 존재를 약하게 만든다.
+  - Interpret: `Review details`가 supporting review surface라는 해석을 더 빠르게 만든다.
+  - Act: 사용자는 본문 읽기 중 필요한 supporting context를 열어볼 이유를 더 쉽게 이해한다.
+  - Store: mobile detail도 task-oriented language로 정리된다는 일관성이 남는다.
+- Peak-End:
+  - Peak는 mobile에서 버튼을 보는 순간 “이 안에 review context가 있다”가 읽히는 순간이다.
+  - Pit는 속성창처럼 느껴져 실제로는 더 많은 review support가 있는 패널을 덜 열게 되는 순간이다.
+  - Transition은 reading view -> side panel -> workbench handoff이며, panel naming이 첫 전환을 돕는다.
+- Ethics:
+  - Regret: 통과. 내용을 과장하지 않고 실제 패널 역할에 더 가깝게 설명한다.
+  - Black Mirror: 통과. 클릭 유도용 과장 문구가 아니다.
+  - In Real-Life: 통과. 연구 assistant가 “자세한 검토 항목은 여기”라고 안내하는 수준이다.
+- Concrete change:
+  - mobile trigger button을 `Review details`로 교체
+  - sheet title을 `Review details`로 교체
+  - sheet description을 실제 패널 구성에 맞게 더 간결하게 정리
+
+## 7.12) Detail Technical Label Cleanup Checkpoint (2026-03-23)
+- Screen/Flow: `/papers/:slug` structured detail panels and view-mode helper copy
+- Goal action: 사용자가 note detail의 structured panels를 내부 구현 용어 없이 더 빠르게 해석한다.
+- Primary persona: note detail에서 actions, structured runs, claim cards를 점검한 뒤 workbench로 넘어가는 연구자
+- Current friction:
+  - `Builder / Debug`, `Automation Results`, `ClaimSet` 같은 wording은 기능은 맞지만 연구자 관점에서는 내부 구현어처럼 들린다.
+  - detail route는 이미 route-level language가 정리됐는데, side panels 안쪽 제목만 상대적으로 technical tone이 남아 있었다.
+- Quick decision:
+  - panel ordering, data shape, markdown output heading은 유지한다.
+  - runtime UI에서만 `Inspect`, `Run history`, `Structured claims`처럼 더 직접적인 review language로 바꾼다.
+- BMAP:
+  - Motivation: 높음. 이 surface는 읽기와 검수를 함께 지원해야 한다.
+  - Ability: 새 구조를 만들지 않고 제목과 summary만 정리해도 scan cost가 줄어든다.
+  - Prompt: 현재 rail과 sheet 안에서 짧은 task-language label이 가장 안전하다.
+- B.I.A.S:
+  - Block: technical labels는 structured panels를 “개발자용”으로 느끼게 만든다.
+  - Interpret: `Run history`와 `Structured claims`는 패널 책임을 더 직접적으로 설명한다.
+  - Act: `Inspect` mode라는 이름은 왜 이 모드에서 actions/runs/claims가 앞에 오는지 해석을 돕는다.
+  - Store: detail route 전체가 같은 restrained product language를 유지하게 된다.
+- Peak-End:
+  - Peak는 structured note detail에서도 “무엇을 검토하는지”가 즉시 읽히는 순간이다.
+  - Pit는 data truth는 같지만 label tone 때문에 내부 콘솔처럼 느껴지는 순간이다.
+  - Transition은 learner reading -> inspect review -> workbench handoff이며, mode/panel naming이 그 전환을 더 부드럽게 만든다.
+- Ethics:
+  - Regret: 통과. 구조나 truth를 감추지 않고 label만 더 직접적으로 만든다.
+  - Black Mirror: 통과. urgency, overclaim, persuasion을 추가하지 않는다.
+  - In Real-Life: 통과. 조용한 연구 도구가 “실행 기록”과 “구조화된 주장”을 보여주는 수준이다.
+- Concrete change:
+  - `Builder / Debug` mode label을 `Inspect`로 교체
+  - `Builder / Debug mode lifts ...` summary를 `Inspect mode lifts ...`로 정리
+  - `Automation Results` panel title을 `Run history`로 교체
+  - `ClaimSet` panel title과 properties stat label을 `Structured claims`로 교체
+  - append toggle helper copy를 runtime panel language와 충돌하지 않도록 `short run summary`로 정리
+
+## 7.13) Detail Visual Baseline Refresh Checkpoint (2026-03-23)
+- Screen/Flow: `/papers/:slug` desktop/mobile visual regression baselines
+- Goal action: 현재 detail UI wording과 visual baseline artifact가 같은 상태를 가리키도록 맞춘다.
+- Primary persona: viewer UI regression을 screenshot diff로 검토하는 maintainers
+- Current friction:
+  - detail route wording은 이미 `Inspect`, `Run history`, `Structured claims`, `Review details`로 바뀌었지만, 기존 darwin snapshot 일부는 높은 diff tolerance 안에서 이전 wording을 계속 보존하고 있었다.
+  - 이 상태는 테스트 pass와 baseline image가 서로 다른 UI를 가리키는 작은 운영 리스크를 만든다.
+- Quick decision:
+  - 새 layout refinement는 추가하지 않는다.
+  - detail visual baselines 4장만 `--update-snapshots=all`로 강제 재생성해 current UI와 다시 맞춘다.
+- BMAP:
+  - Motivation: 중간. 사용자는 보지 않더라도 maintainer는 baseline과 실제 UI가 일치하길 원한다.
+  - Ability: screenshot artifact만 갱신하면 충분하다.
+  - Prompt: current UI를 다시 기준선으로 삼는 것이 가장 직접적인 해법이다.
+- B.I.A.S:
+  - Block: lenient diff threshold는 wording drift를 baseline refresh 없이 통과시킬 수 있다.
+  - Interpret: refreshed snapshot은 current product language를 정확히 보여준다.
+  - Act: 이후 regression review에서 screenshot diff 신뢰도가 올라간다.
+  - Store: visual baseline도 current UI contract를 기억하는 artifact가 된다.
+- Peak-End:
+  - Peak는 code/test/baseline이 같은 wording을 가리키는 상태다.
+  - Pit는 테스트는 green인데 baseline image는 예전 UI를 보여주는 상태다.
+  - Transition은 wording pass -> baseline refresh -> stable visual review다.
+- Ethics:
+  - Regret: 통과. 사용자-facing behavior를 바꾸지 않고 verification artifact만 바로잡는다.
+  - Black Mirror: 통과. 결과를 좋게 보이게 꾸미는 것이 아니라 current UI를 정확히 기록한다.
+  - In Real-Life: 통과. 스냅샷 goldens를 실제 화면과 일치시키는 유지보수 수준이다.
+- Concrete change:
+  - desktop/mobile detail visual baselines 4장을 `--update-snapshots=all`로 재생성
+  - current wording(`Inspect`, `Review details`, `Current focus`)이 이미지 artifact에도 그대로 반영되도록 정렬
+  - spacing audit은 별도 layout patch 없이 종료
+
 ## 8) Next PR-sized actions
 이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`다.
 
