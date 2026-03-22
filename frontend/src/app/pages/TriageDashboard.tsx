@@ -180,6 +180,12 @@ export function TriageDashboard() {
             >
               Image Evidence
             </Link>
+            <Link
+              to="/protocol-cards"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Protocol Cards
+            </Link>
             <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
               Theme
               <select

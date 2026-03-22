@@ -73,6 +73,8 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
   - Review artifact for the read-only Chart Pack viewer and its warning-forward artifact review loop.
 - `docs/UX_REVIEW_REPORT_image-evidence-viewer.md`
   - Review artifact for the read-only Image Evidence viewer and its source-first, metadata-only inspection loop.
+- `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
+  - Review artifact for the read-only Protocol Knowledge inspector and its version-first review loop.
 - `docs/UIUX_Adoption_Filter_2026-02-25.md`
   - UI adoption/include-exclude guardrail.
 - `docs/WEB_VIEWER.md`
