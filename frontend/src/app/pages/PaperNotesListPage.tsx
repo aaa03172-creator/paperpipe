@@ -678,10 +678,10 @@ export function PaperNotesListPage() {
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
       <header className="surface-card mb-4 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Lattice · Paper Notes Viewer</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Paper note index</p>
         <h1 className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">Paper Notes</h1>
         <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
-          Obsidian vault note index with search, filtering, and confidence/date sorting.
+          Search notes, filter structured signals, and open the paper detail you need.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-6">
@@ -692,7 +692,7 @@ export function PaperNotesListPage() {
               <input
                 value={queryInput}
                 onChange={(event) => handleQueryChange(event.target.value)}
-                placeholder="title / alias / slug"
+                placeholder="Title, alias, or slug"
                 className="w-full border-0 bg-transparent px-2 py-2 text-sm text-[var(--pp-text-primary)] outline-none"
               />
             </span>
