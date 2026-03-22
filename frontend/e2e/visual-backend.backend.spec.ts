@@ -78,7 +78,13 @@ test.describe("mobile visual regression (backend)", () => {
 
   test("paper note detail layout", async ({ page }) => {
     await openBackendPaperNoteDetail(page);
-    await expect(page.locator("aside").filter({ hasText: "Properties" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Related Papers" })).toBeVisible();
+    const sidePanelButton = page.getByTestId("paper-note-open-side-panel");
+    await expect(sidePanelButton).toBeVisible();
+    await sidePanelButton.click();
+
+    const sheet = page.getByTestId("paper-note-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Review details" })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Related Papers", exact: true })).toBeVisible();
   });
 });
