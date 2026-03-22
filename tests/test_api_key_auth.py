@@ -104,6 +104,22 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
             },
         )
         assert image_evidence_register.status_code == 401
+
+        protocol_card_upsert = client.post(
+            "/protocol-cards",
+            json={
+                "title": "Protocol auth demo",
+                "source_kind": "paper_derived",
+                "versions": [
+                    {
+                        "version_number": 1,
+                        "content_snapshot": "Step 1",
+                        "created_by": "tester",
+                    }
+                ],
+            },
+        )
+        assert protocol_card_upsert.status_code == 401
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -418,6 +434,28 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         )
         assert image_evidence_register.status_code == 200
         assert image_evidence_register.json()["image_evidence"]["image_evidence_id"] == "img_auth_allow"
+
+        monkeypatch.setenv("PAPERPIPE_PROTOCOL_CARDS_DIR", str(tmp_path / "protocol_cards"))
+        protocol_card_upsert = client.post(
+            "/protocol-cards",
+            json={
+                "protocol_id": "protocol_auth_allow",
+                "title": "Protocol auth demo",
+                "source_kind": "paper_derived",
+                "versions": [
+                    {
+                        "version_id": "protver_auth_allow_v1",
+                        "version_number": 1,
+                        "content_snapshot": "Step 1",
+                        "status": "active",
+                        "created_by": "tester",
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        assert protocol_card_upsert.status_code == 200
+        assert protocol_card_upsert.json()["protocol_card"]["protocol_id"] == "protocol_auth_allow"
     finally:
         db_utils.DB_PATH = original_db_path
 
