@@ -2,6 +2,10 @@ import { apiPath, APP_CONFIG } from "./config";
 import {
   ApiResult,
   ArtifactBundle,
+  ChartPackListResponse,
+  ChartPackResponse,
+  ImageEvidenceListResponse,
+  ImageEvidenceResponse,
   JobEnqueueResponse,
   JobStatus,
   MethodComparisonListResponse,
@@ -25,6 +29,10 @@ import {
 } from "./types";
 import {
   createMockJob,
+  getMockChartPack,
+  getMockChartPackIndex,
+  getMockImageEvidence,
+  getMockImageEvidenceIndex,
   getMockArtifactsLatest,
   getMockHealth,
   getMockMethodComparison,
@@ -552,6 +560,82 @@ export async function getMethodComparisonIndex(): Promise<ApiResult<MethodCompar
 
 export function getMethodComparisonCsvUrl(comparisonId: string): string {
   return apiPath(`/method-comparisons/${encodeURIComponent(comparisonId)}/export.csv`);
+}
+
+export async function getChartPack(chartPackId: string): Promise<ApiResult<ChartPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockChartPack(chartPackId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ChartPackResponse>([
+      `/chart-packs/${encodeURIComponent(chartPackId)}`,
+    ]),
+    isMock: false,
+  };
+}
+
+export async function getChartPackIndex(): Promise<ApiResult<ChartPackListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockChartPackIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ChartPackListResponse>(["/chart-packs"]),
+    isMock: false,
+  };
+}
+
+export async function getImageEvidence(imageEvidenceId: string): Promise<ApiResult<ImageEvidenceResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockImageEvidence(imageEvidenceId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ImageEvidenceResponse>([
+      `/image-evidence/${encodeURIComponent(imageEvidenceId)}`,
+    ]),
+    isMock: false,
+  };
+}
+
+export async function getImageEvidenceIndex(): Promise<ApiResult<ImageEvidenceListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockImageEvidenceIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ImageEvidenceListResponse>(["/image-evidence"]),
+    isMock: false,
+  };
+}
+
+export function getChartPackDataCsvUrl(chartPackId: string, chartId: string): string {
+  return apiPath(
+    `/chart-packs/${encodeURIComponent(chartPackId)}/charts/${encodeURIComponent(chartId)}/data.csv`,
+  );
+}
+
+export function getChartPackSpecUrl(chartPackId: string, chartId: string): string {
+  return apiPath(
+    `/chart-packs/${encodeURIComponent(chartPackId)}/charts/${encodeURIComponent(chartId)}/spec.json`,
+  );
 }
 
 export async function getMeetingPackTrace(packId: string): Promise<ApiResult<MeetingPackTraceResponse>> {

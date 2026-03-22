@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Viewer, Worker } from "@react-pdf-viewer/core";
 import { HighlightArea, highlightPlugin, RenderHighlightsProps, Trigger } from "@react-pdf-viewer/highlight";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
@@ -309,6 +309,7 @@ export function PdfPanel({
   }, [activeArea, resolvedActivePageIndex]);
 
   const pageNavigationPluginInstance = pageNavigationPlugin();
+  const pageNavigationPluginRef = useRef(pageNavigationPluginInstance);
   const softMode = highlightMode === "soft";
   const selectedBorderWidth = softMode ? 2 : 3;
   const selectedBg = softMode ? "rgba(34, 211, 238, 0.18)" : "rgba(34, 211, 238, 0.30)";
@@ -386,6 +387,14 @@ export function PdfPanel({
       );
     },
   });
+  const highlightPluginRef = useRef(highlightPluginInstance);
+  const searchPluginRef = useRef(searchPluginInstance);
+  const syncSequenceRef = useRef(0);
+  useEffect(() => {
+    pageNavigationPluginRef.current = pageNavigationPluginInstance;
+    highlightPluginRef.current = highlightPluginInstance;
+    searchPluginRef.current = searchPluginInstance;
+  }, [highlightPluginInstance, pageNavigationPluginInstance, searchPluginInstance]);
   const activeTextMatchPos = useMemo(() => {
     if (textMatchSnippets.length === 0) {
       return -1;
@@ -398,7 +407,83 @@ export function PdfPanel({
   }, [textMatchSnippets, activeTextMatchIndex]);
   const activeTextMatchSnippet = activeTextMatchPos >= 0 ? textMatchSnippets[activeTextMatchPos] : null;
 
-  const viewerKey = `${pdfUrl}::${activeClaimId ?? "none"}::${resolvedActivePageIndex}`;
+  useEffect(() => {
+    if (!pdfUrl || loadedPdfMeta?.url !== pdfUrl) {
+      return;
+    }
+
+    const pageNavigation = pageNavigationPluginRef.current;
+    const highlightPlugin = highlightPluginRef.current;
+    const searchPlugin = searchPluginRef.current;
+    const localClaimKey = claimKey;
+    const localSequence = syncSequenceRef.current + 1;
+    syncSequenceRef.current = localSequence;
+
+    const syncSelection = async () => {
+      pageNavigation.jumpToPage(resolvedActivePageIndex);
+      searchPlugin.clearHighlights();
+      searchPlugin.setTargetPages(() => true);
+
+      if (resolvedActiveArea) {
+        highlightPlugin.jumpToHighlightArea(resolvedActiveArea);
+        setSearchMeta({ claimKey: localClaimKey, count: 0 });
+        setTextMatchSnippets([]);
+        setActiveTextMatchIndex(null);
+        return;
+      }
+
+      if (searchKeywords.length === 0) {
+        setSearchMeta({ claimKey: localClaimKey, count: 0 });
+        setTextMatchSnippets([]);
+        setActiveTextMatchIndex(null);
+        return;
+      }
+
+      setSearchMeta({ claimKey: localClaimKey, count: 0 });
+      setTextMatchSnippets([]);
+      setActiveTextMatchIndex(null);
+
+      searchPlugin.setTargetPages((targetPage) => targetPage.pageIndex === resolvedActivePageIndex);
+      let matches = await searchPlugin.highlight(searchKeywords);
+      if (syncSequenceRef.current !== localSequence) {
+        return;
+      }
+      if (matches.length === 0) {
+        searchPlugin.clearHighlights();
+        searchPlugin.setTargetPages(() => true);
+        matches = await searchPlugin.highlight(searchKeywords);
+        if (syncSequenceRef.current !== localSequence) {
+          return;
+        }
+      }
+      setSearchMeta({ claimKey: localClaimKey, count: matches.length });
+      const snippets = buildTextMatchSnippets(matches, rankingText, resolvedActivePageIndex);
+      setTextMatchSnippets(snippets);
+      const preferredSnippet = pickPreferredSnippet(snippets, rankingText, resolvedActivePageIndex);
+      if (preferredSnippet) {
+        setActiveTextMatchIndex(preferredSnippet.globalIndex);
+        pageNavigation.jumpToPage(preferredSnippet.pageIndex);
+        searchPlugin.jumpToMatch(preferredSnippet.globalIndex);
+      } else {
+        setActiveTextMatchIndex(null);
+      }
+    };
+
+    void syncSelection();
+    return () => {
+      syncSequenceRef.current += 1;
+    };
+  }, [
+    claimKey,
+    loadedPdfMeta?.url,
+    pdfUrl,
+    rankingText,
+    resolvedActiveArea,
+    resolvedActivePageIndex,
+    searchKeywords,
+  ]);
+
+  const viewerKey = pdfUrl;
 
   return (
     <section className="surface-card flex min-h-0 flex-col p-3">
@@ -523,42 +608,8 @@ export function PdfPanel({
                 fileUrl={pdfUrl}
                 initialPage={resolvedActivePageIndex}
                 plugins={[highlightPluginInstance, pageNavigationPluginInstance, searchPluginInstance]}
-                onDocumentLoad={async (event) => {
-                  const localClaimKey = claimKey;
+                onDocumentLoad={(event) => {
                   setLoadedPdfMeta({ url: pdfUrl, pageCount: event.doc.numPages });
-                  pageNavigationPluginInstance.jumpToPage(resolvedActivePageIndex);
-                  searchPluginInstance.clearHighlights();
-                  if (resolvedActiveArea) {
-                    highlightPluginInstance.jumpToHighlightArea(resolvedActiveArea);
-                    setSearchMeta({ claimKey: localClaimKey, count: 0 });
-                    setTextMatchSnippets([]);
-                    setActiveTextMatchIndex(null);
-                    return;
-                  }
-                  if (searchKeywords.length === 0) {
-                    setSearchMeta({ claimKey: localClaimKey, count: 0 });
-                    setTextMatchSnippets([]);
-                    setActiveTextMatchIndex(null);
-                    return;
-                  }
-                  searchPluginInstance.setTargetPages((targetPage) => targetPage.pageIndex === resolvedActivePageIndex);
-                  let matches = await searchPluginInstance.highlight(searchKeywords);
-                  if (matches.length === 0) {
-                    searchPluginInstance.clearHighlights();
-                    searchPluginInstance.setTargetPages(() => true);
-                    matches = await searchPluginInstance.highlight(searchKeywords);
-                  }
-                  setSearchMeta({ claimKey: localClaimKey, count: matches.length });
-                  const snippets = buildTextMatchSnippets(matches, rankingText, resolvedActivePageIndex);
-                  setTextMatchSnippets(snippets);
-                  const preferredSnippet = pickPreferredSnippet(snippets, rankingText, resolvedActivePageIndex);
-                  if (preferredSnippet) {
-                    setActiveTextMatchIndex(preferredSnippet.globalIndex);
-                    pageNavigationPluginInstance.jumpToPage(preferredSnippet.pageIndex);
-                    searchPluginInstance.jumpToMatch(preferredSnippet.globalIndex);
-                  } else {
-                    setActiveTextMatchIndex(null);
-                  }
                 }}
                 onPageChange={(event) => {
                   const nextPageIndex = event.currentPage;

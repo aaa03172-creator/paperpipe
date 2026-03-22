@@ -18,14 +18,18 @@ E2E_EXPORT_REL="./frontend/.e2e-backend-runtime/export"
 E2E_WATCH_REL="./frontend/.e2e-backend-runtime/Inbox"
 E2E_DOWNLOADS_REL="./frontend/.e2e-backend-runtime/Downloads"
 E2E_PDF_STORAGE_REL="./frontend/.e2e-backend-runtime/storage/pdfs"
+E2E_CHART_PACKS_REL="./frontend/.e2e-backend-runtime/storage/chart_packs"
 E2E_METHOD_COMPARISONS_REL="./frontend/.e2e-backend-runtime/storage/method_comparisons"
+E2E_IMAGE_EVIDENCE_REL="./frontend/.e2e-backend-runtime/storage/image_evidence"
 
 rm -rf "${E2E_RUNTIME_DIR}"
 mkdir -p "${E2E_RUNTIME_DIR}"
 find backend src -type d -name "__pycache__" -prune -exec rm -rf {} +
 export PAPERPIPE_CONFIG_PATH="${E2E_CONFIG_PATH}"
 export PAPERPIPE_SKILLS_POLICY_PATH="${E2E_SKILLS_POLICY_PATH}"
+export PAPERPIPE_CHART_PACKS_DIR="${E2E_CHART_PACKS_REL}"
 export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_REL}"
+export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_REL}"
 
 cat > "${E2E_CONFIG_PATH}" <<YAML
 system:
@@ -199,6 +203,60 @@ if "issues_label" not in paper_columns:
     conn.execute("ALTER TABLE papers ADD COLUMN issues_label TEXT")
 if "issues_state" not in paper_columns:
     conn.execute("ALTER TABLE papers ADD COLUMN issues_state TEXT")
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        run_id TEXT,
+        paper_id TEXT,
+        persona_id TEXT DEFAULT 'default',
+        reasoning_persona TEXT,
+        profile_id TEXT,
+        run_verify INTEGER DEFAULT 0,
+        clean_reindex INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'queued',
+        progress INTEGER DEFAULT 0,
+        stage TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP,
+        artifact_dir TEXT,
+        log_path TEXT,
+        error_code TEXT,
+        error_message TEXT
+    )
+    """
+)
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS execution_runs (
+        run_id TEXT PRIMARY KEY,
+        paper_id TEXT,
+        trigger_source TEXT,
+        pipeline_profile TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        started_at TEXT,
+        finished_at TEXT,
+        params_json TEXT,
+        metrics_json TEXT
+    )
+    """
+)
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS job_events (
+        event_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        run_id TEXT,
+        ts TEXT NOT NULL,
+        level TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        message TEXT,
+        payload_json TEXT
+    )
+    """
+)
 e2e_paper_ids = [
     "paper-e2e-001",
     "paper-e2e-note-backed-bbox-001",
@@ -211,6 +269,7 @@ e2e_paper_ids = [
     "paper-e2e-rebuild-001",
 ]
 conn.executemany("DELETE FROM jobs WHERE paper_id = ?", [(paper_id,) for paper_id in e2e_paper_ids])
+conn.executemany("DELETE FROM execution_runs WHERE paper_id = ?", [(paper_id,) for paper_id in e2e_paper_ids])
 conn.executemany("DELETE FROM papers WHERE paper_id = ?", [(paper_id,) for paper_id in e2e_paper_ids])
 conn.execute(
     """
@@ -985,31 +1044,6 @@ structured_state_payload = {
         indent=2,
     ),
     encoding="utf-8",
-)
-
-conn.execute(
-    """
-    CREATE TABLE IF NOT EXISTS jobs (
-        job_id TEXT PRIMARY KEY,
-        run_id TEXT,
-        paper_id TEXT,
-        persona_id TEXT DEFAULT 'default',
-        reasoning_persona TEXT,
-        profile_id TEXT,
-        run_verify INTEGER DEFAULT 0,
-        clean_reindex INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'queued',
-        progress INTEGER DEFAULT 0,
-        stage TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        started_at TIMESTAMP,
-        finished_at TIMESTAMP,
-        artifact_dir TEXT,
-        log_path TEXT,
-        error_code TEXT,
-        error_message TEXT
-    )
-    """
 )
 
 conn.execute(

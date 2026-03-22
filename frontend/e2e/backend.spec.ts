@@ -30,6 +30,37 @@ const e2eMethodComparisonsRoot = path.resolve(
   "storage",
   "method_comparisons",
 );
+const e2eChartPacksRoot = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "storage",
+  "chart_packs",
+);
+const e2eImageEvidenceRoot = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "storage",
+  "image_evidence",
+);
+const imageEvidenceFixtureRawPath = path.resolve(
+  e2eSpecDir,
+  "..",
+  "..",
+  "tests",
+  "fixtures",
+  "image_evidence_case",
+  "raw",
+  "local-alpha.tif",
+);
+const imageEvidenceMissingRawPath = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "missing",
+  "absent-local-alpha.tif",
+);
 
 function focusDomId(kind: "run" | "claim" | "evidence", id: string): string {
   return `#pp-focus-${kind}-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -347,6 +378,490 @@ test("backend method comparison viewer loads a generated comparison and keeps ex
     new RegExp(`/method-comparisons/${comparisonId}/export\\.csv$`),
   );
   await expect(page.getByRole("link", { name: "Open note" })).toHaveCount(2);
+});
+
+test("backend chart pack viewer loads a generated chart pack and keeps exports on real routes", async ({
+  page,
+  request,
+}) => {
+  const chartPackId = "chartpack_backend_e2e_fixture";
+  const response = await request.post(`${backendBaseUrl}/chart-packs/generate`, {
+    data: {
+      chart_pack_id: chartPackId,
+      title: "E2E Status Chart Pack",
+      charts: [
+        {
+          title: "Verification status counts",
+          template_id: "stats_check_status_counts",
+          source_ref: {
+            source_kind: "stats_report",
+            paper_id: "paper-e2e-001",
+            run_id: "run_e2e_fixture_001",
+          },
+          field_mappings: [
+            { target_field: "status", source_field: "status" },
+            { target_field: "value", source_field: "count" },
+          ],
+          sort: { field: "status", direction: "asc" },
+        },
+      ],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    chart_pack?: {
+      chart_pack_id?: string;
+      title?: string;
+      charts?: Array<{
+        chart_id?: string;
+        title?: string;
+        template_id?: string;
+      }>;
+    };
+    data_snapshots?: Record<string, string>;
+    specs?: Record<string, { mark?: string; encoding?: Record<string, unknown> }>;
+  };
+  expect(payload.chart_pack?.chart_pack_id).toBe(chartPackId);
+  expect(payload.chart_pack?.title).toBe("E2E Status Chart Pack");
+  expect(payload.chart_pack?.charts?.map((chart) => chart.chart_id)).toEqual([
+    "chart_01_stats-check-status-counts",
+  ]);
+  expect(payload.data_snapshots?.["chart_01_stats-check-status-counts"]).toContain("status,value");
+  expect(payload.specs?.["chart_01_stats-check-status-counts"]?.mark).toBe("bar");
+
+  const chartPackJsonPath = path.join(e2eChartPacksRoot, chartPackId, "chart_pack.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(chartPackJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  const csvExportResponse = await request.get(
+    `${backendBaseUrl}/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/data.csv`,
+  );
+  expect(csvExportResponse.ok()).toBeTruthy();
+  expect(csvExportResponse.headers()["content-disposition"]).toContain(
+    'attachment; filename="chartpack_backend_e2e_fixture_chart_01_stats-check-status-counts.csv"',
+  );
+  const csvExportText = await csvExportResponse.text();
+  expect(csvExportText).toContain("status,value");
+  expect(csvExportText).toContain("verified,2");
+
+  const specExportResponse = await request.get(
+    `${backendBaseUrl}/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/spec.json`,
+  );
+  expect(specExportResponse.ok()).toBeTruthy();
+  expect(specExportResponse.headers()["content-disposition"]).toContain(
+    'attachment; filename="chartpack_backend_e2e_fixture_chart_01_stats-check-status-counts.json"',
+  );
+  const specExportPayload = (await specExportResponse.json()) as {
+    mark?: string;
+    encoding?: Record<string, unknown>;
+  };
+  expect(specExportPayload.mark).toBe("bar");
+  expect(specExportPayload.encoding).toEqual({ x: "status", y: "value" });
+
+  await page.goto(`/chart-packs/${chartPackId}`);
+
+  await expect(page.getByRole("heading", { name: "E2E Status Chart Pack" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Charts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Render Env" })).toBeVisible();
+  const chartCard = page.locator("article").filter({ hasText: "Verification status counts" }).first();
+  await expect(chartCard).toBeVisible();
+  await expect(chartCard.getByText("stats_report / paper-e2e-001 / run_e2e_fixture_001")).toBeVisible();
+  await expect(chartCard.getByText("bar · x=status · y=value · 1 row")).toBeVisible();
+  await expect(chartCard.getByText("verified")).toBeVisible();
+  await expect(chartCard.getByRole("cell", { name: "2" })).toBeVisible();
+  await expect(page.getByText("No pack-level warnings saved.")).toBeVisible();
+  await expect(page.getByText("No caution notes saved for this chart pack.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Export CSV" }).first()).toHaveAttribute(
+    "href",
+    new RegExp(`/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/data\\.csv$`),
+  );
+  await expect(page.getByRole("link", { name: "Open spec JSON" }).first()).toHaveAttribute(
+    "href",
+    new RegExp(`/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/spec\\.json$`),
+  );
+});
+
+test("backend image evidence viewer loads a registered bundle and keeps note handoff on the real route", async ({
+  page,
+  request,
+}) => {
+  const imageEvidenceId = "imageev_backend_e2e_fixture";
+  const response = await request.post(`${backendBaseUrl}/image-evidence/register`, {
+    data: {
+      image_evidence_id: imageEvidenceId,
+      title: "E2E hippocampal ROI bundle",
+      paper_id: noteBackedWorkbenchPaperId,
+      paper_slug: noteSlug,
+      source_ref: {
+        source_kind: "local_file",
+        local_path: imageEvidenceFixtureRawPath,
+        source_label: "Microscope Alpha",
+      },
+      content_format: "image/tiff",
+      checksum: {
+        algorithm: "sha256",
+        value: "deadbeef",
+      },
+      metadata: {
+        width_px: 512,
+        height_px: 512,
+        channel_count: 2,
+        modality: "fluorescence",
+        acquisition_note: "Representative ROI export for e2e viewer coverage.",
+      },
+      view_state: {
+        active_channels: ["GFP", "DAPI"],
+        zoom_level: 2.0,
+        viewport: {
+          x: 16,
+          y: 32,
+          width: 128,
+          height: 128,
+        },
+        visible_overlays: ["roi_outline"],
+        selected_region_labels: ["roi-1"],
+        note: "Operator-saved ROI viewport.",
+      },
+      linked_claim_refs: [
+        {
+          claim_id: "claim-e2e-image-001",
+          note: "Representative image only.",
+        },
+      ],
+      linked_artifact_refs: [
+        {
+          artifact_kind: "meeting_pack",
+          artifact_id: "meeting-e2e-image-001",
+          note: "Linked for downstream review.",
+        },
+      ],
+      derived_outputs: [
+        {
+          derived_output_id: "thumb_local",
+          kind: "thumbnail",
+          source_image_evidence_id: imageEvidenceId,
+          created_by: "e2e-fixture",
+          created_at: "2026-03-22T12:05:00+00:00",
+          tool_name: "napari",
+          tool_version: "0.5.4",
+          bundle_ref: {
+            kind: "derived_file",
+            path: "derivatives/thumb_local.png",
+          },
+          view_state_ref: {
+            kind: "view_state_json",
+            path: "view_state.json",
+          },
+          note: "Representative thumbnail only.",
+        },
+      ],
+      handoff_targets: [
+        {
+          target: "napari",
+          openable_ref: imageEvidenceFixtureRawPath,
+          view_state_ref: {
+            kind: "view_state_json",
+            path: "view_state.json",
+          },
+          notes: "Open with saved viewport.",
+        },
+      ],
+      warnings: [
+        {
+          code: "REPRESENTATIVE_ONLY",
+          severity: "warning",
+          message: "Bundle captures a representative crop rather than the full acquisition stack.",
+        },
+      ],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    image_evidence?: {
+      image_evidence_id?: string;
+      title?: string;
+      paper_slug?: string | null;
+      warnings?: Array<{ code?: string }>;
+      derived_outputs?: Array<{ derived_output_id?: string; bundle_ref?: { path?: string } | null }>;
+    };
+    view_state?: {
+      active_channels?: string[];
+      visible_overlays?: string[];
+    } | null;
+    handoff_targets?: Array<{ target?: string; openable_ref?: string }>;
+  };
+  expect(payload.image_evidence?.image_evidence_id).toBe(imageEvidenceId);
+  expect(payload.image_evidence?.title).toBe("E2E hippocampal ROI bundle");
+  expect(payload.image_evidence?.paper_slug).toBe(noteSlug);
+  expect(payload.image_evidence?.warnings?.map((warning) => warning.code)).toEqual([
+    "REPRESENTATIVE_ONLY",
+    "CHECKSUM_MISMATCH",
+  ]);
+  expect(payload.image_evidence?.derived_outputs?.[0]?.derived_output_id).toBe("thumb_local");
+  expect(payload.image_evidence?.derived_outputs?.[0]?.bundle_ref?.path).toBe("derivatives/thumb_local.png");
+  expect(payload.view_state?.active_channels).toEqual(["GFP", "DAPI"]);
+  expect(payload.view_state?.visible_overlays).toEqual(["roi_outline"]);
+  expect(payload.handoff_targets?.[0]?.target).toBe("napari");
+  expect(payload.handoff_targets?.[0]?.openable_ref).toBe(imageEvidenceFixtureRawPath);
+
+  const indexResponse = await request.get(`${backendBaseUrl}/image-evidence`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    items?: Array<{ image_evidence_id?: string; title?: string; warning_count?: number }>;
+  };
+  expect(indexPayload.items?.find((item) => item.image_evidence_id === imageEvidenceId)).toMatchObject({
+    image_evidence_id: imageEvidenceId,
+    title: "E2E hippocampal ROI bundle",
+    warning_count: 2,
+  });
+
+  const imageEvidenceJsonPath = path.join(e2eImageEvidenceRoot, imageEvidenceId, "image_evidence.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(imageEvidenceJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  await page.goto("/image-evidence");
+
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or image evidence id"]').fill("hippocampal");
+  const targetCard = page.locator("article").filter({ hasText: "E2E hippocampal ROI bundle" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("2 warning")).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open bundle" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/image-evidence/${imageEvidenceId}$`));
+  await expect(page.getByRole("heading", { name: "E2E hippocampal ROI bundle", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bundle Review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Warnings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Derived Outputs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "View State" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Handoff Targets" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trust Boundary" })).toBeVisible();
+  await expect(page.locator("pre").filter({ hasText: imageEvidenceFixtureRawPath }).first()).toBeVisible();
+  await expect(page.getByText("REPRESENTATIVE_ONLY")).toBeVisible();
+  await expect(page.getByText("CHECKSUM_MISMATCH")).toBeVisible();
+  await expect(page.getByText("Bundle captures a representative crop rather than the full acquisition stack.")).toBeVisible();
+  const derivedOutputCard = page.locator("article").filter({ hasText: "thumb_local" }).first();
+  await expect(derivedOutputCard).toBeVisible();
+  await expect(derivedOutputCard.getByText("Thumbnail", { exact: true })).toBeVisible();
+  await expect(derivedOutputCard.getByText("derivatives/thumb_local.png")).toBeVisible();
+  await expect(page.getByText("GFP")).toBeVisible();
+  await expect(page.getByText("roi_outline")).toBeVisible();
+  await expect(page.getByText("Representative ROI export for e2e viewer coverage.")).toBeVisible();
+  await expect(page.getByText("Open with saved viewport.")).toBeVisible();
+
+  await page.getByRole("link", { name: "Open note" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
+  await expect(
+    page.getByRole("banner").getByRole("heading", {
+      name: /Alzheimer Disease as a Clinical-Biological Construct/i,
+    }),
+  ).toBeVisible();
+});
+
+test("backend image evidence viewer keeps a clean external bundle aligned with real detail state", async ({
+  page,
+  request,
+}) => {
+  const imageEvidenceId = "imageev_backend_e2e_external_fixture";
+  const response = await request.post(`${backendBaseUrl}/image-evidence/register`, {
+    data: {
+      image_evidence_id: imageEvidenceId,
+      title: "E2E OMERO clean bundle",
+      paper_id: "paper-e2e-001",
+      source_ref: {
+        source_kind: "external_image_ref",
+        external_ref: "omero://dataset/42/image/7",
+        source_label: "OMERO image 7",
+      },
+      content_format: "image/png",
+      metadata: {
+        width_px: 1024,
+        height_px: 768,
+        modality: "brightfield",
+      },
+      handoff_targets: [
+        {
+          target: "omero",
+          openable_ref: "omero://dataset/42/image/7",
+          notes: "Open in external viewer.",
+        },
+      ],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    image_evidence?: {
+      image_evidence_id?: string;
+      title?: string;
+      warnings?: Array<{ code?: string }>;
+      derived_outputs?: Array<{ derived_output_id?: string }>;
+    };
+    view_state?: unknown;
+    handoff_targets?: Array<{ target?: string; openable_ref?: string }>;
+  };
+  expect(payload.image_evidence?.image_evidence_id).toBe(imageEvidenceId);
+  expect(payload.image_evidence?.title).toBe("E2E OMERO clean bundle");
+  expect(payload.image_evidence?.warnings ?? []).toEqual([]);
+  expect(payload.image_evidence?.derived_outputs ?? []).toEqual([]);
+  expect(payload.view_state ?? null).toBeNull();
+  expect(payload.handoff_targets?.[0]?.target).toBe("omero");
+  expect(payload.handoff_targets?.[0]?.openable_ref).toBe("omero://dataset/42/image/7");
+
+  const indexResponse = await request.get(`${backendBaseUrl}/image-evidence`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    items?: Array<{ image_evidence_id?: string; title?: string; warning_count?: number; has_view_state?: boolean }>;
+  };
+  expect(indexPayload.items?.find((item) => item.image_evidence_id === imageEvidenceId)).toMatchObject({
+    image_evidence_id: imageEvidenceId,
+    title: "E2E OMERO clean bundle",
+    warning_count: 0,
+    has_view_state: false,
+  });
+
+  const imageEvidenceJsonPath = path.join(e2eImageEvidenceRoot, imageEvidenceId, "image_evidence.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(imageEvidenceJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  await page.goto("/image-evidence");
+
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or image evidence id"]').fill("omero clean");
+  const targetCard = page.locator("article").filter({ hasText: "E2E OMERO clean bundle" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("Clean bundle", { exact: true })).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open bundle" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/image-evidence/${imageEvidenceId}$`));
+  await expect(page.getByRole("heading", { name: "E2E OMERO clean bundle", exact: true })).toBeVisible();
+  await expect(page.getByText("No bundle warnings saved.")).toBeVisible();
+  await expect(page.getByText("No derived outputs registered.")).toBeVisible();
+  await expect(page.getByText("No view state saved for this bundle.")).toBeVisible();
+  await expect(page.locator("pre").filter({ hasText: "omero://dataset/42/image/7" }).first()).toBeVisible();
+  await expect(page.getByText("Open in external viewer.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open note" })).toHaveCount(0);
+});
+
+test("backend image evidence viewer surfaces missing-local-file warnings on the real route", async ({
+  page,
+  request,
+}) => {
+  const imageEvidenceId = "imageev_backend_e2e_missing_local_fixture";
+  const response = await request.post(`${backendBaseUrl}/image-evidence/register`, {
+    data: {
+      image_evidence_id: imageEvidenceId,
+      title: "E2E missing local image bundle",
+      paper_id: "paper-e2e-001",
+      source_ref: {
+        source_kind: "local_file",
+        local_path: imageEvidenceMissingRawPath,
+        source_label: "Missing microscope export",
+      },
+      content_format: "image/tiff",
+      metadata: {
+        modality: "fluorescence",
+      },
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    image_evidence?: {
+      image_evidence_id?: string;
+      title?: string;
+      warnings?: Array<{ code?: string; message?: string }>;
+    };
+    view_state?: unknown;
+    handoff_targets?: Array<{ target?: string }>;
+  };
+  expect(payload.image_evidence?.image_evidence_id).toBe(imageEvidenceId);
+  expect(payload.image_evidence?.title).toBe("E2E missing local image bundle");
+  expect(payload.image_evidence?.warnings?.map((warning) => warning.code)).toEqual(["LOCAL_SOURCE_MISSING"]);
+  expect(payload.image_evidence?.warnings?.[0]?.message).toContain(imageEvidenceMissingRawPath);
+  expect(payload.view_state ?? null).toBeNull();
+  expect(payload.handoff_targets ?? []).toEqual([]);
+
+  const indexResponse = await request.get(`${backendBaseUrl}/image-evidence`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    items?: Array<{
+      image_evidence_id?: string;
+      title?: string;
+      warning_count?: number;
+      has_view_state?: boolean;
+      has_handoff?: boolean;
+    }>;
+  };
+  expect(indexPayload.items?.find((item) => item.image_evidence_id === imageEvidenceId)).toMatchObject({
+    image_evidence_id: imageEvidenceId,
+    title: "E2E missing local image bundle",
+    warning_count: 1,
+    has_view_state: false,
+    has_handoff: false,
+  });
+
+  const imageEvidenceJsonPath = path.join(e2eImageEvidenceRoot, imageEvidenceId, "image_evidence.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(imageEvidenceJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  await page.goto("/image-evidence");
+
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or image evidence id"]').fill("missing local");
+  const targetCard = page.locator("article").filter({ hasText: "E2E missing local image bundle" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("1 warning", { exact: true })).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open bundle" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/image-evidence/${imageEvidenceId}$`));
+  await expect(page.getByRole("heading", { name: "E2E missing local image bundle", exact: true })).toBeVisible();
+  await expect(page.locator("pre").filter({ hasText: imageEvidenceMissingRawPath }).first()).toBeVisible();
+  await expect(page.getByText("LOCAL_SOURCE_MISSING")).toBeVisible();
+  await expect(page.getByText(`Local source file does not exist: ${imageEvidenceMissingRawPath}`)).toBeVisible();
+  await expect(page.getByText("No derived outputs registered.")).toBeVisible();
+  await expect(page.getByText("No view state saved for this bundle.")).toBeVisible();
+  await expect(page.getByText("No handoff targets saved for this bundle.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open note" })).toHaveCount(0);
 });
 
 test("backend triage content review action carries flagged context into workbench", async ({ page }) => {
@@ -684,7 +1199,7 @@ test("backend repair stats action appears only when stats artifact is missing an
   await expect(repairButton).toBeVisible();
   await expect(statsSnapshotSummary).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click({ force: true });
+  await page.getByRole("button", { name: "Terminal logs" }).click({ force: true });
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
 
@@ -716,7 +1231,7 @@ test("backend rebuild stats action stays under advanced controls and overwrites 
   await expect(rebuildButton).toBeVisible();
   await expect(advancedActions).toContainText("Rebuild overwrites the current Stats Snapshot");
 
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click({ force: true });
+  await page.getByRole("button", { name: "Terminal logs" }).click({ force: true });
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
 
@@ -740,7 +1255,7 @@ test("backend sync to obsidian uses the same inline feedback pattern as other wo
   await expect(syncButton).toBeVisible();
   await syncButton.click();
 
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click({ force: true });
+  await page.getByRole("button", { name: "Terminal logs" }).click({ force: true });
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
   await expect(terminalDrawer.locator("pre")).toContainText("obsidian-sync summary", { timeout: 15_000 });
@@ -782,7 +1297,7 @@ test.describe("mobile backend UX", () => {
     await expect(page.getByText("Mock mode")).toHaveCount(0);
     await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
 
-    const controlsSummary = page.locator('summary:has-text("Run & View Controls")').first();
+    const controlsSummary = page.locator('summary:has-text("Workbench controls")').first();
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
@@ -802,7 +1317,7 @@ test.describe("mobile backend UX", () => {
 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByRole("heading", { name: "Properties & Links" })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Review details" })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Outline", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Related Papers", exact: true })).toBeVisible();
@@ -824,7 +1339,7 @@ test.describe("mobile backend UX", () => {
     await expect(evidenceCard).toContainText("chunk-e2e-001");
   });
 
-  test("mobile paper notes sheet includes structured actions and claimset cards", async ({ page }) => {
+  test("mobile paper notes sheet includes structured actions and structured claims cards", async ({ page }) => {
     await page.goto(`/papers/${structuredNoteSlug}`);
 
     await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
@@ -835,8 +1350,8 @@ test.describe("mobile backend UX", () => {
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
-    await expect(sheet.getByRole("heading", { name: "Automation Results", exact: true })).toBeVisible();
-    await expect(sheet.getByRole("heading", { name: "ClaimSet", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Run history", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Structured claims", exact: true })).toBeVisible();
     await expect(sheet).toContainText("Strong: 2 claims, avg confidence 0.81, 0 inconsistent checks.");
     await expect(sheet).toContainText("CSF biomarker evidence aligns with early detection criteria.");
   });
@@ -845,7 +1360,7 @@ test.describe("mobile backend UX", () => {
     await page.goto(`/papers/${structuredNoteSlug}?view=builder_debug`);
 
     await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
-    await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Builder / Debug mode lifts");
+    await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Inspect mode lifts");
     const sidePanelButton = page.getByTestId("paper-note-open-side-panel");
     await expect(sidePanelButton).toBeVisible();
     await sidePanelButton.click();
@@ -902,7 +1417,7 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await page.goto(`/papers/${structuredNoteSlug}?view=builder_debug`);
 
   await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
-  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Builder / Debug mode lifts");
+  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Inspect mode lifts");
   const rightAside = page.locator("main > aside").nth(1);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Actions");
 
@@ -912,7 +1427,7 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await expect(rightAside.getByRole("heading").first()).toHaveText("Properties");
 });
 
-test("paper notes detail renders structured actions, automation results, and claimset cards", async ({ page }) => {
+test("paper notes detail renders structured actions, run history, and structured claims cards", async ({ page }) => {
   await page.goto(`/papers/${structuredNoteSlug}`);
 
   await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
@@ -935,14 +1450,14 @@ test("paper notes detail renders structured actions, automation results, and cla
     "Blocked: missing required secret E2E_REVIEW_SECRET.",
   );
 
-  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Automation Results", exact: true }) }).first();
+  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Run history", exact: true }) }).first();
   await expect(automationPanel).toContainText("critical_appraisal");
   await expect(automationPanel).toContainText("validate_citations");
   await expect(automationPanel).toContainText("Strong: 2 claims, avg confidence 0.81, 0 inconsistent checks.");
   await expect(automationPanel).toContainText("Checked 4 references: 1 verified, 2 local, 1 need review.");
   await expect(automationPanel.getByTestId("paper-note-run-write-scope")).toHaveCount(0);
 
-  const claimsetPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "ClaimSet", exact: true }) }).first();
+  const claimsetPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Structured claims", exact: true }) }).first();
   await expect(claimsetPanel).toContainText("CSF biomarker evidence aligns with early detection criteria.");
   await expect(claimsetPanel).toContainText("CSF amyloid and tau shifts separate early-stage cases from controls.");
   await expect(claimsetPanel).toContainText("0.86");
@@ -1016,7 +1531,7 @@ test("paper notes detail can run validate citations and persist a structured res
 
   await expect(page.getByRole("banner").getByRole("heading", { name: "Live Validate Citations Fixture" })).toBeVisible();
 
-  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Automation Results", exact: true }) }).first();
+  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Run history", exact: true }) }).first();
   const runsContainer = automationPanel.locator("article");
   const initialRunCount = await runsContainer.count();
 
@@ -1115,7 +1630,7 @@ test("paper notes detail can run validate citations without appending a markdown
   await page.getByLabel("Add short note summary").uncheck();
   await expect(page.getByLabel("Add short note summary")).not.toBeChecked();
 
-  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Automation Results", exact: true }) }).first();
+  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Run history", exact: true }) }).first();
   const runsContainer = automationPanel.locator("article");
   const initialRunCount = await runsContainer.count();
 
