@@ -6,15 +6,17 @@ import time
 import numpy as np
 import ollama
 
-from pydantic import ValidationError
-
-from src.config import LLMConfig, LocalLLMConfig, CloudLLMConfig
+from src.config import LLMConfig
 from src.schemas import TrialExtraction, PaperTagging
 from src.json_repair import repair_and_parse_json
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Canonical research text should remain English/original by default.
+# Localized display layers can derive from these outputs later.
+CANONICAL_SUMMARY_LANGUAGE = "English"
 
 class LLMProvider:
     """LLM 공급자 인터페이스"""
@@ -77,8 +79,7 @@ class LLMProvider:
             
             # [Smart Unwrap Logic]
             # If the LLM wrapped the response in "data", "response", "content", etc., unwrap it.
-            # We check if the expected keys are present.
-            expected_keys = ["hard_tags", "soft_tags", "evidence_span"]
+            # For tagging, we expect hard_tags and soft_tags to be present together.
             
             def find_keys(obj, keys):
                 if isinstance(obj, dict):
@@ -191,17 +192,17 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
-            Provide a structured report in Korean (Markdown):
-            0. **[독창성 요약] (Triage 4-Step)**
-               - **배경 (Context)**: 이 연구 분야의 일반적 배경.
-               - **기존 한계 (Gap)**: 기존 연구들이 해결하지 못한 결정적 질문.
-               - **이 연구의 접근 (This Paper)**: 이 논문이 그 질문을 어떻게 다루는가.
+            Provide a structured report in {CANONICAL_SUMMARY_LANGUAGE} (Markdown):
+            0. **Originality Summary (Triage 4-Step)**
+               - **Context**: What is the broader background of this line of research?
+               - **Gap**: What decisive question did prior work leave unresolved?
+               - **This Paper**: How does this paper address that question?
             
-            1. **기술의 핵심 (Core Technique)**: What is the main method/protocol?
-            2. **주요 프로토콜 및 팁 (Key Protocol & Tips)**: Critical steps, reagents, or troubleshooting advice mentioned.
-            3. **장점 및 혁신성 (Advantages & Innovation)**: Why is it better than existing methods?
-            4. **한계 및 주의점 (Limitations & Caveats)**: What are the constraints or potential pitfalls?
-            5. **적용 분야 (Applications)**: How can this be applied in neuroscience?
+            1. **Core Technique**: What is the main method or protocol?
+            2. **Key Protocol And Tips**: What critical steps, reagents, or troubleshooting advice are highlighted?
+            3. **Advantages And Innovation**: Why is it better than existing methods?
+            4. **Limitations And Caveats**: What are the constraints or potential pitfalls?
+            5. **Applications**: How can this be applied in neuroscience?
             """
         elif slot == 'mechanism':
             prompt = f"""
@@ -209,16 +210,16 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
-            Provide a structured report in Korean (Markdown):
-            0. **[독창성 요약] (Triage 4-Step)**
-               - **배경 (Context)**: 이 연구 분야의 일반적 배경.
-               - **기존 한계 (Gap)**: 기존 연구들이 해결하지 못한 결정적 질문.
-               - **이 연구의 접근 (This Paper)**: 이 논문이 그 질문을 어떻게 다루는가.
+            Provide a structured report in {CANONICAL_SUMMARY_LANGUAGE} (Markdown):
+            0. **Originality Summary (Triage 4-Step)**
+               - **Context**: What is the broader background of this line of research?
+               - **Gap**: What decisive question did prior work leave unresolved?
+               - **This Paper**: How does this paper address that question?
                
-            1. **핵심 가설 (Hypothesis)**: What are they testing?
-            2. **주요 메커니즘 (Key Mechanism)**: Detailed pathway/molecule interactions (e.g., A -> B -> C).
-            3. **실험 결과 (Key Results)**: Main findings supporting the mechanism.
-            4. **의의 (Implications)**: Impact on the field.
+            1. **Hypothesis**: What are they testing?
+            2. **Key Mechanism**: What pathway or molecule interactions are proposed (for example, A -> B -> C)?
+            3. **Key Results**: What findings support the mechanism?
+            4. **Implications**: What is the impact on the field?
             """
         else:
             prompt = f"""
@@ -226,25 +227,29 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
-            Provide a structured report in Korean (Markdown):
-            0. **[독창성 요약]** (Context -> Gap -> Paper)
-               - **배경 (Context)**: 이 연구 분야의 일반적 배경.
-               - **기존 한계 (Gap)**: 기존 연구들이 해결하지 못한 결정적 질문.
-               - **이 연구의 접근 (This Paper)**: 이 논문이 그 질문을 어떻게 다루는가.
-            1. **핵심 발견 (Key Findings)**
-            2. **방법론적 특징 (Methodology)**
-            3. **의의 및 한계 (Implications & Limitations)**
+            Provide a structured report in {CANONICAL_SUMMARY_LANGUAGE} (Markdown):
+            0. **Originality Summary** (Context -> Gap -> Paper)
+               - **Context**: What is the broader background of this line of research?
+               - **Gap**: What decisive question did prior work leave unresolved?
+               - **This Paper**: How does this paper address that question?
+            1. **Key Findings**
+            2. **Methodology**
+            3. **Implications And Limitations**
             """
         return self._make_request("deep_read", prompt)
 
     def generate_one_liner(self, paper: Dict[str, Any]) -> Optional[str]:
         """논문의 핵심 내용을 한 문장으로 요약"""
         prompt = f"""
-        Summarize the core contribution of this paper in ONE SINGLE Korean sentence, like a TL;DR.
+        Summarize the core contribution of this paper in ONE SINGLE {CANONICAL_SUMMARY_LANGUAGE} sentence, like a TL;DR.
         Title: {paper.get('title', 'N/A')}
         Abstract: {paper.get('summary', 'N/A')}
         """
         return self._make_request("one_liner", prompt)
+
+    def review_claimset_bundle(self, *, prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
+        """Teacher-quality review over a prepared claimset bundle."""
+        return self._make_request("teacher_review", prompt, is_json=True, system_prompt=system_prompt)
 
     def classify_slot(self, paper: Dict[str, Any], current_slot: str) -> str:
         """논문의 슬롯을 계층적(Hierarchical)으로 분류"""
@@ -583,11 +588,12 @@ class OpenAIProvider(LLMProvider):
                 return f"❌ AI Error: {e.message}"
             except Exception as e:
                 logger.exception(f"An unexpected error occurred during LLM request: {e}")
-                return f"❌ AI Error: An unexpected error occurred."
+                return "❌ AI Error: An unexpected error occurred."
         return None
     
     def get_embedding(self, text: str) -> Optional[List[float]]:
-        if not self.is_available(): return None
+        if not self.is_available():
+            return None
         try:
             # Use the embedding model specified in config, or a default
             embedding_model = self.config.cloud.embedding_model if self.config.cloud and self.config.cloud.embedding_model else "text-embedding-3-small"
@@ -619,13 +625,22 @@ class OllamaProvider(LLMProvider):
     def _get_model(self, task: str) -> str:
         # Map task to local models defined in config, with fallbacks
         if self.models:
-            if task == "trial_extraction": return self.models.get("extractor", "llama3:8b")
-            if task == "slot_classification": return self.models.get("classifier", "llama3:8b")
-            if task == "tagging": return self.models.get("tagger", "biomistral:7b")
-            if task == "escalation": return self.models.get("judge", "openhermes-2.5-mistral")
-            if task == "one_liner": return self.models.get("one_liner", "phi3")
-            if task == "deep_read": return self.models.get("deep_read", "llama3:8b")
-            if task == "relevance_analysis": return self.models.get("relevance_analyzer", "llama3:8b")
+            if task == "trial_extraction":
+                return self.models.get("extractor", "llama3:8b")
+            if task == "slot_classification":
+                return self.models.get("classifier", "llama3:8b")
+            if task == "tagging":
+                return self.models.get("tagger", "biomistral:7b")
+            if task == "escalation":
+                return self.models.get("judge", "openhermes-2.5-mistral")
+            if task == "teacher_review":
+                return self.models.get("teacher_review", self.models.get("chat", "phi3"))
+            if task == "one_liner":
+                return self.models.get("one_liner", "phi3")
+            if task == "deep_read":
+                return self.models.get("deep_read", "llama3:8b")
+            if task == "relevance_analysis":
+                return self.models.get("relevance_analyzer", "llama3:8b")
         
         # Fallback to a general chat model if specific task model not found
         return self.models.get("chat", "phi3")
@@ -638,7 +653,8 @@ class OllamaProvider(LLMProvider):
         schema: Optional[Dict] = None,
         system_prompt: Optional[str] = None,
     ) -> Optional[str]:
-        if not self.is_available(): return None
+        if not self.is_available():
+            return None
 
         model = self._get_model(task)
         logger.info(f"Making LLM request to Ollama model '{model}' for task '{task}'.")
@@ -673,7 +689,8 @@ class OllamaProvider(LLMProvider):
             return f"❌ AI Error: Ollama request failed ({model}). Check server logs."
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
-        if not self.is_available(): return None
+        if not self.is_available():
+            return None
         try:
             embedding_model = self.models.get("embedder", "nomic-embed-text")
             response = self.ollama_client.embeddings(model=embedding_model, prompt=text)
@@ -786,25 +803,23 @@ class HybridProvider(LLMProvider):
         return {"approved": False, "reason": "No LLM available for escalation."}
     
     def generate_deep_read(self, paper: Dict[str, Any]) -> Optional[str]:
-        # Deep Read -> Complex -> Prefer Cloud or High-end Local (e.g. llama3:70b if poss)
-        # Defaulting to Local for cost, unless escalation approved?
-        # Let's say Deep Read is on-demand, user might want high quality.
-        if self.cloud.is_available():
-            logger.debug("HybridProvider: Using cloud for deep read generation.")
-            return self.cloud.generate_deep_read(paper)
-        elif self.local.is_available():
-            logger.warning("HybridProvider: Cloud unavailable for deep read, falling back to local.")
+        # Local-first by design. Cloud is fallback when local is unavailable.
+        if self.local.is_available():
+            logger.debug("HybridProvider: Using local for deep read generation.")
             return self.local.generate_deep_read(paper)
+        elif self.cloud.is_available():
+            logger.warning("HybridProvider: Local unavailable for deep read, falling back to cloud.")
+            return self.cloud.generate_deep_read(paper)
         logger.error("HybridProvider: No LLM available for deep read generation.")
         return None
 
     def analyze_relevance(self, paper: Dict[str, Any], rq: str) -> Optional[Dict[str, str]]:
-        if self.cloud.is_available():
-            logger.debug("HybridProvider: Using cloud for relevance analysis.")
-            return self.cloud.analyze_relevance(paper, rq)
-        elif self.local.is_available():
-            logger.warning("HybridProvider: Cloud unavailable for relevance analysis, falling back to local.")
+        if self.local.is_available():
+            logger.debug("HybridProvider: Using local for relevance analysis.")
             return self.local.analyze_relevance(paper, rq)
+        elif self.cloud.is_available():
+            logger.warning("HybridProvider: Local unavailable for relevance analysis, falling back to cloud.")
+            return self.cloud.analyze_relevance(paper, rq)
         logger.error("HybridProvider: No LLM available for relevance analysis.")
         return None
 
