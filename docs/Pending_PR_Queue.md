@@ -7,37 +7,82 @@ Canonical: `docs/Pending_PR_Queue.md`
 
 ## Queued
 
-## Bounded Promotion Candidates (Implemented in workspace, not yet promoted to active spec)
-- Title: `method-comparison active bounded-spec candidate`
-- Priority: High
-- Purpose: Promote the already-implemented Method Comparison v0 lane into an active bounded-spec candidate because it is the most paper-centric and evidence-linked of the recently added artifact families.
-- References:
-  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
-  - `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
-  - `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
-
-- Title: `chart-pack bounded pilot`
-- Priority: Medium
-- Purpose: Keep the already-implemented Chart Pack lane as a bounded pilot and defer active bounded-spec promotion until its downstream consumer boundary is frozen more explicitly.
-- References:
-  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
-  - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
-  - `docs/archive/Research_Data_Visualization_v0_Implementation_Plan_2026-03-18.md`
-
+## Bounded Pilots (Implemented in workspace, intentionally not promoted to active spec)
 - Title: `image-evidence bounded pilot`
 - Priority: Medium
 - Purpose: Keep the already-implemented Image Evidence lane as a hardened metadata-first sidecar until repeated real usage proves it belongs in the current core review loop.
 - References:
   - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/reports/Image_Evidence_Backend_Core_Staging_Prep_2026-03-22.md`
   - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
   - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
 
-## Future RFC Follow-Ups (Not Approved)
-- Title: `future/protocol-knowledge-layer`
-- Priority: Low
-- Purpose: Explore a bounded protocol knowledge surface without redefining the current product around a new `projects/documents` platform.
-- Reference: `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+## PR-DOC-MethodComparison-v1 (Completed in workspace)
+- Title: `docs: promote Method Comparison to active bounded spec`
+- Priority: High
+- Purpose: Freeze the already-implemented Method Comparison v0 lane as an active bounded spec because it is the most paper-centric and evidence-linked of the recent bounded artifact families.
+- Scope:
+  - [done] added `docs/METHOD_COMPARISON.md` as the active bounded spec
+  - [done] aligned the documentation map in `docs/README.md`
+  - [done] removed Method Comparison from the remaining promotion-candidate queue
+  - [done] kept archive RFC/implementation-plan docs as historical references rather than replacement SSOT
+- References:
+  - `docs/METHOD_COMPARISON.md`
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
 
+## PR-DOC-ChartPack-v1 (Completed in workspace)
+- Title: `docs: promote Chart Pack to active bounded spec`
+- Priority: High
+- Purpose: Freeze the already-implemented Chart Pack lane as an active bounded spec while keeping it explicitly bounded as a downstream chart artifact family rather than a visualization platform.
+- Scope:
+  - [done] added `docs/CHART_PACK.md` as the active bounded spec
+  - [done] aligned the documentation map in `docs/README.md`
+  - [done] removed Chart Pack from the remaining promotion-candidate queue
+  - [done] kept archive RFC/implementation-plan docs as historical references rather than replacement SSOT
+- References:
+  - `docs/CHART_PACK.md`
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Research_Data_Visualization_v0_Implementation_Plan_2026-03-18.md`
+
+## PR-BE-ProtocolKnowledge-SchemaStore-v0 (Completed in workspace)
+- Title: `backend: add Protocol Knowledge schema/store v0`
+- Priority: Medium
+- Purpose: Start the bounded Protocol Knowledge lane as a file-backed artifact family that preserves protocol identity/version separation and evidence-linked version snapshots without introducing a new `projects/documents` platform.
+- Scope:
+  - [done] added `src/schemas/protocol_card.py` with `ProtocolCard`, `ProtocolVersion`, summary helpers, and `ChatEvidenceRef`-backed `source_refs`
+  - [done] added `protocol_cards_root()` to `src/services/runtime_paths.py`
+  - [done] added `src/protocol_cards/store.py` with `protocol_card.json`, `protocol_card.md`, and `versions/*.json` bundle storage
+  - [done] added rollback and stale-version cleanup coverage for file-backed overwrites
+  - [done] added focused regression tests for schema, store, and runtime-path behavior
+- References:
+  - `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+  - `src/schemas/protocol_card.py`
+  - `src/protocol_cards/store.py`
+  - `tests/test_protocol_card_schema.py`
+  - `tests/test_protocol_card_store.py`
+
+## PR-BE-ProtocolKnowledge-API-v0 (Completed in workspace)
+- Title: `backend: add Protocol Knowledge thin API v0`
+- Priority: Medium
+- Purpose: Expose the bounded Protocol Knowledge lane through a minimal FastAPI surface for whole-card bundle upsert and read-only version inspection without opening editing workflows or broad project/document abstractions.
+- Scope:
+  - [done] added request/response envelopes to `src/schemas/protocol_card.py`
+  - [done] added deterministic markdown rendering in `src/protocol_cards/renderer.py`
+  - [done] added bundle service helpers in `src/protocol_cards/service.py`
+  - [done] added `POST /protocol-cards`, `GET /protocol-cards`, `GET /protocol-cards/{protocol_id}`, `GET /protocol-cards/{protocol_id}/versions`, and `GET /protocol-cards/{protocol_id}/versions/{version_id}`
+  - [done] wired the router in `backend/main.py` and protected the POST route with the existing API-key middleware
+  - [done] added focused API/service/auth regression coverage
+- References:
+  - `backend/routers/protocol_cards.py`
+  - `src/protocol_cards/service.py`
+  - `src/protocol_cards/renderer.py`
+  - `tests/test_protocol_card_service.py`
+  - `tests/test_protocol_cards_api.py`
+
+## Future RFC Follow-Ups (Not Approved)
 - Title: `future/project-memory-layer`
 - Priority: Low
 - Purpose: Explore a bounded project memory/workspace layer only after an explicit product decision that this should become first-class.

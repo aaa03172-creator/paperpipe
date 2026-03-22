@@ -47,6 +47,10 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
   - Evidence-linked lab meeting draft generation spec for downstream presentation packs.
   - Standard local verification: `./scripts/run_meeting_pack_verify.sh`
   - CI workflow: `.github/workflows/meeting-pack-verify.yml`
+- `docs/METHOD_COMPARISON.md`
+  - Evidence-linked paper-centric comparison artifact spec for saved cross-paper method snapshots.
+- `docs/CHART_PACK.md`
+  - Deterministic chart artifact spec for file-backed visualization bundles built from saved structured artifacts.
 - `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
   - Indexer policy source of truth.
 - `docs/document_artifact_v2.md`

@@ -63,6 +63,39 @@ Canonical parent: `docs/ux-review.md`
 - Default-action level: primary action on index is `Open comparison`; primary action on detail is `Export CSV`, with review context remaining visible.
 - Runtime contract: real-mode CSV export should come from the backend attachment route, and `Open note` should only target notes that satisfy the paper-note candidate rules used by the notes viewer.
 
+## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
+- Screen/Flow: `/method-comparisons` index header and `/method-comparisons/:comparisonId` detail header
+- Goal action: 사용자가 이 route를 generic viewer shell이 아니라 saved comparison review surface로 즉시 이해한다.
+- Primary persona: 비교 스냅샷을 열어 conflict/missing 상태를 검토하고 CSV export나 note handoff로 넘어가는 운영자
+- Current friction:
+  - `Lattice · Method Comparison Viewer`는 내부 shell 이름처럼 읽히고, route의 실제 책임을 직접 말하지 않는다.
+  - `Index filters`도 기능은 맞지만, 사용자가 여기서 무엇을 찾고 여는지보다 도구 패널 이름처럼 들린다.
+- Quick decision:
+  - route 구조, table/evidence-trace/snapshot layout, export CTA는 유지한다.
+  - eyebrow, subtitle, index title만 더 직접적인 review language로 정리한다.
+- BMAP:
+  - Motivation: 높음. comparison은 downstream 자산이라 first-read trust framing이 중요하다.
+  - Ability: copy만 정리해도 이 route가 “편집기”가 아니라 “검토 surface”라는 점이 빨리 읽힌다.
+  - Prompt: header와 index title이 snapshot review responsibility를 직접 말하는 것이 가장 안전하다.
+- B.I.A.S:
+  - Block: viewer shell wording은 table QA surface를 더 추상적으로 느끼게 만든다.
+  - Interpret: `Method comparison review`는 route 책임을 더 직접적으로 설명한다.
+  - Act: `Search comparisons`와 `Saved comparison snapshots`는 index에서 다음 행동을 바로 보여준다.
+  - Store: method-comparison lane도 다른 viewer routes와 같은 restrained product language를 갖게 된다.
+- Peak-End:
+  - Peak는 첫 진입에서 “저장된 비교 스냅샷을 검토한다”가 바로 읽히는 순간이다.
+  - Pit는 generic viewer shell처럼 보여 review 목적이 늦게 드러나는 순간이다.
+  - Transition은 index search -> comparison detail -> export/note handoff이며, header copy가 그 시작점을 분명히 해야 한다.
+- Ethics:
+  - Regret: 통과. 기능을 과장하지 않고 route responsibility만 더 직접적으로 말한다.
+  - Black Mirror: 통과. completeness나 claim truth를 더 강하게 암시하지 않는다.
+  - In Real-Life: 통과. 운영자가 “비교 스냅샷 검토”라고 설명할 수 있는 수준의 조용한 안내다.
+- Concrete change:
+  - eyebrow를 `Method comparison review`로 교체
+  - subtitle을 `Review saved comparison snapshots before export, note handoff, or downstream discussion.`로 정리
+  - `Index filters`를 `Search comparisons`로 교체
+  - `Saved comparisons`를 `Saved comparison snapshots`로 교체
+
 ## Ethics check results
 - Regret: Low if conflicts and missing values remain visible and export stays framed as a snapshot, not a validated truth table.
 - Black Mirror: Risk appears if the UI quietly normalizes conflict cells into polished outputs. Countermeasure is explicit conflict styling and warning copy.

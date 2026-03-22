@@ -63,6 +63,39 @@ Canonical parent: `docs/ux-review.md`
 - Default-action level: primary action on index is `Open chart pack`; primary actions on detail are per-chart `Export CSV` and `Open spec JSON`.
 - Runtime contract: real-mode downloads should use backend attachment routes; mock mode should keep download semantics through saved in-memory payloads.
 
+## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
+- Screen/Flow: `/chart-packs` index header and `/chart-packs/:chartPackId` detail header
+- Goal action: 사용자가 이 route를 generic viewer shell이 아니라 saved chart-pack review surface로 즉시 이해한다.
+- Primary persona: 저장된 차트 번들을 열어 warning/source/export readiness를 검토한 뒤 downstream handoff로 넘기는 운영자
+- Current friction:
+  - `Lattice · Chart Pack Viewer`는 내부 shell 이름처럼 읽히고, route의 실제 책임을 직접 말하지 않는다.
+  - `Index filters`는 기능은 맞지만, 사용자가 여기서 무엇을 찾고 여는지보다 도구 패널 이름처럼 들린다.
+- Quick decision:
+  - route 구조, chart cards, export links, sidebar summary는 유지한다.
+  - eyebrow, subtitle, index title만 더 직접적인 review language로 정리한다.
+- BMAP:
+  - Motivation: 높음. chart packs는 downstream communication artifact라 first-read trust framing이 중요하다.
+  - Ability: copy만 정리해도 이 route가 authoring tool이 아니라 review surface라는 점이 빨리 읽힌다.
+  - Prompt: header와 index title이 chart-pack review responsibility를 직접 말하는 것이 가장 안전하다.
+- B.I.A.S:
+  - Block: viewer shell wording은 artifact QA surface를 더 추상적으로 느끼게 만든다.
+  - Interpret: `Chart pack review`는 route 책임을 더 직접적으로 설명한다.
+  - Act: `Search chart packs`와 `Saved chart-pack artifacts`는 index에서 다음 행동을 더 빠르게 보여준다.
+  - Store: chart-pack lane도 다른 viewer routes와 같은 restrained product language를 갖게 된다.
+- Peak-End:
+  - Peak는 첫 진입에서 “저장된 chart-pack artifact를 검토한다”가 바로 읽히는 순간이다.
+  - Pit는 generic viewer shell처럼 보여 review 목적이 늦게 드러나는 순간이다.
+  - Transition은 index search -> pack detail -> export handoff이며, header copy가 그 시작점을 분명히 해야 한다.
+- Ethics:
+  - Regret: 통과. 기능을 과장하지 않고 route responsibility만 더 직접적으로 말한다.
+  - Black Mirror: 통과. chart polish나 deterministic generation이 곧 truth라는 인상을 더 강하게 만들지 않는다.
+  - In Real-Life: 통과. 운영자가 “저장된 chart pack 검토”라고 설명할 수 있는 수준의 조용한 안내다.
+- Concrete change:
+  - eyebrow를 `Chart pack review`로 교체
+  - subtitle을 `Review saved chart-pack artifacts before export or downstream reuse.`로 정리
+  - `Index filters`를 `Search chart packs`로 교체
+  - `Saved chart packs`를 `Saved chart-pack artifacts`로 교체
+
 ## Ethics check results
 - Regret: Low if warning states and caution notes remain visible before export.
 - Black Mirror: Risk appears if the interface renders charts as polished truth without showing skipped-data or template bounds. Countermeasure is warning-forward cards and explicit source summaries.
