@@ -27,9 +27,16 @@ Out of scope:
 
 | Lane | Backend/API | Viewer | Verification state | Fit with current core loop | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| Method Comparison | Implemented | Implemented | Strong | Highest | Promote next |
-| Chart Pack | Implemented | Implemented | Strong | Medium-high | Keep as bounded pilot, next after Method Comparison |
+| Method Comparison | Implemented | Implemented | Strong | Highest | Promoted to active spec |
+| Chart Pack | Implemented | Implemented | Strong | Medium-high | Promoted to active spec |
 | Image Evidence | Implemented | Implemented | Strong | Medium | Keep as bounded pilot / experimental sidecar |
+
+## Applied status
+
+As of 2026-03-23, the recommendation in this review has been applied as follows:
+- `Method Comparison` is now an active bounded spec at `docs/METHOD_COMPARISON.md`
+- `Chart Pack` is now an active bounded spec at `docs/CHART_PACK.md`
+- `Image Evidence` remains a bounded pilot and is not promoted to active spec in this step
 
 ## Evidence snapshot
 
@@ -50,7 +57,7 @@ Current strengths:
 Current limits:
 - still claimset-first
 - document/table fallback and operator edit flow are intentionally deferred
-- active bounded spec under `docs/` does not exist yet; current reference remains an archive RFC + implementation plan
+- broader comparison/workspace scope remains intentionally out of bounds
 
 Primary references:
 - `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
@@ -73,7 +80,7 @@ Current strengths:
 Current limits:
 - more presentation-oriented than Method Comparison
 - source adapters are still intentionally narrow
-- consumer boundary with downstream uses such as `Meeting Pack` is still a policy question, not yet an active bounded spec
+- consumer boundary with downstream uses such as `Meeting Pack` remains explicitly bounded
 
 Primary references:
 - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
@@ -116,7 +123,7 @@ Reason:
 - it has enough backend, viewer, and test coverage to justify writing an active bounded spec next
 
 Recommended next step:
-- write `docs/METHOD_COMPARISON.md` as an active bounded spec candidate that formalizes the already-implemented v0 scope and guardrails
+- completed on 2026-03-23 via `docs/METHOD_COMPARISON.md`
 
 ### Keep as bounded pilot: Chart Pack
 
@@ -126,8 +133,7 @@ Reason:
 - promoting it before Method Comparison would prioritize a communication artifact over the more directly evidence-linked operator workflow
 
 Recommended next step:
-- keep it implemented and usable
-- defer active bounded-spec promotion until the consumer boundary with `Meeting Pack`, `Stats Verification`, and future chart usage is explicitly frozen
+- completed on 2026-03-23 via `docs/CHART_PACK.md`
 
 ### Keep as bounded pilot / experimental sidecar: Image Evidence
 
@@ -143,10 +149,8 @@ Recommended next step:
 ## Queue impact
 
 Queue order should now read:
-1. `method-comparison` active bounded-spec promotion candidate
-2. `chart-pack` bounded pilot with later promotion decision
-3. `image-evidence` bounded pilot / experimental sidecar
-4. remaining future RFCs: `protocol-knowledge`, `project-memory`, `local-backup-restore`
+1. `image-evidence` bounded pilot / experimental sidecar
+2. remaining future RFCs: `protocol-knowledge`, `project-memory`, `local-backup-restore`
 
 ## Non-recommendations
 
@@ -160,4 +164,9 @@ Do not do these next:
 
 The current repo is no longer at the stage where these lanes are just ideas. All three have real implementations. But they are not equally central.
 
-The best next move is not to open another new bounded layer. It is to promote `Method Comparison` first, keep `Chart Pack` and `Image Evidence` as bounded pilots, and leave the remaining RFC-only ideas in the future bucket.
+The current result is:
+- `Method Comparison` promoted
+- `Chart Pack` promoted
+- `Image Evidence` intentionally held as a bounded pilot
+
+The next move is not to promote `Image Evidence` by momentum alone. It should stay a hardened sidecar until real usage proves it belongs in the core review loop.
