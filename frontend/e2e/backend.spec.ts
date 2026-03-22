@@ -152,6 +152,8 @@ async function waitForOptionalVisible(locator: Locator, timeout = 10_000): Promi
   }
 }
 
+const noteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
+
 test("backend mode stays out of mock fallback", async ({ page }) => {
   await page.goto("/");
 
@@ -340,18 +342,38 @@ test.describe("mobile backend UX", () => {
     await expect(page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first()).toBeVisible();
     await expect(page.getByText("Errors / Done")).toBeVisible();
   });
+
+  test("mobile paper notes detail opens review details sheet", async ({ page }) => {
+    await page.goto(`/papers/${noteSlug}`);
+
+    await expect(
+      page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+    ).toBeVisible();
+    const sidePanelButton = page.getByTestId("paper-note-open-side-panel");
+    await expect(sidePanelButton).toBeVisible();
+    await sidePanelButton.click();
+
+    const sheet = page.getByTestId("paper-note-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Review details" })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Outline", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Related Papers", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "References", exact: true })).toBeVisible();
+  });
 });
 
 test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
-  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
+  await page.goto(`/papers/${noteSlug}`);
 
   await expect(
     page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
   ).toBeVisible();
   const propertiesPanel = page.locator("aside").filter({ hasText: "Properties" }).first();
   await expect(propertiesPanel.getByRole("heading", { name: "Properties" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outline" })).toBeVisible();
   await expect(propertiesPanel.getByText("INDEXED", { exact: true })).toBeVisible();
-  await expect(propertiesPanel.getByText("Medicine/Neurology", { exact: true })).toBeVisible();
+  await expect(propertiesPanel.locator("dd").getByText("Medicine/Neurology", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "One-Line Summary" })).toBeVisible();
 
   const relatedHeading = page.getByRole("heading", { name: "Related Papers" }).first();
@@ -367,6 +389,8 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   const referencesHeading = page.getByRole("heading", { name: "References" }).first();
   await expect(referencesHeading).toBeVisible();
   const referencesSection = referencesHeading.locator("xpath=ancestor::section[1]");
+  await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Access Policy");
+  await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Preferred:");
   const openPdfLink = referencesSection.getByRole("link", { name: /Open PDF/i }).first();
   await expect(openPdfLink).toBeVisible();
   await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
@@ -513,6 +537,22 @@ test("paper notes list empty state suggests token-based recovery searches", asyn
   await expect(
     page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first(),
   ).toBeVisible();
+});
+
+test("paper notes detail supports learner and inspect view modes", async ({ page }) => {
+  await page.goto(`/papers/${noteSlug}?view=builder_debug`);
+
+  await expect(
+    page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+  ).toBeVisible();
+  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Inspect mode lifts");
+  const rightAside = page.locator("main > aside").nth(1);
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Actions");
+
+  await page.getByRole("button", { name: "Learner" }).click();
+  await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
+  await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Learner mode keeps related papers");
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Properties");
 });
 
 test("soft-gate canary: intentional backend e2e failure drill", async () => {

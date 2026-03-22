@@ -72,6 +72,7 @@ export interface PaperNoteRelated {
   slug: string;
   title: string;
   shared_tags: string[];
+  shared_signals: string[];
 }
 
 export interface PaperNoteReference {
@@ -86,6 +87,80 @@ export interface PaperNoteDetailResponse {
   body_markdown: string;
   related: PaperNoteRelated[];
   references: PaperNoteReference[];
+  structured_state?: StructuredPaperState | null;
+  available_actions: SkillActionInfo[];
+}
+
+export interface SkillActionInfo {
+  action: "extract_markdown" | "validate_citations" | "critical_appraisal";
+  title: string;
+  button_label: string;
+  description: string;
+  source_skills: string[];
+  license?: string | null;
+  network: "none" | "allowlist" | "full";
+  sandbox?: string | null;
+  secrets_required: string[];
+  enabled: boolean;
+  disabled_reason?: string | null;
+}
+
+export interface SkillClaimEvidence {
+  id?: string | null;
+  claim_id?: string | null;
+  run_id?: string | null;
+  text: string;
+  page?: number | null;
+  section?: string | null;
+  source?: string | null;
+  grounded?: boolean | null;
+  resolution?: string | null;
+  locator?: EvidenceHighlight | null;
+}
+
+export interface SkillClaimCard {
+  id: string;
+  source_claim_id?: string | null;
+  run_id?: string | null;
+  claim: string;
+  evidence_ids: string[];
+  evidence: SkillClaimEvidence[];
+  confidence?: number | null;
+  tags: string[];
+  outcomes: string[];
+}
+
+export interface SkillRunRecord {
+  id: string;
+  action: "extract_markdown" | "validate_citations" | "critical_appraisal";
+  ts: string;
+  status: "succeeded" | "failed" | "blocked";
+  summary: string;
+  artifacts: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
+export interface StructuredPaperState {
+  schema_version: string;
+  paper_slug: string;
+  updated_at: string;
+  runs: SkillRunRecord[];
+  signals: Record<string, unknown>;
+  claimset: SkillClaimCard[];
+  entities: string[];
+  mesh: string[];
+  outcomes: string[];
+}
+
+export type OutputModeFamily = "learner" | "lab_meeting" | "project_update" | "builder_debug";
+
+export interface SkillRunResponse {
+  slug: string;
+  note_path: string;
+  structured_path: string;
+  run: SkillRunRecord;
+  state: StructuredPaperState;
+  frontmatter_pp: Record<string, unknown>;
 }
 
 export interface JobStatus {
@@ -211,6 +286,8 @@ export interface EvidenceHighlight {
   width: number;
   height: number;
   quote?: string;
+  section?: string | null;
+  chunk_id?: string | null;
   source?: "bbox" | "text_match" | "approx";
 }
 

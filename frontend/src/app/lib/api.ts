@@ -11,6 +11,7 @@ import {
   PaperNoteListResponse,
   PaperSummary,
   PersonaListResponse,
+  SkillRunResponse,
   StatsRepairResponse,
   TimelineResponse,
 } from "./types";
@@ -45,6 +46,20 @@ interface RepairStatsRequest {
   write_bootstrap_meta?: boolean;
   skip_existing?: boolean;
   dry_run?: boolean;
+}
+
+interface SkillRunRequest {
+  slug: string;
+  action: "extract_markdown" | "validate_citations" | "critical_appraisal";
+  append_markdown_summary?: boolean;
+  force?: boolean;
+}
+
+interface ClientUserActionRequest {
+  paper_id?: string | null;
+  action_type: string;
+  source?: string;
+  payload?: Record<string, unknown>;
 }
 
 class ApiHttpError extends Error {
@@ -358,6 +373,8 @@ export async function getPaperNoteDetail(slug: string): Promise<ApiResult<PaperN
         body_markdown: "# Mock note\n\nMock mode enabled.",
         related: [],
         references: [],
+        structured_state: null,
+        available_actions: [],
       },
       isMock: true,
       reason: FORCE_MOCK_REASON,
@@ -368,6 +385,33 @@ export async function getPaperNoteDetail(slug: string): Promise<ApiResult<PaperN
     data: await firstSuccess<PaperNoteDetailResponse>([`/paper-notes/${encodeURIComponent(slug)}`]),
     isMock: false,
   };
+}
+
+export async function runSkillAction(payload: SkillRunRequest): Promise<SkillRunResponse> {
+  return firstSuccess<SkillRunResponse>(["/skills/run"], {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function logClientUserAction(payload: ClientUserActionRequest): void {
+  if (APP_CONFIG.forceMock) {
+    return;
+  }
+
+  const body = JSON.stringify({
+    paper_id: payload.paper_id ?? null,
+    action_type: payload.action_type,
+    source: payload.source ?? "ui",
+    payload: payload.payload ?? null,
+  });
+
+  void fetch(apiPath("/user-actions"), {
+    method: "POST",
+    body,
+    headers: requestHeaders(undefined),
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 export async function getJobsForPaper(paperId: string): Promise<ApiResult<JobStatus[]>> {
