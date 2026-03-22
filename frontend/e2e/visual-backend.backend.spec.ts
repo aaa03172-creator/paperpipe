@@ -29,8 +29,9 @@ test("visual regression (backend, desktop): paper notes list layout", async ({ p
   await openBackendPaperNotes(page);
 
   await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
-  await expect(page.getByRole("table")).toBeVisible();
-  await expect(page.locator("tbody tr").first()).toBeVisible();
+  await expect(page.getByTestId("paper-notes-tag-command")).toBeVisible();
+  await expect(page.getByTestId("paper-notes-structured-toggle")).toBeVisible();
+  await expect(page.getByTestId("paper-note-list-row").first()).toBeVisible();
 });
 
 test("visual regression (backend, desktop): paper note detail layout", async ({ page }) => {
