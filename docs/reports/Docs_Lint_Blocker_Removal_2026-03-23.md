@@ -9,7 +9,7 @@ Remove the last known retired-stub reference that was blocking repository-wide `
 
 ## Change
 - Mark the frontend phase-3 control plan as a historical working plan.
-- Replace the retired stub reference `docs/Lattice_v3_UIUX_MASTER.md` with current canonical docs.
+- Replace the stale UI/UX stub reference with current canonical docs.
 
 ## Verification
 - `python3 /Users/jangseongjin/paperpipe/scripts/lint_docs.py`
