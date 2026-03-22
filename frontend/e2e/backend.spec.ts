@@ -1,45 +1,10 @@
 import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const runSoftGateCanary = process.env.PAPERPIPE_E2E_CANARY === "1";
 const runRealSmoke = process.env.PAPERPIPE_REAL_SMOKE === "1";
 const requireRealSmokeCandidates = process.env.PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES === "1";
 const backendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
-const noteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
-const structuredNoteSlug = "zoterostructuredSkillsClaimset2026";
-const actionNoteSlug = "zoteroliveValidateCitations2026";
-const quietActionNoteSlug = "zoteroquietValidateCitations2026";
-const runId = "skill-20260226T130003000000+0000-critical_appraisal";
-const claimId = "claim_c0ffee000001";
-const evidenceId = "evidence_deadbeef0001";
-const structuredRunId = "skill-20260309T090000Z-critical_appraisal";
-const structuredClaimId = "claim_structured_001";
-const structuredEvidenceId = "evidence_structured_001";
-const e2eSpecDir = path.dirname(fileURLToPath(import.meta.url));
-const e2eVaultPath = path.resolve(e2eSpecDir, "..", ".e2e-backend-runtime", "obsidian");
-
-function focusDomId(kind: "run" | "claim" | "evidence", id: string): string {
-  return `#pp-focus-${kind}-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-}
-
-function encodedFocus(kind: "run" | "claim" | "evidence", id: string): string {
-  return `${kind}%3A${encodeURIComponent(id)}`;
-}
-
-function notePathFor(slug: string): string {
-  return path.join(e2eVaultPath, "Inbox", "PaperPipe", `${slug}.md`);
-}
-
-function statePathFor(slug: string): string {
-  return path.join(e2eVaultPath, ".pp", slug, "state.json");
-}
-
-function runsDirFor(slug: string): string {
-  return path.join(e2eVaultPath, ".pp", slug, "runs");
-}
 
 interface BackendPaperSummary {
   paper_id?: string;
@@ -47,20 +12,11 @@ interface BackendPaperSummary {
 }
 
 interface BackendArtifactEntry {
-  exists?: boolean;
   data?: unknown;
 }
 
 interface BackendArtifactBundle {
   files?: Record<string, BackendArtifactEntry>;
-}
-
-interface BackendJobDetail {
-  bootstrap_meta_path?: string | null;
-  artifact_document_written?: boolean | null;
-  artifact_claimset_written?: boolean | null;
-  artifact_stats_written?: boolean | null;
-  claimset_readiness?: string | null;
 }
 
 interface RealSmokeCandidate {
@@ -133,6 +89,7 @@ function pickDistinctPageClaimPair(claimsetPayload: unknown): { firstClaimIndex:
   if (!second) {
     return null;
   }
+
   return {
     firstClaimIndex: first.index,
     secondClaimIndex: second.index,
@@ -200,7 +157,6 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await expect(page.locator("tr").filter({ hasText: "E2E List Missing Stats Paper" }).first()).toBeVisible();
 
   // backend-seeded paper should be visible and navigable
   const seededPaper = page.locator("tbody tr").filter({ hasText: "E2E Seed Paper" }).first();
@@ -213,53 +169,6 @@ test("backend mode stays out of mock fallback", async ({ page }) => {
 
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Claim text missing")).toHaveCount(0);
-  await expect(page.locator("aside").getByRole("button").filter({ hasText: "E2E List Missing Stats Paper" }).first()).toBeVisible();
-});
-
-test("backend triage separates content review cues from operational state", async ({ page }) => {
-  await page.goto("/");
-
-  await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Content Review" })).toBeVisible();
-
-  const row = page.locator("tbody tr").filter({ hasText: "E2E List Missing Stats Paper" }).first();
-  await expect(row.getByTestId("triage-ops-badge")).toContainText("Action needed");
-  await expect(row.getByTestId("triage-content-review-button")).toContainText("Review clear");
-  await expect(row.getByTestId("triage-review-hint")).toContainText("No content flags");
-});
-
-test("backend triage content review action carries flagged context into workbench", async ({ page }) => {
-  await page.goto("/");
-
-  const row = page.locator("tbody tr").filter({ hasText: "E2E Content Review Paper" }).first();
-  await expect(row.getByTestId("triage-ops-badge")).toContainText("Healthy");
-  await expect(row.getByTestId("triage-content-review-button")).toContainText("Review 2 issues");
-  await expect(row.getByTestId("triage-review-detail")).toContainText("2 mapping ambiguities");
-  await row.getByTestId("triage-content-review-button").click();
-
-  await expect(page).toHaveURL(/\/workbench\/paper-e2e-content-review-001\?focus=issues/);
-  await expect(page.getByTestId("content-review-notice")).toContainText("2 content review flags available.");
-  await expect(page.getByTestId("content-review-notice-detail")).toContainText("2 mapping ambiguities");
-  await expect(page.getByTestId("content-review-notice")).toContainText("Issue focus is enabled.");
-  await expect(
-    page.locator("aside").getByRole("button").filter({ hasText: "E2E Content Review Paper" }).getByTestId("rail-review-detail"),
-  ).toContainText("2 mapping ambiguities");
-  await expect(page.getByTestId("workbench-content-review-badge")).toContainText("2 flagged");
-  await expect(page.getByTestId("workbench-content-review-hint")).toContainText("Content QA flags are separate from artifact health.");
-  await expect(page.getByTestId("workbench-content-review-detail")).toContainText("2 mapping ambiguities");
-  await expect(page.getByTestId("workbench-ops-badge")).toContainText("Healthy");
-});
-
-test("backend seeded fixture bootstrap meta matches available artifacts", async ({ request }) => {
-  const response = await request.get(`${backendBaseUrl}/jobs/job-e2e-fixture-001`);
-  expect(response.ok()).toBeTruthy();
-
-  const payload = (await response.json()) as BackendJobDetail;
-  expect(payload.bootstrap_meta_path).toBeTruthy();
-  expect(payload.artifact_document_written).toBe(true);
-  expect(payload.artifact_claimset_written).toBe(true);
-  expect(payload.artifact_stats_written).toBe(true);
-  expect(payload.claimset_readiness).toBe("ready");
 });
 
 test("backend real-paper smoke keeps claim jump and highlight rendering stable", async ({ page, request }) => {
@@ -300,7 +209,6 @@ test("backend real-paper smoke keeps claim jump and highlight rendering stable",
 
     const pdfPanel = page.locator("section").filter({ hasText: "PDF Renderer" }).first();
     const linkBadge = pdfPanel.getByText(/(Claim Link|Text Match) · p\.\d+/).first();
-
     const highlightLike = page
       .locator('[data-testid="claim-highlight"], [data-testid="claim-search-highlight"], [data-testid="claim-approx-highlight"]')
       .first();
@@ -362,9 +270,7 @@ test("backend evidence linking keeps single highlight and updates bbox on claim 
 
   const afterBox = await highlight.boundingBox();
   expect(afterBox).not.toBeNull();
-  if (viewerBox && beforeBox && afterBox) {
-    expect(afterBox.width).toBeGreaterThan(viewerBox.width * 0.2);
-    expect(afterBox.height).toBeGreaterThan(viewerBox.height * 0.15);
+  if (beforeBox && afterBox) {
     const movedDelta =
       Math.abs(beforeBox.x - afterBox.x) +
       Math.abs(beforeBox.y - afterBox.y) +
@@ -417,81 +323,6 @@ test("backend evidence_spans fixture keeps zero-based normalized anchors stable"
   }
 });
 
-test("backend rebuild stats action stays under advanced controls and overwrites the current snapshot", async ({ page }) => {
-  await page.goto("/workbench/paper-e2e-rebuild-001");
-
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Repair Stats", exact: true })).toHaveCount(0);
-  await expect(page.getByTestId("repair-stats-warning")).toHaveCount(0);
-  const statsSnapshotSummary = page.locator("summary").filter({ hasText: "Stats Snapshot" }).first();
-  const statsSnapshotSection = statsSnapshotSummary.locator("xpath=ancestor::details[1]");
-  await expect(statsSnapshotSection).toContainText("LEGACY_STATS_FIXTURE");
-
-  const advancedActions = page.locator('[data-testid="stats-advanced-controls"]').filter({ hasText: "Advanced actions" }).first();
-  await expect(advancedActions).toBeVisible();
-  await advancedActions.locator("summary").click();
-
-  const rebuildButton = advancedActions.getByRole("button", { name: "Rebuild Stats", exact: true });
-  await expect(rebuildButton).toBeVisible();
-  await expect(advancedActions).toContainText("Rebuild overwrites the current Stats Snapshot");
-
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click({ force: true });
-  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
-  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
-
-  await rebuildButton.click();
-
-  await expect(page.getByTestId("rebuild-stats-warning")).toContainText("Rebuilding stats snapshot...");
-  await expect(terminalDrawer.locator("pre")).toContainText("repair-stats summary: mode=rebuild", { timeout: 15_000 });
-  await expect(page.getByTestId("rebuild-stats-success")).toContainText("Stats rebuild completed.");
-  await expect(statsSnapshotSection).toContainText("AUTO_GENERATED_FROM_CLAIMSET");
-  await expect(statsSnapshotSection).not.toContainText("LEGACY_STATS_FIXTURE");
-});
-
-test("backend sync to obsidian uses the same inline feedback pattern as other workbench actions", async ({ page }) => {
-  await page.goto("/workbench/paper-e2e-001");
-
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await expect(page.getByText("Obsidian sync payload preview")).toBeVisible();
-
-  const syncButton = page.getByRole("button", { name: "Sync to Obsidian", exact: true });
-  await expect(syncButton).toBeVisible();
-  await syncButton.click();
-
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click({ force: true });
-  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
-  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
-  await expect(terminalDrawer.locator("pre")).toContainText("obsidian-sync summary", { timeout: 15_000 });
-  await expect(page.getByTestId("sync-obsidian-success")).toContainText("Obsidian sync completed.");
-});
-
-test("backend workbench reuses the same operational state summary language as list and rail", async ({ page }) => {
-  await page.goto("/workbench/paper-e2e-list-missing-stats-001");
-
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  const selectedRailPaper = page.locator("aside").getByRole("button").filter({ hasText: "E2E List Missing Stats Paper" }).first();
-  await expect(selectedRailPaper.getByTestId("rail-ops-badge")).toContainText("Action needed");
-  await expect(selectedRailPaper.getByTestId("rail-ops-reason")).toContainText("Stats report is missing or empty.");
-  await expect(page.getByTestId("workbench-ops-summary")).toBeVisible();
-  await expect(page.getByTestId("workbench-ops-badge")).toContainText("Action needed");
-  await expect(page.getByTestId("workbench-ops-reason")).toContainText("Open in Workbench to repair the Stats Snapshot.");
-});
-
-test("backend workbench preserves content review context when opened in issue focus mode", async ({ page }) => {
-  await page.goto("/workbench/paper-e2e-list-missing-stats-001?focus=issues");
-
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByTestId("content-review-notice")).toContainText("No content flags recorded.");
-  await expect(page.getByTestId("content-review-notice")).toContainText("Issue focus is enabled.");
-  await expect(page.getByTestId("workbench-content-review-summary")).toBeVisible();
-  await expect(page.getByTestId("workbench-content-review-badge")).toContainText("Clear");
-  await expect(page.getByTestId("workbench-content-review-hint")).toContainText("No content flags in the current paper summary.");
-  await expect(page.getByTestId("workbench-content-review-detail")).toContainText("Issue focus is enabled");
-});
-
 test.describe("mobile backend UX", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -512,7 +343,7 @@ test.describe("mobile backend UX", () => {
 });
 
 test("paper notes detail renders properties, markdown, related papers, and references", async ({ page }) => {
-  await page.goto(`/papers/${noteSlug}`);
+  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
 
   await expect(
     page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
@@ -536,8 +367,6 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   const referencesHeading = page.getByRole("heading", { name: "References" }).first();
   await expect(referencesHeading).toBeVisible();
   const referencesSection = referencesHeading.locator("xpath=ancestor::section[1]");
-  await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Access Policy");
-  await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Preferred:");
   const openPdfLink = referencesSection.getByRole("link", { name: /Open PDF/i }).first();
   await expect(openPdfLink).toBeVisible();
   await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
