@@ -245,6 +245,42 @@ Reviewer: Codex
   - `builder_debug`는 actions/automation/claimset을 properties보다 먼저 노출한다.
   - mode 설명 카피를 `Reading Context`와 `Reading View` 주변에 짧게 추가한다.
 
+## 7.9) Core Worksurface Header Copy Checkpoint (2026-03-22)
+- Screen/Flow: `/` triage header, `/workbench/:paperId` header and mobile controls, global lazy-load fallback
+- Goal action: 사용자가 첫 진입과 workbench handoff에서 현재 작업 표면을 즉시 이해하고, 내부 운영 문구에 방해받지 않는다.
+- Primary persona: list -> workbench 이동을 반복하며 상태와 evidence를 검수하는 연구자
+- Current friction:
+  - triage의 `Phase 3 Control UI`와 기존 document title은 내부 단계/도구 명명에 가깝다.
+  - workbench mobile summary `Run & View Controls`는 기능 묶음 이름은 말하지만 작업 의미는 약하다.
+  - global `Loading...` fallback도 제품 surface보다 generic shell처럼 읽힌다.
+- Quick decision:
+  - route, H1 contract, workbench layout, stepper, controls 구조는 유지한다.
+  - 대신 eyebrow, subtitle, mobile controls label, loading copy를 작업 중심 언어로 정리한다.
+- BMAP:
+  - Motivation: 높음. 사용자는 현재 무엇을 검토하고 어디로 들어가야 하는지 바로 알고 싶다.
+  - Ability: header copy가 직접적일수록 triage -> workbench 전환 비용이 줄어든다.
+  - Prompt: `Research queue`, `Workbench controls`, `Loading workspace...` 수준의 짧은 prompt가 충분하다.
+- B.I.A.S:
+  - Block: 내부 단계명은 빠른 이해를 방해한다.
+  - Interpret: queue/workbench 중심 언어가 current surface를 즉시 해석하게 한다.
+  - Act: triage subtitle은 review -> open workbench 흐름을 바로 가리킨다.
+  - Store: calm, credible wording이 long-session usability를 높인다.
+- Peak-End:
+  - Peak는 첫 화면과 workbench 진입 순간에 현재 작업 책임이 바로 읽히는 순간이다.
+  - Pit는 stage/control wording이 internal console처럼 읽히는 순간이다.
+  - Transition은 triage queue -> workbench이며, 같은 grammar로 이어져야 한다.
+- Ethics:
+  - Regret: 통과. 제품을 더 화려하게 포장하지 않고 현재 작업을 더 직접적으로 설명한다.
+  - Black Mirror: 통과. urgency나 branding mood를 얹지 않는다.
+  - In Real-Life: 통과. 연구 보조 도구다운 절제된 안내다.
+- Concrete change:
+  - triage document title을 `Triage | Lattice`로 교체
+  - triage eyebrow를 `Research queue`로 교체
+  - triage subtitle을 workbench 진입 목적이 보이도록 정리
+  - workbench mobile controls summary를 `Workbench controls`로 교체
+  - terminal button copy를 `Terminal logs`로 축약
+  - suspense fallback copy를 `Loading workspace...`로 교체
+
 ## 8) Next PR-sized actions
 이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`다.
 
