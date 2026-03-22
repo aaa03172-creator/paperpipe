@@ -135,8 +135,8 @@ Implication:
 ### Do next
 
 1. Treat repository baseline adoption for the Meeting Pack slice as already executed via `5c09619`, and keep the later backend/API commits as additive follow-up lanes rather than as reasons to reopen `PR-M0`.
-2. Package the now-committed backend/API stack using `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md`.
-3. If code work resumes, leave `context_trace` API/debug-only and start a separate `agent_artifacts` contract-hardening lane instead of widening the baseline bundle.
+2. Treat backend/API packaging as already executed via merged PR `#108`, and keep `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` only as historical reviewer context.
+3. Treat bounded `agent_artifacts` replay hardening as already executed via merged PR `#111`; if code work resumes, reopen only a fresh schema/test gap instead of assuming another immediate post-packaging lane.
 
 ### Explicitly skip
 
