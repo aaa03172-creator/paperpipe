@@ -20,6 +20,8 @@ AUTOMATION_SECTION_RE = re.compile(
 )
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$")
+NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+PAPER_NOTE_EXCLUDED_DIR_NAMES = {".obsidian", "_backup"}
 
 
 def safe_read_text(path: Path) -> str:
@@ -88,6 +90,172 @@ def resolve_note_path(vault_path: Path, slug: str) -> Path | None:
         if path.stem == slug:
             return path
     return None
+
+
+def normalize_note_identifier(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return NON_ALNUM_RE.sub("", text)
+
+
+def paper_id_lookup_variants(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    variants: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    _append(text)
+    _append(text.replace(":", ""))
+    if ":" in text:
+        suffix = text.split(":", 1)[1].strip()
+        _append(suffix)
+        _append(suffix.replace(":", ""))
+    return variants
+
+
+def is_candidate_markdown_for_paper_note(path: Path, vault_path: Path) -> bool:
+    try:
+        relative = path.relative_to(vault_path)
+    except ValueError:
+        return False
+
+    for part in relative.parts:
+        if part in PAPER_NOTE_EXCLUDED_DIR_NAMES:
+            return False
+        if part.startswith("."):
+            return False
+    return True
+
+
+def is_paper_note_candidate(frontmatter: dict[str, Any], relative_path: Path) -> bool:
+    if any(
+        key in frontmatter
+        for key in (
+            "id",
+            "aliases",
+            "tags",
+            "date_processed",
+            "confidence",
+            "status",
+        )
+    ):
+        return True
+
+    rel = str(relative_path).lower()
+    if "paperpipe" in rel:
+        return True
+    return False
+
+
+def _paper_note_match_strength(
+    *,
+    slug: str,
+    frontmatter: dict[str, Any],
+    raw_variants: list[str],
+    normalized_variants: set[str],
+) -> int:
+    candidates = (
+        ("id", frontmatter.get("id")),
+        ("doi", frontmatter.get("doi")),
+        ("slug", slug),
+    )
+    best = 0
+    for field, candidate in candidates:
+        text = str(candidate or "").strip()
+        if not text:
+            continue
+        if text in raw_variants:
+            if field in {"id", "doi"}:
+                best = max(best, 4)
+            else:
+                best = max(best, 3)
+        normalized = normalize_note_identifier(text)
+        if normalized and normalized in normalized_variants:
+            if field in {"id", "doi"}:
+                best = max(best, 2)
+            else:
+                best = max(best, 1)
+    return best
+
+
+def _paper_note_preference_score(
+    *,
+    vault_path: Path,
+    note_path: Path,
+    relative_path: Path,
+    frontmatter: dict[str, Any],
+) -> tuple[int, int, int]:
+    structured_state = 1 if load_structured_state(vault_path, note_path.stem, frontmatter) is not None else 0
+    metadata_score = sum(
+        1
+        for key in ("aliases", "tags", "date_processed", "confidence", "status", "doi")
+        if frontmatter.get(key)
+    )
+    paperpipe_path = 1 if "paperpipe" in str(relative_path).lower() else 0
+    return structured_state, paperpipe_path, metadata_score
+
+
+def resolve_note_slug_by_paper_id(vault_path: Path, paper_id: str) -> str | None:
+    raw_variants = paper_id_lookup_variants(paper_id)
+    if not raw_variants:
+        return None
+
+    normalized_variants = {
+        normalized
+        for normalized in (normalize_note_identifier(value) for value in raw_variants)
+        if normalized
+    }
+    markdown_paths = sorted(
+        path
+        for path in vault_path.rglob("*.md")
+        if path.is_file() and is_candidate_markdown_for_paper_note(path, vault_path)
+    )
+    matches: list[tuple[int, int, int, int, str]] = []
+
+    for note_path in markdown_paths:
+        try:
+            relative = note_path.relative_to(vault_path)
+        except ValueError:
+            continue
+        frontmatter, _body = split_frontmatter(safe_read_text(note_path))
+        if not is_paper_note_candidate(frontmatter, relative):
+            continue
+        match_strength = _paper_note_match_strength(
+            slug=note_path.stem,
+            frontmatter=frontmatter,
+            raw_variants=raw_variants,
+            normalized_variants=normalized_variants,
+        )
+        if match_strength <= 0:
+            continue
+        structured_state, paperpipe_path, metadata_score = _paper_note_preference_score(
+            vault_path=vault_path,
+            note_path=note_path,
+            relative_path=relative,
+            frontmatter=frontmatter,
+        )
+        matches.append(
+            (
+                match_strength,
+                structured_state,
+                paperpipe_path,
+                metadata_score,
+                note_path.stem,
+            )
+        )
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda item: (-item[0], -item[1], -item[2], -item[3], item[4]))
+    return matches[0][4]
 
 
 def structured_relpath(slug: str) -> str:
