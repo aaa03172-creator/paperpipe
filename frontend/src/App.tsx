@@ -26,7 +26,7 @@ export default function App() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-[var(--pp-canvas)] text-sm text-[var(--pp-text-secondary)]">
-          Loading...
+          Loading workspace...
         </div>
       }
     >

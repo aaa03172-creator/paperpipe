@@ -77,7 +77,7 @@ export function WorkbenchLayout({
               className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
             >
               <TerminalSquare className="h-3.5 w-3.5" />
-              Show Terminal Logs
+              Terminal logs
             </button>
           </div>
         </div>
@@ -91,7 +91,7 @@ export function WorkbenchLayout({
           {mobileControls ? (
             <details className="mt-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] md:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-                Run & View Controls
+                Workbench controls
               </summary>
               <div className="grid gap-2 border-t border-[var(--pp-border)] p-3">{mobileControls}</div>
             </details>
