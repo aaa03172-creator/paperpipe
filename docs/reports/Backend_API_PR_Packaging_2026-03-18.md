@@ -1,9 +1,9 @@
 # Backend/API PR Packaging
 
-Status: Open PR packaging note
+Status: Historical merged PR packaging note
 Date: 2026-03-18
 Branch observed: `codex/backend-api-packaging-stack`
-Opened PR: `#108` `https://github.com/aaa03172-creator/paperpipe/pull/108`
+Opened PR: `#108` `https://github.com/aaa03172-creator/paperpipe/pull/108` (merged)
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md`
 - `/Users/jangseongjin/paperpipe/docs/reports/Current_Baseline_Recheck_2026-03-18.md`
@@ -150,12 +150,14 @@ Do not silently expand this packaged PR with:
 - new frontend viewer polish
 - broader Meeting Pack synonym/selector work
 
-## 6. If Code Work Resumes After Packaging
+## 6. Historical Post-Packaging Note
 
-The highest-value next code lane is:
+At the time of packaging, the highest-value next code lane was:
 
 1. `/Users/jangseongjin/paperpipe/src/schemas/agent_artifacts.py` contract hardening
 
-The low-value next code lane is:
+That bounded replay later merged via PR `#111`.
+
+The low-value next code lane remains:
 
 1. `/Users/jangseongjin/paperpipe/backend/main.py` move-only cleanup

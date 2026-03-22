@@ -75,10 +75,10 @@ Canonical: `docs/Pending_PR_Queue.md`
 ## Next Up (2026-03-18)
 - Recommended next: package the already-committed backend/API stack into a PR/change-summary bundle
   - 이유: `PR-M0` baseline adoption은 이미 commit `5c09619`로 실행됐고, 그 뒤의 Meeting Pack/runtime/paper-notes/skills/obsidian/method-comparison follow-up lane도 개별 commit으로 고정됐다. 현재 남은 ambiguity는 baseline adoption 여부가 아니라, 이 committed stack을 어떤 narrative로 묶고 어떤 dirty tail을 별도 lane으로 남길지다.
-- Current stack note: use `docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` as the current packaging summary
-  - 이유: 이 note는 `5c09619` baseline anchor 이후의 additive commit stack, latest validation, remaining dirty tails(`backend/main.py`, `src/schemas/agent_artifacts.py`)를 한 곳에 모아준다.
-- PR packaging note: use `docs/reports/Backend_API_PR_Packaging_2026-03-18.md` as the ready-to-paste PR title/body/review-order draft
-  - 이유: 현재는 새 baseline 실행이 아니라 이미 commit된 stack을 reviewer가 이해 가능한 narrative로 묶는 단계이므로, title/body/validation/out-of-scope를 바로 재사용할 수 있는 packaging note가 필요하다.
+- Current stack note: keep `docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` as the historical backend/API packaging summary
+  - 이유: 이 note는 `5c09619` baseline anchor 이후의 additive commit stack을 묶은 historical packaging summary로 유지한다. 실제 packaging PR은 이미 `#108`로 머지됐다.
+- PR packaging note: keep `docs/reports/Backend_API_PR_Packaging_2026-03-18.md` as the historical PR packaging draft
+  - 이유: reviewer-facing title/body/review-order draft로는 여전히 유용하지만, 더 이상 active next-step execution note는 아니다.
 - Current-state recheck note: use `docs/reports/Current_Baseline_Recheck_2026-03-18.md` as the short "bind now vs separate lane" execution note
   - 이유: 2026-03-18 기준 repo의 실제 가치는 이미 bounded `Research DNA`, evidence-linked `Meeting Pack`, additive paper-note `context_trace`까지 포함한 biomedical core loop에 있고, 이 note는 baseline adoption 이후에도 무엇을 separate lane으로 남겨야 하는지 다시 좁혀준다.
 - External reference guardrail: interpret recent external references only in a bounded `sidecar`, `fallback`, `benchmark`, `dataset`, or `reference` frame
@@ -95,11 +95,9 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 이유: 현재 `backend/main.py` 작업트리 diff는 너무 넓어서, raw inclusion은 `PR-M0`를 baseline freeze가 아니라 broad product expansion으로 보이게 만든다.
 - Guardrail note: recent `Research DNA` eval-report hardening and paper-note `context_trace` are additive hardening slices, not reasons to broaden `PR-R0` or `PR-M0`
   - 이유: 두 변화 모두 explainability와 reproducibility를 높이지만, 새 runtime layer나 broader UI/product scope를 열어야 하는 성질은 아니다.
-- Technical next lane if coding resumes: start `agent_artifacts` contract hardening as a separate schema lane
-  - 이유: 현재 남은 실질적 code lane은 `src/schemas/agent_artifacts.py`의 broader contract hardening이며, 이건 `backend/main.py` route-move tail보다 가치가 높고 committed stack에도 섞지 않는 편이 맞다.
-  - 현재 범위: `DocumentChunk` metadata 확장, `EvidenceSpan` text-vs-table payload/bbox sanity, `ScientificClaim.unknown*` normalization
-  - 현재 검증: `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py` -> `12 passed`
-  - guardrail: schema/test lane로만 열고 reader/runtime redesign으로 확장하지 않는다.
+- Technical next lane if coding resumes: do not assume a new `agent_artifacts` lane by default
+  - 이유: bounded `agent_artifacts` replay hardening은 이미 `PR #111`로 머지됐다. 이후에 다시 열더라도 fresh repo-grounded gap이 있어야 하고, 여전히 schema/test lane로만 제한해야 한다.
+  - guardrail: reader/runtime redesign으로 확장하지 않는다.
 - Guardrail note: projection-backed profile selectors are usable only when the latest screened include set maps to existing vault `state.json`
   - 이유: query/profile text만으로 pack을 만들면 `state.json` first evidence boundary가 무너진다.
 - Follow-up after that: tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth

@@ -1,6 +1,6 @@
 # Committed Backend/API Stack Summary
 
-Status: Active clean-replay PR-packaging note
+Status: Historical merged PR-packaging summary
 Date: 2026-03-18
 Branch observed: `codex/backend-api-packaging-stack`
 Canonical parents:
@@ -11,7 +11,7 @@ Canonical parents:
 
 ## 0. Purpose
 
-Summarize the already-committed backend/API stack after `PR-M0` baseline adoption, so the next step can be PR packaging rather than more opportunistic slicing.
+Summarize the already-committed backend/API stack after `PR-M0` baseline adoption, so the packaging scope is recorded even after the PR is merged.
 
 This note is not a new roadmap and does not reopen the baseline boundary.
 
@@ -85,12 +85,12 @@ These should not be silently folded into the committed stack summary:
   - remaining diff is mostly route/import relocation cleanup
   - low value as a standalone follow-up unless it is bundled with a real feature lane
 - `/Users/jangseongjin/paperpipe/src/schemas/agent_artifacts.py`
-  - remaining diff is a broader schema-contract hardening lane
-  - includes `DocumentChunk` metadata expansion, `EvidenceSpan` validation, and `ScientificClaim.unknown*`
-  - should be treated as a separate contract lane if reopened
+  - the broader diff was intentionally left out of packaging PR `#108`
+  - a bounded replay of the schema/test hardening later merged via PR `#111`
+  - any further follow-up should be reopened only from a fresh measured gap
 
 ## 5. Recommended Next Step
 
-1. Treat the current stack as ready for PR/change-summary packaging.
-2. Do not spend another slice on `backend/main.py` move-only cleanup.
-3. If code work resumes, reopen a separate `agent_artifacts` contract-hardening lane instead of mixing it into this packaged stack.
+1. Treat this note as a historical packaging summary behind merged PR `#108`.
+2. Do not spend another slice on `backend/main.py` move-only cleanup by default.
+3. Treat bounded `agent_artifacts` replay hardening as already merged via PR `#111`; reopen only with a fresh schema/test gap.
