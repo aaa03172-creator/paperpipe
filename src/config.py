@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
+from src.services.runtime_paths import config_file_path
+
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
     log_level: str = "INFO"
@@ -56,7 +58,7 @@ class SearchConfig(BaseModel):
 
 class FeatureConfig(BaseModel):
     enabled: bool = False
-    model: str = "gpt-4o-mini" # Default, can be overridden by specific provider config
+    model: str = "llama3:8b" # Local-first default, can be overridden by provider config
 
 class LLMFeatures(BaseModel):
     trial_extraction: FeatureConfig
@@ -81,7 +83,7 @@ class CloudLLMConfig(BaseModel):
     model: str = "gpt-4o"
 
 class LLMConfig(BaseModel):
-    mode: Literal["cloud", "local", "hybrid"] = "cloud" # Default to cloud for backward compatibility
+    mode: Literal["cloud", "local", "hybrid"] = "local" # Default local-first runtime
     
     # Provider Configs
     local: LocalLLMConfig = Field(default_factory=LocalLLMConfig)
@@ -120,6 +122,21 @@ class BibliometricConfig(BaseModel): # [NEW]
 class RankingConfig(BaseModel): # [NEW]
     bibliometrics: BibliometricConfig = Field(default_factory=BibliometricConfig)
 
+
+class IngestConfig(BaseModel):
+    parser_backend: Literal["fitz_pdfplumber", "docling"] = "fitz_pdfplumber"
+    enable_docling: bool = False
+    enable_ocr_fallback: bool = False
+    ocr_lang: str = "eng"
+    ocr_min_text_chars: int = 200
+    enable_table_pass2_ocr: bool = False
+    enable_cloud_table_fallback: bool = False
+    cloud_table_page_budget: int = 1
+    cloud_table_model: str = "gpt-4o-mini"
+    cloud_table_base_url: Optional[str] = None
+    cloud_table_api_key: Optional[str] = None
+    cloud_table_timeout_seconds: int = 30
+
 # [Ticket v3.0] Agent Configuration
 class AgentToolsConfig(BaseModel):
     retrieval: bool = True
@@ -143,6 +160,7 @@ class AppConfig(BaseModel):
     paths: PathsConfig
     search: SearchConfig
     llm: LLMConfig
+    ingest: IngestConfig = Field(default_factory=IngestConfig)
     unpaywall: UnpaywallConfig = Field(default_factory=UnpaywallConfig)
     confidence_thresholds: ConfidenceThresholds = Field(default_factory=ConfidenceThresholds)
     ranking: RankingConfig = Field(default_factory=RankingConfig)
@@ -152,8 +170,7 @@ class AppConfig(BaseModel):
 
 
 def load_config(config_path: str = "config.yaml") -> AppConfig:
-    override_path = os.getenv("PAPERPIPE_CONFIG_PATH")
-    path = Path(override_path or config_path).expanduser()
+    path = config_file_path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found at {path.absolute()}")
     
