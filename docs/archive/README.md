@@ -52,6 +52,11 @@ This prompt captures a current-system-safe way to review Claude Code-style skill
 
 This prompt captures a current-system-safe way to review a large Codex/Claude operating-system style repo as a source of small local patterns only, with explicit bias toward minimal `.codex` additions, few roles, few skills, and no hook-driven migration assumptions.
 
+### UI refinement prompt set (2026-03-22)
+- `docs/archive/Frontend_Worksurface_UI_Refinement_Prompt_2026-03-22.md`
+
+This prompt captures a current-system-safe way to refine the main app work surfaces through hierarchy, spacing, copy, and token cleanup without drifting into landing-page grammar, generic dashboard patterns, or route/state redesign.
+
 ### Deep research visualization adaptation set (2026-03-18)
 - `docs/archive/Deep_Research_Reports_2_3_4_Fit_Review_2026-03-18.md`
 - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`

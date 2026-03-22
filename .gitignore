@@ -69,6 +69,7 @@ run_manual_injection.py
 # User Data
 brain/
 .gemini/
+.codex/work/
 .codex_trash/
 
 # Local UI audit artifacts

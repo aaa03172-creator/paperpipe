@@ -56,6 +56,38 @@ Future local skills should live under `.codex/skills/<skill-name>/` and use this
 
 Use the smallest subset that solves the problem. Many skills should remain just `SKILL.md` plus one small `references/` file.
 
+## Codex workflow boundary
+
+PaperPipe distinguishes between:
+- Codex-only developer workflow helpers
+- product runtime skills exposed through PaperPipe
+
+Codex-only workflow helpers may live under:
+- `.codex/skills/<skill-name>/` for local workflow skills
+- `.codex/agents/<agent-name>.toml` for narrow custom subagents used during development
+
+These are developer tooling only. They must not be treated as product runtime features by folder presence alone.
+
+Current minimal developer-workflow set:
+- `tool-intake-review`
+- `smallest-safe-patch`
+- `code_mapper`
+- `architecture_guardian`
+
+Optional next-layer helper:
+- `eval_harness_builder`
+
+Purpose:
+- `tool-intake-review`: conservative fit review for external repos, libraries, parsers, and frameworks
+- `smallest-safe-patch`: map-first, minimal-edit workflow for additive fixes
+- `code_mapper`: read-only execution-path and ownership mapper
+- `architecture_guardian`: read-only guard against rewrites, schema drift, and dependency overreach
+- `eval_harness_builder`: bounded evaluation and regression harness builder that should reuse existing `goldset/`, `scripts/eval/`, `baselines/`, `snapshots/`, and targeted test paths before creating new eval surfaces
+
+Rule:
+- use these to support safe development decisions
+- do not wire them into FastAPI routes, `src/skills/`, or user-facing runtime flows unless a separate product contract adopts that behavior
+
 ## `SKILL.md` guidance
 
 Keep `SKILL.md` as the routing and workflow document, not the dump site for every detail.
