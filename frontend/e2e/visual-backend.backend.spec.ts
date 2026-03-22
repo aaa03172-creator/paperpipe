@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 const visualBackendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const visualBackendBaseUrl = `http://127.0.0.1:${visualBackendPort}`;
 const visualNoteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
+const visualMethodComparisonAlphaPaperId = "paper-e2e-methodcmp-alpha-001";
+const visualMethodComparisonBetaPaperId = "paper-e2e-methodcmp-beta-001";
 const visualSpecDir = path.dirname(fileURLToPath(import.meta.url));
 const visualImageEvidenceFixtureRawPath = path.resolve(
   visualSpecDir,
@@ -172,6 +174,28 @@ async function registerBackendImageEvidenceVisualMissingFixture(request: APIRequ
   return imageEvidenceId;
 }
 
+interface MethodComparisonVisualFixtureOptions {
+  comparisonId: string;
+  title: string;
+  fieldIds: string[];
+}
+
+async function generateBackendMethodComparisonVisualFixture(
+  request: APIRequestContext,
+  options: MethodComparisonVisualFixtureOptions,
+): Promise<MethodComparisonVisualFixtureOptions> {
+  const response = await request.post(`${visualBackendBaseUrl}/method-comparisons/generate`, {
+    data: {
+      comparison_id: options.comparisonId,
+      title: options.title,
+      paper_ids: [visualMethodComparisonBetaPaperId, visualMethodComparisonAlphaPaperId],
+      field_ids: options.fieldIds,
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  return options;
+}
+
 async function openBackendWorkbenchAndSelectSecondClaim(page: Page) {
   await page.goto("/workbench/paper-e2e-001");
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
@@ -226,6 +250,37 @@ async function openBackendImageEvidenceIndex(page: Page, request: APIRequestCont
   await expect(page.locator("article").filter({ hasText: "Backend visual image evidence fixture" }).first()).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "Backend visual OMERO clean bundle" }).first()).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "Backend visual missing local bundle" }).first()).toBeVisible();
+}
+
+async function openBackendMethodComparisonDetail(page: Page, request: APIRequestContext) {
+  const fixture = await generateBackendMethodComparisonVisualFixture(request, {
+    comparisonId: "methodcmp_backend_visual_fixture",
+    title: "Backend visual method comparison fixture",
+    fieldIds: ["intervention", "duration_or_timepoint", "sample_size"],
+  });
+  await page.goto(`/method-comparisons/${fixture.comparisonId}`);
+  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Comparison Grid" })).toBeVisible();
+}
+
+async function openBackendMethodComparisonIndex(page: Page, request: APIRequestContext) {
+  await generateBackendMethodComparisonVisualFixture(request, {
+    comparisonId: "methodcmp_backend_visual_fixture",
+    title: "Backend visual method comparison fixture",
+    fieldIds: ["intervention", "duration_or_timepoint", "sample_size"],
+  });
+  await generateBackendMethodComparisonVisualFixture(request, {
+    comparisonId: "methodcmp_backend_visual_clean_fixture",
+    title: "Backend visual clean method comparison",
+    fieldIds: ["intervention", "duration_or_timepoint"],
+  });
+  await page.goto("/method-comparisons");
+  await expect(page.getByRole("heading", { name: "Method Comparisons", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or comparison id"]').fill("Backend visual");
+  await expect(page.locator("article").filter({ hasText: "Backend visual method comparison fixture" }).first()).toBeVisible();
+  await expect(page.locator("article").filter({ hasText: "Backend visual clean method comparison" }).first()).toBeVisible();
 }
 
 test("visual regression (backend, desktop): paper notes list layout", async ({ page }) => {
@@ -306,6 +361,32 @@ test("visual regression (backend, desktop): image evidence index layout", async 
   });
 });
 
+test("visual regression (backend, desktop): method comparison detail layout", async ({ page, request }) => {
+  await openBackendMethodComparisonDetail(page, request);
+
+  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
+  const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+  await expect(page).toHaveScreenshot("backend-desktop-method-comparison-detail.png", {
+    animations: "disabled",
+    caret: "hide",
+    mask: [createdValue, generatedValue],
+    maxDiffPixels: 5200,
+  });
+});
+
+test("visual regression (backend, desktop): method comparison index layout", async ({ page, request }) => {
+  await openBackendMethodComparisonIndex(page, request);
+
+  const createdSummaries = page.locator("article").locator("text=/^Created:/");
+  const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+  await expect(page).toHaveScreenshot("backend-desktop-method-comparison-index.png", {
+    animations: "disabled",
+    caret: "hide",
+    mask: [createdSummaries, generatedSummaries],
+    maxDiffPixels: 6200,
+  });
+});
+
 test.describe("mobile visual regression (backend)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -371,6 +452,32 @@ test.describe("mobile visual regression (backend)", () => {
       caret: "hide",
       mask: [createdSummaries],
       maxDiffPixels: 5200,
+    });
+  });
+
+  test("method comparison detail layout", async ({ page, request }) => {
+    await openBackendMethodComparisonDetail(page, request);
+
+    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
+    const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+    await expect(page).toHaveScreenshot("backend-mobile-method-comparison-detail.png", {
+      animations: "disabled",
+      caret: "hide",
+      mask: [createdValue, generatedValue],
+      maxDiffPixels: 5200,
+    });
+  });
+
+  test("method comparison index layout", async ({ page, request }) => {
+    await openBackendMethodComparisonIndex(page, request);
+
+    const createdSummaries = page.locator("article").locator("text=/^Created:/");
+    const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+    await expect(page).toHaveScreenshot("backend-mobile-method-comparison-index.png", {
+      animations: "disabled",
+      caret: "hide",
+      mask: [createdSummaries, generatedSummaries],
+      maxDiffPixels: 6200,
     });
   });
 });
