@@ -19,23 +19,22 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Title: `future/protocol-knowledge-layer`
 - Priority: Low
 - Purpose: Explore a bounded protocol knowledge surface without redefining the current product around a new `projects/documents` platform.
-- Reference: `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+- Shared reference status: no tracked RFC note is currently promoted on `master`; keep this as a placeholder only.
 
 - Title: `future/method-comparison-layer`
 - Priority: Low
 - Purpose: Explore a paper-centric comparison artifact layer with explicit cell-level provenance and no spreadsheet-platform scope creep.
-- Reference: `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
-- Implementation plan: `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
+- Shared reference status: no tracked RFC or implementation-plan note is currently promoted on `master`; keep this as a placeholder only.
 
 - Title: `future/project-memory-layer`
 - Priority: Low
 - Purpose: Explore a bounded project memory/workspace layer only after an explicit product decision that this should become first-class.
-- Reference: `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+- Shared reference status: no tracked RFC note is currently promoted on `master`; keep this as a placeholder only.
 
 - Title: `future/local-backup-restore-semantics`
 - Priority: Low
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
-- Reference: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
+- Shared reference status: no tracked RFC note is currently promoted on `master`; keep this as a placeholder only.
 
 ## PR-DOC-BE-MeetingPack-v1 (Completed in workspace)
 - Title: `docs/backend: define Meeting Pack v1 as evidence-linked lab meeting draft artifact`
@@ -43,7 +42,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Purpose: Add reusable lab-meeting draft generation without introducing slide export, unsupported synthesis, or a second research-state canonical.
 - Scope:
   - [done] `docs/MEETING_PACK.md`로 canonical boundary, mode structure, source priority, evidence rule, storage/API contract 고정
-  - [done] `docs/archive/Meeting_Pack_Fit_Review_2026-03-13.md`와 `docs/archive/Meeting_Pack_v1_Implementation_Plan_2026-03-13.md`로 fit review와 PR sequence 기록
+  - [done] fit review와 implementation-plan archive notes로 rollout boundary와 PR sequence 기록
   - [done] `src/schemas/meeting_pack.py` + `meeting_packs_root()` + store skeleton 추가
   - [done] `state.json` first source resolver와 pack-level evidence ledger 구현
   - [done] `POST /meeting-packs/generate`, `POST /meeting-packs/{pack_id}/regenerate`, `POST /meeting-packs/{pack_id}/rerender`, `GET /meeting-packs/{pack_id}`, `GET /meeting-packs/{pack_id}/markdown` thin FastAPI surface 추가
@@ -108,16 +107,16 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 이유: 2026-03-13 widened probe(`limit 20`, `low-confidence-threshold 0.95`)에서도 `19 accepted / 0 quarantine`였다.
 - Optional evidence upgrade: benchmark breadth review only if a materially better independent source appears
   - 이유: `Research DNA` 트랙의 bounded external benchmark는 이미 충분히 닫혀 있으므로, 더 강한 independent source가 실제로 나타날 때만 다시 여는 편이 맞다.
-- Optional quality follow-up: real Deep Read output hardening after the Park 2022 browser/runtime audit
-  - 이유: runtime wiring, unsupported limitation leakage, quote/raw_text/source grounding mismatch, evidence quote display cleanup, and degenerate-table fallback semantics는 fresh rerun 기준으로 닫혔다. 현재 남은 것은 residual claim fidelity/compression과 broader upstream table extraction quality다 (`docs/archive/Deep_Read_Real_Quality_Check_Park_2026-03-13.md`).
+- Optional quality follow-up: real Deep Read output hardening only after a new tracked quality audit is produced
+  - 이유: runtime wiring, unsupported limitation leakage, quote/raw_text/source grounding mismatch, evidence quote display cleanup, and degenerate-table fallback semantics는 previous fresh rerun 기준으로 닫혔다. 현재 남은 것은 residual claim fidelity/compression과 broader upstream table extraction quality다.
 
 ## PR-FE-Workbench-Contextual-State-Badges (Completed in workspace)
 - Title: `feat(ui): add contextual state badges and inline action feedback across workbench entry points`
 - Priority: Medium
 - Purpose: Carry forward the next-step UX hardening after the Repair Stats flow so missing-state reasoning is visible before opening a paper.
 - Scoped follow-up:
-  - viewer/workbench-specific next actions now move to `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`
-  - midpoint review is recorded in `docs/archive/Paper_Notes_Workbench_Midpoint_Checkpoint_2026-03-13.md`
+  - viewer/workbench-specific next actions stay in a separate frontend-local queue surface, not the repo-wide queue
+  - midpoint review remains historical context outside the current shared `master` docs surface
 - Scope:
   - [done] left rail and relevant list views show `stats missing` style badges where applicable
   - [done] advanced rebuild path is separated from normal repair CTA
@@ -200,13 +199,7 @@ Canonical: `docs/Pending_PR_Queue.md`
   - [done] raw `save_profiles_snapshot()` overwrite를 operator-facing profiles path에서 기본 차단하고, fixture/bootstrap snapshot만 explicit unsafe flag로 허용
   - [done] generic `rewrite_profiles_config()` bulk rewrite도 operator-facing profiles path에서 기본 차단하고, projection 같은 system-owned path만 explicit opt-in으로 허용
 - Notes:
-  - current reference set:
-    - `docs/archive/Deep_Research_Report5_Fit_Review_2026-03-11.md`
-    - `docs/archive/Prompt_Review_Integrated_Priority_2026-03-11.md`
-    - `docs/archive/Prompt_Review_01_Autoresearch_Search_2026-03-11.md`
-    - `docs/archive/Prompt_Review_05_Research_DNA_2026-03-11.md`
-    - `docs/archive/Research_DNA_v0_Implementation_Plan_2026-03-11.md`
-    - `docs/archive/Research_DNA_Real_Pilot_Probe_2026-03-12.md`
+  - historical prompt/fit-review notes existed during rollout but are not promoted into the current shared `master` docs surface
   - this item does not supersede the current frontend `Recommended next`; it is the next coherent search/profile lane once that work is reopened
 
 ## PR-FE-PaperNotes-Operational-State-Summary (Completed in workspace)
@@ -226,7 +219,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Scope:
   - [done] desktop detail page adopts left/context + center/body + right/meta layout
   - [done] mobile detail page moves meta/related/references into sheet-style UI
-  - [done] `/ux-review` report generated before implementation per `docs/Lattice_Paper_Notes_Web_Viewer_Spec.md`
+  - [done] `/ux-review` report generated before implementation per the viewer layout standard and the repo UX review workflow
 
 ## PR-FE-PaperNotes-TagFilter-Command (Completed in workspace)
 - Title: `feat(paper-notes): replace add-tag filter with command-style chip selection`
@@ -316,18 +309,18 @@ Canonical: `docs/Pending_PR_Queue.md`
   - [done] SSOT runtime path resolver 추가 (`src/services/runtime_paths.py`) with env override + repo-relative fallback.
   - [done] 후보 추출 스크립트 추가 (`scripts/extract_teacher_candidates.py`) with reproducible `manifest.json`.
   - [done] 게이트 검증/라우팅 추가 (`src/quality/gates.py`, `scripts/verify_teacher_output.py`) with `reason_codes[]`.
-  - [done] quarantine review CLI + runbook 추가 (`scripts/review_teacher_quarantine.py`, `docs/teacher_quality_loop.md`)
+  - [done] quarantine review CLI + runbook 추가 (`scripts/review_teacher_quarantine.py`) with shared docs policy recorded during rollout
   - [done] deterministic split 빌더 추가 (`scripts/build_goldset.py`) with paper_id hash rule and overlap guard.
   - [done] quality eval 모드 추가 (`scripts/eval/run_eval.py --mode quality`) for 4 core metrics.
   - [done] baseline/new 비교 + 승격 게이트 추가 (`scripts/eval/compare_eval.py`).
   - [done] 회귀 테스트 추가 (`tests/test_extract_teacher_candidates.py`, `tests/test_teacher_gate_verifier.py`, `tests/test_build_goldset.py`, `tests/test_eval_quality_compare.py`).
   - [done] local-first teacher generation 추가 (`src/quality/teacher_review.py`, `scripts/generate_teacher_outputs.py`) with evidence location remap.
-  - [done] real teacher outputs 기준 운영 검증 1회 완료 (`docs/archive/Teacher_Quality_Loop_Real_Output_Probe_2026-03-09.md`).
-  - [done] quarantine review workflow drill 완료 (`docs/archive/Teacher_Quality_Loop_Quarantine_Review_Drill_2026-03-09.md`).
+  - [done] real teacher outputs 기준 운영 검증 1회 완료.
+  - [done] quarantine review workflow drill 완료.
 - Notes:
   - 2026-03-09 local-first teacher probes produced `8/8 accepted` and no natural quarantine record.
   - reviewer-workflow evidence was therefore captured with a controlled drill on a real bundle in an isolated goldset root.
-  - 2026-03-10 baseline compare/promotion cycle completed successfully (`docs/archive/Teacher_Quality_Loop_Baseline_Compare_2026-03-10.md`).
+  - 2026-03-10 baseline compare/promotion cycle completed successfully.
 
 ## PR-OPS-Summary-Quality-Normalize (Completed)
 - Title: `chore(ops): normalize papers.summary quality and regenerate notes`
@@ -507,7 +500,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Merge Gate:
   - [done] `scripts/apply_paper_id_migration.py` 추가 (default dry-run, `--apply` 시 backup+transaction).
   - [done] `scripts/plan_paper_id_migration.py` 기반 apply 수행(52 mappings) + backup 생성.
-  - [done] apply 전후 count/샘플/SQL 검증 문서화 (`docs/PaperId_Migration_Apply_2026-02-23.md`).
+  - [done] apply 전후 count/샘플/SQL 검증 문서화.
   - [done] rollback 리허설(backup vs current copy 검증) 1회 실행.
 
 ## PR-OPS-Orphan-PaperRef-Cleanup (Completed)

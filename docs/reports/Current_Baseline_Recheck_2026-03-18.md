@@ -5,7 +5,7 @@ Date: 2026-03-18
 Owner: Repository maintainers
 Canonical parents:
 - `/Users/jangseongjin/paperpipe/docs/Pending_PR_Queue.md`
-- `/Users/jangseongjin/paperpipe/docs/PR_R0_Baseline_Adoption_Manifest_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Repository_Baseline_Adoption_2026-03-13.md`
 - `/Users/jangseongjin/paperpipe/docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md`
 
 ## 0. Purpose
@@ -48,7 +48,7 @@ These items should be treated as the "hold steady and adopt cleanly" slice.
 
 Keep using the existing baseline manifests as the actual include/exclude authority:
 
-- `/Users/jangseongjin/paperpipe/docs/PR_R0_Baseline_Adoption_Manifest_2026-03-13.md`
+- `/Users/jangseongjin/paperpipe/docs/Repository_Baseline_Adoption_2026-03-13.md`
 - `/Users/jangseongjin/paperpipe/docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md`
 
 Reason:
