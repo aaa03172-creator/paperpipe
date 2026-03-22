@@ -333,7 +333,7 @@ test.describe("mobile backend UX", () => {
     await expect(page.getByText("Mock mode")).toHaveCount(0);
     await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
 
-    const controlsSummary = page.locator('summary:has-text("Run & View Controls")').first();
+    const controlsSummary = page.locator('summary:has-text("Workbench controls")').first();
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
