@@ -1,0 +1,164 @@
+{
+  "schema_version": "teacher_verification.v1",
+  "paper_id": "zotero:duboisAlzheimerDiseaseClinicalBiological2024",
+  "bundle_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/dry_probe_20260309/teacher/zotero_duboisAlzheimerDiseaseClinicalBiological2024",
+  "teacher_output_path": "/Users/jangseongjin/paperpipe/storage/artifacts/dry_probe_20260309/teacher/zotero_duboisAlzheimerDiseaseClinicalBiological2024/teacher_output.json",
+  "evaluated_at": "2026-03-09T08:59:32.608220+00:00",
+  "accepted": true,
+  "reason_codes": [],
+  "findings": [],
+  "metrics": {
+    "finding_count": 0,
+    "reason_count": 0
+  },
+  "manifest": {
+    "schema_version": "teacher_bundle.v1",
+    "paper_id": "zotero:duboisAlzheimerDiseaseClinicalBiological2024",
+    "bundle_id": "dry_probe_20260309:zotero_duboisAlzheimerDiseaseClinicalBiological2024",
+    "created_at": "2026-03-09T08:47:55.414216+00:00",
+    "git_commit": "54ab9fc08c6932a01f07c3e1c04801e75e2dcf71",
+    "model": "llama3:latest",
+    "prompt_version": null,
+    "candidate_reason_codes": [
+      "REVIEW_QUEUE_OPEN"
+    ],
+    "candidate_reason_details": [
+      "decision=NEEDS_EVIDENCE_LINK reason=Evidence span missing location metadata (page/source span)"
+    ],
+    "source": {
+      "db_path": "/Users/jangseongjin/paperpipe/storage/state.db",
+      "artifacts_root": "/Users/jangseongjin/paperpipe/storage/artifacts",
+      "latest_artifact_run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisAlzheimerDiseaseClinicalBiological2024/run_20260223_135000"
+    },
+    "inputs": {
+      "chunks_file": "input_chunks.jsonl",
+      "chunks_count": 80,
+      "tables_file": "tables.json",
+      "tables_count": 2,
+      "prior_output_file": "prior_output.json"
+    }
+  },
+  "teacher_output": {
+    "doc_id": "file:Dubois 등 - 2024 - Alzheimer Disease as a Clinical-Biological Construct—An International Working Group Recommendation.pdf",
+    "claims": [
+      {
+        "claim_id": "CLM-001",
+        "type": "finding",
+        "statement": "The revised AA criteria, proposing that a diagnosis of AD can be reduced to the sole presence of one AD core 1 biomarker, may introduce major uncertainty and variability in the clinical prognosis of patients diagnosed with AD.",
+        "evidence_spans": [
+          {
+            "page": 3,
+            "chunk_id": "fafb57bd-3dc7-4473-b21d-e61f05f87338",
+            "char_start": 443,
+            "char_end": 682,
+            "raw_text": "Therefore, the revised AA criteria, proposing that a diagnosis of AD can be reduced to the sole presence of one AD core 1 biomarker, may introduce major uncertainty and variability in the clinical prognosis of patients diagnosed with AD.",
+            "quote": "Therefore, the revised AA criteria, proposing that a diagnosis of AD can be reduced to the sole presence of one AD core 1 biomarker, may introduce major uncertainty and variability in the clinical prognosis of patients diagnosed with AD.",
+            "rationale": "The revised AA criteria may introduce major uncertainty and variability in the clinical prognosis of patients diagnosed with AD.",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": "page_3",
+            "source_span": [
+              443,
+              682
+            ]
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.9,
+        "unknown": false,
+        "unknown_reason": null
+      },
+      {
+        "claim_id": "CLM-002",
+        "type": "finding",
+        "statement": "The lifetime risk of progression to cognitive impairment is increased compared to biomarker-negative individuals but remains far from a deterministic rate for clinical progression.",
+        "evidence_spans": [
+          {
+            "page": 3,
+            "chunk_id": "0243280f-be41-4836-8f2e-a8ea1d49312a",
+            "char_start": 183,
+            "char_end": 365,
+            "raw_text": "The lifetime risk of progression to cognitive impairment is increased compared to biomarker-negative individuals but remains far from a deterministic rate for clinical progression.",
+            "quote": "The lifetime risk of progression to cognitive impairment is increased compared to biomarker-negative individuals but remains far from a deterministic rate for clinical progression.",
+            "rationale": "The lifetime risk of progression to cognitive impairment is increased compared to biomarker-negative individuals but remains far from a deterministic rate for clinical progression.",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": "page_3",
+            "source_span": [
+              183,
+              365
+            ]
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.85,
+        "unknown": false,
+        "unknown_reason": null
+      },
+      {
+        "claim_id": "CLM-003",
+        "type": "finding",
+        "statement": "The risk of progression to AD dementia significantly increases when the aggregated forms of tau spread out in neocortical areas.",
+        "evidence_spans": [
+          {
+            "page": 3,
+            "chunk_id": "a1c28c8a-f89e-4c47-89b5-3c37697ab869",
+            "char_start": null,
+            "char_end": null,
+            "raw_text": "This biomarker profile, together with other specific conditions (Box), suggests that the underpinning pathological processes are active and that the development of clinical symptoms in the near future may be virtually inevitable.",
+            "quote": "This biomarker profile, together with other specific conditions (Box), suggests that the underpinning pathological processes are active and that the development of clinical symptoms in the near future may be virtually inevitable.",
+            "rationale": "The risk of progression to AD dementia significantly increases when the aggregated forms of tau spread out in neocortical areas.",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": null,
+            "source_span": null
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.9,
+        "unknown": false,
+        "unknown_reason": null
+      },
+      {
+        "claim_id": "CLM-004",
+        "type": "finding",
+        "statement": "The IWG approach allows for the identification of 2 different categories of cognitively normal individuals with positive biomarkers with different specific management strategies (Box).",
+        "evidence_spans": [
+          {
+            "page": 3,
+            "chunk_id": "5fe69fb7-5319-436a-b5b8-0b8fdc1289aa",
+            "char_start": null,
+            "char_end": null,
+            "raw_text": "To summarize, the IWG approach allows for the identification of 2 different categories of cognitively normal individuals with positive biomarkers with different specific management strategies (Box).",
+            "quote": "To summarize, the IWG approach allows for the identification of 2 different categories of cognitively normal individuals with positive biomarkers with different specific management strategies (Box).",
+            "rationale": "The IWG approach allows for the identification of 2 different categories of cognitively normal individuals with positive biomarkers with different specific management strategies (Box).",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": null,
+            "source_span": null
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.8,
+        "unknown": false,
+        "unknown_reason": null
+      }
+    ]
+  }
+}

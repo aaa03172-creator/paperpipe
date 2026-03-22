@@ -1,0 +1,20 @@
+{
+  "schema_version": "quality_eval.v1",
+  "run_id": "quality_eval_teacher_batch_20260313_batch02",
+  "mode": "quality",
+  "total": 3,
+  "missing_prediction_count": 0,
+  "schema_valid_count": 3,
+  "evidence_location_count": 3,
+  "summary_quality_count": 3,
+  "manual_correction_count": 0,
+  "schema_valid_rate": 1.0,
+  "evidence_location_rate": 1.0,
+  "summary_artifact_rate": 1.0,
+  "manual_correction_rate": 0.0,
+  "inputs": {
+    "eval_jsonl": "/Users/jangseongjin/paperpipe/goldset/splits/v20260310_teacher_compare/eval.jsonl",
+    "pred_jsonl": "/Users/jangseongjin/paperpipe/tmp/qualityloop_20260313_batch02.pred.jsonl",
+    "manual_decisions_jsonl": "/Users/jangseongjin/paperpipe/goldset/manual_decisions/human_decisions.jsonl"
+  }
+}

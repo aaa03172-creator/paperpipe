@@ -1,0 +1,11 @@
+{
+  "run_id": "quality_eval_teacher_probe_20260309",
+  "status": "ok",
+  "mode": "quality",
+  "counts": {
+    "eval_rows": 1,
+    "missing_prediction": 0
+  },
+  "metrics_path": "snapshots/quality_eval_teacher_probe_20260309/metrics.json",
+  "details_path": "snapshots/quality_eval_teacher_probe_20260309/detailed_results.jsonl"
+}

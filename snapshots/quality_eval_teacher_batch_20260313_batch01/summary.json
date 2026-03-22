@@ -1,0 +1,11 @@
+{
+  "run_id": "quality_eval_teacher_batch_20260313_batch01",
+  "status": "ok",
+  "mode": "quality",
+  "counts": {
+    "eval_rows": 3,
+    "missing_prediction": 0
+  },
+  "metrics_path": "snapshots/quality_eval_teacher_batch_20260313_batch01/metrics.json",
+  "details_path": "snapshots/quality_eval_teacher_batch_20260313_batch01/detailed_results.jsonl"
+}
