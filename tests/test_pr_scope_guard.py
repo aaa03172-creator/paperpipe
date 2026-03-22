@@ -64,6 +64,24 @@ def test_default_allowed_docs_with_code_stays_explicit():
     assert "docs/Pending_PR_Queue.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
     assert "docs/MEETING_PACK.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
     assert "docs/reports/Current_Baseline_Recheck_2026-03-18.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
+    assert "docs/UX_REVIEW_TEMPLATE.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
+
+
+def test_classify_scope_allows_ux_review_docs_with_code():
+    report = classify_scope(
+        [
+            "frontend/src/app/pages/PaperNotesListPage.tsx",
+            "docs/UX_REVIEW_TEMPLATE.md",
+            "docs/UX_REVIEW_REPORT_paper-notes-list.md",
+        ]
+    )
+    assert report.has_mixed_scope is True
+    assert report.is_allowed is True
+    assert report.allowed_doc_files == [
+        "docs/UX_REVIEW_REPORT_paper-notes-list.md",
+        "docs/UX_REVIEW_TEMPLATE.md",
+    ]
+    assert report.blocked_doc_files == []
 
 
 def test_infer_title_policy_detects_docs_and_test_prefixes():

@@ -168,6 +168,141 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   await expect(page.getByRole("banner").getByRole("heading")).toBeVisible();
 });
 
+test("paper notes list supports command-style tag selection", async ({ page }) => {
+  await page.goto("/papers");
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const tagCommand = page.getByTestId("paper-notes-tag-command");
+  const tagInput = page.getByTestId("paper-notes-tag-input");
+  await expect(tagCommand).toBeVisible();
+  await tagInput.fill("Medicine");
+
+  const option = page.getByTestId("paper-notes-tag-option").filter({ hasText: "Medicine/Neurology" }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(page.getByTestId("paper-notes-selected-tag").filter({ hasText: "Medicine/Neurology" })).toBeVisible();
+  await expect(page).toHaveURL(/tags=Medicine%2FNeurology/);
+  await expect(page.getByText("No notes matched the current filters.")).toHaveCount(0);
+});
+
+test("paper notes list supports structured-only quick toggle", async ({ page }) => {
+  await page.goto("/papers");
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const toggle = page.getByTestId("paper-notes-structured-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(page.getByTestId("paper-note-list-row").filter({ hasText: "Live Validate Citations Fixture" })).toHaveCount(1);
+
+  await toggle.click();
+
+  await expect(page).toHaveURL(/structured=1/);
+  await expect(page.getByTestId("paper-notes-active-structured-filter")).toContainText("structured only");
+  await expect(page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first()).toBeVisible();
+  await expect(page.getByTestId("paper-note-list-row").filter({ hasText: "Live Validate Citations Fixture" })).toHaveCount(0);
+
+  await toggle.click();
+
+  await expect(page).not.toHaveURL(/structured=1/);
+  await expect(page.getByTestId("paper-note-list-row").filter({ hasText: "Live Validate Citations Fixture" })).toHaveCount(1);
+});
+
+test("paper notes list surfaces action-needed state using workbench vocabulary", async ({ page }) => {
+  await page.goto("/papers?q=List%20Missing", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const row = page.getByTestId("paper-note-list-row").filter({ hasText: "E2E List Missing Stats Note" }).first();
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId("paper-note-ops-badge")).toContainText("Action needed");
+  await expect(row).toContainText("Stats report is missing or empty.");
+  await expect(row).toContainText("Open in Workbench to repair the Stats Snapshot.");
+});
+
+test("paper notes list finds structured-signal matches and surfaces structured affordances", async ({ page }) => {
+  await page.goto("/papers?q=Amyloid%20Neurology", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  await expect(page.getByText("relevance first")).toBeVisible();
+  const row = page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first();
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Structured");
+  await expect(row).toContainText("ClaimSet ready");
+  await expect(row).toContainText("4 cites");
+  await expect(row).toContainText("Appraisal: Strong");
+  await expect(row).toContainText("Claim tags biomarker");
+  const signals = row.getByTestId("paper-note-list-signals");
+  await expect(signals).toContainText("Structured signals");
+  await expect(signals.getByTestId("paper-note-list-signal-chip").first()).toContainText("Amyloid");
+  await expect(signals.getByTestId("paper-note-list-signal-chip").nth(1)).toContainText("Neurology");
+  await expect(signals.locator('[data-testid="paper-note-list-signal-chip"][data-highlighted="true"]')).toHaveCount(2);
+  await expect(signals.locator('[data-testid="paper-note-list-signal-chip"][data-highlighted="true"]').first()).toContainText("Amyloid");
+  await expect(signals.locator('[data-testid="paper-note-list-signal-chip"][data-highlighted="true"]').nth(1)).toContainText("Neurology");
+  await expect(signals.locator('[data-testid="paper-note-list-signal-chip"][data-highlighted="false"]').first()).toContainText(/Tau|memory|biomarker/);
+  await expect(row).toContainText("Medicine/Neurology");
+  await expect(page.getByText("No notes matched the current filters.")).toHaveCount(0);
+});
+
+test("paper notes list supports quoted exact-phrase search", async ({ page }) => {
+  await page.goto('/papers?q=%22Clinical-Biological%20Construct%22', { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  await expect(page.getByText("relevance first")).toBeVisible();
+  await expect(
+    page.getByTestId("paper-note-list-row").filter({ hasText: "Alzheimer Disease as a Clinical-Biological Construct" }).first(),
+  ).toBeVisible();
+});
+
+test("paper notes list empty state explains structured-only misses", async ({ page }) => {
+  await page.goto("/papers?q=List%20Missing&structured=1", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const emptyState = page.getByTestId("paper-notes-empty-state");
+  await expect(emptyState).toContainText("No structured notes matched this search.");
+  await expect(emptyState).toContainText("Try turning off Structured only or broadening the search terms.");
+  await expect(emptyState.getByTestId("paper-notes-empty-clear-structured")).toBeVisible();
+
+  await emptyState.getByTestId("paper-notes-empty-clear-structured").click();
+
+  await expect(page).not.toHaveURL(/structured=1/);
+  await expect(page.getByTestId("paper-note-list-row").filter({ hasText: "E2E List Missing Stats Note" })).toHaveCount(1);
+});
+
+test("paper notes list empty state can remove quotes from an exact-phrase miss", async ({ page }) => {
+  await page.goto('/papers?q=%22Amyloid%20Neurology%22', { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const emptyState = page.getByTestId("paper-notes-empty-state");
+  await expect(emptyState).toContainText("No notes matched this exact phrase.");
+  await expect(emptyState).toContainText("Try removing quotes to search by individual terms instead of an exact phrase.");
+  await expect(emptyState.getByTestId("paper-notes-empty-remove-quotes")).toBeVisible();
+
+  await emptyState.getByTestId("paper-notes-empty-remove-quotes").click();
+
+  await expect(page).not.toHaveURL(/%22/);
+  await expect(page.getByText("relevance first")).toBeVisible();
+  await expect(
+    page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first(),
+  ).toBeVisible();
+});
+
+test("paper notes list empty state suggests token-based recovery searches", async ({ page }) => {
+  await page.goto("/papers?q=Amyloid%20placebo", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const emptyState = page.getByTestId("paper-notes-empty-state");
+  await expect(emptyState).toContainText("No notes matched the current filters.");
+  await expect(emptyState.getByTestId("paper-notes-empty-search-term").filter({ hasText: "Search Amyloid" })).toBeVisible();
+  await expect(emptyState.getByTestId("paper-notes-empty-search-term").filter({ hasText: "Search placebo" })).toBeVisible();
+
+  await emptyState.getByTestId("paper-notes-empty-search-term").filter({ hasText: "Search Amyloid" }).click();
+
+  await expect(page).toHaveURL(/q=amyloid$/);
+  await expect(page.getByText("relevance first")).toBeVisible();
+  await expect(
+    page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first(),
+  ).toBeVisible();
+});
+
 test("soft-gate canary: intentional backend e2e failure drill", async () => {
   test.skip(!runSoftGateCanary, "Set PAPERPIPE_E2E_CANARY=1 to run intentional failure drill.");
   expect(1).toBe(2);

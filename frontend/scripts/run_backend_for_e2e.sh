@@ -160,6 +160,9 @@ seed_pdf_uri = pdf.resolve().as_uri()
 primary_slug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
 related_slug = "zoteroduboisAmnesticMCIProdromal2004"
 third_slug = "zoteroduboisBloodBiomarkersClinicalPracticeTrials2022"
+structured_slug = "structuredSkillsClaimset2026"
+action_slug = "liveValidateCitations2026"
+list_missing_slug = "paper-e2e-list-missing-stats-001"
 
 primary_note = textwrap.dedent(
     f"""\
@@ -253,9 +256,120 @@ third_note = textwrap.dedent(
     """
 )
 
+structured_note = textwrap.dedent(
+    f"""\
+    ---
+    id: zotero:structuredSkillsClaimset2026
+    aliases:
+      - "Structured Skills ClaimSet Fixture"
+    tags:
+      - Medicine/Neurology
+      - Biomarker
+      - Outcome/Memory
+    date_processed: 2026-03-09
+    confidence: 0.86
+    status: INDEXED
+    doi: 10.1016/S1474-4422(26)00009-4
+    zotero_link: zotero://select/items/1_STRUCTURED
+    pdf_url: {seed_pdf_uri}
+    pp:
+      structured_path: .pp/{structured_slug}/state.json
+      last_run: "2026-03-09T09:00:00Z"
+      actions_done:
+        - validate_citations
+        - critical_appraisal
+      signals:
+        citation_count: 4
+        has_claimset: true
+        last_appraisal: Strong
+    ---
+
+    # Structured Skills ClaimSet Fixture
+
+    ## One-Line Summary
+    This fixture note exists to prove structured automation cards render from sidecar state instead of markdown dumps.
+    """
+)
+
+action_note = textwrap.dedent(
+    f"""\
+    ---
+    id: zotero:liveValidateCitations2026
+    aliases:
+      - "Live Validate Citations Fixture"
+    tags:
+      - Medicine/Neurology
+      - Workflow/Automation
+    date_processed: 2026-03-09
+    confidence: 0.8
+    status: INDEXED
+    doi: 10.1016/S1474-4422(26)00010-0
+    zotero_link: zotero://select/items/1_LIVEACTION
+    pdf_url: {seed_pdf_uri}
+    pp:
+      signals:
+        citation_count: 3
+    ---
+
+    # Live Validate Citations Fixture
+
+    ## One-Line Summary
+    This fixture starts without structured runs so the list can verify the Structured only filter.
+    """
+)
+
+list_missing_stats_note = textwrap.dedent(
+    """\
+    ---
+    id: paper-e2e-list-missing-stats-001
+    aliases:
+      - "E2E List Missing Stats Note"
+    tags:
+      - Medicine/Neurology
+      - Ops/Repair
+    date_processed: 2026-02-26
+    confidence: 0.71
+    status: INDEXED
+    ---
+
+    # E2E List Missing Stats Note
+
+    ## One-Line Summary
+    This fixture stays in the action-needed state so the paper notes list can verify workbench-aligned vocabulary.
+    """
+)
+
 (vault_papers_dir / f"{primary_slug}.md").write_text(primary_note, encoding="utf-8")
 (vault_papers_dir / f"{related_slug}.md").write_text(related_note, encoding="utf-8")
 (vault_papers_dir / f"{third_slug}.md").write_text(third_note, encoding="utf-8")
+(vault_papers_dir / f"{structured_slug}.md").write_text(structured_note, encoding="utf-8")
+(vault_papers_dir / f"{action_slug}.md").write_text(action_note, encoding="utf-8")
+(vault_papers_dir / f"{list_missing_slug}.md").write_text(list_missing_stats_note, encoding="utf-8")
+
+structured_state_dir = vault_path / ".pp" / structured_slug
+structured_state_dir.mkdir(parents=True, exist_ok=True)
+(structured_state_dir / "state.json").write_text(
+    json.dumps(
+        {
+            "paper_slug": structured_slug,
+            "updated_at": "2026-03-09T09:00:00Z",
+            "runs": [],
+            "claimset": [
+                {
+                    "id": "claim_structured_001",
+                    "claim": "Amyloid and tau signals support a biomarker-led review workflow.",
+                    "evidence": [{"text": "Amyloid-linked longitudinal trends improved cohort assignment stability."}],
+                    "tags": ["biomarker"],
+                }
+            ],
+            "entities": ["Amyloid", "Tau"],
+            "mesh": ["Neurology"],
+            "outcomes": ["memory"],
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
 
 conn.execute(
     """
@@ -358,6 +472,32 @@ bootstrap_payload = {
 (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(bootstrap_payload, indent=2), encoding="utf-8")
 (artifact_dir / "run_meta.json").write_text(
     json.dumps({"paper_id": paper_id, "run_id": run_id, "status": "completed"}, indent=2),
+    encoding="utf-8",
+)
+
+list_missing_paper_id = "paper-e2e-list-missing-stats-001"
+list_missing_run_id = "run_e2e_list_missing_stats_001"
+list_missing_artifact_dir = root / "storage" / "artifacts" / list_missing_paper_id / list_missing_run_id
+list_missing_artifact_dir.mkdir(parents=True, exist_ok=True)
+(list_missing_artifact_dir / "claimset.json").write_text(
+    json.dumps(
+        {
+            "doc_id": list_missing_paper_id,
+            "claims": [
+                {
+                    "claim_id": "list-missing-claim-1",
+                    "statement": "The fixture intentionally omits the stats report artifact.",
+                    "confidence": "medium",
+                    "evidence": [{"page": 0, "quote": "Stats report intentionally omitted for recovery coverage."}],
+                }
+            ],
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+(list_missing_artifact_dir / "run_meta.json").write_text(
+    json.dumps({"paper_id": list_missing_paper_id, "run_id": list_missing_run_id, "status": "completed"}, indent=2),
     encoding="utf-8",
 )
 
