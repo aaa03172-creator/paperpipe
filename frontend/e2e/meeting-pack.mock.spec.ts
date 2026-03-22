@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 test("meeting pack inspector filters saved packs and runs guarded draft actions in mock mode", async ({ page }) => {
   await page.goto("/meeting-packs");
 
-  await expect(page.getByRole("heading", { name: "Saved Meeting Pack Inspector" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Saved packs" })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Saved meeting packs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open by pack ID" })).toBeVisible();
 
   await page.getByLabel("Search saved meeting packs").fill("proposal");
   await expect(page.getByText("Butyrate follow-up proposal draft")).toBeVisible();
@@ -17,7 +17,7 @@ test("meeting pack inspector filters saved packs and runs guarded draft actions 
   await expect(page.getByText("Lab Meeting")).toBeVisible();
 
   const targetCard = page.locator("article").filter({ hasText: "SCFA journal club debug draft" }).first();
-  await targetCard.getByRole("button", { name: /^Open inspector$/ }).click();
+  await targetCard.getByRole("button", { name: /^Open pack$/ }).click();
 
   await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
   await expect(page.getByRole("heading", { name: "SCFA journal club debug draft", exact: true })).toBeVisible();
