@@ -17,6 +17,15 @@ Canonical: `docs/Pending_PR_Queue.md`
   - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
   - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
 
+- Title: `protocol-knowledge bounded pilot`
+- Priority: Medium
+- Purpose: Keep the newly implemented Protocol Knowledge lane as a read-first bounded pilot until repeated real usage proves it should become an active bounded spec rather than remain an archive-backed evidence-linked review surface.
+- References:
+  - `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+  - `backend/routers/protocol_cards.py`
+  - `frontend/src/app/pages/ProtocolCardPage.tsx`
+  - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
+
 ## PR-DOC-MethodComparison-v1 (Completed in workspace)
 - Title: `docs: promote Method Comparison to active bounded spec`
 - Priority: High
@@ -81,6 +90,23 @@ Canonical: `docs/Pending_PR_Queue.md`
   - `src/protocol_cards/renderer.py`
   - `tests/test_protocol_card_service.py`
   - `tests/test_protocol_cards_api.py`
+
+## PR-FE-ProtocolKnowledge-Inspector-v0 (Completed in workspace)
+- Title: `frontend: add Protocol Knowledge read-first inspector v0`
+- Priority: Medium
+- Purpose: Add a read-only Protocol Knowledge index/detail surface so operators can inspect protocol identity, current version, version history, and evidence-linked snapshots before downstream reuse.
+- Scope:
+  - [done] added `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
+  - [done] added protocol-card API/mock/type contracts to the frontend data layer
+  - [done] added `/protocol-cards` and `/protocol-cards/{protocolId}` routes
+  - [done] added `frontend/src/app/pages/ProtocolCardPage.tsx` with search-first index and version-first detail review
+  - [done] added mock Playwright coverage for index/detail consistency and note handoff
+- References:
+  - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
+  - `frontend/src/app/pages/ProtocolCardPage.tsx`
+  - `frontend/e2e/protocol-card.mock.spec.ts`
+  - `frontend/src/app/lib/api.ts`
+  - `frontend/src/app/lib/mock.ts`
 
 ## Future RFC Follow-Ups (Not Approved)
 - Title: `future/project-memory-layer`

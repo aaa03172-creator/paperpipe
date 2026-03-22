@@ -48,6 +48,9 @@ python3 scripts/eval/compare_ingest_backends.py \
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r5/summary.json`
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r5/metrics.json`
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r5/detailed_results.jsonl`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r6/summary.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r6/metrics.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r6/detailed_results.jsonl`
 
 ## Sample Set
 
@@ -64,7 +67,7 @@ Observed sample caveats:
 
 ## Result
 
-Latest verdict should be read from `r5`, which uses a meaningful-table heuristic in addition to raw table count.
+Latest verdict should be read from `r6`, which keeps the meaningful-table heuristic from `r5` and updates the docling backend to prefer structured `doc.tables` output over markdown parsing when available.
 
 - overall decision: `failed`
 - failed check: `meaningful_table_loss_docs`
@@ -91,7 +94,7 @@ It is evidence that:
 - the new manifest is a reusable non-empty parser eval set for future reruns
 - the remaining decision blocker is meaningful table loss on a subset of documents, not environment readiness
 
-The current `r5` run should be interpreted as a real bounded parser quality comparison with one remaining regression class: meaningful table loss.
+The current `r6` run should be interpreted as a real bounded parser quality comparison with one remaining regression class: meaningful table loss.
 
 ## Safe Conclusion
 
@@ -116,7 +119,8 @@ Manual follow-up on the two raw table-loss cases showed they are not equivalent:
     - docling `T1` corresponds to baseline page 2 biomarker modality table
     - docling `T2` corresponds to baseline page 8 `Box 1` robustness matrix
     - the missing structure is baseline page 4 clinical-stage decision table (`Cognitively unimpaired / MCI / Dementia`)
-    - docling markdown export contains the page-4 content only as flattened narrative/figure text, not as a recoverable markdown table block
+    - after the structured-table patch, docling still exposes only two `TableItem`s for this paper, on pages 2 and 8
+    - page 4 appears in docling as picture/caption/text items rather than a table item, and markdown export contains the decision content only as flattened narrative/figure text
   - this looks like a real loss of one meaningful table, not only a counting artifact
 
 - `Therriault et al. 2022`
@@ -144,6 +148,19 @@ Meaningful table heuristic:
 This leaves:
 - `Hansson 2023` as a real remaining loss
 - `Therriault 2022` outside the promotion blocker, because the baseline over-count was mostly fragment noise
+
+## Structured Table Follow-up
+
+The optional docling backend now prefers structured table extraction when `conversion.document.tables` is available.
+
+What changed:
+- source pages are preserved from docling provenance instead of defaulting parsed markdown tables to page 1
+- captions come from docling table metadata when present
+- markdown parsing remains only as a fallback when structured tables are unavailable
+
+What did not change:
+- the bounded manifest verdict still fails on `meaningful_table_loss_docs`
+- the remaining blocker is still `Hansson 2023` page 4
 
 ## Next Action
 
