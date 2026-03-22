@@ -96,6 +96,38 @@ Canonical parent: `docs/ux-review.md`
   - `Index filters`를 `Search comparisons`로 교체
   - `Saved comparisons`를 `Saved comparison snapshots`로 교체
 
+## 7.2) Backend Visual Coverage Checkpoint (2026-03-23)
+- Screen/Flow: `/method-comparisons` index and `/method-comparisons/:comparisonId` detail visual regression coverage
+- Goal action: wording cleanup 이후에도 desktop/mobile comparison viewer hierarchy drift가 screenshot 레일에서 바로 보이게 한다.
+- Primary persona: 저장된 comparison snapshot을 검토하고 CSV export나 note handoff 전에 품질을 확인하는 운영자
+- Current friction:
+  - method comparison route는 backend real-route smoke와 mock coverage는 있었지만 visual baseline이 없었다.
+  - 그래서 header/title/card-density drift가 생겨도 text assertions만으로는 놓칠 수 있었다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - backend visual spec에 index/detail snapshot 4개만 추가한다.
+  - `Created`/`Generated` timestamp만 mask 처리해 baseline noise를 줄인다.
+- BMAP:
+  - Motivation: 높음. comparison viewer도 image-evidence/detail처럼 screenshot review 레일이 있어야 wording/spacing drift를 빨리 잡을 수 있다.
+  - Ability: 이미 backend route fixture generation이 있으므로 visual spec만 좁게 추가하면 된다.
+  - Prompt: detail/index 두 화면만 고정해도 route-level hierarchy regression을 충분히 잡을 수 있다.
+- B.I.A.S:
+  - Block: visual coverage 부재로 screenshot-based regression review가 불균형했다.
+  - Interpret: current UI contract를 baseline 이미지로 남기면 변화 해석이 쉬워진다.
+  - Act: wording/layout drift가 생기면 snapshot diff로 바로 확인할 수 있다.
+  - Store: comparison viewer도 다른 core viewer routes와 같은 verification discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 index/detail 둘 다 current review surface를 baseline으로 남긴 순간이다.
+  - Pit는 text assertions는 green인데 screenshot 기준선이 없는 상태였다.
+  - Transition은 backend fixture generation -> visual snapshot update -> re-run green이다.
+- Ethics:
+  - Regret: 통과. runtime behavior를 바꾸지 않고 verification만 강화한다.
+  - Black Mirror: 통과. 과장된 polish가 아니라 drift detection 레일 추가다.
+  - In Real-Life: 통과. maintainers가 실제 UI 변화를 더 정확히 검토할 수 있다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "method comparison detail layout|method comparison index layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "method comparison detail layout|method comparison index layout"`
+
 ## Ethics check results
 - Regret: Low if conflicts and missing values remain visible and export stays framed as a snapshot, not a validated truth table.
 - Black Mirror: Risk appears if the UI quietly normalizes conflict cells into polished outputs. Countermeasure is explicit conflict styling and warning copy.
