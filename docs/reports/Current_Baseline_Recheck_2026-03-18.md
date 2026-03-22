@@ -137,9 +137,15 @@ Implication:
 1. Treat repository baseline adoption for the Meeting Pack slice as already executed via `5c09619`, and keep the later backend/API commits as additive follow-up lanes rather than as reasons to reopen `PR-M0`.
 2. Treat backend/API packaging as already executed via merged PR `#108`, and keep `/Users/jangseongjin/paperpipe/docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` only as historical reviewer context.
 3. Treat bounded `agent_artifacts` replay hardening as already executed via merged PR `#111`; if code work resumes, reopen only a fresh schema/test gap instead of assuming another immediate post-packaging lane.
+4. As of the 2026-03-22 repo recheck, do not assume any new mandatory repo-wide lane after those merges; reopen work only from a fresh measured bottleneck or explicit reviewer-intent action.
 
 ### Explicitly skip
 
 1. Do not widen baseline-freeze work with framework migration, memory-platform work, or plugin/hook systems.
 2. Do not reopen Meeting Pack selector semantics during baseline adoption.
 3. Do not prioritize frontend preview/polish work ahead of biomedical search/evidence reliability.
+
+### 2026-03-22 posture note
+
+- `origin/master` no longer has an active repo-wide queued item after the `Research DNA` docs-only staging merge (`1542c44`).
+- the remaining valid follow-ups in this note are conditional reopen points, not default next actions.
