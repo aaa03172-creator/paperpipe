@@ -1,6 +1,12 @@
 # Lattice v3.0 Master Spec (Final Blueprint)
 부제: **지식의 구조화를 위한 자율 진화형 통합 연구 시스템** — 로컬 LLM(Ollama) + effGen + FastAPI + Obsidian
 
+Status: Active  
+Date: 2026-03-09  
+Owner: Lattice runtime maintainers  
+Canonical: `docs/Lattice_v3_Master_Spec.md`  
+Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v3_Master_Spec.md`, `docs/PaperPipe_v3_Master_Spec_Final_Blueprint_v1_2.md`
+
 > 이 문서는 사용자가 작성한 “[PaperPipe v3.0] Final Blueprint”를 **구현 가능한 마스터 스펙**으로 재정리한 버전입니다.  
 > 목표는 “Antigravity(코딩 에이전트)에게 그대로 전달해도 흔들리지 않게” **계약(스키마/상태머신/API/DoD)** 을 명확히 하는 것입니다.
 > 제품 공식 명칭은 **Lattice**이며, 코드/패키지 경로의 `paperpipe` 표기는 하위 호환(legacy namespace)으로 유지합니다.
@@ -14,8 +20,8 @@
 - 코어 로직은 **FastAPI 기반 REST**로 감싼다. UI/CLI는 교체 가능해야 한다.
 
 2) **Zero Hard‑coding (도메인 규칙 외부화)**  
-- 도메인 지시사항(페르소나/판단 기준/예시)은 **YAML**로 외부화한다.  
-- 단, **출력 스키마(계약)** / **보안 정책** / **상태머신** / **에러코드**는 **불변 계약**으로 코드에 고정한다. (재현성과 안정성 우선)
+- 도메인 지시사항 중 **profile context / query overlay / 예시**는 **YAML**로 외부화한다.  
+- 단, **core reasoning persona enum** / **output mode family enum** / **출력 스키마(계약)** / **보안 정책** / **상태머신** / **에러코드**는 **불변 계약**으로 코드에 고정한다. (재현성과 안정성 우선)
 
 3) **Self‑Evolution (HITL + 동적 few‑shot)**  
 - UI에서 교정된 피드백은 DB에 저장하고, 실행 시 **유사 성공 사례 Top‑K(기본 3)** 만 동적으로 주입한다.  
@@ -36,6 +42,15 @@
 - 사용자 노출(UI/문서/로그 라벨)의 제품명은 `Lattice`를 사용한다.
 - 코드 경로/CLI의 하위 호환 명령(`paperpipe`)은 유지하고, 동등 alias(`lattice`)를 제공한다.
 - 대외 문서에서 `PaperPipe`가 등장하면 `legacy` 맥락임을 명시한다.
+
+### 1.4 에이전트 선택 경계 (Agent Selection Boundary)
+- Canonical boundary는 `docs/PERSONA_MODE_BOUNDARY.md`를 따른다.
+- 사용자-facing variation을 모두 별도 agent로 만들지 않는다.
+- 에이전트 선택은 아래 3축으로 분리한다:
+  - **core reasoning persona**: `librarian`, `researcher`, `extractor_reviewer`
+  - **profile context**: `config/profiles.yaml` 또는 `Research DNA` projected profile
+  - **output/view mode family**: `learner`, `lab_meeting`, `project_update`, `builder_debug`
+- `GET /personas`와 `persona_id`는 현재 **compatibility surface**로 유지할 수 있으나, 개념적으로는 reasoning persona와 profile context를 분리해 해석한다.
 
 ---
 
@@ -59,7 +74,7 @@
 
 4) **Control Layer: Web UI (frontend/)**  
 - 논문 목록/상태 표시  
-- 페르소나 선택/실행/모니터링  
+- Reasoning/Profile 선택(compatibility alias 포함) / 실행 / 모니터링  
 - JSON Artifact 시각화/교정 입력(HITL)
 
 5) **Knowledge Layer: Obsidian**  
@@ -134,6 +149,7 @@
 
 #### 4.3.3 ClaimSet (Reader 출력)
 - `paper_id`, `run_id`, `persona_id`
+- `reasoning_persona?`, `profile_id?` (additive lineage fields for the persona/profile split)
 - `claims`: 배열
   - `{claim_id, claim_text, claim_type, confidence, evidence: [EvidenceSpan]}`
 - `limitations`: 배열(각 항목도 evidence 필수)
@@ -141,6 +157,8 @@
 - `gaps`: 배열(각 항목도 evidence 필수)
 - `tags_soft`: 배열(의학/생물학 태깅)
 - `schema_version`
+
+> **호환성 규칙:** `persona_id`는 legacy compatibility field로 유지할 수 있다. 새 런타임은 가능하면 `reasoning_persona`와 `profile_id`를 함께 기록해 실행 계보(lineage)를 보존한다.
 
 #### 4.3.4 EvidenceSpan (근거 의무)
 - `chunk_id` 또는 `{page, char_start, char_end}`
@@ -186,12 +204,15 @@
 - 재인덱싱 트리거: PDF 해시 변경, chunking 변경, embed model 변경
 
 ### 5.3 Scientific Reader Agent
-**입력:** Chunks + Persona YAML + Few‑shot 사례(동적)  
+**입력:** Chunks + core reasoning persona + optional profile context + Few‑shot 사례(동적)  
 **출력:** `ClaimSet` (근거(evidence) 의무)
 
 - 기본 모델: `llama3:8b`
 - Soft tag 전문 필요 시: `biomistral` 경유 가능
 - **출력은 JSON 스키마를 만족해야 하며**, 스키마 미준수 시 재시도/실패 처리
+- reasoning persona는 search/synthesis/review 판단 기준을 바꾼다.
+- profile context는 topic/lab/query overlay를 제공한다.
+- output/view mode는 reader truth policy를 바꾸지 않으며 presentation layer에서만 적용한다.
 
 ### 5.4 Stats Verification Agent
 **입력:** `DocumentArtifact.tables` + ClaimSet에서 필요한 항목  
@@ -217,6 +238,40 @@
 - Read: `llama3:8b` (+ biomistral)  
 - Verify: `openhermes2.5-mistral` (JSON 준수)  
 - (옵션) Judge/QA: 상위 모델(클라우드)로 에스컬레이션 가능하나 기본은 로컬-first
+
+### 6.1 LLM 런타임 기본 정책 (Parity 기준: 2026-03-05)
+- **기본 모드(default)는 `local`** 로 한다. (OpenAI 키 비필수)
+- `cloud` 모드는 명시적으로 선택한 경우에만 사용한다.
+- `hybrid` 모드는 로컬 우선(local-first)이며, 클라우드는 선택적 에스컬레이션 경로로만 사용한다.
+- 모드별 키 정책:
+  - `local`: `OPENAI_API_KEY` 없어도 정상 동작해야 함
+  - `cloud`: `OPENAI_API_KEY` 필수
+  - `hybrid`: `OPENAI_API_KEY` 선택(없으면 클라우드 경로만 비활성)
+
+### 6.2 LLM 설정 계약 (Config Contract)
+`llm` 설정은 아래 중첩 스키마를 기준으로 한다. (레거시 단일 provider 키 사용 금지)
+
+```yaml
+llm:
+  mode: "local"  # default: local
+  local:
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+    models:
+      classifier: "llama3:8b"
+      tagger: "biomistral:7b"
+      embedder: "nomic-embed-text"
+      judge: "openhermes-2.5-mistral"
+      chat: "phi3"
+  cloud:
+    provider: "openai"
+    api_key: ""   # mode=cloud일 때 필수, 그 외 선택
+    model: "gpt-4o"
+  features:
+    trial_extraction: { enabled: true, model: "gpt-4o-mini" }
+    slot_classification: { enabled: true, model: "gpt-4o-mini" }
+    one_liner: { enabled: true, model: "gpt-4o-mini" }
+```
 
 ---
 
@@ -269,14 +324,14 @@
 - `GET /papers/{paper_id}/pdf`
   - 등록된 원문 PDF 바이너리 스트림 반환(`application/pdf`)
 
-#### Personas (YAML registry)
+#### Personas (compatibility registry)
 - `GET /personas?include_disabled=false`
   - response: `PersonaListResponse`
-  - 기본 `default` persona + `config/profiles.yaml` 기반 persona 목록 반환
+  - 기본 `default` compatibility alias + built-in core reasoning personas + `config/profiles.yaml` profile context 목록 반환
 
 #### Jobs (비동기 실행)
 - `POST /jobs/deepread`  
-  - body: `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`)
+  - body: `JobCreate` (`paper_id`, `persona_id?`, `reasoning_persona?`, `profile_id?`, `clean_reindex`, `run_verify`)
   - response: `{job_id, run_id, status:"queued"}`
   - 충돌/백프레셔:
     - `409 JOB_ALREADY_OPEN` (동일 `paper_id` 열린 job 존재)
@@ -314,8 +369,8 @@
 | :--- | :--- | :--- | :--- |
 | Navigation Rail 논문 목록 | `GET /papers` | query 없음 | papers 배열 (`paper_id`, `citekey`, `title`, `pdf_exists`, `last_run_status?`) |
 | PDF Renderer 패널 | `GET /papers/{paper_id}/pdf` | path `paper_id` | PDF binary (`application/pdf`) |
-| Persona 선택 드롭다운 | `GET /personas` | query `include_disabled?` | `PersonaListResponse` (`default` + YAML persona) |
-| Run 버튼(Deep Read 시작) | `POST /jobs/deepread` | `JobCreate` (`paper_id`, `persona_id`, `clean_reindex`, `run_verify`) | `JobEnqueueResponse` (`job_id`, `run_id`, `status`) |
+| Persona 선택 드롭다운(현재 compatibility surface) | `GET /personas` | query `include_disabled?` | `PersonaListResponse` (`default` alias + built-in reasoning personas + YAML profiles) |
+| Run 버튼(Deep Read 시작) | `POST /jobs/deepread` | `JobCreate` (`paper_id`, `persona_id?`, `reasoning_persona?`, `profile_id?`, `clean_reindex`, `run_verify`) | `JobEnqueueResponse` (`job_id`, `run_id`, `status`) |
 | Job 상태 배지/진행률 | `GET /jobs/{job_id}` | path `job_id` | `JobStatus` |
 | Run 중심 상태 조회 | `GET /runs/{run_id}` | path `run_id` | `JobStatus` |
 | 타임라인 패널 | `GET /runs/{run_id}/timeline` | path `run_id`, query `limit` | `RunTimelineResponse` (`events[]`) |
@@ -333,7 +388,8 @@
 ```json
 {
   "paper_id": "paper_001",
-  "persona_id": "senior_postdoc",
+  "reasoning_persona": "researcher",
+  "profile_id": "coglab",
   "clean_reindex": false,
   "run_verify": true
 }
@@ -436,12 +492,12 @@
 - `agents.enabled: true`
 - 모델 매핑, chunking, 임계값, 경로, 샌드박스 제한, 도구 정책 등
 
-### 12.2 configs/prompts/*.yaml (Persona/도메인 지시)
-- 예: `senior_postdoc.yaml`, `biomed_ra.yaml`
+### 12.2 configs/prompts/*.yaml (Profile context / 도메인 지시)
+- 예: `coglab.yaml`, `biomed_ra.yaml`
 - 포함 요소:
-  - role/system prompt
-  - extraction focus(한계점/이질성/공백/근거 필수)
-  - style(출력은 schema를 만족)
+  - lab/topic/profile context
+  - query/extraction focus(한계점/이질성/공백/근거 필수)
+  - reasoning lane 위에서 동작하는 contextual overlay
 
 ---
 
@@ -581,7 +637,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 
 #### Phase 3 (Control UI)
 - [x] UI에서 논문 선택→deepread 실행→artifact 렌더링(`GET /ui` + `GET /papers/{paper_id}/pdf`)
-- [x] persona 선택이 YAML 기반으로 반영(코드 수정 없이, `GET /personas` + `persona_id`)
+- [x] 현재 compatibility selector가 `/personas` 기반으로 반영(`persona_id` legacy alias 유지)
 
 #### Phase 4 (HITL & Verification)
 - [x] 교정 UI → feedback DB 저장
@@ -613,11 +669,13 @@ paperpipe/
 ├── src/                     # Engine/Workers
 │   ├── agents/              # Ingest/Index/Read/Verify classes
 │   ├── schemas/             # Pydantic schemas (hard contract)
+│   ├── persona_modes.py     # built-in reasoning persona catalog + compatibility normalization
+│   ├── output_modes.py      # shared output/view mode family helpers
 │   ├── adapter.py           # Ollama JSON communication adapter
 │   └── jobs/                # (권장) job runner / worker entrypoints
 ├── configs/
 │   ├── config.yaml
-│   └── prompts/             # persona YAMLs
+│   └── prompts/             # profile/context overlays and prompt assets
 ├── storage/
 │   ├── rag/                 # ChromaDB vector store
 │   ├── sandbox/             # PythonREPL isolated workdir
@@ -664,13 +722,14 @@ paperpipe/
 각 run마다 아래를 `run_meta.json`에 반드시 저장:
 - `pdf_sha256`, `pdf_mtime`
 - `config_snapshot`(해당 run에 사용된 config.yaml의 스냅샷 경로)
-- `prompts_snapshot`(persona YAML 스냅샷 경로)
+- `prompts_snapshot`(현재 키 이름 유지; `config/profiles.yaml` 등 profile/context 스냅샷 경로)
 - `models_used`(모델명 + 버전/태그)
 - `llm_params`(temperature, top_p, num_ctx 등)
 - `embed_params`(chunking, embed model)
 - `tool_policy_version`(샌드박스/도구 호출 제한 버전)
 - 현재 구현(2026-02-25):
   - worker가 `storage/artifacts/{paper_id}/{run_id}/run_meta.json` 생성
+  - `persona_id`, `reasoning_persona`, `profile_id` lineage 기록
   - `pdf_sha256`, `pdf_mtime`, `llm_params`, `embed_params`, `models_used`, `tool_policy_version` 기록
   - `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 `config.yaml`, `config/profiles.yaml` 스냅샷(존재 시) 저장
 
@@ -722,7 +781,7 @@ paperpipe/
 ### 17.1 구현-명세 패리티 점검 (2026-02-24)
 - 반영 완료:
   - `GET /papers/{paper_id}/pdf` (Control UI PDF renderer source)
-  - `GET /personas` (UI persona selector, YAML registry)
+  - `GET /personas` (UI compatibility selector, built-in reasoning personas + YAML profiles)
   - `GET /artifacts/{paper_id}/latest`
   - `GET /artifacts/{paper_id}/{run_id}`
   - `GET /artifacts/{paper_id}/{run_id}/{artifact_name}`

@@ -1,5 +1,11 @@
 # Stats_Verification_Agent_Spec
 
+Status: Reference feature spec  
+Date: 2026-03-09  
+Owner: Verification maintainers  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`  
+Note: Imported source formatting is preserved below.
+
 ## Page 1
 
 PaperPipe  v3.0:  Stats  Verification  Agent  
@@ -1699,4 +1705,3 @@ Phase
  
 참고  자료  
 1.  Manual  statcheck  1.3.0  -  RPubs,  2 월  11,  2026 에  액세스 ,  https://rpubs.com/michelenuijten/statcheckmanual 
-

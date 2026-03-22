@@ -1,12 +1,17 @@
 # Lattice UI/UX Adoption Filter (2026-02-25)
 
+Status: Active  
+Date: 2026-03-09  
+Owner: Frontend maintainers  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 ## 기준
-- 1순위: `Lattice_v3_UIUX_MASTER.md`의 레이아웃/플로우/토큰/인지부하 가드레일
+- 1순위: `docs/Lattice_v3_Master_Spec.md`의 레이아웃/플로우/토큰/인지부하 가드레일
 - 2순위: `Design UI_UX Enhancements-2.zip`의 재료 재사용
 
 현재 기준 UI/UX 마스터 문서는 아래로 정리한다.
 - 정식 운영본: `docs/Lattice_v3_Master_Spec.md`
-- UI/UX 참조 별칭본: `docs/Lattice_v3_UIUX_MASTER.md`
+- 호환용 retired stub: `docs/Lattice_v3_UIUX_MASTER.md` (신규 참조 금지)
 
 ## 채택
 - `src/styles/theme.css`의 라이트/다크 구조 패턴만 채택
