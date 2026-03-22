@@ -95,6 +95,15 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
             },
         )
         assert chart_pack_generate.status_code == 401
+
+        image_evidence_register = client.post(
+            "/image-evidence/register",
+            json={
+                "source_ref": {"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+                "content_format": "image/png",
+            },
+        )
+        assert image_evidence_register.status_code == 401
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -397,6 +406,18 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
             headers=headers,
         )
         assert chart_pack_generate.status_code == 200
+
+        image_evidence_register = client.post(
+            "/image-evidence/register",
+            json={
+                "image_evidence_id": "img_auth_allow",
+                "source_ref": {"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+                "content_format": "image/png",
+            },
+            headers=headers,
+        )
+        assert image_evidence_register.status_code == 200
+        assert image_evidence_register.json()["image_evidence"]["image_evidence_id"] == "img_auth_allow"
     finally:
         db_utils.DB_PATH = original_db_path
 

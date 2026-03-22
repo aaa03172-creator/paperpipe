@@ -119,6 +119,13 @@ def chart_packs_root() -> Path:
     return (storage_root() / "chart_packs").resolve()
 
 
+def image_evidence_root() -> Path:
+    value = os.getenv("PAPERPIPE_IMAGE_EVIDENCE_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "image_evidence").resolve()
+
+
 def meeting_packs_root() -> Path:
     value = os.getenv("PAPERPIPE_MEETING_PACKS_DIR")
     if value:
