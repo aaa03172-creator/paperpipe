@@ -9,10 +9,14 @@ from watchdog.events import FileSystemEventHandler
 from src.config import AppConfig
 from src.fetchers import fetch_pubmed
 from src.llm_provider import get_llm_provider
-from src.processor import process_local_pdf as processor_process_local_pdf
+from src.processor import (
+    derive_saved_issues_state,
+    process_local_pdf as processor_process_local_pdf,
+)
 from src.obsidian import save_paper_to_obsidian
 from src.zotero import export_to_ris
 from src.schemas import PaperStatus
+from src.db_utils import save_paper_state
 
 # Setup logger for this module
 logger = logging.getLogger("src.watcher")
@@ -94,6 +98,7 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         return processor_process_local_pdf(file_path, config=config)
 
     llm = get_llm_provider(config.llm, getattr(config, "entity_aliases", {}))
+    analysis_available = bool(llm)
     tags: list[str] = []
     confidence = 0.0
     slot = "test"
@@ -105,6 +110,8 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
             slot = llm.classify_slot({"title": paper.title, "summary": paper.summary}, slot) or slot
         except Exception:
             pass
+
+    processing_status = PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW
 
     row = {
         "id": paper.id,
@@ -118,13 +125,25 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         "link": paper.link,
         "slot": slot,
         "tags": tags,
-        "processing_status": PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW,
+        "processing_status": processing_status,
         "pdf_path": str(file_path),
         "local_pdf_path": str(file_path),
     }
 
     save_paper_to_obsidian(row, config)
     export_to_ris(row, Path(config.paths.export_dir))
+    save_paper_state(
+        row["doi"],
+        row["title"],
+        row["source"],
+        time.strftime("%Y-%m-%d"),
+        local_pdf_path=row["pdf_path"],
+        status=processing_status.value,
+        issues_state=derive_saved_issues_state(
+            processing_status,
+            analysis_available=analysis_available,
+        ),
+    )
     if config.paths.upload_dir:
         upload_dir = Path(config.paths.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)

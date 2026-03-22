@@ -143,6 +143,9 @@ def test_full_pipeline_integration():
         
         assert mock_db_save.called
         print("      ✅ DB save triggered.")
+        _, db_save_kwargs = mock_db_save.call_args
+        assert db_save_kwargs["issues_state"] == "clear"
+        print("      ✅ issues_state persistence verified.")
         
         print("✅ Full Pipeline Test Passed!")
 
