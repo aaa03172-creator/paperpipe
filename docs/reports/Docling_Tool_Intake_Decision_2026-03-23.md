@@ -60,6 +60,7 @@ Do not make it:
 ## Main Risks
 
 - meaningful table loss still exists on `Hansson 2023`
+- even after switching the optional docling backend to structured `TableItem` extraction, `Hansson 2023` still exposes only pages 2 and 8 as tables
 - docling export appears to flatten at least one figure-like clinical decision table into narrative text, making local table recovery harder
 - installing docling changed active environment packages such as `transformers` and `huggingface_hub`, so dependency drift needs attention
 - raw table count alone is too noisy; promotion depends on richer table-fidelity criteria
@@ -71,6 +72,7 @@ Bounded manifest-backed runs:
 - real compare after install: [docling_pilot_manifest_20260323_r3/metrics.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r3/metrics.json)
 - DOI parity restored: [docling_pilot_manifest_20260323_r4/metrics.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r4/metrics.json)
 - meaningful-table metric verdict: [docling_pilot_manifest_20260323_r5/metrics.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r5/metrics.json)
+- structured-table backend rerun: [docling_pilot_manifest_20260323_r6/metrics.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r6/metrics.json)
 
 Current bounded result:
 - baseline success: `6 / 6`
@@ -81,6 +83,7 @@ Current bounded result:
 
 Remaining blocker:
 - `Hansson 2023` page-4 clinical-stage decision table
+- `r6` confirms this is still missing even when docling structured tables are consumed directly rather than via markdown parsing
 
 ## Smallest Pilot
 
