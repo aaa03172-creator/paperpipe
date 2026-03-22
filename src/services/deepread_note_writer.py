@@ -26,9 +26,25 @@ def build_stats_markdown(stats_report: StatsReport) -> str:
             stats_md += f"- **Verdict**: {check.verdict}\n"
             stats_md += f"- **Reported**: p={check.reported_p}\n"
             stats_md += f"- **Computed**: p={check.computed_p}\n"
+        if check.notes:
+            stats_md += f"- **Notes**: {check.notes}\n"
         stats_md += f"- **Code Execution**:\n```python\n{check.code}\n```\n"
         stats_md += f"- **Output**:\n```text\n{check.outputs}\n```\n"
     return stats_md
+
+
+def _format_evidence_text_for_display(text: str) -> str:
+    formatted = str(text or "")
+    formatted = re.sub(r"([A-Za-z0-9])-\s*\n\s*([A-Za-z0-9])", r"\1\2", formatted)
+    formatted = re.sub(r"\s*\n\s*", " ", formatted)
+    formatted = re.sub(
+        r"^[A-Za-z]?\d+(?:\s+[A-Za-z])*(?:\s+and\s+[A-Za-z])?\),\s*(?=(indicating that|these results showed that|suggesting that|suggested that))",
+        "",
+        formatted,
+        flags=re.IGNORECASE,
+    )
+    formatted = re.sub(r"\s+", " ", formatted).strip()
+    return formatted
 
 
 def build_deepread_markdown(model_name: str, claims_set: ClaimSet, stats_md: str = "") -> str:
@@ -43,6 +59,7 @@ def build_deepread_markdown(model_name: str, claims_set: ClaimSet, stats_md: str
         if claim.evidence_spans:
             span = claim.evidence_spans[0]
             evidence_text = span.quote if span.quote else span.raw_text
+            evidence_text = _format_evidence_text_for_display(evidence_text)
             section_name = span.section if span.section else "Page " + str(span.page)
             md_output += f"- **Evidence**: \"{evidence_text}\" (Section: {section_name})\n"
         if claim.limitations:
