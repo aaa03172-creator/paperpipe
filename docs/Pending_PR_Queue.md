@@ -29,6 +29,18 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
 - Reference: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
 
+- Title: `future/research-data-visualization-layer`
+- Priority: Low
+- Purpose: Explore a bounded chart/figure artifact layer for structured research-data visualization without turning current Lattice into a generic dataset platform.
+- Reference: `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
+- Implementation plan: `docs/archive/Research_Data_Visualization_v0_Implementation_Plan_2026-03-18.md`
+
+- Title: `future/image-evidence-viewer-layer`
+- Priority: Low
+- Purpose: Explore an image-evidence sidecar layer with raw/derived separation and external-viewer handoff without turning current Lattice into a microscopy management platform.
+- Reference: `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
+- Implementation plan: `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
+
 ## PR-DOC-BE-MeetingPack-v1 (Completed in workspace)
 - Title: `docs/backend: define Meeting Pack v1 as evidence-linked lab meeting draft artifact`
 - Priority: High
@@ -74,7 +86,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Current-state recheck note: use `docs/reports/Current_Baseline_Recheck_2026-03-18.md` as the short "bind now vs separate lane" execution note
   - 이유: 2026-03-18 기준 repo의 실제 가치는 이미 bounded `Research DNA`, evidence-linked `Meeting Pack`, additive paper-note `context_trace`까지 포함한 biomedical core loop에 있고, 이 note는 baseline adoption 이후에도 무엇을 separate lane으로 남겨야 하는지 다시 좁혀준다.
 - External reference guardrail: interpret recent external references only in a bounded `sidecar`, `fallback`, `benchmark`, `dataset`, or `reference` frame
-  - 이유: `GLM-OCR`, `Scientific Taste`, `Ars Contexta`, `OpenAlex`, `MedCPT`, `Docling`, `PaperQA2` 등은 current repo 기준에서 architecture replacement 후보가 아니라 제한적 fit-review 입력이다. baseline-freeze work를 새 architecture hunt로 넓히면 안 된다.
+  - 이유: `GLM-OCR`, `OpenDataLoader PDF`, `Scientific Taste`, `Ars Contexta`, `OpenAlex`, `MedCPT`, `Docling`, `PaperQA2` 등은 current repo 기준에서 architecture replacement 후보가 아니라 제한적 fit-review 입력이다. baseline-freeze work를 새 architecture hunt로 넓히면 안 된다.
 - Reopen-condition guardrail: only revisit those external references if the repo-grounded recheck conditions in `docs/reports/Current_Baseline_Recheck_2026-03-18.md` are satisfied
   - 이유: 외부 레퍼런스 검토는 새 roadmap item이 아니라 조건부 재검토 대상이다. 실측 없는 재개는 queue churn만 만든다.
 - Baseline adoption note: use `docs/PR_M0_Meeting_Pack_Baseline_Adoption_2026-03-13.md` as the canonical include/exclude boundary
@@ -87,14 +99,16 @@ Canonical: `docs/Pending_PR_Queue.md`
   - 이유: 현재 `backend/main.py` 작업트리 diff는 너무 넓어서, raw inclusion은 `PR-M0`를 baseline freeze가 아니라 broad product expansion으로 보이게 만든다.
 - Guardrail note: recent `Research DNA` eval-report hardening and paper-note `context_trace` are additive hardening slices, not reasons to broaden `PR-R0` or `PR-M0`
   - 이유: 두 변화 모두 explainability와 reproducibility를 높이지만, 새 runtime layer나 broader UI/product scope를 열어야 하는 성질은 아니다.
-- Technical next lane if coding resumes: start `agent_artifacts` contract hardening as a separate schema lane
-  - 이유: 현재 남은 실질적 code lane은 `src/schemas/agent_artifacts.py`의 broader contract hardening이며, 이건 `backend/main.py` route-move tail보다 가치가 높고 committed stack에도 섞지 않는 편이 맞다.
+- Technical next lane if coding resumes: keep `agent_artifacts` contract hardening bounded as a separate schema lane
+  - 이유: `src/schemas/agent_artifacts.py` hardening은 여전히 separate lane으로 다뤄야 하지만, 현재 증적상 reader/runtime redesign으로 넓힐 이유는 없다.
   - 현재 범위: `DocumentChunk` metadata 확장, `EvidenceSpan` text-vs-table payload/bbox sanity, `ScientificClaim.unknown*` normalization
-  - 현재 검증: `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py` -> `12 passed`
-  - guardrail: schema/test lane로만 열고 reader/runtime redesign으로 확장하지 않는다.
+  - 현재 검증:
+    - `pytest -q tests/test_claimset_policy.py tests/test_document_artifact_v2.py tests/test_indexer_agent_chunk_ids.py tests/test_job_runner_ingest_backend.py` -> `27 passed`
+    - `pytest -q tests/test_citation_grounding.py tests/test_deepread_note_writer.py tests/test_worker_job_runner_chain.py tests/test_paper_notes_api.py` -> `26 passed`
+  - guardrail: schema/test lane로만 유지하고 reader/runtime redesign으로 확장하지 않는다.
 - Guardrail note: projection-backed profile selectors are usable only when the latest screened include set maps to existing vault `state.json`
   - 이유: query/profile text만으로 pack을 만들면 `state.json` first evidence boundary가 무너진다.
-- Follow-up after that: tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
+- Follow-up after that: only after packaging and bounded schema/test hardening, tighten mode-specific tuning from note/context inputs without letting them override structured claim/evidence truth
   - 이유: overview/key-point/slide framing까지는 반영됐지만, 더 깊은 synthesis 단계에서 context weighting은 아직 얇다.
 - Operational follow-up: retry natural quarantine only if a materially different candidate pool or stricter gate configuration becomes available
   - 이유: 2026-03-13 widened probe(`limit 20`, `low-confidence-threshold 0.95`)에서도 `19 accepted / 0 quarantine`였다.

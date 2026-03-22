@@ -1,5 +1,11 @@
 # Institutional Access Workflow (KNU libproxy)
 
+Status: Active  
+Date: 2026-03-09  
+Owner: Downloader/export maintainers  
+Canonical runbook: `docs/institutional_access.md`  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 PaperPipe keeps OA auto-download as-is.
 When OA is unavailable, PaperPipe can route users to legal institutional access and continue intake semi-automatically.
 

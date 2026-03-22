@@ -65,6 +65,8 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
   - Review artifact for translation boundary and Korean reading-assist prioritization.
 - `docs/UX_REVIEW_REPORT_method-comparison-viewer.md`
   - Review artifact for the read-only Method Comparison viewer and its evidence-forward inspection loop.
+- `docs/UX_REVIEW_REPORT_chart-pack-viewer.md`
+  - Review artifact for the read-only Chart Pack viewer and its warning-forward artifact review loop.
 - `docs/UIUX_Adoption_Filter_2026-02-25.md`
   - UI adoption/include-exclude guardrail.
 - `docs/WEB_VIEWER.md`
@@ -91,6 +93,9 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
 - `docs/archive/External_Reference_Fit_Review_2026-03-18.md`
   - Consolidated current-system-safe interpretation of recent external references across OCR/parser, retrieval/reranking, enrichment, note/memory, and agentic RAG references.
   - Keep this as a historical fit-review input, not as a replacement runtime spec.
+- `docs/archive/OpenDataLoader_PDF_Fit_Review_2026-03-20.md`
+  - Bounded parser/fallback fit review for OpenDataLoader PDF under the current ingest/runtime architecture.
+  - Treat this as a historical parser-adjacent reference note, not as a parser migration spec.
 - `docs/Pending_PR_Queue.md` as a working queue, not a spec
 - For `/papers`, triage, rail, and workbench note-context follow-up, prefer `docs/PAPER_NOTES_WORKBENCH_QUEUE.md` before the repo-wide queue.
 

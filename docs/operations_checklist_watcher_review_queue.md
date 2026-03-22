@@ -1,6 +1,11 @@
 # Operations Checklist - Downloads Watcher & Review Queue
 
-Date: 2026-02-21
+Status: Active  
+Date: 2026-03-09  
+Owner: Operations maintainers  
+Canonical runbook: `docs/operations_checklist_watcher_review_queue.md`  
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 Scope: `downloads_watcher`, `review_queue`, QA counters
 
 ## 0) One-Time Guardrail (DB Index)
@@ -80,4 +85,3 @@ pytest -q tests/test_downloads_watcher.py tests/test_qa_report_institutional_cou
 
 Expected:
 - All pass.
-

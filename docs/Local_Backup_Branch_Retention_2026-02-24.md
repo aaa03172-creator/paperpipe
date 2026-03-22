@@ -1,5 +1,10 @@
 # Local Backup Branch Retention Policy (2026-02-24)
 
+Status: Active local policy  
+Date: 2026-02-24  
+Owner: Repository maintainers  
+Canonical: `docs/Local_Backup_Branch_Retention_2026-02-24.md`
+
 ## Policy
 - 대상 브랜치 prefix: `master_local_backup_`
 - 기본 보관 기간: `14일`

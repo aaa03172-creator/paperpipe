@@ -18,8 +18,19 @@ This directory stores historical project documents that are useful for audit or 
 
 ### External reference fit-review set (2026-03-18)
 - `docs/archive/External_Reference_Fit_Review_2026-03-18.md`
+- `docs/archive/OpenDataLoader_PDF_Fit_Review_2026-03-20.md`
+- `docs/archive/OpenDataLoader_PDF_Hard_Doc_Pilot_Spec_2026-03-20.md`
+- `docs/archive/OpenDataLoader_PDF_Hard_Doc_Manifest_Spec_2026-03-20.md`
+- `docs/archive/OpenDataLoader_PDF_Review_Prompt_2026-03-22.md`
+- `docs/archive/LiteParse_Review_Prompt_2026-03-22.md`
 
 This note consolidates recent external reference judgments across OCR/parser, retrieval/reranking, enrichment, note/memory, and agentic RAG references into a single current-system-safe review. It belongs here because it is a dated fit-review record, not an active runtime spec.
+
+The OpenDataLoader PDF note extends that same bounded parser/fallback interpretation to a newer parser-adjacent reference without changing the active runtime boundary.
+
+The companion review prompt captures the repo-grounded way to re-run that assessment later without drifting into parser replacement or downstream redesign.
+
+The LiteParse prompt applies the same bounded parser-candidate framing while also forcing official-source priority and correcting for LiteParse-specific operational assumptions such as CLI-first packaging, Python wrapper behavior, and screenshot/bbox-heavy sidecar outputs.
 
 ### External proposal adaptation set (2026-03-18)
 - `docs/archive/Agent_Proposal_Fit_Review_2026-03-18.md`
@@ -30,6 +41,16 @@ This note consolidates recent external reference judgments across OCR/parser, re
 - `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
 
 These belong here because they are future-direction adaptation notes and bounded RFC inputs, not active runtime SSOT.
+
+### Skills packaging and adaptation set (2026-03-22)
+- `docs/archive/Claude_Code_Skills_Review_Prompt_2026-03-22.md`
+
+This prompt captures a current-system-safe way to review Claude Code-style skills ideas against PaperPipe's existing `skills_policy`, schema, and runner rails without drifting into skill-centric runtime redesign.
+
+### Codex operating-pattern adaptation set (2026-03-22)
+- `docs/archive/Everything_Claude_Code_Review_Prompt_2026-03-22.md`
+
+This prompt captures a current-system-safe way to review a large Codex/Claude operating-system style repo as a source of small local patterns only, with explicit bias toward minimal `.codex` additions, few roles, few skills, and no hook-driven migration assumptions.
 
 ### Deep research visualization adaptation set (2026-03-18)
 - `docs/archive/Deep_Research_Reports_2_3_4_Fit_Review_2026-03-18.md`

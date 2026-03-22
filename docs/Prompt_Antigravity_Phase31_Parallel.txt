@@ -40,10 +40,10 @@ PR-A: Runtime hardening + v2 compatibility + worker chain guard
 
 PR-B: PR packet docs / operator handoff docs
 - Core files:
-  - `docs/P2_PreFeature_Hardening_Execution_Plan_2026-02-19.md`
-  - `docs/P2_PR1-PR3_Review_Packet_2026-02-19.md`
-  - `docs/P2_PR1-PR3_PR_Descriptions_2026-02-19.md`
-  - `docs/PaperPipe_Agent_Personas_Audit_2026-02-19.md`
+  - `docs/archive/P2_PreFeature_Hardening_Execution_Plan_2026-02-19.md`
+  - `docs/archive/P2_PR1-PR3_Review_Packet_2026-02-19.md`
+  - `docs/archive/P2_PR1-PR3_PR_Descriptions_2026-02-19.md`
+  - `docs/archive/PaperPipe_Agent_Personas_Audit_2026-02-19.md`
   - `docs/Prompt_Antigravity_Phase31_Parallel.txt`
 
 Note:
