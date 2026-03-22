@@ -22,6 +22,8 @@ import {
   PaperNoteStructuredStateLookupResponse,
   PaperSummary,
   PersonaListResponse,
+  ProtocolCardListResponse,
+  ProtocolCardResponse,
   ReasoningPersonaId,
   SkillRunResponse,
   TimelineResponse,
@@ -47,6 +49,8 @@ import {
   getMockPaper,
   getMockPapers,
   getMockPersonas,
+  getMockProtocolCard,
+  getMockProtocolCardIndex,
   getMockTimeline,
   SAMPLE_PDF,
 } from "./mock";
@@ -622,6 +626,38 @@ export async function getImageEvidenceIndex(): Promise<ApiResult<ImageEvidenceLi
 
   return {
     data: await firstSuccess<ImageEvidenceListResponse>(["/image-evidence"]),
+    isMock: false,
+  };
+}
+
+export async function getProtocolCard(protocolId: string): Promise<ApiResult<ProtocolCardResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockProtocolCard(protocolId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ProtocolCardResponse>([
+      `/protocol-cards/${encodeURIComponent(protocolId)}`,
+    ]),
+    isMock: false,
+  };
+}
+
+export async function getProtocolCardIndex(): Promise<ApiResult<ProtocolCardListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockProtocolCardIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await firstSuccess<ProtocolCardListResponse>(["/protocol-cards"]),
     isMock: false,
   };
 }

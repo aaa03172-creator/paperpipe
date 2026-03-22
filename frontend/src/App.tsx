@@ -41,6 +41,11 @@ const ImageEvidencePage = lazy(async () => {
   return { default: module.ImageEvidencePage };
 });
 
+const ProtocolCardPage = lazy(async () => {
+  const module = await import("./app/pages/ProtocolCardPage");
+  return { default: module.ProtocolCardPage };
+});
+
 export default function App() {
   return (
     <Suspense
@@ -62,6 +67,8 @@ export default function App() {
         <Route path="/chart-packs/:chartPackId" element={<ChartPackPage />} />
         <Route path="/image-evidence" element={<ImageEvidencePage />} />
         <Route path="/image-evidence/:imageEvidenceId" element={<ImageEvidencePage />} />
+        <Route path="/protocol-cards" element={<ProtocolCardPage />} />
+        <Route path="/protocol-cards/:protocolId" element={<ProtocolCardPage />} />
         <Route path="/workbench/:paperId" element={<AnalysisWorkbench />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

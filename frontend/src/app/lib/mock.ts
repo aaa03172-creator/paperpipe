@@ -19,6 +19,8 @@ import {
   PaperDetail,
   PaperSummary,
   PersonaListResponse,
+  ProtocolCardListResponse,
+  ProtocolCardResponse,
   StructuredPaperState,
   TimelineResponse,
 } from "./types";
@@ -1640,6 +1642,215 @@ const MOCK_IMAGE_EVIDENCE_LIST_RESPONSE: ImageEvidenceListResponse = {
   ],
 };
 
+const MOCK_PROTOCOL_CARD_ID = "protocol_20260323T010000Z_mock1234";
+const MOCK_SECONDARY_PROTOCOL_CARD_ID = "protocol_20260322T213000Z_mock5678";
+
+const MOCK_PROTOCOL_CARD_RESPONSE: ProtocolCardResponse = {
+  protocol_card: {
+    protocol_id: MOCK_PROTOCOL_CARD_ID,
+    title: "Primary cortical assay protocol",
+    purpose: "Track response patterns across the cortical assay lane before downstream meeting-pack reuse.",
+    context: "Mixed paper-derived and operator-adapted assay summary for bounded review only.",
+    source_kind: "mixed",
+    linked_paper_ids: ["paper-2024-glucose", "paper-2025-nutrition"],
+    linked_note_slugs: ["leeKetogenicIntervention2024", "parkNutritionAdherence2025"],
+    current_version_id: "protver_cortical_assay_v2",
+    validation_status: "draft",
+    created_at: "2026-03-23T01:00:00Z",
+    updated_at: "2026-03-23T01:20:00Z",
+    version_summaries: [
+      {
+        version_id: "protver_cortical_assay_v1",
+        version_number: 1,
+        status: "draft",
+        created_at: "2026-03-23T01:00:00Z",
+        change_reason: "Initial paper-derived capture from saved claims.",
+        source_ref_count: 1,
+      },
+      {
+        version_id: "protver_cortical_assay_v2",
+        version_number: 2,
+        status: "active",
+        created_at: "2026-03-23T01:20:00Z",
+        change_reason: "Clarified media timing and readout naming after note reconciliation.",
+        source_ref_count: 2,
+      },
+    ],
+  },
+  versions: [
+    {
+      version_id: "protver_cortical_assay_v1",
+      protocol_id: MOCK_PROTOCOL_CARD_ID,
+      version_number: 1,
+      key_steps_summary: ["Seed cortical cells", "Apply ketogenic intervention"],
+      materials: ["DMEM", "FBS"],
+      equipment: ["CO2 incubator"],
+      critical_conditions: ["37 C", "5% CO2"],
+      readouts: ["Glucose variability"],
+      cautions: ["Keep cell density below confluence."],
+      content_snapshot: "Step 1: seed cortical cells.\nStep 2: apply ketogenic intervention.\nStep 3: measure glucose variability.",
+      change_reason: "Initial paper-derived capture from saved claims.",
+      status: "draft",
+      created_by: "operator",
+      created_at: "2026-03-23T01:00:00Z",
+      source_refs: [
+        {
+          paper_slug: "leeKetogenicIntervention2024",
+          claim_id: "claim-001",
+          evidence_id: "ev-001",
+          run_id: "run-002",
+          locator: { page: 4, span: [20, 72], chunk_id: "chunk-11", source: "claimset.resolved.json" },
+        },
+      ],
+      note: "Initial draft kept close to paper wording.",
+    },
+    {
+      version_id: "protver_cortical_assay_v2",
+      protocol_id: MOCK_PROTOCOL_CARD_ID,
+      version_number: 2,
+      key_steps_summary: ["Seed cortical cells", "Refresh media after baseline", "Apply ketogenic intervention"],
+      materials: ["DMEM", "FBS", "Ketone supplement"],
+      equipment: ["CO2 incubator", "Plate reader"],
+      critical_conditions: ["37 C", "5% CO2", "12 week window alignment for downstream comparison"],
+      readouts: ["Glucose variability", "Adherence trajectory handoff note"],
+      cautions: ["Do not merge operator adaptation with paper truth downstream without citation."],
+      content_snapshot:
+        "Step 1: seed cortical cells.\nStep 2: refresh media after baseline acquisition.\nStep 3: apply ketogenic intervention.\nStep 4: record glucose variability and note downstream adherence context separately.",
+      change_reason: "Clarified media timing and readout naming after note reconciliation.",
+      status: "active",
+      created_by: "operator",
+      created_at: "2026-03-23T01:20:00Z",
+      source_refs: [
+        {
+          paper_slug: "leeKetogenicIntervention2024",
+          claim_id: "claim-002",
+          evidence_id: "ev-002",
+          run_id: "run-002",
+          locator: { page: 5, span: [12, 68], chunk_id: "chunk-15", source: "claimset.resolved.json" },
+        },
+        {
+          paper_slug: "parkNutritionAdherence2025",
+          claim_id: "claim-018",
+          evidence_id: "ev-018",
+          run_id: "run-003",
+          locator: { page: 3, span: [88, 146], chunk_id: "chunk-07", source: "claimset.resolved.json" },
+        },
+      ],
+      note: "Current review snapshot; still draft because no verified wet-lab confirmation exists.",
+    },
+  ],
+  markdown: [
+    "# Primary cortical assay protocol",
+    "",
+    "- Protocol ID: `protocol_20260323T010000Z_mock1234`",
+    "- Source kind: `mixed`",
+    "- Validation status: `draft`",
+    "- Current version: `protver_cortical_assay_v2`",
+    "",
+    "## Purpose",
+    "",
+    "Track response patterns across the cortical assay lane before downstream meeting-pack reuse.",
+    "",
+    "## Versions",
+    "",
+    "### v2 `protver_cortical_assay_v2`",
+    "",
+    "- Status: `active`",
+    "- Created by: `operator`",
+    "- Source refs: `2`",
+  ].join("\n"),
+};
+
+const MOCK_SECONDARY_PROTOCOL_CARD_RESPONSE: ProtocolCardResponse = {
+  protocol_card: {
+    protocol_id: MOCK_SECONDARY_PROTOCOL_CARD_ID,
+    title: "Reference brightfield stain workflow",
+    purpose: "Keep a clean user-verified brightfield stain reference for repeated note linking.",
+    context: "Paper-derived only and explicitly kept as a verified-by-user reference snapshot.",
+    source_kind: "paper_derived",
+    linked_paper_ids: ["paper-2023-imaging"],
+    linked_note_slugs: ["paper-2023-imaging-note"],
+    current_version_id: "protver_brightfield_reference_v1",
+    validation_status: "verified_by_user",
+    created_at: "2026-03-22T21:30:00Z",
+    updated_at: "2026-03-22T21:45:00Z",
+    version_summaries: [
+      {
+        version_id: "protver_brightfield_reference_v1",
+        version_number: 1,
+        status: "active",
+        created_at: "2026-03-22T21:30:00Z",
+        change_reason: "Approved as stable reference snapshot.",
+        source_ref_count: 1,
+      },
+    ],
+  },
+  versions: [
+    {
+      version_id: "protver_brightfield_reference_v1",
+      protocol_id: MOCK_SECONDARY_PROTOCOL_CARD_ID,
+      version_number: 1,
+      key_steps_summary: ["Prepare brightfield stain", "Capture baseline plate image"],
+      materials: ["Brightfield stain"],
+      equipment: ["Microscope"],
+      critical_conditions: ["Baseline capture only"],
+      readouts: ["Plate image"],
+      cautions: [],
+      content_snapshot: "Step 1: prepare brightfield stain.\nStep 2: capture baseline plate image.",
+      change_reason: "Approved as stable reference snapshot.",
+      status: "active",
+      created_by: "operator",
+      created_at: "2026-03-22T21:30:00Z",
+      source_refs: [
+        {
+          paper_slug: "paper-2023-imaging-note",
+          claim_id: "claim-101",
+          evidence_id: "ev-101",
+          run_id: "run-001",
+          locator: { page: 2, span: [10, 61], chunk_id: "chunk-04", source: "claimset.resolved.json" },
+        },
+      ],
+      note: "Stable reference card for note-level reuse.",
+    },
+  ],
+  markdown: [
+    "# Reference brightfield stain workflow",
+    "",
+    "- Protocol ID: `protocol_20260322T213000Z_mock5678`",
+    "- Source kind: `paper_derived`",
+    "- Validation status: `verified_by_user`",
+    "- Current version: `protver_brightfield_reference_v1`",
+  ].join("\n"),
+};
+
+const MOCK_PROTOCOL_CARD_LIST_RESPONSE: ProtocolCardListResponse = {
+  total: 2,
+  items: [
+    {
+      protocol_id: MOCK_PROTOCOL_CARD_ID,
+      title: "Primary cortical assay protocol",
+      source_kind: "mixed",
+      validation_status: "draft",
+      updated_at: "2026-03-23T01:20:00Z",
+      version_count: 2,
+      current_version_id: "protver_cortical_assay_v2",
+      linked_paper_count: 2,
+      linked_note_count: 2,
+    },
+    {
+      protocol_id: MOCK_SECONDARY_PROTOCOL_CARD_ID,
+      title: "Reference brightfield stain workflow",
+      source_kind: "paper_derived",
+      validation_status: "verified_by_user",
+      updated_at: "2026-03-22T21:45:00Z",
+      version_count: 1,
+      current_version_id: "protver_brightfield_reference_v1",
+      linked_paper_count: 1,
+      linked_note_count: 1,
+    },
+  ],
+};
+
 export function getMockHealth(): { status: string; version: string } {
   return { status: "ok", version: "mock-3.0" };
 }
@@ -1900,6 +2111,17 @@ export function getMockImageEvidence(imageEvidenceId: string): ImageEvidenceResp
 
 export function getMockImageEvidenceIndex(): ImageEvidenceListResponse {
   return deepClone(MOCK_IMAGE_EVIDENCE_LIST_RESPONSE);
+}
+
+export function getMockProtocolCard(protocolId: string): ProtocolCardResponse {
+  if (protocolId === MOCK_SECONDARY_PROTOCOL_CARD_ID) {
+    return deepClone(MOCK_SECONDARY_PROTOCOL_CARD_RESPONSE);
+  }
+  return deepClone(MOCK_PROTOCOL_CARD_RESPONSE);
+}
+
+export function getMockProtocolCardIndex(): ProtocolCardListResponse {
+  return deepClone(MOCK_PROTOCOL_CARD_LIST_RESPONSE);
 }
 
 export function createMockJob(): JobEnqueueResponse {

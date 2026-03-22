@@ -622,6 +622,91 @@ export interface ChartPackListResponse {
   total: number;
 }
 
+export type ProtocolSourceKind = "paper_derived" | "internal_adaptation" | "mixed";
+
+export type ProtocolValidationStatus =
+  | "unreviewed"
+  | "draft"
+  | "reviewed"
+  | "verified_by_user"
+  | "deprecated";
+
+export type ProtocolVersionStatus = "draft" | "active" | "deprecated";
+
+export interface ProtocolEvidenceRef {
+  paper_slug: string;
+  claim_id?: string | null;
+  evidence_id?: string | null;
+  run_id?: string | null;
+  locator?: EvidenceLocator | null;
+}
+
+export interface ProtocolVersionSummary {
+  version_id: string;
+  version_number: number;
+  status: ProtocolVersionStatus;
+  created_at: string;
+  change_reason?: string | null;
+  source_ref_count: number;
+}
+
+export interface ProtocolCard {
+  protocol_id: string;
+  title: string;
+  purpose?: string | null;
+  context?: string | null;
+  source_kind: ProtocolSourceKind;
+  linked_paper_ids: string[];
+  linked_note_slugs: string[];
+  current_version_id?: string | null;
+  validation_status: ProtocolValidationStatus;
+  created_at: string;
+  updated_at: string;
+  version_summaries: ProtocolVersionSummary[];
+}
+
+export interface ProtocolVersion {
+  version_id: string;
+  protocol_id: string;
+  version_number: number;
+  key_steps_summary: string[];
+  materials: string[];
+  equipment: string[];
+  critical_conditions: string[];
+  readouts: string[];
+  cautions: string[];
+  content_snapshot: string;
+  change_reason?: string | null;
+  status: ProtocolVersionStatus;
+  created_by: string;
+  created_at: string;
+  source_refs: ProtocolEvidenceRef[];
+  note?: string | null;
+}
+
+export interface ProtocolCardResponse {
+  protocol_card: ProtocolCard;
+  versions: ProtocolVersion[];
+  markdown: string;
+}
+
+export interface ProtocolCardListItem {
+  protocol_id: string;
+  title: string;
+  source_kind: ProtocolSourceKind;
+  validation_status: ProtocolValidationStatus;
+  updated_at: string;
+  version_count: number;
+  current_version_id?: string | null;
+  linked_paper_count: number;
+  linked_note_count: number;
+}
+
+export interface ProtocolCardListResponse {
+  items: ProtocolCardListItem[];
+  total: number;
+}
+
 export type ImageSourceKind = "local_file" | "external_image_ref";
 
 export type ImageWarningSeverity = "info" | "warning" | "error";
