@@ -15,7 +15,7 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
   await expect(page.getByText("Cell 1 Claim")).toBeVisible();
 
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click();
+  await page.getByRole("button", { name: "Terminal logs" }).click();
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
 
@@ -52,7 +52,7 @@ test("mock fallback observability shows structured reasons and terminal mock log
   await expect(telemetryDetails.getByText("papers")).toBeVisible();
   await expect(telemetryDetails.getByText(/^x\d+$/).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Show Terminal Logs" }).click();
+  await page.getByRole("button", { name: "Terminal logs" }).click();
   const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
   await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
   await expect(terminalDrawer.locator("pre")).toContainText("[MOCK]");
@@ -208,7 +208,7 @@ test.describe("mobile UX scenarios", () => {
     await expect(page).toHaveURL(/\/workbench\//);
     await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
 
-    const controlsSummary = page.locator('summary:has-text("Run & View Controls")').first();
+    const controlsSummary = page.locator('summary:has-text("Workbench controls")').first();
     await expect(controlsSummary).toBeVisible();
     await controlsSummary.click();
 
