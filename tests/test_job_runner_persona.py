@@ -196,10 +196,124 @@ def test_run_deepread_job_injects_top3_feedback_into_persona_context(tmp_path, m
     assert "paper_id=case_a" in captured["persona_hint"]
     assert "paper_id=case_b" in captured["persona_hint"]
     assert any(evt["message"] == "Similar feedback injected: 2" for evt in events)
-    assert any(evt["message"] == "Persona applied: coglab" for evt in events)
+    assert any(evt["message"] == "Profile context applied: coglab" for evt in events)
 
     meta_path = Path(result["artifact_dir"]) / "bootstrap_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["persona_applied"] is True
+    assert meta["profile_id"] == "coglab"
     assert meta["similar_feedback_count"] == 2
     assert meta["similar_feedback_paper_ids"] == ["case_a", "case_b"]
+
+
+def test_run_deepread_job_applies_reasoning_persona_without_profile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    paper_id = "paper_reasoning_lane_001"
+    library_dir = tmp_path / "Library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+    (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+
+    vault_dir = tmp_path / "Vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        job_runner,
+        "load_config",
+        lambda: SimpleNamespace(
+            paths=SimpleNamespace(
+                library_dir=library_dir,
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            ),
+            agents=SimpleNamespace(main_model="unit-test-model"),
+        ),
+    )
+    monkeypatch.setattr(job_runner, "_resolve_pdf_path_from_db", lambda _: None)
+    monkeypatch.setattr(job_runner, "_load_similar_feedback_top3", lambda query_text, limit=3: [])
+
+    captured: dict[str, str] = {}
+
+    class FakeIngestAgent:
+        def process_v2(self, pdf_path: str):
+            return DocumentArtifactV2(
+                document_id=paper_id,
+                meta=ArtifactMetaV2(title="Reasoning Lane", authors=["A"], source_ref=pdf_path),
+                pages=[
+                    PageV2(
+                        page_index=0,
+                        width=595.0,
+                        height=842.0,
+                        blocks=[
+                            BlockV2(
+                                block_id="b1",
+                                lines=[
+                                    LineV2(
+                                        line_id="l1",
+                                        text="smoke text",
+                                        spans=[SpanV2(span_id="s1", text="smoke text")],
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+                tables=[],
+            )
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(
+                doc_id=doc.document_id,
+                vector_store_id="smoke",
+                chunk_count=1,
+                chunks=[],
+            )
+
+    class FakeReaderAgent:
+        def __init__(self, model_name: str = "llama3:latest", persona_hint: str | None = None):
+            captured["persona_hint"] = persona_hint or ""
+            self.model_name = model_name
+
+        def analyze(self, doc):
+            return ClaimSet(
+                doc_id=doc.document_id,
+                claims=[
+                    ScientificClaim(
+                        claim_id="c1",
+                        type="efficacy",
+                        statement="claim",
+                        confidence=0.9,
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(job_runner, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner, "ReaderAgent", FakeReaderAgent)
+
+    events = []
+
+    async def progress_callback(event):
+        events.append(event)
+
+    result = asyncio.run(
+        job_runner.run_deepread_job(
+            job_id="job_reasoning_lane",
+            paper_id=paper_id,
+            reasoning_persona="librarian",
+            run_verify=False,
+            run_id="run_reasoning_lane",
+            progress_callback=progress_callback,
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    assert "reasoning_persona=librarian" in captured["persona_hint"]
+    assert any(evt["message"] == "Reasoning persona applied: librarian" for evt in events)
+
+    meta_path = Path(result["artifact_dir"]) / "bootstrap_meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["persona_id"] == "librarian"
+    assert meta["reasoning_persona"] == "librarian"
+    assert meta["profile_id"] is None
