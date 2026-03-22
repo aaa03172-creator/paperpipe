@@ -5,6 +5,7 @@ from .gates import *
 from .ops import *
 from .paper_notes import *
 from .research_dna import *
+from .protocol_card import *
 from .chart_pack import *
 from .image_evidence import *
 from .meeting_pack import *
