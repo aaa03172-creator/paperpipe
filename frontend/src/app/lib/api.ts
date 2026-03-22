@@ -268,6 +268,7 @@ interface PaperNoteListQuery {
   tag?: string;
   tags?: string[];
   status?: string;
+  structuredOnly?: boolean;
   sortBy?: "date_processed" | "confidence";
   sortOrder?: "asc" | "desc";
   page?: number;
@@ -296,6 +297,9 @@ function buildPaperNotesQuery(params?: PaperNoteListQuery): string {
   }
   if (params?.status?.trim()) {
     query.set("status", params.status.trim());
+  }
+  if (params?.structuredOnly) {
+    query.set("structured_only", "true");
   }
   if (params?.sortBy) {
     query.set("sort_by", params.sortBy);
