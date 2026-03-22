@@ -1,8 +1,11 @@
 # PaperPipe v3.0 Phase 3 Control UI 구현 계획/체크리스트
 
+Status: Historical working plan  
+Canonical references: `docs/README.md`, `docs/Lattice_v3_Master_Spec.md`, `docs/UIUX_Adoption_Filter_2026-02-25.md`
+
 ## 1) SSOT 및 참조 우선순위
-1. `docs/Lattice_v3_UIUX_MASTER.md` (UI/UX SSOT 별칭본)
-2. `docs/Lattice_v3_Master_Spec.md` (운영본)
+1. `docs/README.md` (문서 진입점)
+2. `docs/Lattice_v3_Master_Spec.md` (운영 SSOT)
 3. `docs/UIUX_Adoption_Filter_2026-02-25.md` (채택/제외 가드레일)
 
 ## 2) 이번 구현 범위 (요청 + SSOT 보완)
