@@ -7,17 +7,36 @@ Canonical: `docs/Pending_PR_Queue.md`
 
 ## Queued
 
+## Bounded Promotion Candidates (Implemented in workspace, not yet promoted to active spec)
+- Title: `method-comparison active bounded-spec candidate`
+- Priority: High
+- Purpose: Promote the already-implemented Method Comparison v0 lane into an active bounded-spec candidate because it is the most paper-centric and evidence-linked of the recently added artifact families.
+- References:
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
+
+- Title: `chart-pack bounded pilot`
+- Priority: Medium
+- Purpose: Keep the already-implemented Chart Pack lane as a bounded pilot and defer active bounded-spec promotion until its downstream consumer boundary is frozen more explicitly.
+- References:
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Research_Data_Visualization_v0_Implementation_Plan_2026-03-18.md`
+
+- Title: `image-evidence bounded pilot`
+- Priority: Medium
+- Purpose: Keep the already-implemented Image Evidence lane as a hardened metadata-first sidecar until repeated real usage proves it belongs in the current core review loop.
+- References:
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
+
 ## Future RFC Follow-Ups (Not Approved)
 - Title: `future/protocol-knowledge-layer`
 - Priority: Low
 - Purpose: Explore a bounded protocol knowledge surface without redefining the current product around a new `projects/documents` platform.
 - Reference: `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
-
-- Title: `future/method-comparison-layer`
-- Priority: Low
-- Purpose: Explore a paper-centric comparison artifact layer with explicit cell-level provenance and no spreadsheet-platform scope creep.
-- Reference: `docs/archive/Method_Comparison_Layer_RFC_2026-03-18.md`
-- Implementation plan: `docs/archive/Method_Comparison_v0_Implementation_Plan_2026-03-18.md`
 
 - Title: `future/project-memory-layer`
 - Priority: Low
@@ -28,18 +47,6 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Priority: Low
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
 - Reference: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
-
-- Title: `future/research-data-visualization-layer`
-- Priority: Low
-- Purpose: Explore a bounded chart/figure artifact layer for structured research-data visualization without turning current Lattice into a generic dataset platform.
-- Reference: `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`
-- Implementation plan: `docs/archive/Research_Data_Visualization_v0_Implementation_Plan_2026-03-18.md`
-
-- Title: `future/image-evidence-viewer-layer`
-- Priority: Low
-- Purpose: Explore an image-evidence sidecar layer with raw/derived separation and external-viewer handoff without turning current Lattice into a microscopy management platform.
-- Reference: `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
-- Implementation plan: `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
 
 ## PR-DOC-BE-MeetingPack-v1 (Completed in workspace)
 - Title: `docs/backend: define Meeting Pack v1 as evidence-linked lab meeting draft artifact`
