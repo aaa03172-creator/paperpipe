@@ -550,6 +550,84 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                 parsed_tables.append(table_rows)
         return parsed_tables
 
+    @staticmethod
+    def _normalize_docling_cell(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.lower() == "nan":
+            return ""
+        return text
+
+    @classmethod
+    def _structured_rows_from_docling_table(cls, table: Any, doc_obj: Any) -> List[List[str]]:
+        export_to_dataframe = getattr(table, "export_to_dataframe", None)
+        if not callable(export_to_dataframe):
+            return []
+
+        try:
+            dataframe = export_to_dataframe(doc_obj)
+        except TypeError:
+            dataframe = export_to_dataframe()
+        except Exception:
+            return []
+
+        table_rows: List[List[str]] = []
+        columns = [cls._normalize_docling_cell(col) for col in list(getattr(dataframe, "columns", []))]
+        if any(columns):
+            table_rows.append(columns)
+
+        iterrows = getattr(dataframe, "iterrows", None)
+        if not callable(iterrows):
+            return table_rows
+
+        for _row_idx, row in iterrows():
+            tolist = getattr(row, "tolist", None)
+            raw_values = tolist() if callable(tolist) else list(row)
+            values = [cls._normalize_docling_cell(value) for value in raw_values]
+            if any(values):
+                table_rows.append(values)
+        return table_rows
+
+    @staticmethod
+    def _docling_table_page(table: Any) -> int:
+        for provenance in list(getattr(table, "prov", None) or []):
+            page_no = getattr(provenance, "page_no", None)
+            if isinstance(page_no, int) and page_no > 0:
+                return page_no
+        return 1
+
+    @staticmethod
+    def _docling_table_caption(table: Any, doc_obj: Any, idx: int) -> str:
+        caption_text = getattr(table, "caption_text", None)
+        if callable(caption_text):
+            try:
+                caption = str(caption_text(doc_obj) or "").strip()
+            except TypeError:
+                caption = str(caption_text() or "").strip()
+            except Exception:
+                caption = ""
+            if caption:
+                return caption
+        return f"Docling table {idx}"
+
+    @classmethod
+    def _extract_structured_docling_tables(cls, doc_obj: Any) -> List[TableData]:
+        tables: List[TableData] = []
+        for idx, table in enumerate(list(getattr(doc_obj, "tables", None) or []), start=1):
+            table_rows = cls._structured_rows_from_docling_table(table, doc_obj)
+            if not table_rows or max((len(row) for row in table_rows), default=0) <= 1:
+                continue
+            tables.append(
+                TableData(
+                    table_id=f"T{idx}",
+                    caption=cls._docling_table_caption(table, doc_obj, idx),
+                    data=table_rows,
+                    source_page=cls._docling_table_page(table),
+                )
+            )
+        return tables
+
     def extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         conversion = self._convert(path)
         if conversion is None:
@@ -579,6 +657,15 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                     if len(snippets) >= 3:
                         break
                 setattr(paper_meta, "doi", _resolve_doi(path=path, text_snippets=snippets))
+            paper_doi = str(getattr(paper_meta, "doi", "") or "").strip()
+            if not paper_doi:
+                try:
+                    fallback_meta, _fallback_sections, _fallback_len = super().extract_text_and_meta(path)
+                    fallback_doi = str(getattr(fallback_meta, "doi", "") or "").strip()
+                    if fallback_doi:
+                        setattr(paper_meta, "doi", fallback_doi)
+                except Exception as exc:
+                    logger.warning("Docling DOI fallback via fitz failed for %s: %s", path, exc)
             total_len = sum(len(sec.text) for sec in sections)
             return paper_meta, sections, total_len
         except Exception as exc:
@@ -594,22 +681,25 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
         tables: List[TableData] = []
 
         try:
-            markdown = self._extract_text_like(getattr(conversion, "document", conversion))
-            if not markdown:
-                markdown = self._extract_text_like(conversion)
-            parsed = self._parse_markdown_tables(markdown)
-            for idx, table_rows in enumerate(parsed, start=1):
-                if not table_rows or max((len(r) for r in table_rows), default=0) <= 1:
-                    failures.add(TABLE_FAIL_DEGENERATE_SHAPE)
-                    continue
-                tables.append(
-                    TableData(
-                        table_id=f"T{idx}",
-                        caption=f"Docling table {idx}",
-                        data=table_rows,
-                        source_page=1,
+            doc_obj = getattr(conversion, "document", conversion)
+            tables = self._extract_structured_docling_tables(doc_obj)
+            if not tables:
+                markdown = self._extract_text_like(doc_obj)
+                if not markdown:
+                    markdown = self._extract_text_like(conversion)
+                parsed = self._parse_markdown_tables(markdown)
+                for idx, table_rows in enumerate(parsed, start=1):
+                    if not table_rows or max((len(r) for r in table_rows), default=0) <= 1:
+                        failures.add(TABLE_FAIL_DEGENERATE_SHAPE)
+                        continue
+                    tables.append(
+                        TableData(
+                            table_id=f"T{idx}",
+                            caption=f"Docling table {idx}",
+                            data=table_rows,
+                            source_page=1,
+                        )
                     )
-                )
         except Exception as exc:
             logger.warning("Docling table extraction failed for %s: %s", path, exc)
             failures.add(TABLE_FAIL_LOW_ACCURACY)

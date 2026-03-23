@@ -1,42 +1,64 @@
-
 import logging
-import fitz  # standard pymupdf import
-import pdfplumber
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from src.schemas.agent_artifacts import (
-    DocumentArtifact, 
-    SourceInfo, 
-    PaperMetadata, 
-    Section, 
-    TableData
+from src.contracts.document_artifact_v2 import DocumentArtifactV2
+from src.ingest.cloud_table_fallback import CloudTableFallbackExtractor
+from src.ingest.ocr_fallback import build_ocr_cache_path, detect_need_ocr, run_ocr
+from src.ingest.parser_backends import (
+    TABLE_FAIL_BUDGET_EXCEEDED,
+    TABLE_FAIL_OCR_LOW_CONF,
+    ParserBackend,
+    TableExtractionResult,
+    create_parser_backend,
 )
-from src.contracts.document_artifact_v2 import (
-    DocumentArtifactV2,
-    ArtifactMetaV2,
-    PageV2,
-    BlockV2,
-    LineV2,
-    SpanV2,
-    TableV2,
-    stable_id,
-)
-from src.ingest.ocr_fallback import detect_need_ocr, run_ocr, build_ocr_cache_path
+from src.schemas.agent_artifacts import DocumentArtifact, PaperMetadata, Section, SourceInfo, TableData
 
 logger = logging.getLogger(__name__)
 
+
+DEFAULT_TABLE_EXTRACTION_META = {
+    "parser_backend": "fitz_pdfplumber",
+    "table_extraction_pass": "pass1",
+    "table_failure_taxonomy": [],
+    "fallback_used": False,
+    "fallback_pages": [],
+}
+
+
 class IngestAgent:
     """
-    Agent responsible for ingesting PDFs and converting them into structured DocumentArtifacts.
-    Uses a hybrid approach:
-    - PyMuPDF (fitz): Fast metadata and text extraction.
-    - pdfplumber: Accurate table extraction.
+    Agent responsible for ingesting PDFs and converting them into structured artifacts.
     """
-    
-    def __init__(self):
-        pass
+
+    def __init__(
+        self,
+        parser_backend: str = "fitz_pdfplumber",
+        enable_ocr_fallback: bool = False,
+        ocr_lang: str = "eng",
+        ocr_min_text_chars: int = 200,
+        enable_table_pass2_ocr: bool = False,
+        enable_cloud_table_fallback: bool = False,
+        cloud_table_page_budget: int = 2,
+        cloud_table_model: str = "gpt-4o-mini",
+        cloud_table_base_url: Optional[str] = None,
+        cloud_table_api_key: Optional[str] = None,
+        cloud_table_timeout_seconds: int = 30,
+    ):
+        self.backend: ParserBackend = create_parser_backend(parser_backend)
+        self.enable_ocr_fallback = bool(enable_ocr_fallback)
+        self.ocr_lang = str(ocr_lang or "eng")
+        self.ocr_min_text_chars = int(ocr_min_text_chars)
+        self.enable_table_pass2_ocr = bool(enable_table_pass2_ocr)
+        self.enable_cloud_table_fallback = bool(enable_cloud_table_fallback)
+        self.cloud_table_page_budget = int(cloud_table_page_budget)
+        self.cloud_table_model = str(cloud_table_model or "gpt-4o-mini")
+        self.cloud_table_base_url = str(cloud_table_base_url).strip() if cloud_table_base_url else None
+        self.cloud_table_api_key = str(cloud_table_api_key).strip() if cloud_table_api_key else None
+        self.cloud_table_timeout_seconds = int(cloud_table_timeout_seconds)
+        self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
+        self.last_table_extraction_meta["parser_backend"] = self.backend.name()
 
     @staticmethod
     def _safe_parse_year(creation_date: str | None) -> int:
@@ -75,17 +97,59 @@ class IngestAgent:
     def process(
         self,
         pdf_path: str,
-        enable_ocr_fallback: bool = False,
-        ocr_lang: str = "eng",
-        ocr_min_text_chars: int = 200,
+        enable_ocr_fallback: Optional[bool] = None,
+        ocr_lang: Optional[str] = None,
+        ocr_min_text_chars: Optional[int] = None,
+        enable_table_pass2_ocr: Optional[bool] = None,
+        enable_cloud_table_fallback: Optional[bool] = None,
+        cloud_table_page_budget: Optional[int] = None,
+        cloud_table_model: Optional[str] = None,
+        cloud_table_base_url: Optional[str] = None,
+        cloud_table_api_key: Optional[str] = None,
+        cloud_table_timeout_seconds: Optional[int] = None,
     ) -> Optional[DocumentArtifact]:
         """
         Main entry point. Parses PDF and returns a structured artifact.
         """
         path = Path(pdf_path)
         if not path.exists():
-            logger.error(f"PDF file not found: {pdf_path}")
+            logger.error("PDF file not found: %s", pdf_path)
             return None
+
+        enable_ocr_fallback_resolved = self.enable_ocr_fallback if enable_ocr_fallback is None else bool(enable_ocr_fallback)
+        ocr_lang_resolved = self.ocr_lang if ocr_lang is None else str(ocr_lang or "eng")
+        ocr_min_text_chars_resolved = (
+            self.ocr_min_text_chars if ocr_min_text_chars is None else int(ocr_min_text_chars)
+        )
+        enable_table_pass2_ocr_resolved = (
+            self.enable_table_pass2_ocr if enable_table_pass2_ocr is None else bool(enable_table_pass2_ocr)
+        )
+        enable_cloud_table_fallback_resolved = (
+            self.enable_cloud_table_fallback
+            if enable_cloud_table_fallback is None
+            else bool(enable_cloud_table_fallback)
+        )
+        cloud_table_page_budget_resolved = (
+            self.cloud_table_page_budget
+            if cloud_table_page_budget is None
+            else int(cloud_table_page_budget)
+        )
+        cloud_table_model_resolved = (
+            self.cloud_table_model if cloud_table_model is None else str(cloud_table_model or "gpt-4o-mini")
+        )
+        cloud_table_base_url_resolved = (
+            self.cloud_table_base_url
+            if cloud_table_base_url is None
+            else (str(cloud_table_base_url).strip() or None)
+        )
+        cloud_table_api_key_resolved = (
+            self.cloud_table_api_key if cloud_table_api_key is None else (str(cloud_table_api_key).strip() or None)
+        )
+        cloud_table_timeout_seconds_resolved = (
+            self.cloud_table_timeout_seconds
+            if cloud_table_timeout_seconds is None
+            else int(cloud_table_timeout_seconds)
+        )
 
         ingest_path = path
         ocr_meta = {
@@ -96,48 +160,128 @@ class IngestAgent:
             "ocr_output_path": None,
             "error": None,
         }
-        
+        self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
+        self.last_table_extraction_meta["parser_backend"] = self.backend.name()
+
         try:
-            if enable_ocr_fallback and detect_need_ocr(path, min_text_chars=ocr_min_text_chars):
-                ocr_cache_path = build_ocr_cache_path(path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang)
-                ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang)
+            if enable_ocr_fallback_resolved and detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved):
+                ocr_cache_path = build_ocr_cache_path(path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved)
+                ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
                 if ocr_meta.get("ocr_applied") and ocr_meta.get("ocr_output_path"):
                     candidate = Path(str(ocr_meta["ocr_output_path"]))
                     if candidate.exists():
                         ingest_path = candidate
 
-            # 1. Fast Extraction with PyMuPDF
-            doc_meta, sections, full_text_len = self._extract_text_and_meta(ingest_path)
-            
-            # 2. Table Extraction with pdfplumber
-            tables = self._extract_tables(ingest_path)
+            doc_meta, sections, _ = self._extract_text_and_meta(ingest_path)
+            pass1 = self.backend.extract_tables(ingest_path)
+            tables = pass1.tables
+            table_extraction_pass = pass1.diagnostics.table_extraction_pass or "pass1"
+            table_failure_taxonomy = set(pass1.diagnostics.table_failure_taxonomy or [])
+            fallback_used = bool(pass1.diagnostics.fallback_used)
+            fallback_pages = list(pass1.diagnostics.fallback_pages or [])
 
-            # 2.5 OCR metadata
+            # Pass2: OCR-based table recovery if pass1 produced no tables.
+            if not tables and enable_table_pass2_ocr_resolved:
+                table_ocr_path: Optional[Path] = None
+                if ocr_meta.get("ocr_applied") and ocr_meta.get("ocr_output_path"):
+                    candidate = Path(str(ocr_meta["ocr_output_path"]))
+                    if candidate.exists():
+                        table_ocr_path = candidate
+                else:
+                    need_ocr_for_tables = detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved)
+                    if need_ocr_for_tables:
+                        ocr_cache_path = build_ocr_cache_path(
+                            path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved
+                        )
+                        pass2_ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
+                        if pass2_ocr_meta.get("ocr_applied") and pass2_ocr_meta.get("ocr_output_path"):
+                            candidate = Path(str(pass2_ocr_meta["ocr_output_path"]))
+                            if candidate.exists():
+                                table_ocr_path = candidate
+                                if not ocr_meta.get("ocr_applied"):
+                                    ocr_meta = pass2_ocr_meta
+
+                if table_ocr_path is not None:
+                    pass2 = self.backend.extract_tables(table_ocr_path)
+                    table_failure_taxonomy.update(pass2.diagnostics.table_failure_taxonomy or [])
+                    if pass2.tables:
+                        tables = pass2.tables
+                        table_extraction_pass = "pass2"
+                        fallback_used = True
+                        fallback_pages = sorted(
+                            {
+                                int(t.source_page)
+                                for t in tables
+                                if isinstance(getattr(t, "source_page", None), int) and int(t.source_page) > 0
+                            }
+                        )
+                    else:
+                        table_failure_taxonomy.add(TABLE_FAIL_OCR_LOW_CONF)
+                else:
+                    table_failure_taxonomy.add(TABLE_FAIL_OCR_LOW_CONF)
+
+            # Pass3: Cloud fallback on selected pages within explicit budget.
+            if not tables and enable_cloud_table_fallback_resolved:
+                if cloud_table_page_budget_resolved <= 0:
+                    table_failure_taxonomy.add(TABLE_FAIL_BUDGET_EXCEEDED)
+                else:
+                    pass3 = self._extract_tables_pass3_cloud(
+                        path=path,
+                        page_budget=cloud_table_page_budget_resolved,
+                        model=cloud_table_model_resolved,
+                        api_key=cloud_table_api_key_resolved,
+                        base_url=cloud_table_base_url_resolved,
+                        timeout_seconds=cloud_table_timeout_seconds_resolved,
+                    )
+                    table_extraction_pass = pass3.diagnostics.table_extraction_pass or "pass3"
+                    table_failure_taxonomy.update(pass3.diagnostics.table_failure_taxonomy or [])
+                    fallback_pages = sorted(
+                        {
+                            int(p)
+                            for p in (fallback_pages + list(pass3.diagnostics.fallback_pages or []))
+                            if isinstance(p, int) and int(p) > 0
+                        }
+                    )
+                    if pass3.tables:
+                        tables = pass3.tables
+                        fallback_used = True
+
             doc_meta.ocr_applied = bool(ocr_meta.get("ocr_applied"))
             doc_meta.ocr_engine = ocr_meta.get("ocr_engine")
             doc_meta.ocr_version = ocr_meta.get("ocr_version")
             doc_meta.ocr_lang = ocr_meta.get("ocr_lang")
             doc_meta.ocr_error = ocr_meta.get("error")
             doc_meta.ocr_output_path = ocr_meta.get("ocr_output_path")
-            
-            # 3. Construct Artifact
+
+            self.last_table_extraction_meta = {
+                "parser_backend": self.backend.name(),
+                "table_extraction_pass": table_extraction_pass,
+                "table_failure_taxonomy": sorted(table_failure_taxonomy),
+                "fallback_used": bool(fallback_used),
+                "fallback_pages": sorted({int(p) for p in fallback_pages if isinstance(p, int)}),
+            }
+
             artifact = DocumentArtifact(
-                doc_id=f"file:{path.name}", # Temporary ID, needs refinement if DOI available
+                doc_id=f"file:{path.name}",
                 source=SourceInfo(type="pdf", ref=str(path.absolute())),
                 metadata=doc_meta,
                 sections=sections,
-                tables=tables
+                tables=tables,
             )
-            
-            # Refine ID if DOI found in metadata
             if artifact.metadata.doi:
                 artifact.doc_id = f"doi:{artifact.metadata.doi}"
-                
-            logger.info(f"Ingested {path.name}: {len(sections)} sections, {len(tables)} tables.")
+
+            logger.info(
+                "Ingested %s via parser=%s: %d sections, %d tables.",
+                path.name,
+                self.backend.name(),
+                len(sections),
+                len(tables),
+            )
             return artifact
-            
-        except Exception as e:
-            logger.error(f"Failed to ingest PDF {pdf_path}: {e}")
+
+        except Exception as exc:
+            logger.error("Failed to ingest PDF %s: %s", pdf_path, exc)
             return None
 
     def process_v2(self, pdf_path: str) -> Optional[DocumentArtifactV2]:
@@ -151,207 +295,35 @@ class IngestAgent:
         return self._build_v2_from_pdf(Path(pdf_path), legacy)
 
     def _extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
-        """
-        Uses PyMuPDF to extract metadata and text split by heuristic sections.
-        """
-        doc = fitz.open(path)
-        
-        # Metadata
-        meta = doc.metadata
-        paper_meta = PaperMetadata(
-            title=meta.get('title', path.stem),
-            authors=[meta.get('author', '')] if meta.get('author') else [],
-            year=self._safe_parse_year(meta.get('creationDate')),
-            journal=meta.get('subject', 'Unknown')
-        )
-        
-        # Text Extraction & Segmentation
-        sections = []
-        global_text = ""
-        current_section_name = "preamble"
-        start_char = 0
-        
-        # Simple heuristic keywords for sections
-        SECTION_HEADERS = {
-            "abstract": ["abstract", "summary"],
-            "introduction": ["introduction", "background"],
-            "methods": ["methods", "methodology", "experimental procedures", "materials and methods"],
-            "results": ["results", "findings"],
-            "discussion": ["discussion", "conclusion"],
-            "references": ["references", "bibliography"]
-        }
-        
-        # Accumulate text page by page
-        for page_num, page in enumerate(doc):
-            text = page.get_text()
-            
-            # Check for section headers in the first few lines of the page or blocks
-            # This is a naive heuristic. Improved logic would check font size/boldness.
-            lines = text.split('\n')
-            for line in lines:
-                clean_line = line.strip().lower()
-                # If line is short and matches a header keyword
-                if len(clean_line) < 50:
-                    for sec_name, keywords in SECTION_HEADERS.items():
-                        if any(k in clean_line for k in keywords):
-                            if current_section_name != sec_name:
-                                # Finish previous section logic could go here if we tracked per-section text buffer
-                                # For now, we assume strict linear flow (which isn't always true for 2-column)
-                                # Better approach: Just tag the change.
-                                current_section_name = sec_name
-                                break
-            
-            # For this MVP, we will just create ONE section per page to avoid granular complexity,
-            # unless we implement a much smarter parser.
-            # Correction: The prompt asks for "sections".
-            # Let's try to map pages to sections roughly.
-            
-            # Actually, a better simple strategy for MVP:
-            # 1. Get all text.
-            # 2. Regex find headers.
-            # 3. Slice.
-            
-            # Let's stick to Page-based sections for robustness if regex fails, 
-            # OR create a single "full_text" section if structure is unclear.
-            
-            # Let's append to global text and keep track of indices.
-            page_start_char = len(global_text)
-            global_text += text + "\n"
-            page_end_char = len(global_text)
-            
-            sections.append(Section(
-                name=f"page_{page_num+1}", # Fallback name
-                text=text,
-                char_start=page_start_char,
-                char_end=page_end_char,
-                page_start=page_num+1,
-                page_end=page_num+1
-            ))
-            
-        doc.close()
-        return paper_meta, sections, len(global_text)
+        return self.backend.extract_text_and_meta(path)
 
     def _extract_tables(self, path: Path) -> List[TableData]:
-        """
-        Uses pdfplumber to extract tables.
-        """
-        tables = []
-        try:
-            with pdfplumber.open(path) as pdf:
-                for i, page in enumerate(pdf.pages):
-                    extracted = page.extract_tables()
-                    for j, table in enumerate(extracted):
-                        # Clean table data
-                        clean_data = [
-                            [cell.strip() if cell else "" for cell in row]
-                            for row in table
-                            if any(row) # Skip empty rows
-                        ]
-                        
-                        if clean_data:
-                            tables.append(TableData(
-                                table_id=f"T{len(tables)+1}",
-                                caption=f"Table found on page {i+1}",
-                                data=clean_data,
-                                source_page=i+1
-                            ))
-        except Exception as e:
-            logger.warning(f"Table extraction failed for {path}: {e}")
-            
-        return tables
+        table_result = self.backend.extract_tables(path)
+        self.last_table_extraction_meta = {
+            "parser_backend": self.backend.name(),
+            "table_extraction_pass": table_result.diagnostics.table_extraction_pass,
+            "table_failure_taxonomy": list(table_result.diagnostics.table_failure_taxonomy or []),
+            "fallback_used": bool(table_result.diagnostics.fallback_used),
+            "fallback_pages": [int(p) for p in (table_result.diagnostics.fallback_pages or [])],
+        }
+        return table_result.tables
 
     def _build_v2_from_pdf(self, path: Path, legacy: DocumentArtifact) -> DocumentArtifactV2:
-        """
-        Build DocumentArtifactV2 from current parser capabilities.
-        bbox is emitted only when available; otherwise set null + bbox_unavailable=true.
-        """
-        meta_v2 = ArtifactMetaV2(
-            title=legacy.metadata.title,
-            authors=legacy.metadata.authors,
-            year=legacy.metadata.year,
-            journal=legacy.metadata.journal,
-            doi=legacy.metadata.doi,
-            source_ref=legacy.source.ref,
+        return self.backend.build_v2_from_pdf(path, legacy)
+
+    def _extract_tables_pass3_cloud(
+        self,
+        path: Path,
+        page_budget: int,
+        model: str,
+        api_key: Optional[str],
+        base_url: Optional[str],
+        timeout_seconds: int,
+    ) -> TableExtractionResult:
+        extractor = CloudTableFallbackExtractor(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
         )
-
-        pages: List[PageV2] = []
-        doc = fitz.open(path)
-        try:
-            for page_idx, page in enumerate(doc):
-                page_width = float(page.rect.width)
-                page_height = float(page.rect.height)
-
-                # PyMuPDF block tuples:
-                # (x0, y0, x1, y1, text, block_no, block_type)
-                raw_blocks = page.get_text("blocks")
-                sorted_blocks = sorted(
-                    raw_blocks,
-                    key=lambda b: (round(float(b[1]), 3), round(float(b[0]), 3), round(float(b[3]), 3), round(float(b[2]), 3)),
-                )
-
-                blocks: List[BlockV2] = []
-                for block_order, block in enumerate(sorted_blocks):
-                    x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4] or ""
-                    bbox = self._clamp_bbox_to_page(
-                        [float(x0), float(y0), float(x1), float(y1)],
-                        page_width,
-                        page_height,
-                    )
-
-                    block_id = f"blk_{stable_id(legacy.doc_id, str(page_idx), str(block_order), f'{x0:.3f}', f'{y0:.3f}', f'{x1:.3f}', f'{y1:.3f}', text.strip())}"
-
-                    lines: List[LineV2] = []
-                    for line_order, line_text in enumerate([ln for ln in text.splitlines() if ln.strip()]):
-                        line_id = f"ln_{stable_id(block_id, str(line_order), line_text.strip())}"
-                        # Current parser does not provide per-line bbox reliably.
-                        span_id = f"sp_{stable_id(line_id, '0', line_text.strip())}"
-                        span = SpanV2(
-                            span_id=span_id,
-                            text=line_text,
-                            bbox_pdf=None,
-                            source_ref=f"{legacy.source.ref}#page={page_idx}",
-                            bbox_unavailable=True,
-                        )
-                        line = LineV2(
-                            line_id=line_id,
-                            text=line_text,
-                            bbox_pdf=None,
-                            spans=[span],
-                            bbox_unavailable=True,
-                        )
-                        lines.append(line)
-
-                    block_model = BlockV2(
-                        block_id=block_id,
-                        bbox_pdf=bbox,
-                        lines=lines,
-                        bbox_unavailable=False,
-                    )
-                    blocks.append(block_model)
-
-                page_model = PageV2(
-                    page_index=page_idx,
-                    width=page_width,
-                    height=page_height,
-                    blocks=blocks,
-                )
-                pages.append(page_model)
-        finally:
-            doc.close()
-
-        tables_v2 = [
-            TableV2(
-                table_id=t.table_id,
-                caption=t.caption,
-                data=t.data,
-                source_page=t.source_page,
-            )
-            for t in legacy.tables
-        ]
-
-        return DocumentArtifactV2(
-            document_id=legacy.doc_id,
-            meta=meta_v2,
-            pages=pages,
-            tables=tables_v2,
-        )
+        return extractor.extract_tables(pdf_path=path, page_budget=page_budget)
