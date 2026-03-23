@@ -107,3 +107,71 @@ Reviewer: Codex
 1. root triage 상단에 `Repair / Review / Ready` bucket summary와 count를 추가해 first decision cost를 줄이기
 2. row-level `Primary next action` copy를 `Action needed`보다 더 직접적인 imperative language로 교체하기
 3. dev/test fixture row를 실제 triage surface에서 분리하거나 숨기는 정책을 추가하기
+
+## 9) Priority Summary Strip Checkpoint (2026-03-23)
+- Screen/Flow: `/` triage dashboard -> queue scan -> choose the first repair/review/ready paper
+- Goal action: 사용자가 row를 여러 개 읽기 전에 현재 queue가 `Needs repair / Needs review / Ready` 중 어디에 몰려 있는지 바로 파악한다.
+- Primary persona: paper backlog를 빠르게 훑고 지금 먼저 고칠 paper를 고르는 운영자/연구자
+- Current friction:
+  - 기존 root triage는 status 신호는 풍부했지만, 우선순위 압축이 약해서 사용자가 row를 읽으며 직접 중요도를 계산해야 했다.
+  - `Action needed` row와 content-review row가 섞여 있어, queue 전체의 shape를 첫 5초 안에 파악하기 어려웠다.
+- Quick decision:
+  - 새 bucket state나 backend field는 추가하지 않는다.
+  - 기존 `ops_summary`와 `content review` 신호만 조합해 조용한 summary strip 3개를 queue 상단에 붙인다.
+  - `repair`가 있으면 먼저 repair로 분류하고, repair가 없을 때만 flagged/unavailable review를 `Needs review`로 묶는다.
+- BMAP:
+  - Motivation: 높음. triage 사용자는 이미 “뭘 먼저 해야 하는지”를 알고 싶어서 들어온다.
+  - Ability: row-level 정보는 충분하므로, 상단에서 queue shape만 먼저 압축해 주면 인지 비용이 크게 줄어든다.
+  - Prompt: `Needs repair / Needs review / Ready` 3-bucket count가 가장 직접적인 global prompt다.
+- B.I.A.S:
+  - Block: 사용자가 row마다 상태를 다시 해석해야 한다.
+  - Interpret: summary strip이 queue 전체의 현재 상태를 먼저 읽게 만든다.
+  - Act: `repair -> review -> ready` 순서로 다음 행동을 바로 고르게 만든다.
+  - Store: root triage가 단순 목록보다 “정리된 작업판”으로 기억되기 쉬워진다.
+- Peak-End:
+  - Peak는 root 첫 화면에서 queue 우선순위가 바로 읽히는 순간이다.
+  - Pit는 여러 row를 읽고 나서야 repair/review 비중을 스스로 계산하던 상태였다.
+  - Transition은 summary strip -> row 선택 -> workbench handoff다.
+- Ethics:
+  - Regret: 통과. urgency를 과장하지 않고 현재 queue shape만 더 직접적으로 보여준다.
+  - Black Mirror: 통과. 사용자를 몰아붙이거나 허위 우선순위를 주지 않는다.
+  - In Real-Life: 통과. 실제 연구 backlog를 정리할 때 먼저 어떤 종류의 일이 남았는지 보여주는 수준이다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend triage separates content review cues from operational state|backend triage summarizes repair, review, and ready buckets|backend triage content review action carries flagged context into workbench|backend keeps unavailable content review distinct from clear state"`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "triage dashboard layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "triage dashboard layout"`
+
+## 10) Primary Next Action Checkpoint (2026-03-23)
+- Screen/Flow: `/` triage dashboard -> row scan -> choose the immediate next action
+- Goal action: 사용자가 `Action needed` 배지를 해석하지 않고도 각 row에서 지금 해야 할 일을 바로 읽는다.
+- Primary persona: root queue를 빠르게 훑고 repair/review/workbench 열기 중 하나를 고르는 운영자/연구자
+- Current friction:
+  - summary strip이 queue shape는 압축해 줬지만, 개별 row에서는 여전히 `Action needed`와 generic CTA를 함께 읽어야 했다.
+  - 특히 missing-stats row와 flagged-review row는 각기 다른 다음 행동을 갖는데, row 상단에서 그 차이가 충분히 직접적이지 않았다.
+- Quick decision:
+  - 새 action system은 만들지 않는다.
+  - 기존 `ops_summary.recommended_action`과 content-review flagged state만 사용해 `Primary next action` pill을 각 row에 추가한다.
+  - 버튼 동작과 row click behavior는 그대로 두고, interpretation cost만 낮춘다.
+- BMAP:
+  - Motivation: 높음. triage에서 중요한 건 “뭘 읽을까”보다 “뭘 먼저 할까”다.
+  - Ability: next-action pill만으로 row 해석 시간이 줄어든다.
+  - Prompt: `Repair stats`, `Review 2 issues`, `Open workbench` 같은 직접적인 action language가 가장 짧고 명확하다.
+- B.I.A.S:
+  - Block: `Action needed`가 무엇을 의미하는지 사용자가 다시 해석해야 했다.
+  - Interpret: row-level next action이 operational fix와 content review를 더 빨리 구분해 준다.
+  - Act: repair row와 flagged row가 다른 행동을 요구한다는 점이 즉시 보인다.
+  - Store: triage row가 상태표보다 작업 카드처럼 기억되기 쉬워진다.
+- Peak-End:
+  - Peak는 row를 보는 즉시 `Repair stats`와 `Review 2 issues`가 바로 읽히는 순간이다.
+  - Pit는 같은 `Action needed` 배지가 반복돼 다음 행동을 직접 추론해야 하던 상태였다.
+  - Transition은 row scan -> button click -> workbench handoff다.
+- Ethics:
+  - Regret: 통과. 실제 상태를 더 직접적으로 번역할 뿐 허위 urgency를 만들지 않는다.
+  - Black Mirror: 통과. 사용자를 특정 행동으로 몰지 않고 이미 존재하는 recommended action을 더 잘 드러낸다.
+  - In Real-Life: 통과. backlog row에서 “다음 할 일” 한 줄을 붙이는 수준의 현실적인 개선이다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend triage separates content review cues from operational state|backend triage summarizes repair, review, and ready buckets|backend triage content review action carries flagged context into workbench|backend keeps unavailable content review distinct from clear state"`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "triage dashboard layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "triage dashboard layout"`

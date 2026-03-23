@@ -44,6 +44,13 @@ const e2eImageEvidenceRoot = path.resolve(
   "storage",
   "image_evidence",
 );
+const e2eProtocolCardsRoot = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "storage",
+  "protocol_cards",
+);
 const imageEvidenceFixtureRawPath = path.resolve(
   e2eSpecDir,
   "..",
@@ -291,8 +298,52 @@ test("backend triage separates content review cues from operational state", asyn
 
   const row = page.locator("tbody tr").filter({ hasText: "E2E List Missing Stats Paper" }).first();
   await expect(row.getByTestId("triage-ops-badge")).toContainText("Action needed");
+  await expect(row.getByTestId("triage-primary-action")).toContainText("Repair stats");
   await expect(row.getByTestId("triage-content-review-button")).toContainText("Review clear");
   await expect(row.getByTestId("triage-review-hint")).toContainText("No content flags");
+});
+
+test("backend triage summarizes repair, review, and ready buckets", async ({ page }) => {
+  await page.goto("/");
+
+  const summaryStrip = page.getByTestId("triage-summary-strip");
+  await expect(summaryStrip).toBeVisible();
+
+  const rows = page.locator("tbody tr");
+  const rowCount = await rows.count();
+  let repairCount = 0;
+  let reviewCount = 0;
+  let readyCount = 0;
+
+  for (let index = 0; index < rowCount; index += 1) {
+    const row = rows.nth(index);
+    const opsBadge = row.getByTestId("triage-ops-badge");
+    const opsLabel = (await opsBadge.count()) > 0 ? ((await opsBadge.textContent()) ?? "") : "";
+    const reviewLabel = (await row.getByTestId("triage-review-badge").textContent()) ?? "";
+
+    if (opsLabel.includes("Action needed")) {
+      repairCount += 1;
+      continue;
+    }
+
+    if (reviewLabel.includes("Clear")) {
+      readyCount += 1;
+      continue;
+    }
+
+    reviewCount += 1;
+  }
+
+  const repairSummary = page.getByTestId("triage-summary-repair");
+  const reviewSummary = page.getByTestId("triage-summary-review");
+  const readySummary = page.getByTestId("triage-summary-ready");
+
+  await expect(repairSummary).toContainText("Needs repair");
+  await expect(reviewSummary).toContainText("Needs review");
+  await expect(readySummary).toContainText("Ready");
+  await expect(repairSummary).toContainText(String(repairCount));
+  await expect(reviewSummary).toContainText(String(reviewCount));
+  await expect(readySummary).toContainText(String(readyCount));
 });
 
 test("backend method comparison viewer loads a generated comparison and keeps export on the real csv route", async ({
@@ -489,6 +540,199 @@ test("backend chart pack viewer loads a generated chart pack and keeps exports o
     "href",
     new RegExp(`/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/spec\\.json$`),
   );
+});
+
+test("backend protocol knowledge inspector loads a saved protocol card and keeps note handoff on the real route", async ({
+  page,
+  request,
+}) => {
+  const protocolId = "protocol_backend_e2e_fixture";
+  const currentVersionId = "protver_backend_e2e_fixture_v2";
+  const draftVersionId = "protver_backend_e2e_fixture_v1";
+  const response = await request.post(`${backendBaseUrl}/protocol-cards`, {
+    data: {
+      protocol_id: protocolId,
+      title: "E2E cortical ketone assay protocol",
+      purpose: "Review note-backed assay steps before downstream reuse.",
+      context: "Read-first protocol bundle for backend inspector coverage.",
+      source_kind: "paper_derived",
+      linked_paper_ids: [noteBackedWorkbenchPaperId],
+      linked_note_slugs: [noteSlug],
+      current_version_id: currentVersionId,
+      validation_status: "reviewed",
+      versions: [
+        {
+          version_id: draftVersionId,
+          version_number: 1,
+          key_steps_summary: ["Prepare cortical neurons", "Apply ketone ester pulse"],
+          materials: ["Ketone ester", "Neurobasal medium"],
+          equipment: ["CO2 incubator"],
+          critical_conditions: ["37 C", "5% CO2"],
+          readouts: ["Beta-hydroxybutyrate"],
+          cautions: ["Initial draft requires operator review."],
+          content_snapshot: "Step 1: prepare cortical neurons.\nStep 2: apply ketone ester pulse.",
+          change_reason: "Initial extraction from note-backed assay wording.",
+          status: "draft",
+          created_by: "operator",
+          created_at: "2026-03-23T01:00:00+00:00",
+          source_refs: [
+            {
+              paper_slug: noteSlug,
+              claim_id: "claim-e2e-protocol-001",
+              run_id: "run-e2e-protocol-001",
+              locator: {
+                page: 4,
+                section: "Methods",
+                chunk_id: "meth-01",
+              },
+            },
+          ],
+          note: "Draft snapshot before reviewer cleanup.",
+        },
+        {
+          version_id: currentVersionId,
+          version_number: 2,
+          key_steps_summary: ["Prepare cortical neurons", "Apply ketone ester pulse", "Collect BHB readout"],
+          materials: ["Ketone ester", "Neurobasal medium", "PBS"],
+          equipment: ["CO2 incubator", "Plate reader"],
+          critical_conditions: ["37 C", "5% CO2", "15 minute pulse"],
+          readouts: ["Beta-hydroxybutyrate", "Cell viability"],
+          cautions: ["Do not reuse as execution-ready SOP without source note check."],
+          content_snapshot:
+            "Step 1: prepare cortical neurons.\nStep 2: apply ketone ester pulse.\nStep 3: collect BHB readout.",
+          change_reason: "Aligned current version with note-backed assay wording.",
+          status: "active",
+          created_by: "reviewer",
+          created_at: "2026-03-23T02:00:00+00:00",
+          source_refs: [
+            {
+              paper_slug: noteSlug,
+              claim_id: "claim-e2e-protocol-002",
+              run_id: "run-e2e-protocol-002",
+              locator: {
+                page: 5,
+                section: "Methods",
+                chunk_id: "meth-02",
+              },
+            },
+          ],
+          note: "Current reviewer-aligned snapshot for downstream reference.",
+        },
+      ],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    protocol_card?: {
+      protocol_id?: string;
+      title?: string;
+      current_version_id?: string;
+      validation_status?: string;
+    };
+    versions?: Array<{ version_id?: string; status?: string; source_refs?: Array<{ paper_slug?: string }> }>;
+    markdown?: string;
+  };
+  expect(payload.protocol_card?.protocol_id).toBe(protocolId);
+  expect(payload.protocol_card?.title).toBe("E2E cortical ketone assay protocol");
+  expect(payload.protocol_card?.current_version_id).toBe(currentVersionId);
+  expect(payload.protocol_card?.validation_status).toBe("reviewed");
+  expect(payload.versions?.map((item) => item.version_id)).toEqual([draftVersionId, currentVersionId]);
+  expect(payload.versions?.[1]?.status).toBe("active");
+  expect(payload.versions?.[1]?.source_refs?.[0]?.paper_slug).toBe(noteSlug);
+  expect(payload.markdown).toContain("# E2E cortical ketone assay protocol");
+
+  const indexResponse = await request.get(`${backendBaseUrl}/protocol-cards`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    total?: number;
+    items?: Array<{ protocol_id?: string; title?: string; current_version_id?: string; version_count?: number }>;
+  };
+  expect(indexPayload.total).toBeGreaterThanOrEqual(1);
+  expect(indexPayload.items?.find((item) => item.protocol_id === protocolId)).toMatchObject({
+    protocol_id: protocolId,
+    title: "E2E cortical ketone assay protocol",
+    current_version_id: currentVersionId,
+    version_count: 2,
+  });
+
+  const versionsResponse = await request.get(`${backendBaseUrl}/protocol-cards/${protocolId}/versions`);
+  expect(versionsResponse.ok()).toBeTruthy();
+  const versionsPayload = (await versionsResponse.json()) as {
+    total?: number;
+    items?: Array<{ version_id?: string }>;
+  };
+  expect(versionsPayload.total).toBe(2);
+  expect(versionsPayload.items?.map((item) => item.version_id)).toEqual([draftVersionId, currentVersionId]);
+
+  const versionItemResponse = await request.get(`${backendBaseUrl}/protocol-cards/${protocolId}/versions/${draftVersionId}`);
+  expect(versionItemResponse.ok()).toBeTruthy();
+  const versionItemPayload = (await versionItemResponse.json()) as {
+    version_id?: string;
+    change_reason?: string;
+    status?: string;
+  };
+  expect(versionItemPayload.version_id).toBe(draftVersionId);
+  expect(versionItemPayload.change_reason).toBe("Initial extraction from note-backed assay wording.");
+  expect(versionItemPayload.status).toBe("draft");
+
+  const protocolCardJsonPath = path.join(e2eProtocolCardsRoot, protocolId, "protocol_card.json");
+  await expect
+    .poll(async () => {
+      try {
+        await fs.access(protocolCardJsonPath);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+
+  await page.goto("/protocol-cards");
+
+  await expect(page.getByRole("heading", { name: "Protocol Cards", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or protocol id"]').fill("cortical ketone");
+  const targetCard = page.locator("article").filter({ hasText: "E2E cortical ketone assay protocol" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("Reviewed", { exact: true })).toBeVisible();
+  await expect(targetCard.getByText(currentVersionId)).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open protocol card" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/protocol-cards/${protocolId}$`));
+  await expect(page.getByRole("heading", { name: "E2E cortical ketone assay protocol", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Version review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source refs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trust boundary" })).toBeVisible();
+  await expect(page.getByText("Selected as current version")).toBeVisible();
+  await expect(page.getByText("Aligned current version with note-backed assay wording.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator("li").filter({ hasText: "Do not reuse as execution-ready SOP without source note check." }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Claim claim-e2e-protocol-002")).toBeVisible();
+  await expect(page.getByText("p.5 · Methods · meth-02")).toBeVisible();
+
+  const draftVersionButton = page.getByRole("button").filter({ hasText: draftVersionId }).first();
+  await expect(draftVersionButton).toBeVisible();
+  await draftVersionButton.click();
+
+  await expect(page.getByText("Historical version selected")).toBeVisible();
+  await expect(page.getByText("Initial extraction from note-backed assay wording.", { exact: true })).toBeVisible();
+  await expect(
+    page.locator("li").filter({ hasText: "Initial draft requires operator review." }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Claim claim-e2e-protocol-001")).toBeVisible();
+  await expect(page.getByText("p.4 · Methods · meth-01")).toBeVisible();
+
+  await page.getByRole("link", { name: "Open note" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
+  await expect(
+    page.getByRole("banner").getByRole("heading", {
+      name: /Alzheimer Disease as a Clinical-Biological Construct/i,
+    }),
+  ).toBeVisible();
 });
 
 test("backend image evidence viewer loads a registered bundle and keeps note handoff on the real route", async ({
@@ -869,6 +1113,7 @@ test("backend triage content review action carries flagged context into workbenc
 
   const row = page.locator("tbody tr").filter({ hasText: "E2E Content Review Paper" }).first();
   await expect(row.getByTestId("triage-ops-badge")).toContainText("Healthy");
+  await expect(row.getByTestId("triage-primary-action")).toContainText("Review 2 issues");
   await expect(row.getByTestId("triage-content-review-button")).toContainText("Review 2 issues");
   await expect(row.getByTestId("triage-review-detail")).toContainText("2 mapping ambiguities");
   await row.getByTestId("triage-content-review-button").click();
