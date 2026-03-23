@@ -21,6 +21,11 @@ const PaperNoteDetailPage = lazy(async () => {
   return { default: module.PaperNoteDetailPage };
 });
 
+const ImageEvidencePage = lazy(async () => {
+  const module = await import("./app/pages/ImageEvidencePage");
+  return { default: module.ImageEvidencePage };
+});
+
 export default function App() {
   return (
     <Suspense
@@ -34,6 +39,8 @@ export default function App() {
         <Route path="/" element={<TriageDashboard />} />
         <Route path="/papers" element={<PaperNotesListPage />} />
         <Route path="/papers/:slug" element={<PaperNoteDetailPage />} />
+        <Route path="/image-evidence" element={<ImageEvidencePage />} />
+        <Route path="/image-evidence/:imageEvidenceId" element={<ImageEvidencePage />} />
         <Route path="/workbench/:paperId" element={<AnalysisWorkbench />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
