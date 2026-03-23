@@ -62,6 +62,7 @@ Canonical parent: `docs/ux-review.md`
 - Copy level: frame the surface as `Protocol knowledge review`, not as editing or execution.
 - Default-action level: primary action on index is `Open protocol card`; primary actions on detail are `Open note` when available and `Back to index`.
 - Runtime contract: real mode reads the thin backend API; mock mode mirrors index/detail consistency without inventing extra editor behavior.
+- Verification level: keep mock smoke, real-backend smoke, and backend visual snapshots for `/protocol-cards` index/detail in sync so the read-first shell does not drift quietly.
 
 ## Ethics check results
 - Regret: Low if draft/mixed/reviewed states remain prominent and the page stays read-only.
@@ -69,6 +70,6 @@ Canonical parent: `docs/ux-review.md`
 - In Real-Life: A reviewer should be able to explain which version is current, why it changed, and how strongly it is evidence-linked. The inspector should make that trivial.
 
 ## Next PR-sized actions
-- Add the read-first inspector route and keep it index/detail only.
-- Add mock smoke for index and version detail before considering a real-backend smoke.
+- Reassess whether repeated real usage justifies promoting `protocol-knowledge` beyond a bounded pilot.
+- If the lane keeps proving useful, add more granular backend visual coverage for selected subregions rather than opening editor controls.
 - Defer editor or activation controls until repeated usage proves the lane should move beyond read-only review.
