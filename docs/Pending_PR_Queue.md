@@ -130,6 +130,7 @@ Canonical: `docs/Pending_PR_Queue.md`
   - [done] added focused regression tests for schema, store, and runtime-path behavior
 - References:
   - `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+  - `docs/reports/Project_Memory_API_Gate_2026-03-23.md`
   - `src/schemas/project_memory.py`
   - `src/project_memory/store.py`
   - `tests/test_project_memory_schema.py`
@@ -137,6 +138,13 @@ Canonical: `docs/Pending_PR_Queue.md`
   - `tests/test_runtime_paths_project_memory.py`
 
 ## Future RFC Follow-Ups (Not Approved)
+- Title: `future/project-memory-api-v0`
+- Priority: Low
+- Purpose: Keep the Project Memory lane backend-only until an explicit product decision approves a project-scoped runtime surface instead of letting `/projects` semantics arrive through implementation momentum.
+- References:
+  - `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+  - `docs/reports/Project_Memory_API_Gate_2026-03-23.md`
+
 - Title: `future/local-backup-restore-semantics`
 - Priority: Low
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
