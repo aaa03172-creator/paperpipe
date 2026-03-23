@@ -10,4 +10,5 @@ from .chart_pack import *
 from .image_evidence import *
 from .meeting_pack import *
 from .method_comparison import *
+from .project_memory import *
 from .skills import *
