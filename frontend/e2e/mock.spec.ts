@@ -192,6 +192,28 @@ test("normalized bbox and zero-based page values render stable claim highlights"
   }
 });
 
+test("text-match fallback remains usable after switching away and back", async ({ page }) => {
+  await page.goto("/workbench/paper-2026-normalized-bbox");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+
+  const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await claimsPanel.getByRole("button").nth(2).click();
+
+  await expect(page.getByText("Text Match · p.1")).toBeVisible();
+  await expect(page.getByText("정밀 anchor 아님")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-search-highlight"]').first()).toBeVisible();
+  await expect(page.getByText(/선택 1\/\d+/)).toBeVisible();
+
+  await claimsPanel.getByRole("button").first().click();
+  await expect(page.getByText("Claim Link · p.1")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-highlight"]').first()).toBeVisible();
+
+  await claimsPanel.getByRole("button").nth(2).click();
+  await expect(page.getByText("Text Match · p.1")).toBeVisible();
+  await expect(page.locator('[data-testid="claim-search-highlight"]').first()).toBeVisible();
+});
+
 test.describe("mobile UX scenarios", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
