@@ -473,6 +473,44 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                         page_end=page_idx + 1,
                     )
                 )
+        if isinstance(pages, dict) and pages:
+            page_fragments: dict[int, List[str]] = {}
+            iterate_items = getattr(doc_obj, "iterate_items", None)
+            if callable(iterate_items):
+                try:
+                    for item, _level in iterate_items():
+                        item_text = self._extract_text_like(item)
+                        if not item_text:
+                            continue
+                        provenance = list(getattr(item, "prov", None) or [])
+                        item_pages = sorted(
+                            {
+                                int(prov.page_no)
+                                for prov in provenance
+                                if isinstance(getattr(prov, "page_no", None), int) and int(prov.page_no) > 0
+                            }
+                        )
+                        for page_no in item_pages:
+                            page_fragments.setdefault(page_no, []).append(item_text)
+                except Exception:
+                    page_fragments = {}
+            for page_no in sorted(page_fragments):
+                page_text = "\n".join(fragment for fragment in page_fragments[page_no] if fragment).strip()
+                if not page_text:
+                    continue
+                page_start_char = len(global_text)
+                global_text += page_text + "\n"
+                page_end_char = len(global_text)
+                sections.append(
+                    Section(
+                        name=f"page_{page_no}",
+                        text=page_text,
+                        char_start=page_start_char,
+                        char_end=page_end_char,
+                        page_start=page_no,
+                        page_end=page_no,
+                    )
+                )
         if sections:
             return sections
 
@@ -550,6 +588,133 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                 parsed_tables.append(table_rows)
         return parsed_tables
 
+    @staticmethod
+    def _normalize_docling_cell(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.lower() == "nan":
+            return ""
+        return text
+
+    @staticmethod
+    def _table_data_is_meaningful(data: List[List[str]]) -> bool:
+        rows = len(data)
+        cols = max((len(row) for row in data), default=0)
+        flattened = [str(cell or "").strip() for row in data for cell in row]
+        non_empty_cells = sum(1 for cell in flattened if cell)
+        alpha_cells = sum(1 for cell in flattened if any(ch.isalpha() for ch in cell))
+        return rows >= 2 and cols >= 2 and non_empty_cells >= 6 and alpha_cells >= 2
+
+    @classmethod
+    def _structured_rows_from_docling_table(cls, table: Any, doc_obj: Any) -> List[List[str]]:
+        export_to_dataframe = getattr(table, "export_to_dataframe", None)
+        if not callable(export_to_dataframe):
+            return []
+
+        try:
+            dataframe = export_to_dataframe(doc_obj)
+        except TypeError:
+            dataframe = export_to_dataframe()
+        except Exception:
+            return []
+
+        table_rows: List[List[str]] = []
+        columns = [cls._normalize_docling_cell(col) for col in list(getattr(dataframe, "columns", []))]
+        if any(columns):
+            table_rows.append(columns)
+
+        iterrows = getattr(dataframe, "iterrows", None)
+        if not callable(iterrows):
+            return table_rows
+
+        for _row_idx, row in iterrows():
+            tolist = getattr(row, "tolist", None)
+            raw_values = tolist() if callable(tolist) else list(row)
+            values = [cls._normalize_docling_cell(value) for value in raw_values]
+            if any(values):
+                table_rows.append(values)
+        return table_rows
+
+    @staticmethod
+    def _docling_table_page(table: Any) -> int:
+        for provenance in list(getattr(table, "prov", None) or []):
+            page_no = getattr(provenance, "page_no", None)
+            if isinstance(page_no, int) and page_no > 0:
+                return page_no
+        return 1
+
+    @staticmethod
+    def _docling_table_caption(table: Any, doc_obj: Any, idx: int) -> str:
+        caption_text = getattr(table, "caption_text", None)
+        if callable(caption_text):
+            try:
+                caption = str(caption_text(doc_obj) or "").strip()
+            except TypeError:
+                caption = str(caption_text() or "").strip()
+            except Exception:
+                caption = ""
+            if caption:
+                return caption
+        return f"Docling table {idx}"
+
+    @classmethod
+    def _extract_structured_docling_tables(cls, doc_obj: Any) -> List[TableData]:
+        tables: List[TableData] = []
+        for idx, table in enumerate(list(getattr(doc_obj, "tables", None) or []), start=1):
+            table_rows = cls._structured_rows_from_docling_table(table, doc_obj)
+            if not table_rows or max((len(row) for row in table_rows), default=0) <= 1:
+                continue
+            tables.append(
+                TableData(
+                    table_id=f"T{idx}",
+                    caption=cls._docling_table_caption(table, doc_obj, idx),
+                    data=table_rows,
+                    source_page=cls._docling_table_page(table),
+                )
+            )
+        return tables
+
+    @classmethod
+    def _merge_meaningful_fallback_tables(
+        cls, primary_tables: List[TableData], fallback_tables: List[TableData]
+    ) -> Tuple[List[TableData], List[int]]:
+        merged_tables: List[TableData] = [
+            TableData(
+                table_id=f"T{idx}",
+                caption=table.caption,
+                data=table.data,
+                source_page=table.source_page,
+            )
+            for idx, table in enumerate(primary_tables, start=1)
+        ]
+        seen_pages = {
+            int(table.source_page)
+            for table in merged_tables
+            if isinstance(getattr(table, "source_page", None), int) and int(table.source_page) > 0
+        }
+        fallback_pages: List[int] = []
+
+        for table in fallback_tables:
+            source_page = int(getattr(table, "source_page", 0) or 0)
+            if source_page in seen_pages:
+                continue
+            if not cls._table_data_is_meaningful(list(table.data or [])):
+                continue
+            merged_tables.append(
+                TableData(
+                    table_id=f"T{len(merged_tables) + 1}",
+                    caption=table.caption,
+                    data=table.data,
+                    source_page=source_page,
+                )
+            )
+            if source_page > 0:
+                seen_pages.add(source_page)
+                fallback_pages.append(source_page)
+
+        return merged_tables, sorted(fallback_pages)
+
     def extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         conversion = self._convert(path)
         if conversion is None:
@@ -579,6 +744,15 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                     if len(snippets) >= 3:
                         break
                 setattr(paper_meta, "doi", _resolve_doi(path=path, text_snippets=snippets))
+            paper_doi = str(getattr(paper_meta, "doi", "") or "").strip()
+            if not paper_doi:
+                try:
+                    fallback_meta, _fallback_sections, _fallback_len = super().extract_text_and_meta(path)
+                    fallback_doi = str(getattr(fallback_meta, "doi", "") or "").strip()
+                    if fallback_doi:
+                        setattr(paper_meta, "doi", fallback_doi)
+                except Exception as exc:
+                    logger.warning("Docling DOI fallback via fitz failed for %s: %s", path, exc)
             total_len = sum(len(sec.text) for sec in sections)
             return paper_meta, sections, total_len
         except Exception as exc:
@@ -594,22 +768,25 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
         tables: List[TableData] = []
 
         try:
-            markdown = self._extract_text_like(getattr(conversion, "document", conversion))
-            if not markdown:
-                markdown = self._extract_text_like(conversion)
-            parsed = self._parse_markdown_tables(markdown)
-            for idx, table_rows in enumerate(parsed, start=1):
-                if not table_rows or max((len(r) for r in table_rows), default=0) <= 1:
-                    failures.add(TABLE_FAIL_DEGENERATE_SHAPE)
-                    continue
-                tables.append(
-                    TableData(
-                        table_id=f"T{idx}",
-                        caption=f"Docling table {idx}",
-                        data=table_rows,
-                        source_page=1,
+            doc_obj = getattr(conversion, "document", conversion)
+            tables = self._extract_structured_docling_tables(doc_obj)
+            if not tables:
+                markdown = self._extract_text_like(doc_obj)
+                if not markdown:
+                    markdown = self._extract_text_like(conversion)
+                parsed = self._parse_markdown_tables(markdown)
+                for idx, table_rows in enumerate(parsed, start=1):
+                    if not table_rows or max((len(r) for r in table_rows), default=0) <= 1:
+                        failures.add(TABLE_FAIL_DEGENERATE_SHAPE)
+                        continue
+                    tables.append(
+                        TableData(
+                            table_id=f"T{idx}",
+                            caption=f"Docling table {idx}",
+                            data=table_rows,
+                            source_page=1,
+                        )
                     )
-                )
         except Exception as exc:
             logger.warning("Docling table extraction failed for %s: %s", path, exc)
             failures.add(TABLE_FAIL_LOW_ACCURACY)
@@ -622,12 +799,27 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                 return fallback_result
             failures.update(fallback_result.diagnostics.table_failure_taxonomy or [])
             failures.add(TABLE_FAIL_NO_TABLE_FOUND)
+            diagnostics = TableExtractionDiagnostics(
+                table_extraction_pass="pass1",
+                table_failure_taxonomy=sorted(failures),
+                fallback_used=False,
+                fallback_pages=[],
+            )
+            return TableExtractionResult(tables=tables, diagnostics=diagnostics)
+
+        fallback_pages: List[int] = []
+        try:
+            fallback_result = super().extract_tables(path)
+            if fallback_result.tables:
+                tables, fallback_pages = self._merge_meaningful_fallback_tables(tables, fallback_result.tables)
+        except Exception as exc:
+            logger.warning("Docling table merge fallback failed for %s: %s", path, exc)
 
         diagnostics = TableExtractionDiagnostics(
             table_extraction_pass="pass1",
             table_failure_taxonomy=sorted(failures),
-            fallback_used=False,
-            fallback_pages=[],
+            fallback_used=bool(fallback_pages),
+            fallback_pages=fallback_pages,
         )
         return TableExtractionResult(tables=tables, diagnostics=diagnostics)
 

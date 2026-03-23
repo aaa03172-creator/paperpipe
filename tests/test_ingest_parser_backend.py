@@ -3,8 +3,13 @@ from pathlib import Path
 import fitz
 
 from src.agents.ingest_agent import IngestAgent
-from src.ingest.parser_backends import DoclingParserBackend, TableExtractionDiagnostics, TableExtractionResult
-from src.schemas.agent_artifacts import TableData
+from src.ingest.parser_backends import (
+    DoclingParserBackend,
+    FitzPdfPlumberBackend,
+    TableExtractionDiagnostics,
+    TableExtractionResult,
+)
+from src.schemas.agent_artifacts import Section, TableData
 
 
 def _make_pdf(path: Path, text: str | None = None) -> None:
@@ -131,6 +136,220 @@ def test_docling_backend_uses_conversion_when_available(monkeypatch) -> None:
     table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
     assert len(table_result.tables) == 1
     assert table_result.tables[0].data[0] == ["ColA", "ColB"]
+
+
+def test_docling_backend_prefers_structured_tables_when_available(monkeypatch) -> None:
+    class FakeRow:
+        def __init__(self, values):
+            self._values = list(values)
+
+        def tolist(self):
+            return list(self._values)
+
+    class FakeDataFrame:
+        columns = ["", "ColA", "ColB"]
+
+        def iterrows(self):
+            yield 0, FakeRow(["Row1", "1", "2"])
+            yield 1, FakeRow(["Row2", "3", "4"])
+
+    class FakeTable:
+        prov = [type("Prov", (), {"page_no": 7})()]
+
+        def export_to_dataframe(self, _doc):
+            return FakeDataFrame()
+
+        def caption_text(self, _doc):
+            return "Structured caption"
+
+    class FakeConversionDocument:
+        pages = [type("P", (), {"text": "Docling text page 1"})()]
+        tables = [FakeTable()]
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type("Meta", (), {"title": "x", "authors": [], "year": 0, "journal": "Unknown"})(),
+    )
+
+    backend = DoclingParserBackend()
+    table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
+
+    assert len(table_result.tables) == 1
+    assert table_result.tables[0].caption == "Structured caption"
+    assert table_result.tables[0].source_page == 7
+    assert table_result.tables[0].data[0] == ["", "ColA", "ColB"]
+    assert table_result.tables[0].data[1] == ["Row1", "1", "2"]
+
+
+def test_docling_backend_builds_page_sections_from_dict_pages(monkeypatch) -> None:
+    class FakeItem:
+        def __init__(self, text: str, page_no: int):
+            self.text = text
+            self.prov = [type("Prov", (), {"page_no": page_no})()]
+
+    class FakeConversionDocument:
+        pages = {1: object(), 2: object()}
+
+        def iterate_items(self):
+            yield FakeItem("Page one title", 1), 0
+            yield FakeItem("Page one body", 1), 0
+            yield FakeItem("Page two title", 2), 0
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type("Meta", (), {"title": "x", "authors": [], "year": 0, "journal": "Unknown"})(),
+    )
+
+    backend = DoclingParserBackend()
+    meta, sections, text_len = backend.extract_text_and_meta(Path("/tmp/unused.pdf"))
+
+    assert meta.title == "x"
+    assert len(sections) == 2
+    assert sections[0].name == "page_1"
+    assert sections[0].page_start == 1
+    assert "Page one title" in sections[0].text
+    assert sections[1].name == "page_2"
+    assert sections[1].page_start == 2
+    assert "Page two title" in sections[1].text
+    assert text_len == sum(len(section.text) for section in sections)
+
+
+def test_docling_backend_merges_meaningful_fallback_pages(monkeypatch) -> None:
+    class FakeRow:
+        def __init__(self, values):
+            self._values = list(values)
+
+        def tolist(self):
+            return list(self._values)
+
+    class FakeDataFrame:
+        columns = ["", "ColA", "ColB"]
+
+        def iterrows(self):
+            yield 0, FakeRow(["Row1", "1", "2"])
+            yield 1, FakeRow(["Row2", "3", "4"])
+
+    class FakeTable:
+        prov = [type("Prov", (), {"page_no": 2})()]
+
+        def export_to_dataframe(self, _doc):
+            return FakeDataFrame()
+
+        def caption_text(self, _doc):
+            return "Structured caption"
+
+    class FakeConversionDocument:
+        pages = [type("P", (), {"text": "Docling text page 1"})()]
+        tables = [FakeTable()]
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type("Meta", (), {"title": "x", "authors": [], "year": 0, "journal": "Unknown"})(),
+    )
+    monkeypatch.setattr(
+        FitzPdfPlumberBackend,
+        "extract_tables",
+        lambda self, _path: TableExtractionResult(
+            tables=[
+                TableData(
+                    table_id="F1",
+                    caption="Table found on page 4",
+                    data=[["A", "B", "C"], ["1", "2", "3"], ["4", "5", "6"]],
+                    source_page=4,
+                ),
+                TableData(
+                    table_id="F2",
+                    caption="Degenerate fragment on page 5",
+                    data=[["fragment"]],
+                    source_page=5,
+                ),
+            ],
+            diagnostics=TableExtractionDiagnostics(
+                table_extraction_pass="pass1",
+                table_failure_taxonomy=[],
+                fallback_used=False,
+                fallback_pages=[],
+            ),
+        ),
+    )
+
+    backend = DoclingParserBackend()
+    table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
+
+    assert [table.source_page for table in table_result.tables] == [2, 4]
+    assert table_result.tables[1].caption == "Table found on page 4"
+    assert table_result.diagnostics.fallback_used is True
+    assert table_result.diagnostics.fallback_pages == [4]
+
+
+def test_docling_backend_falls_back_to_fitz_for_doi_when_conversion_text_misses_it(monkeypatch) -> None:
+    class FakeConversionDocument:
+        text = "Converted content without front-matter DOI."
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type(
+            "Meta",
+            (),
+            {"title": "x", "authors": [], "year": 0, "journal": "Unknown", "doi": None},
+        )(),
+    )
+    monkeypatch.setattr(
+        FitzPdfPlumberBackend,
+        "extract_text_and_meta",
+        lambda self, _path: (
+            type(
+                "Meta",
+                (),
+                {"title": "x", "authors": [], "year": 0, "journal": "Unknown", "doi": "10.1002/alz.12787"},
+            )(),
+            [Section(name="page_1", text="DOI: 10.1002/alz.12787", char_start=0, char_end=22, page_start=1, page_end=1)],
+            22,
+        ),
+    )
+
+    backend = DoclingParserBackend()
+    meta, sections, text_len = backend.extract_text_and_meta(Path("/tmp/unused.pdf"))
+
+    assert meta.doi == "10.1002/alz.12787"
+    assert len(sections) == 1
+    assert text_len > 0
 
 
 def test_ingest_records_table_failure_taxonomy_for_no_table_pdf(tmp_path: Path) -> None:
