@@ -1,5 +1,4 @@
 import sqlite3
-from pathlib import Path
 
 import src.db_utils as db_utils
 import src.downloads_watcher as downloads_watcher

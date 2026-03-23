@@ -1,13 +1,11 @@
 import shutil
-import time
-import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Import actual modules to test
 from src.watcher import process_local_pdf
 from src.config import AppConfig, PathsConfig, LLMConfig, LLMFeatures, FeatureConfig, SearchConfig, SlotConfig, SystemConfig
-from src.schemas import Paper, PaperStatus
+from src.schemas import Paper
 
 def test_full_integration():
     # 1. Setup Test Environment
@@ -81,19 +79,23 @@ def test_full_integration():
     with patch("src.watcher.get_llm_provider", return_value=mock_llm):
         with patch("src.watcher.extract_doi_from_pdf", return_value="10.1234/integration.test"):
             with patch("src.watcher.fetch_pubmed") as mock_fetch:
-                mock_fetch.return_value = [Paper(
-                    id="10.1234/integration.test",
-                    doi="10.1234/integration.test",
-                    title="Integration Test Paper",
-                    authors=["Tester A", "Bot B"],
-                    published="2025-01-01",
-                    source="Test",
-                    summary="This is a summary of the integration test paper.",
-                    link="http://test.com/paper.pdf"
-                )]
-                
-                # EXECUTE
-                process_local_pdf(pdf_path, mock_config)
+                with patch("src.watcher.save_paper_state") as mock_save_state:
+                    mock_fetch.return_value = [Paper(
+                        id="10.1234/integration.test",
+                        doi="10.1234/integration.test",
+                        title="Integration Test Paper",
+                        authors=["Tester A", "Bot B"],
+                        published="2025-01-01",
+                        source="Test",
+                        summary="This is a summary of the integration test paper.",
+                        link="http://test.com/paper.pdf"
+                    )]
+                    
+                    # EXECUTE
+                    process_local_pdf(pdf_path, mock_config)
+                    assert mock_save_state.called
+                    _, save_kwargs = mock_save_state.call_args
+                    assert save_kwargs["issues_state"] == "clear"
 
     # 5. Verify Outputs
     

@@ -1,6 +1,5 @@
 import sys
 import types
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 stub_llm_provider = types.ModuleType("src.llm_provider")

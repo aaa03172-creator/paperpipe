@@ -46,6 +46,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
                 title TEXT,
                 source TEXT,
                 status TEXT,
+                issues_state TEXT,
                 processed_date TEXT,
                 processed_at TIMESTAMP,
                 updated_at TIMESTAMP,
@@ -74,6 +75,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
             feedback_json='{"decision":"APPROVED"}',
             download_attempts=attempts,
             status="APPROVED",
+            issues_state="clear",
         )
 
         conn = sqlite3.connect(db_utils.DB_PATH)
@@ -85,6 +87,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
         assert row is not None
         assert "download_attempts" in cols
         assert row["status"] == "APPROVED"
+        assert row["issues_state"] == "clear"
         assert row["pdf_path"] == "/tmp/example.pdf"
         assert row["feedback_json"] == '{"decision":"APPROVED"}'
         parsed = json.loads(row["download_attempts"])
