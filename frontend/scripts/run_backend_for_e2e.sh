@@ -21,6 +21,7 @@ E2E_PDF_STORAGE_REL="./frontend/.e2e-backend-runtime/storage/pdfs"
 E2E_CHART_PACKS_REL="./frontend/.e2e-backend-runtime/storage/chart_packs"
 E2E_METHOD_COMPARISONS_REL="./frontend/.e2e-backend-runtime/storage/method_comparisons"
 E2E_IMAGE_EVIDENCE_REL="./frontend/.e2e-backend-runtime/storage/image_evidence"
+E2E_PROTOCOL_CARDS_REL="./frontend/.e2e-backend-runtime/storage/protocol_cards"
 
 rm -rf "${E2E_RUNTIME_DIR}"
 mkdir -p "${E2E_RUNTIME_DIR}"
@@ -30,6 +31,7 @@ export PAPERPIPE_SKILLS_POLICY_PATH="${E2E_SKILLS_POLICY_PATH}"
 export PAPERPIPE_CHART_PACKS_DIR="${E2E_CHART_PACKS_REL}"
 export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_REL}"
 export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_REL}"
+export PAPERPIPE_PROTOCOL_CARDS_DIR="${E2E_PROTOCOL_CARDS_REL}"
 
 cat > "${E2E_CONFIG_PATH}" <<YAML
 system:

@@ -90,6 +90,31 @@ export function TriageDashboard() {
     });
   }, [papers, searchQuery]);
 
+  const triageSummary = useMemo(() => {
+    const counts = {
+      repair: 0,
+      review: 0,
+      ready: 0,
+    };
+
+    for (const paper of filteredPapers) {
+      if (paper.ops_summary?.state === "action_needed") {
+        counts.repair += 1;
+        continue;
+      }
+
+      const contentReview = getContentReviewSummary(paper);
+      if (contentReview.state !== "clear") {
+        counts.review += 1;
+        continue;
+      }
+
+      counts.ready += 1;
+    }
+
+    return counts;
+  }, [filteredPapers]);
+
   function moveToWorkbench(paperId: string, options?: { focusIssues?: boolean; origin?: string }) {
     logClientUserAction({
       paper_id: paperId,
@@ -120,6 +145,35 @@ export function TriageDashboard() {
       return "border-[var(--pp-border)] bg-[var(--pp-surface-raised)] text-[var(--pp-text-dim)]";
     }
     return "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-secondary)]";
+  }
+
+  function getPrimaryNextAction(paper: PaperSummary): { label: string; className: string } {
+    const contentReview = getContentReviewSummary(paper);
+    if (paper.ops_summary?.recommended_action === "repair_stats") {
+      return {
+        label: "Repair stats",
+        className: "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]",
+      };
+    }
+
+    if (paper.ops_summary?.recommended_action === "open_workbench") {
+      return {
+        label: "Open workbench",
+        className: "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]",
+      };
+    }
+
+    if (contentReview.state === "flagged") {
+      return {
+        label: contentReview.reviewLabel,
+        className: "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]",
+      };
+    }
+
+    return {
+      label: "Open workbench",
+      className: "border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] text-[var(--pp-accent-text)]",
+    };
   }
 
   function formatUpdatedAt(updatedAt?: string): string {
@@ -229,9 +283,52 @@ export function TriageDashboard() {
             <p className="text-sm text-[var(--pp-text-dim)]">Loading triage queue...</p>
           ) : (
             <div className="space-y-3">
+              <div
+                data-testid="triage-summary-strip"
+                className="grid gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-2 sm:grid-cols-3"
+              >
+                <div
+                  data-testid="triage-summary-repair"
+                  className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2.5"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--pp-warning-text)]">
+                    Needs repair
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">{triageSummary.repair}</p>
+                  <p className="mt-1 text-xs text-[var(--pp-warning-text)]">Stats or note fixes block review.</p>
+                </div>
+
+                <div
+                  data-testid="triage-summary-review"
+                  className="rounded-md border border-[var(--pp-status-processing-border)] bg-[var(--pp-status-processing-bg)] px-3 py-2.5"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--pp-status-processing-text)]">
+                    Needs review
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">{triageSummary.review}</p>
+                  <p className="mt-1 text-xs text-[var(--pp-status-processing-text)]">
+                    Content QA flags or missing review still need attention.
+                  </p>
+                </div>
+
+                <div
+                  data-testid="triage-summary-ready"
+                  className="rounded-md border border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] px-3 py-2.5"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--pp-status-completed-text)]">
+                    Ready
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">{triageSummary.ready}</p>
+                  <p className="mt-1 text-xs text-[var(--pp-status-completed-text)]">
+                    No repair or review blockers are visible in triage.
+                  </p>
+                </div>
+              </div>
+
               <div className="space-y-2 md:hidden">
                 {filteredPapers.map((paper) => {
                   const contentReview = getContentReviewSummary(paper);
+                  const primaryAction = getPrimaryNextAction(paper);
                   return (
                     <article key={paper.paper_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -265,6 +362,17 @@ export function TriageDashboard() {
                         className="mt-1"
                         compact
                       />
+                      <div className="mt-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-2.5 py-2">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--pp-text-dim)]">
+                          Primary next action
+                        </p>
+                        <p
+                          data-testid="triage-primary-action"
+                          className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs ${primaryAction.className}`}
+                        >
+                          {primaryAction.label}
+                        </p>
+                      </div>
                       <div className="mt-3 grid grid-cols-1 gap-2">
                         <button
                           type="button"
@@ -307,6 +415,7 @@ export function TriageDashboard() {
                   <tbody>
                     {filteredPapers.map((paper) => {
                       const contentReview = getContentReviewSummary(paper);
+                      const primaryAction = getPrimaryNextAction(paper);
                       return (
                       <tr
                         key={paper.paper_id}
@@ -357,17 +466,30 @@ export function TriageDashboard() {
                           {formatUpdatedAt(paper.updated_at)}
                         </td>
                         <td className="border-b border-[var(--pp-border)] px-3 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              moveToWorkbench(paper.paper_id, { origin: "triage_table_open" });
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--pp-accent-text)]"
-                          >
-                            Open Workbench
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="grid justify-items-end gap-2">
+                            <div className="text-right">
+                              <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--pp-text-dim)]">
+                                Primary next action
+                              </p>
+                              <p
+                                data-testid="triage-primary-action"
+                                className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs ${primaryAction.className}`}
+                              >
+                                {primaryAction.label}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                moveToWorkbench(paper.paper_id, { origin: "triage_table_open" });
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1.5 text-xs font-medium text-[var(--pp-accent-text)]"
+                            >
+                              Open Workbench
+                              <ArrowRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       );
