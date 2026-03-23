@@ -131,6 +131,8 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
         "ocr_applied": False,
         "table_extraction_pass": None,
         "table_failure_taxonomy": [],
+        "table_fallback_used": False,
+        "table_fallback_pages": [],
     }
 
     if not pdf_path.exists():
@@ -175,6 +177,8 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
     row["ocr_applied"] = bool(artifact.metadata.ocr_applied)
     row["table_extraction_pass"] = str(ingest.last_table_extraction_meta.get("table_extraction_pass") or "")
     row["table_failure_taxonomy"] = list(ingest.last_table_extraction_meta.get("table_failure_taxonomy") or [])
+    row["table_fallback_used"] = bool(ingest.last_table_extraction_meta.get("fallback_used"))
+    row["table_fallback_pages"] = list(ingest.last_table_extraction_meta.get("fallback_pages") or [])
     return row
 
 
@@ -192,6 +196,7 @@ def _backend_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "docs_with_meaningful_tables_count": sum(
             1 for row in success_rows if int(row.get("meaningful_table_count") or 0) > 0
         ),
+        "docs_with_table_fallback_count": sum(1 for row in success_rows if bool(row.get("table_fallback_used"))),
         "docs_with_text_count": sum(1 for row in success_rows if int(row.get("text_char_count") or 0) > 0),
         "avg_text_char_count": mean(text_counts) if text_counts else 0.0,
         "table_failure_taxonomy_counts": _taxonomy_counts(rows),
@@ -231,6 +236,7 @@ def compare_backend_rows(
     meaningful_table_gain_docs: list[dict[str, Any]] = []
     raw_table_loss_docs: list[dict[str, Any]] = []
     raw_table_gain_docs: list[dict[str, Any]] = []
+    table_fallback_docs: list[dict[str, Any]] = []
     doi_gain_docs: list[dict[str, Any]] = []
     low_text_ratio_docs: list[dict[str, Any]] = []
 
@@ -281,6 +287,16 @@ def compare_backend_rows(
             doi_loss_docs.append({"pdf_path": pdf_path, "baseline_doi": baseline.get("doi")})
         if candidate_has_doi and not baseline_has_doi:
             doi_gain_docs.append({"pdf_path": pdf_path, "candidate_doi": candidate.get("doi")})
+
+        if bool(candidate.get("table_fallback_used")):
+            table_fallback_docs.append(
+                {
+                    "pdf_path": pdf_path,
+                    "fallback_pages": list(candidate.get("table_fallback_pages") or []),
+                    "candidate_table_pages": list(candidate.get("table_pages") or []),
+                    "candidate_meaningful_table_count": int(candidate.get("meaningful_table_count") or 0),
+                }
+            )
 
         baseline_table_count = int(baseline.get("table_count") or 0)
         candidate_table_count = int(candidate.get("table_count") or 0)
@@ -345,6 +361,7 @@ def compare_backend_rows(
         "empty_text_increase_docs": empty_text_increase_docs,
         "doi_loss_docs": doi_loss_docs,
         "doi_gain_docs": doi_gain_docs,
+        "table_fallback_docs": table_fallback_docs,
         "meaningful_table_loss_docs": meaningful_table_loss_docs,
         "meaningful_table_gain_docs": meaningful_table_gain_docs,
         "raw_table_loss_docs": raw_table_loss_docs,

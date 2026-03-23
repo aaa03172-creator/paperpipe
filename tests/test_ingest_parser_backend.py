@@ -190,6 +190,125 @@ def test_docling_backend_prefers_structured_tables_when_available(monkeypatch) -
     assert table_result.tables[0].data[1] == ["Row1", "1", "2"]
 
 
+def test_docling_backend_builds_page_sections_from_dict_pages(monkeypatch) -> None:
+    class FakeItem:
+        def __init__(self, text: str, page_no: int):
+            self.text = text
+            self.prov = [type("Prov", (), {"page_no": page_no})()]
+
+    class FakeConversionDocument:
+        pages = {1: object(), 2: object()}
+
+        def iterate_items(self):
+            yield FakeItem("Page one title", 1), 0
+            yield FakeItem("Page one body", 1), 0
+            yield FakeItem("Page two title", 2), 0
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type("Meta", (), {"title": "x", "authors": [], "year": 0, "journal": "Unknown"})(),
+    )
+
+    backend = DoclingParserBackend()
+    meta, sections, text_len = backend.extract_text_and_meta(Path("/tmp/unused.pdf"))
+
+    assert meta.title == "x"
+    assert len(sections) == 2
+    assert sections[0].name == "page_1"
+    assert sections[0].page_start == 1
+    assert "Page one title" in sections[0].text
+    assert sections[1].name == "page_2"
+    assert sections[1].page_start == 2
+    assert "Page two title" in sections[1].text
+    assert text_len == sum(len(section.text) for section in sections)
+
+
+def test_docling_backend_merges_meaningful_fallback_pages(monkeypatch) -> None:
+    class FakeRow:
+        def __init__(self, values):
+            self._values = list(values)
+
+        def tolist(self):
+            return list(self._values)
+
+    class FakeDataFrame:
+        columns = ["", "ColA", "ColB"]
+
+        def iterrows(self):
+            yield 0, FakeRow(["Row1", "1", "2"])
+            yield 1, FakeRow(["Row2", "3", "4"])
+
+    class FakeTable:
+        prov = [type("Prov", (), {"page_no": 2})()]
+
+        def export_to_dataframe(self, _doc):
+            return FakeDataFrame()
+
+        def caption_text(self, _doc):
+            return "Structured caption"
+
+    class FakeConversionDocument:
+        pages = [type("P", (), {"text": "Docling text page 1"})()]
+        tables = [FakeTable()]
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        DoclingParserBackend,
+        "_read_pdf_metadata",
+        lambda self, _path: type("Meta", (), {"title": "x", "authors": [], "year": 0, "journal": "Unknown"})(),
+    )
+    monkeypatch.setattr(
+        FitzPdfPlumberBackend,
+        "extract_tables",
+        lambda self, _path: TableExtractionResult(
+            tables=[
+                TableData(
+                    table_id="F1",
+                    caption="Table found on page 4",
+                    data=[["A", "B", "C"], ["1", "2", "3"], ["4", "5", "6"]],
+                    source_page=4,
+                ),
+                TableData(
+                    table_id="F2",
+                    caption="Degenerate fragment on page 5",
+                    data=[["fragment"]],
+                    source_page=5,
+                ),
+            ],
+            diagnostics=TableExtractionDiagnostics(
+                table_extraction_pass="pass1",
+                table_failure_taxonomy=[],
+                fallback_used=False,
+                fallback_pages=[],
+            ),
+        ),
+    )
+
+    backend = DoclingParserBackend()
+    table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
+
+    assert [table.source_page for table in table_result.tables] == [2, 4]
+    assert table_result.tables[1].caption == "Table found on page 4"
+    assert table_result.diagnostics.fallback_used is True
+    assert table_result.diagnostics.fallback_pages == [4]
+
+
 def test_docling_backend_falls_back_to_fitz_for_doi_when_conversion_text_misses_it(monkeypatch) -> None:
     class FakeConversionDocument:
         text = "Converted content without front-matter DOI."
