@@ -32,8 +32,6 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
 
 def get_template_study(paper: Dict[str, Any]) -> str:
     """기전/방법론 연구용 노트 템플릿"""
-    tags_str = " ".join(paper.get('tags', []))
-    
     one_liner_section = ""
     if paper.get('ai_one_liner'):
         one_liner_section = f"## 🧠 One-Liner\n> {paper['ai_one_liner']}\n"
@@ -230,14 +228,6 @@ def _extract_intervention_string(td: Dict[str, Any]) -> str:
         else:
             intervention_str = "Not detailed"
     return intervention_str
-
-    # [인덱스 2] 임상 추출 논문만 누적 (mct_mci_trials.csv)
-    if paper.get('slot', '').lower() == 'clinical':
-        path_clinical = config.paths.obsidian_vault / config.paths.index_clinical
-        path_clinical.parent.mkdir(parents=True, exist_ok=True)
-        update_csv_index(paper, path_clinical, is_clinical=True)
-    
-    return file_path
 
 def find_related_papers(current_paper: Dict[str, Any], config) -> str:
     """
