@@ -265,14 +265,30 @@ const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
         text: "② Limitations include sparse tables in older PDFs.",
         confidence: "medium",
       },
+      {
+        claim_id: "claim-3",
+        text: "③ Older papers may lack clear PDF headers, so text fallback should still locate the limitation sentence.",
+        confidence: "medium",
+      },
     ],
     highlights: [
       { claim_id: "claim-1", page: 0, top: 0.30, left: 0.13, width: 0.52, height: 0.22, source: "bbox" },
       { claim_id: "claim-2", page: 1, top: 0.52, left: 0.10, width: 0.70, height: 0.13, source: "bbox" },
+      {
+        claim_id: "claim-3",
+        page: 0,
+        top: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        quote: "Limitations include the reliance on clear PDF headers, which older papers may lack.",
+        source: "text_match",
+      },
     ],
     agent_plan: [
       "Validate page-index conversion from zero-based artifacts.",
       "Validate normalized bbox conversion from 0~1 unit values.",
+      "Validate text-match fallback on the same normalized fixture.",
     ],
     sandbox_code: "# Sandbox Execution (read-only)\n# fixture: normalized bbox",
     verdict: {
