@@ -17,15 +17,6 @@ Canonical: `docs/Pending_PR_Queue.md`
   - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
   - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
 
-- Title: `protocol-knowledge bounded pilot`
-- Priority: Medium
-- Purpose: Keep the newly implemented Protocol Knowledge lane as a read-first bounded pilot until repeated real usage proves it should become an active bounded spec rather than remain an archive-backed evidence-linked review surface.
-- References:
-  - `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
-  - `backend/routers/protocol_cards.py`
-  - `frontend/src/app/pages/ProtocolCardPage.tsx`
-  - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
-
 ## PR-DOC-MethodComparison-v1 (Completed in workspace)
 - Title: `docs: promote Method Comparison to active bounded spec`
 - Priority: High
@@ -101,19 +92,51 @@ Canonical: `docs/Pending_PR_Queue.md`
   - [done] added `/protocol-cards` and `/protocol-cards/{protocolId}` routes
   - [done] added `frontend/src/app/pages/ProtocolCardPage.tsx` with search-first index and version-first detail review
   - [done] added mock Playwright coverage for index/detail consistency and note handoff
+  - [done] added real-backend Playwright coverage with isolated `protocol_cards` storage and note handoff verification
+  - [done] added backend visual Playwright coverage for `/protocol-cards` index/detail layouts
 - References:
   - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
   - `frontend/src/app/pages/ProtocolCardPage.tsx`
   - `frontend/e2e/protocol-card.mock.spec.ts`
+  - `frontend/e2e/backend.spec.ts`
+  - `frontend/e2e/visual-backend.backend.spec.ts`
+  - `frontend/scripts/run_backend_for_e2e.sh`
   - `frontend/src/app/lib/api.ts`
   - `frontend/src/app/lib/mock.ts`
 
-## Future RFC Follow-Ups (Not Approved)
-- Title: `future/project-memory-layer`
-- Priority: Low
-- Purpose: Explore a bounded project memory/workspace layer only after an explicit product decision that this should become first-class.
-- Reference: `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+## PR-DOC-ProtocolKnowledge-v1 (Completed in workspace)
+- Title: `docs: promote Protocol Knowledge to active bounded spec`
+- Priority: Medium
+- Purpose: Freeze the implemented Protocol Knowledge lane as an active bounded spec because the repo now has schema/store/API/viewer slices plus real-backend and visual verification for a version-first, evidence-linked protocol reference family.
+- Scope:
+  - [done] added `docs/PROTOCOL_KNOWLEDGE.md` as the active bounded spec
+  - [done] aligned `docs/README.md` with the promoted bounded spec
+  - [done] updated `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md` to include Protocol Knowledge in the current-state recommendation
+  - [done] removed `protocol-knowledge bounded pilot` from the remaining pilot queue
+- References:
+  - `docs/PROTOCOL_KNOWLEDGE.md`
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+  - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
 
+## PR-BE-ProjectMemory-FileStore-v0 (Completed in workspace)
+- Title: `backend: add Project Memory schema/store v0`
+- Priority: Medium
+- Purpose: Start the bounded Project Memory lane as a file-backed artifact family for project-scoped questions, judgments, TODOs, decisions, and uncertainties without opening a `/projects` platform or changing Research DNA ownership.
+- Scope:
+  - [done] added `src/schemas/project_memory.py` with `ProjectMemoryWorkspace`, `ProjectMemoryItem`, and typed entity links
+  - [done] added `project_memory_root()` to `src/services/runtime_paths.py`
+  - [done] added `src/project_memory/store.py` with `project.json` and `memory.jsonl` bundle storage
+  - [done] added focused regression tests for schema, store, and runtime-path behavior
+- References:
+  - `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
+  - `src/schemas/project_memory.py`
+  - `src/project_memory/store.py`
+  - `tests/test_project_memory_schema.py`
+  - `tests/test_project_memory_store.py`
+  - `tests/test_runtime_paths_project_memory.py`
+
+## Future RFC Follow-Ups (Not Approved)
 - Title: `future/local-backup-restore-semantics`
 - Priority: Low
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.

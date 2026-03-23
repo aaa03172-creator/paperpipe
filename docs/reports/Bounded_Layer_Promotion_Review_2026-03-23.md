@@ -16,6 +16,7 @@ This is a current-state review, not a replacement runtime spec.
 Reviewed lanes:
 - `method_comparison`
 - `chart_pack` (`research-data-visualization` implementation lane)
+- `protocol_knowledge`
 - `image_evidence`
 
 Out of scope:
@@ -29,6 +30,7 @@ Out of scope:
 | --- | --- | --- | --- | --- | --- |
 | Method Comparison | Implemented | Implemented | Strong | Highest | Promoted to active spec |
 | Chart Pack | Implemented | Implemented | Strong | Medium-high | Promoted to active spec |
+| Protocol Knowledge | Implemented | Implemented | Strong | Medium-high | Promoted to active spec |
 | Image Evidence | Implemented | Implemented | Strong | Medium | Keep as bounded pilot / experimental sidecar |
 
 ## Applied status
@@ -36,6 +38,7 @@ Out of scope:
 As of 2026-03-23, the recommendation in this review has been applied as follows:
 - `Method Comparison` is now an active bounded spec at `docs/METHOD_COMPARISON.md`
 - `Chart Pack` is now an active bounded spec at `docs/CHART_PACK.md`
+- `Protocol Knowledge` is now an active bounded spec at `docs/PROTOCOL_KNOWLEDGE.md`
 - `Image Evidence` remains a bounded pilot and is not promoted to active spec in this step
 
 ## Evidence snapshot
@@ -112,6 +115,30 @@ Primary references:
 - `docs/reports/Image_Evidence_Backend_Core_Staging_Prep_2026-03-22.md`
 - `.codex/work/2026-03-22_image-evidence-viewer/progress.md`
 
+### 4. Protocol Knowledge
+
+Current status:
+- file-backed schema/store/service/renderer implemented
+- thin FastAPI surface implemented
+- read-only frontend inspector implemented
+- mock + real backend Playwright coverage implemented
+- backend visual regression implemented
+
+Current strengths:
+- clean separation between protocol identity and version snapshots
+- direct fit with paper-linked note review and downstream knowledge reuse
+- reuses the current evidence locator family instead of inventing a protocol-specific provenance layer
+
+Current limits:
+- still read-first and intentionally non-authoring
+- append-only version write and activation workflows remain deferred
+- should not be mistaken for a protocol execution runtime or generalized protocol platform
+
+Primary references:
+- `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
+- `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
+- `.codex/work/2026-03-23_protocol-knowledge-v0/progress.md`
+
 ## Recommendation
 
 ### Promote next: Method Comparison
@@ -125,7 +152,7 @@ Reason:
 Recommended next step:
 - completed on 2026-03-23 via `docs/METHOD_COMPARISON.md`
 
-### Keep as bounded pilot: Chart Pack
+### Promote: Chart Pack
 
 Reason:
 - the runtime slice is real and useful
@@ -146,11 +173,21 @@ Recommended next step:
 - keep it as a hardened sidecar lane
 - only consider active bounded-spec promotion when repeated real usage proves it is part of the core review loop rather than an adjacent specialist tool
 
+### Promote: Protocol Knowledge
+
+Reason:
+- it now has implemented backend/API/viewer slices plus real-backend and visual coverage
+- it fits the current knowledge-review loop more directly than `Image Evidence`
+- its protocol identity/version split is clear enough to freeze without opening authoring or execution semantics
+
+Recommended next step:
+- completed on 2026-03-23 via `docs/PROTOCOL_KNOWLEDGE.md`
+
 ## Queue impact
 
 Queue order should now read:
 1. `image-evidence` bounded pilot / experimental sidecar
-2. remaining future RFCs: `protocol-knowledge`, `project-memory`, `local-backup-restore`
+2. remaining future RFCs: `project-memory`, `local-backup-restore`
 
 ## Non-recommendations
 
@@ -162,11 +199,12 @@ Do not do these next:
 
 ## Conclusion
 
-The current repo is no longer at the stage where these lanes are just ideas. All three have real implementations. But they are not equally central.
+The current repo is no longer at the stage where these lanes are just ideas. All four have real implementations. But they are not equally central.
 
 The current result is:
 - `Method Comparison` promoted
 - `Chart Pack` promoted
+- `Protocol Knowledge` promoted
 - `Image Evidence` intentionally held as a bounded pilot
 
 The next move is not to promote `Image Evidence` by momentum alone. It should stay a hardened sidecar until real usage proves it belongs in the core review loop.

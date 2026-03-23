@@ -13,6 +13,9 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
 - `docs/working-files.md`
   - Lightweight task-local planning workflow for long multi-step work.
   - Keeps ephemeral `plan.md` / `findings.md` / `progress.md` under `.codex/work/` and promotes durable outcomes into canonical docs.
+- `docs/ARCHITECTURE_REFOCUS_EXECUTION_GUIDE.md`
+  - Repo-grounded workflow guide for architecture/ownership/linkage/priority refocus work.
+  - Use this when a prompt or proposal risks widening scope beyond the current paper/job/artifact runtime.
 - `docs/SKILLS_PACKAGING_GUIDE.md`
   - PaperPipe-local authoring and packaging guidance for future skills under `.codex/skills/`.
   - Uses external skill repositories as design reference only, not as runtime dependency.
@@ -51,6 +54,8 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
   - Evidence-linked paper-centric comparison artifact spec for saved cross-paper method snapshots.
 - `docs/CHART_PACK.md`
   - Deterministic chart artifact spec for file-backed visualization bundles built from saved structured artifacts.
+- `docs/PROTOCOL_KNOWLEDGE.md`
+  - Versioned, evidence-linked protocol reference spec for saved protocol-card bundles and the read-first inspector.
 - `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
   - Indexer policy source of truth.
 - `docs/document_artifact_v2.md`
