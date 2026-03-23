@@ -17,6 +17,8 @@ from src.contracts.document_artifact_v2 import (
     SpanV2,
 )
 from src.schemas.agent_artifacts import (
+    DocumentChunk,
+    EvidenceSpan,
     IndexArtifact,
     ClaimSet,
     ScientificClaim,
@@ -99,7 +101,14 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
                     doc_id=doc.document_id,
                     vector_store_id="smoke",
                     chunk_count=1,
-                    chunks=[],
+                    chunks=[
+                        DocumentChunk(
+                            chunk_id="p01_c01",
+                            text="smoke claim supporting quote",
+                            section_name="page_1",
+                            page_hint=1,
+                        )
+                    ],
                 )
 
         class FakeReaderAgent:
@@ -112,6 +121,14 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
                             type="efficacy",
                             statement="smoke claim",
                             confidence=0.9,
+                            evidence_spans=[
+                                EvidenceSpan(
+                                    quote="supporting quote",
+                                    raw_text="supporting quote",
+                                    rationale="direct quote",
+                                    chunk_id="chunk_legacy",
+                                )
+                            ],
                         )
                     ],
                 )
@@ -162,10 +179,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "document_artifact.json").exists()
         assert (artifact_dir / "index_artifact.json").exists()
         assert (artifact_dir / "claimset.json").exists()
+        assert (artifact_dir / "claimset.resolved.json").exists()
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
         assert (artifact_dir / "run_meta.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         assert meta["paper_id"] == paper_id
         assert run_meta["paper_id"] == paper_id
@@ -185,6 +204,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_document_written"] is True
         assert meta["artifact_index_written"] is True
         assert meta["artifact_claimset_written"] is True
+        assert meta["artifact_claimset_resolved_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
         assert meta["claimset_readiness"] == "ready"
@@ -195,6 +215,13 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["claimset_ops_action"] == "none"
         assert meta["claimset_ops_alert"] is False
         assert meta["claimset_ops_note"] == "ready"
+        assert meta["claimset_grounded_span_count"] == 1
+        assert meta["claimset_unresolved_span_count"] == 0
+        span = resolved_claimset["claims"][0]["evidence_spans"][0]
+        assert span["chunk_id"] == "p01_c01"
+        assert span["page"] == 0
+        assert span["grounded"] is True
+        assert span["resolution"] == "OK"
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
@@ -427,5 +454,58 @@ def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
         assert meta["clean_reindex_requested"] is True
         assert meta["clean_reindex_applied"] is True
         assert meta["clean_reindex_removed_chunks"] == 3
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_resolve_note_path_for_paper_falls_back_to_db_obsidian_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        vault_dir = tmp_path / "Vault"
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        note_path = vault_dir / "Inbox" / "paper_db_note_001.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text("# Paper\n", encoding="utf-8")
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT DEFAULT 'NEW',
+                obsidian_path TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, obsidian_path)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "paper_db_note_001",
+                "DB-backed note path",
+                "INDEXED",
+                "Inbox/paper_db_note_001.md",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        config = SimpleNamespace(
+            paths=SimpleNamespace(
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            )
+        )
+
+        resolved = job_runner_mod._resolve_note_path_for_paper(config, "paper_db_note_001")
+        assert resolved == note_path
     finally:
         db_utils.DB_PATH = original_db_path

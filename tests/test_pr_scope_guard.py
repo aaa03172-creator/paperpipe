@@ -32,10 +32,10 @@ def test_classify_scope_allows_code_only():
 
 
 def test_classify_scope_blocks_mixed_scope_for_non_allowed_doc():
-    report = classify_scope(["src/processor.py", "docs/Next_Feature_Kickoff_Checklist_2026-02-19.md"])
+    report = classify_scope(["src/processor.py", "docs/archive/Next_Feature_Kickoff_Checklist_2026-02-19.md"])
     assert report.has_mixed_scope is True
     assert report.is_allowed is False
-    assert report.blocked_doc_files == ["docs/Next_Feature_Kickoff_Checklist_2026-02-19.md"]
+    assert report.blocked_doc_files == ["docs/archive/Next_Feature_Kickoff_Checklist_2026-02-19.md"]
 
 
 def test_classify_scope_allows_mixed_scope_for_queue_sync_doc():
