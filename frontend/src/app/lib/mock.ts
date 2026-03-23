@@ -1,6 +1,8 @@
 import {
   ArtifactBundle,
   EvidenceHighlight,
+  ImageEvidenceListResponse,
+  ImageEvidenceResponse,
   JobEnqueueResponse,
   JobStatus,
   NotebookArtifact,
@@ -562,6 +564,17 @@ export function getMockTimeline(runId: string): TimelineResponse {
   return deepClone(MOCK_TIMELINES[runId] ?? fallback);
 }
 
+export function getMockImageEvidence(imageEvidenceId: string): ImageEvidenceResponse {
+  if (imageEvidenceId === MOCK_SECONDARY_IMAGE_EVIDENCE_ID) {
+    return deepClone(MOCK_SECONDARY_IMAGE_EVIDENCE_RESPONSE);
+  }
+  return deepClone(MOCK_IMAGE_EVIDENCE_RESPONSE);
+}
+
+export function getMockImageEvidenceIndex(): ImageEvidenceListResponse {
+  return deepClone(MOCK_IMAGE_EVIDENCE_LIST_RESPONSE);
+}
+
 export function createMockJob(): JobEnqueueResponse {
   const stamp = Date.now();
   return {
@@ -1067,6 +1080,189 @@ function normalizeNotebookForUi(notebook: NotebookArtifact): NotebookArtifact {
     highlights: normalizedHighlights,
   };
 }
+
+const MOCK_IMAGE_EVIDENCE_ID = "imageev_20260322_mock1234";
+const MOCK_SECONDARY_IMAGE_EVIDENCE_ID = "imageev_20260322_mock5678";
+
+const MOCK_IMAGE_EVIDENCE_RESPONSE: ImageEvidenceResponse = {
+  image_evidence: {
+    image_evidence_id: MOCK_IMAGE_EVIDENCE_ID,
+    title: "Representative hippocampal ROI image",
+    created_at: "2026-03-22T12:00:00Z",
+    paper_id: "paper-2024-glucose",
+    paper_slug: "leeKetogenicIntervention2024",
+    source_ref: {
+      source_kind: "local_file",
+      local_path: "/Users/jangseongjin/mock-data/imaging/hippocampus-alpha.tif",
+      source_label: "Microscope Alpha",
+    },
+    content_format: "image/tiff",
+    checksum: {
+      algorithm: "sha256",
+      value: "5d13cf76594395ffcbb55215b508b1a82032a1cdc9eaeadd2ffa046b6e30e96e",
+    },
+    metadata: {
+      filename: "hippocampus-alpha.tif",
+      source_size_bytes: 248832,
+      width_px: 512,
+      height_px: 512,
+      channel_count: 2,
+      modality: "fluorescence",
+      acquisition_note: "Single representative crop from the hippocampal ROI workflow.",
+      source_created_at: "2026-03-21T09:10:00Z",
+    },
+    view_state_ref: {
+      kind: "view_state_json",
+      path: "view_state.json",
+      mime_type: "application/json",
+    },
+    handoff_ref: {
+      kind: "handoff_json",
+      path: "handoff.json",
+      mime_type: "application/json",
+    },
+    derived_outputs: [
+      {
+        derived_output_id: "thumb_hippocampus",
+        kind: "thumbnail",
+        source_image_evidence_id: MOCK_IMAGE_EVIDENCE_ID,
+        created_by: "operator",
+        created_at: "2026-03-22T12:05:00Z",
+        tool_name: "napari",
+        tool_version: "0.5",
+        bundle_ref: {
+          kind: "derived_file",
+          path: "derivatives/thumb_hippocampus.png",
+          mime_type: "image/png",
+        },
+        view_state_ref: {
+          kind: "view_state_json",
+          path: "view_state.json",
+          mime_type: "application/json",
+        },
+        note: "Representative thumbnail for downstream pack review.",
+      },
+      {
+        derived_output_id: "overlay_signal",
+        kind: "overlay",
+        source_image_evidence_id: MOCK_IMAGE_EVIDENCE_ID,
+        created_by: "operator",
+        created_at: "2026-03-22T12:07:00Z",
+        tool_name: "napari",
+        external_ref: "omero://dataset/42/image/7/overlay/1",
+        note: "Overlay kept in external imaging system; bundle stores only lineage.",
+      },
+    ],
+    linked_claim_refs: [
+      {
+        claim_id: "claim-2024-hippocampus-1",
+        note: "Representative image only; not full-stack validation.",
+      },
+    ],
+    linked_artifact_refs: [
+      {
+        artifact_kind: "meeting_pack",
+        artifact_id: "meetingpack_20260322_mock1234",
+        note: "Used in the representative-image slide draft.",
+      },
+    ],
+    warnings: [
+      {
+        code: "REPRESENTATIVE_ONLY",
+        severity: "warning",
+        message: "Bundle captures a representative crop rather than the full acquisition stack.",
+      },
+    ],
+  },
+  view_state: {
+    active_channels: ["GFP", "DAPI"],
+    intensity_ranges: [
+      { channel_id: "GFP", min_value: 10, max_value: 220 },
+      { channel_id: "DAPI", min_value: 5, max_value: 180 },
+    ],
+    z_index: 4,
+    zoom_level: 2.2,
+    viewport: { x: 16, y: 24, width: 144, height: 144 },
+    visible_overlays: ["scale_bar", "roi_outline"],
+    selected_region_labels: ["hippocampus-roi"],
+    note: "Saved operator viewport for reuse in note and slide review.",
+  },
+  handoff_targets: [
+    {
+      target: "napari",
+      openable_ref: "/Users/jangseongjin/mock-data/imaging/hippocampus-alpha.tif",
+      view_state_ref: {
+        kind: "view_state_json",
+        path: "view_state.json",
+      },
+      notes: "Open with saved viewport and channel intensities.",
+    },
+  ],
+};
+
+const MOCK_SECONDARY_IMAGE_EVIDENCE_RESPONSE: ImageEvidenceResponse = {
+  image_evidence: {
+    image_evidence_id: MOCK_SECONDARY_IMAGE_EVIDENCE_ID,
+    title: "OMERO brightfield plate image",
+    created_at: "2026-03-22T11:20:00Z",
+    paper_id: "paper-2025-nutrition",
+    paper_slug: "parkNutritionAdherence2025",
+    source_ref: {
+      source_kind: "external_image_ref",
+      external_ref: "omero://dataset/42/image/7",
+      source_label: "OMERO image 7",
+    },
+    content_format: "image/png",
+    metadata: {
+      filename: "plate-image-7.png",
+      width_px: 1024,
+      height_px: 768,
+      modality: "brightfield",
+      acquisition_note: "External reference only; no local raw path registered.",
+    },
+    derived_outputs: [],
+    linked_claim_refs: [],
+    linked_artifact_refs: [],
+    warnings: [],
+  },
+  handoff_targets: [
+    {
+      target: "omero",
+      openable_ref: "omero://dataset/42/image/7",
+      notes: "Open in OMERO for channel and annotation context.",
+    },
+  ],
+};
+
+const MOCK_IMAGE_EVIDENCE_LIST_RESPONSE: ImageEvidenceListResponse = {
+  total: 2,
+  items: [
+    {
+      image_evidence_id: MOCK_IMAGE_EVIDENCE_ID,
+      title: "Representative hippocampal ROI image",
+      paper_id: "paper-2024-glucose",
+      paper_slug: "leeKetogenicIntervention2024",
+      content_format: "image/tiff",
+      created_at: "2026-03-22T12:00:00Z",
+      derived_output_count: 2,
+      warning_count: 1,
+      has_view_state: true,
+      has_handoff: true,
+    },
+    {
+      image_evidence_id: MOCK_SECONDARY_IMAGE_EVIDENCE_ID,
+      title: "OMERO brightfield plate image",
+      paper_id: "paper-2025-nutrition",
+      paper_slug: "parkNutritionAdherence2025",
+      content_format: "image/png",
+      created_at: "2026-03-22T11:20:00Z",
+      derived_output_count: 0,
+      warning_count: 0,
+      has_view_state: false,
+      has_handoff: true,
+    },
+  ],
+};
 
 export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact {
   const notebookData = bundle.files.notebook?.data;
