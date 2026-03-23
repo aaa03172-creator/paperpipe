@@ -15,16 +15,6 @@ Canonical: `docs/Pending_PR_Queue.md`
 
 ## Queued
 
-## Bounded Parser Pilots (Implemented in workspace, intentionally not promoted to default runtime)
-- Title: `docling ingest backend bounded pilot`
-- Priority: Medium
-- Purpose: Keep Docling as a behind-flag optional parser backend plus bounded evaluation harness until a larger hard-document fixture set proves it can stay useful without broad parser replacement.
-- References:
-  - `docs/reports/Docling_Tool_Intake_Decision_2026-03-23.md`
-  - `docs/reports/Ingest_Backend_Docling_Pilot_2026-03-23.md`
-  - `scripts/eval/compare_ingest_backends.py`
-  - `src/ingest/parser_backends.py`
-
 ## Future RFC Follow-Ups (Not Approved)
 - Title: `future/protocol-knowledge-layer`
 - Priority: Low
