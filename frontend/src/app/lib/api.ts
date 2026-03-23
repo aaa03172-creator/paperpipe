@@ -2,6 +2,8 @@ import { apiPath, APP_CONFIG } from "./config";
 import {
   ApiResult,
   ArtifactBundle,
+  ImageEvidenceListResponse,
+  ImageEvidenceResponse,
   JobEnqueueResponse,
   JobStatus,
   ObsidianMirror,
@@ -19,6 +21,8 @@ import {
   createMockJob,
   getMockArtifactsLatest,
   getMockHealth,
+  getMockImageEvidence,
+  getMockImageEvidenceIndex,
   getMockJob,
   getMockJobs,
   getMockObsidianMirror,
@@ -672,6 +676,22 @@ export async function syncToObsidian(paperId: string, runId: string): Promise<Ap
       reason: "obsidian sync unavailable",
     };
   }
+}
+
+export async function getImageEvidence(imageEvidenceId: string): Promise<ApiResult<ImageEvidenceResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ImageEvidenceResponse>([`/image-evidence/${encodeURIComponent(imageEvidenceId)}`]),
+    () => getMockImageEvidence(imageEvidenceId),
+    "image evidence unavailable",
+  );
+}
+
+export async function getImageEvidenceIndex(): Promise<ApiResult<ImageEvidenceListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ImageEvidenceListResponse>(["/image-evidence"]),
+    () => getMockImageEvidenceIndex(),
+    "image evidence index unavailable",
+  );
 }
 
 export async function getPersonas(): Promise<ApiResult<PersonaListResponse>> {
