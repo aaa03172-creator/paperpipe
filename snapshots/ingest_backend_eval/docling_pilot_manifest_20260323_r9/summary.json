@@ -1,0 +1,8 @@
+{
+  "run_id": "docling_pilot_manifest_20260323_r9",
+  "status": "ok",
+  "metrics_path": "/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r9/metrics.json",
+  "details_path": "/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r9/detailed_results.jsonl",
+  "passed": true,
+  "failed_checks": []
+}
