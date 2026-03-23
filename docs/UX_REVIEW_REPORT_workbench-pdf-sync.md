@@ -64,6 +64,7 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - `onDocumentLoad`는 metadata load만 처리하고, claim/page/highlight/search sync는 effect로 분리한다.
 - plugin refs와 sync sequence guard를 추가해 overlapping async search highlight 결과가 stale state를 덮지 않게 한다.
 - existing mock Playwright scenarios(`issue focus`, `obsidian stats jump`, `normalized bbox`)로 regression을 다시 확인한다.
+- stacked follow-up에서는 normalized fixture에 `text_match` claim을 추가해 bbox와 search fallback이 같은 viewer 안에서 계속 usable한지 확인한다.
 
 ## Ethics check results
 - Regret: 통과. 더 빠르고 안정적인 evidence inspection만 제공한다.
@@ -71,6 +72,6 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - In Real-Life: 통과. 연구 도구가 페이지를 다시 여는 대신 현재 문서 안에서 조용히 맞는 위치로 안내하는 수준이다.
 
 ## Next PR-sized actions
-1. text-match fallback mock fixture가 준비되면 search-highlight continuity를 별도 lane으로 검증한다.
+1. backend seed가 준비되면 mock 대신 backend E2E에서도 text-match fallback continuity를 검증한다.
 2. `PdfPanel` 이후 workbench detail shell이 필요하면 viewer chrome/copy는 separate UX lane으로 분리한다.
 3. image evidence or chart-pack viewer behavior는 이 lane에 섞지 않고 독립 reland를 유지한다.
