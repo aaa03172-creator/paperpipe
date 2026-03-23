@@ -27,6 +27,10 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
+from src.services.stats_fallback_eval_sidecar import (
+    build_stats_fallback_eval_sidecar,
+    write_stats_fallback_eval_sidecar,
+)
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
@@ -657,6 +661,7 @@ async def run_deepread_job(
             "verifier_used": bool(run_verify),
             "verifier_status": "not_run",
             "stats_report_written": False,
+            "artifact_stats_fallback_eval_written": False,
             "artifact_document_written": False,
             "artifact_index_written": False,
             "artifact_claimset_written": False,
@@ -924,6 +929,23 @@ async def run_deepread_job(
                     id_hint=paper_id,
                 )
                 bootstrap_meta["anchor_verify_api"] = anchor_api_context
+                try:
+                    stats_fallback_eval = build_stats_fallback_eval_sidecar(
+                        paper_id=paper_id,
+                        stats_report=stats_report,
+                        bootstrap_meta=bootstrap_meta,
+                    )
+                    write_stats_fallback_eval_sidecar(stats_fallback_eval, artifact_dir)
+                    bootstrap_meta["artifact_stats_fallback_eval_written"] = True
+                    bootstrap_meta["stats_fallback_eval_check_count"] = stats_fallback_eval.metrics.check_count
+                    bootstrap_meta["stats_fallback_eval_unverifiable_count"] = (
+                        stats_fallback_eval.metrics.unverifiable_count
+                    )
+                    bootstrap_meta["stats_fallback_eval_auto_fallback_count"] = (
+                        stats_fallback_eval.metrics.auto_fallback_count
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to build stats_fallback_eval sidecar: %s", exc)
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                 if run_meta is not None:
                     run_meta["verification_status"] = "completed"
