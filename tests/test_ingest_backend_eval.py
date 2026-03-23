@@ -106,6 +106,9 @@ def test_compare_backend_rows_ignores_raw_table_fragments_when_meaningful_count_
             "doi": "10.1/example2",
             "table_count": 1,
             "meaningful_table_count": 1,
+            "table_fallback_used": True,
+            "table_fallback_pages": [4],
+            "table_pages": [2, 4],
             "table_summaries": [
                 {"rows": 10, "cols": 6, "non_empty_cells": 35, "alpha_cells": 6},
             ],
@@ -128,6 +131,7 @@ def test_compare_backend_rows_ignores_raw_table_fragments_when_meaningful_count_
     assert "meaningful_table_loss_docs" not in report["decision"]["failed_checks"]
     assert report["raw_table_loss_docs"][0]["baseline_table_count"] == 4
     assert report["raw_table_loss_docs"][0]["candidate_table_count"] == 1
+    assert report["table_fallback_docs"][0]["fallback_pages"] == [4]
 
 
 def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> None:
@@ -175,3 +179,6 @@ def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> 
     assert any(row["requested_backend"] == "docling" for row in rows)
     assert any(row["has_doi"] for row in rows)
     assert all("meaningful_table_count" in row for row in rows)
+    assert all("table_fallback_used" in row for row in rows)
+    assert all("table_fallback_pages" in row for row in rows)
+    assert "docs_with_table_fallback_count" in metrics["backend_metrics"]["docling"]
