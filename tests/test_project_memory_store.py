@@ -101,6 +101,40 @@ def test_project_memory_store_rejects_mismatched_item_project_ids(tmp_path) -> N
         save_project_memory_bundle(workspace, [foreign_item], root=root)
 
 
+def test_project_memory_store_rejects_duplicate_item_ids(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+    workspace = _sample_workspace()
+    duplicate_items = [
+        _sample_item(item_id="pmitem_alpha_question", item_type="question", content="What is the mechanism?"),
+        _sample_item(item_id="pmitem_alpha_question", item_type="todo", content="Duplicate item id"),
+    ]
+
+    with pytest.raises(ValueError, match="duplicate item_id"):
+        save_project_memory_bundle(workspace, duplicate_items, root=root)
+
+
+def test_project_memory_store_requires_workspace_before_item_writes(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+    item = _sample_item(item_id="pmitem_alpha_question", item_type="question", content="What is the mechanism?")
+
+    with pytest.raises(FileNotFoundError, match="workspace JSON not found"):
+        append_project_memory_item(item, root)
+
+    with pytest.raises(FileNotFoundError, match="workspace JSON not found"):
+        project_memory_store.save_project_memory_items(item.project_id, [item], root)
+
+
+def test_project_memory_store_list_ignores_directories_without_project_json(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+    workspace = _sample_workspace()
+    save_project_memory_bundle(workspace, [], root=root)
+    stray_dir = root / "pmproj_stray"
+    stray_dir.mkdir(parents=True)
+    (stray_dir / "memory.jsonl").write_text("", encoding="utf-8")
+
+    assert list_project_memory_ids(root) == ["pmproj_alpha"]
+
+
 def test_project_memory_store_rolls_back_if_items_write_fails(tmp_path, monkeypatch) -> None:
     root = tmp_path / "project_memory"
     original_workspace = _sample_workspace(title="Original title")
