@@ -45,6 +45,7 @@ def save_project_memory_items(
     items: list[ProjectMemoryItem],
     root: Path | None = None,
 ) -> Path:
+    _require_workspace_exists(project_id, root)
     _validate_project_items(project_id, items)
     path = project_memory_jsonl_path(project_id, root)
     lines = [
@@ -59,6 +60,7 @@ def save_project_memory_items(
 
 
 def append_project_memory_item(item: ProjectMemoryItem, root: Path | None = None) -> Path:
+    _require_workspace_exists(item.project_id, root)
     path = project_memory_jsonl_path(item.project_id, root)
     items = load_project_memory_items(item.project_id, root) if path.exists() else []
     items.append(item)
@@ -116,7 +118,11 @@ def list_project_memory_ids(root: Path | None = None) -> list[str]:
     base = (root or default_project_memory_root()).expanduser().resolve()
     if not base.exists():
         return []
-    return sorted(entry.name for entry in base.iterdir() if entry.is_dir())
+    return sorted(
+        entry.name
+        for entry in base.iterdir()
+        if entry.is_dir() and project_workspace_json_path(entry.name, root).exists()
+    )
 
 
 def _validate_project_items(project_id: str, items: list[ProjectMemoryItem]) -> None:
@@ -125,6 +131,23 @@ def _validate_project_items(project_id: str, items: list[ProjectMemoryItem]) -> 
         raise ValueError(
             f"Project Memory items must match workspace project_id {project_id}: {', '.join(mismatched)}"
         )
+    seen_item_ids: set[str] = set()
+    duplicate_item_ids: set[str] = set()
+    for item in items:
+        if item.item_id in seen_item_ids:
+            duplicate_item_ids.add(item.item_id)
+        seen_item_ids.add(item.item_id)
+    if duplicate_item_ids:
+        raise ValueError(
+            "Project Memory items must not contain duplicate item_id values: "
+            + ", ".join(sorted(duplicate_item_ids))
+        )
+
+
+def _require_workspace_exists(project_id: str, root: Path | None = None) -> None:
+    path = project_workspace_json_path(project_id, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Project Memory workspace JSON not found: {path}")
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
