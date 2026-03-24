@@ -1,6 +1,6 @@
 # LLM Touchpoint Follow-Up Plan
 
-Status: Active follow-up plan; Workstreams 1-3 completed in bounded form
+Status: Active follow-up plan; Workstreams 1-4 completed in bounded form
 Date: 2026-03-23
 Branch observed: `codex/agents-smoke-ci-check`
 Scope: measurement, validation, and additive guardrails only
@@ -43,8 +43,8 @@ Progress snapshot as of 2026-03-24:
 - [done] Workstream 1: reader evaluation sidecar and bounded real-paper replay
 - [done] Workstream 2: stats fallback taxonomy sidecar and bounded replay
 - [done] Workstream 3: teacher-review spot-check, eval sidecar, anchor-quality taxonomy, and pre-accept suppression for the two highest-risk labels
-- [next] Workstream 4: processor and watcher override logging
-- [later] Workstream 5: cloud table fallback cost/fidelity review
+- [done] Workstream 4: processor and watcher override logging
+- [next] Workstream 5: cloud table fallback cost/fidelity review
 
 ## 2. Non-Goals
 
@@ -290,8 +290,8 @@ Use this order:
 5. Cloud fallback cost/fidelity review
 
 Current next lane:
-1. Processor and watcher override logging
-2. Cloud fallback cost/fidelity review
+1. Cloud fallback cost/fidelity review
+2. Training candidacy recheck after enough bounded intake logs exist
 
 Do not reorder the sequence unless a new production incident shows that intake classification is causing more damage than claim or stats artifacts.
 
@@ -322,6 +322,9 @@ If any item above is missing, the default decision is:
 3. Training candidacy recheck after new intake logs exist
 - target: bounded review note only
 - measure: whether processor/watcher disagreement is frequent enough to justify later model work
+
+Completed bounded outputs now include:
+- `/Users/jangseongjin/paperpipe/docs/reports/Processor_Watcher_Override_Logging_Replay_2026-03-24.md`
 
 ## 12. Explicit Guardrails
 
