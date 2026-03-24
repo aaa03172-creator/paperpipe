@@ -216,14 +216,77 @@ def test_papers_endpoints_include_operational_summary_from_artifacts(tmp_path, m
         by_id = {row["paper_id"]: row for row in listing.json()}
         assert by_id["paper_ops_healthy"]["ops_summary"]["state"] == "healthy"
         assert by_id["paper_ops_healthy"]["ops_summary"]["stats_check_count"] == 2
+        assert by_id["paper_ops_healthy"]["latest_run_id"] == "run-healthy"
         assert by_id["paper_ops_missing"]["ops_summary"]["state"] == "action_needed"
         assert by_id["paper_ops_missing"]["ops_summary"]["reason"] == "Stats report is missing or empty."
+        assert by_id["paper_ops_missing"]["latest_run_id"] == "run-missing"
 
         detail = client.get("/papers/paper_ops_missing")
         assert detail.status_code == 200
         payload = detail.json()
         assert payload["ops_summary"]["recommended_action"] == "repair_stats"
         assert payload["ops_summary"]["latest_run_id"] == "run-missing"
+        assert payload["latest_run_id"] == "run-missing"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_endpoints_surface_latest_run_id_from_jobs_when_ops_summary_is_absent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                pdf_status TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            ("paper_job_only", "Job-backed Paper", "INDEXED", "summary"),
+        )
+        run_dir = artifacts_dir / "paper_job_only" / "run-job-only"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        conn.execute(
+            """
+            INSERT INTO jobs (job_id, run_id, paper_id, status, artifact_dir, created_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ("job-001", "run-job-only", "paper_job_only", "completed", str(run_dir)),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        by_id = {row["paper_id"]: row for row in listing.json()}
+        assert by_id["paper_job_only"]["ops_summary"] is None
+        assert by_id["paper_job_only"]["latest_run_id"] == "run-job-only"
+
+        detail = client.get("/papers/paper_job_only")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["ops_summary"] is None
+        assert payload["latest_run_id"] == "run-job-only"
     finally:
         db_utils.DB_PATH = original_db_path
 
