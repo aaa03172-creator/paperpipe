@@ -62,7 +62,9 @@ Canonical parent: `docs/ux-review.md`
 - Copy level: frame the viewer as saved metadata review, not image interpretation.
 - Default-action level: primary action on index is `Open bundle`; primary detail handoff is `Open note` when a paper slug exists.
 - Runtime contract: mock mode should keep the same index/detail interaction without inventing unsupported binary rendering.
-- Verification level: keep mock Playwright coverage for the mock-first lane; defer backend and visual coverage to stacked follow-ups.
+- Verification level: keep both mock Playwright coverage and backend Playwright coverage so warning-heavy local bundles and clean external bundles are exercised on real routes.
+- Visual level: keep backend visual snapshots for the detail shell so the metadata-first layout does not drift into gallery-like image UI.
+- Index shell: keep backend visual snapshots for the search panel and saved-bundle cards so warning badges and bundle rhythms remain stable.
 
 ## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
 - Screen/Flow: `/image-evidence` index header and `/image-evidence/:imageEvidenceId` detail header
@@ -103,6 +105,6 @@ Canonical parent: `docs/ux-review.md`
 - In Real-Life: A reviewer should be able to explain where the raw image lives, what derived outputs were produced, and whether this bundle has any warning state without touching the filesystem.
 
 ## Next PR-sized actions
-- Add backend Playwright coverage once the backend seed includes `image_evidence` routes and stable bundles.
-- Add visual snapshot coverage in a stacked lane if the detail shell starts drifting toward gallery UI.
-- Keep any future viewer-launch behavior or image rendering in a separate RFC lane.
+- If the shell keeps changing, consider a broader visual lane that snapshots detail plus side-rail subregions separately for tighter diffs.
+- If warning taxonomy expands again, add a `LOCAL_SOURCE_NOT_FILE` real backend bundle rather than broadening the current missing-file case.
+- Defer any visual image preview or viewer-launch behavior into a separate RFC lane.
