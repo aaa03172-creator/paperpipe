@@ -12,6 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.quality.gates import GateEngine
+from src.quality.gates import TEACHER_REVIEW_FRAGMENTARY_CLAIM, TEACHER_REVIEW_MISALIGNED_QUOTE
+from src.schemas.teacher_review_eval import TeacherReviewEvalSidecar
 from src.services.runtime_paths import goldset_root as default_goldset_root
 
 
@@ -42,6 +44,49 @@ def _load_prior_summary(bundle_dir: Path) -> str:
     return ""
 
 
+def _load_teacher_review_eval(bundle_dir: Path) -> tuple[Path | None, TeacherReviewEvalSidecar | None, str | None]:
+    path = bundle_dir / "teacher_review_eval.json"
+    if not path.exists():
+        return None, None, None
+    try:
+        payload = _load_json(path)
+        return path, TeacherReviewEvalSidecar.model_validate(payload), None
+    except Exception as exc:
+        return path, None, str(exc)
+
+
+def _teacher_review_eval_guardrail(sidecar: TeacherReviewEvalSidecar) -> tuple[list[str], list[dict[str, str]], list[str]]:
+    reason_codes: set[str] = set()
+    findings: list[dict[str, str]] = []
+    blocking_labels: list[str] = []
+
+    for claim in sidecar.claims:
+        if not claim.reviewed:
+            continue
+        if claim.anchor_quality_label == "FRAGMENTARY_CLAIM":
+            reason_codes.add(TEACHER_REVIEW_FRAGMENTARY_CLAIM)
+            blocking_labels.append("FRAGMENTARY_CLAIM")
+            findings.append(
+                {
+                    "gate": "TeacherReviewEvalGate",
+                    "reason_code": TEACHER_REVIEW_FRAGMENTARY_CLAIM,
+                    "detail": f"claim_id={claim.claim_id} flagged as fragmentary by teacher_review_eval",
+                }
+            )
+        elif claim.anchor_quality_label == "MISALIGNED_QUOTE":
+            reason_codes.add(TEACHER_REVIEW_MISALIGNED_QUOTE)
+            blocking_labels.append("MISALIGNED_QUOTE")
+            findings.append(
+                {
+                    "gate": "TeacherReviewEvalGate",
+                    "reason_code": TEACHER_REVIEW_MISALIGNED_QUOTE,
+                    "detail": f"claim_id={claim.claim_id} flagged as misaligned quote by teacher_review_eval",
+                }
+            )
+
+    return sorted(reason_codes), findings, sorted(set(blocking_labels))
+
+
 def verify_and_route(
     *,
     bundle_dir: Path,
@@ -58,7 +103,25 @@ def verify_and_route(
 
     engine = GateEngine()
     decision = engine.evaluate(teacher_output, summary_text=prior_summary)
-    accepted = decision.passed
+    reason_codes = set(decision.reason_codes)
+    findings = [
+        {"gate": f.gate, "reason_code": f.reason_code, "detail": f.detail}
+        for f in decision.findings
+    ]
+    metrics = dict(decision.metrics)
+
+    teacher_review_eval_path, teacher_review_eval, teacher_review_eval_error = _load_teacher_review_eval(bundle_dir)
+    blocking_anchor_quality_labels: list[str] = []
+    if teacher_review_eval is not None:
+        extra_reason_codes, extra_findings, blocking_anchor_quality_labels = _teacher_review_eval_guardrail(
+            teacher_review_eval
+        )
+        reason_codes.update(extra_reason_codes)
+        findings.extend(extra_findings)
+        metrics["teacher_review_eval_reviewed_claim_count"] = teacher_review_eval.metrics.reviewed_claim_count
+        metrics["teacher_review_eval_blocking_label_count"] = len(blocking_anchor_quality_labels)
+
+    accepted = len(reason_codes) == 0
 
     record = {
         "schema_version": "teacher_verification.v1",
@@ -67,15 +130,22 @@ def verify_and_route(
         "teacher_output_path": str(teacher_output_path),
         "evaluated_at": _utc_now_iso(),
         "accepted": accepted,
-        "reason_codes": decision.reason_codes,
-        "findings": [
-            {"gate": f.gate, "reason_code": f.reason_code, "detail": f.detail}
-            for f in decision.findings
-        ],
-        "metrics": decision.metrics,
+        "reason_codes": sorted(reason_codes),
+        "findings": findings,
+        "metrics": metrics,
         "manifest": manifest,
         "teacher_output": teacher_output,
     }
+    if teacher_review_eval_path is not None:
+        record["teacher_review_eval_path"] = str(teacher_review_eval_path)
+    if teacher_review_eval_error:
+        record["teacher_review_eval_error"] = teacher_review_eval_error
+    if teacher_review_eval is not None:
+        record["teacher_review_eval_summary"] = {
+            "bundle_outcome": teacher_review_eval.bundle_outcome,
+            "issue_patterns": teacher_review_eval.issue_patterns,
+            "blocking_anchor_quality_labels": blocking_anchor_quality_labels,
+        }
 
     target_dir = goldset_root / ("accepted" if accepted else "quarantine")
     target_dir.mkdir(parents=True, exist_ok=True)
