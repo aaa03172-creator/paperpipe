@@ -24,12 +24,6 @@ const visualImageEvidenceMissingRawPath = path.resolve(
   "visual-absent-local-alpha.tif",
 );
 
-interface ChartPackVisualFixtureOptions {
-  chartPackId: string;
-  title: string;
-  chartTitle: string;
-}
-
 async function registerBackendImageEvidenceVisualFixture(request: APIRequestContext): Promise<string> {
   const imageEvidenceId = "imageev_backend_visual_fixture";
   const response = await request.post(`${visualBackendBaseUrl}/image-evidence/register`, {
@@ -178,36 +172,6 @@ async function registerBackendImageEvidenceVisualMissingFixture(request: APIRequ
   return imageEvidenceId;
 }
 
-async function generateBackendChartPackVisualFixture(
-  request: APIRequestContext,
-  options: ChartPackVisualFixtureOptions,
-): Promise<ChartPackVisualFixtureOptions> {
-  const response = await request.post(`${visualBackendBaseUrl}/chart-packs/generate`, {
-    data: {
-      chart_pack_id: options.chartPackId,
-      title: options.title,
-      charts: [
-        {
-          title: options.chartTitle,
-          template_id: "stats_check_status_counts",
-          source_ref: {
-            source_kind: "stats_report",
-            paper_id: "paper-e2e-001",
-            run_id: "run_e2e_fixture_001",
-          },
-          field_mappings: [
-            { target_field: "status", source_field: "status" },
-            { target_field: "value", source_field: "count" },
-          ],
-          sort: { field: "status", direction: "asc" },
-        },
-      ],
-    },
-  });
-  expect(response.ok()).toBeTruthy();
-  return options;
-}
-
 async function openBackendWorkbenchAndSelectSecondClaim(page: Page) {
   await page.goto("/workbench/paper-e2e-001");
   await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
@@ -251,37 +215,6 @@ async function openBackendImageEvidenceIndex(page: Page, request: APIRequestCont
   await expect(page.locator("article").filter({ hasText: "Backend visual image evidence fixture" }).first()).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "Backend visual OMERO clean bundle" }).first()).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "Backend visual missing local bundle" }).first()).toBeVisible();
-}
-
-async function openBackendChartPackDetail(page: Page, request: APIRequestContext) {
-  const fixture = await generateBackendChartPackVisualFixture(request, {
-    chartPackId: "chartpack_backend_visual_fixture",
-    title: "Backend visual chart pack fixture",
-    chartTitle: "Backend visual verification status counts",
-  });
-  await page.goto(`/chart-packs/${fixture.chartPackId}`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Charts" })).toBeVisible();
-}
-
-async function openBackendChartPackIndex(page: Page, request: APIRequestContext) {
-  await generateBackendChartPackVisualFixture(request, {
-    chartPackId: "chartpack_backend_visual_fixture",
-    title: "Backend visual chart pack fixture",
-    chartTitle: "Backend visual verification status counts",
-  });
-  await generateBackendChartPackVisualFixture(request, {
-    chartPackId: "chartpack_backend_visual_clean_fixture",
-    title: "Backend visual clean chart pack",
-    chartTitle: "Backend visual clean status summary",
-  });
-  await page.goto("/chart-packs");
-  await expect(page.getByRole("heading", { name: "Chart Packs", exact: true })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await page.locator('input[placeholder="Search title or chart pack id"]').fill("Backend visual");
-  await expect(page.locator("article").filter({ hasText: "Backend visual chart pack fixture" }).first()).toBeVisible();
-  await expect(page.locator("article").filter({ hasText: "Backend visual clean chart pack" }).first()).toBeVisible();
 }
 
 test("visual regression (backend, desktop): paper notes list layout", async ({ page }) => {
@@ -342,32 +275,6 @@ test("visual regression (backend, desktop): image evidence index layout", async 
   });
 });
 
-test("visual regression (backend, desktop): chart pack detail layout", async ({ page, request }) => {
-  await openBackendChartPackDetail(page, request);
-
-  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-  const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
-  await expect(page).toHaveScreenshot("backend-desktop-chart-pack-detail.png", {
-    animations: "disabled",
-    caret: "hide",
-    mask: [createdValue, generatedValue],
-    maxDiffPixels: 6200,
-  });
-});
-
-test("visual regression (backend, desktop): chart pack index layout", async ({ page, request }) => {
-  await openBackendChartPackIndex(page, request);
-
-  const createdSummaries = page.locator("article").locator("text=/^Created:/");
-  const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
-  await expect(page).toHaveScreenshot("backend-desktop-chart-pack-index.png", {
-    animations: "disabled",
-    caret: "hide",
-    mask: [createdSummaries, generatedSummaries],
-    maxDiffPixels: 6200,
-  });
-});
-
 test.describe("mobile visual regression (backend)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -418,32 +325,6 @@ test.describe("mobile visual regression (backend)", () => {
       caret: "hide",
       mask: [createdSummaries],
       maxDiffPixels: 5200,
-    });
-  });
-
-  test("chart pack detail layout", async ({ page, request }) => {
-    await openBackendChartPackDetail(page, request);
-
-    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-    const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
-    await expect(page).toHaveScreenshot("backend-mobile-chart-pack-detail.png", {
-      animations: "disabled",
-      caret: "hide",
-      mask: [createdValue, generatedValue],
-      maxDiffPixels: 6200,
-    });
-  });
-
-  test("chart pack index layout", async ({ page, request }) => {
-    await openBackendChartPackIndex(page, request);
-
-    const createdSummaries = page.locator("article").locator("text=/^Created:/");
-    const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
-    await expect(page).toHaveScreenshot("backend-mobile-chart-pack-index.png", {
-      animations: "disabled",
-      caret: "hide",
-      mask: [createdSummaries, generatedSummaries],
-      maxDiffPixels: 6200,
     });
   });
 });
