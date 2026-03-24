@@ -1,5 +1,7 @@
 import {
   ArtifactBundle,
+  ChartPackListResponse,
+  ChartPackResponse,
   EvidenceHighlight,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
@@ -1081,6 +1083,360 @@ function normalizeNotebookForUi(notebook: NotebookArtifact): NotebookArtifact {
   };
 }
 
+const MOCK_CHART_PACK_ID = "chartpack_20260320T120000Z_mock1234";
+const MOCK_SECONDARY_CHART_PACK_ID = "chartpack_20260319T221500Z_mock5678";
+const MOCK_CHART_PACK_RESPONSE: ChartPackResponse = {
+  chart_pack: {
+    chart_pack_id: MOCK_CHART_PACK_ID,
+    title: "Verification and measurement chart pack",
+    created_at: "2026-03-20T12:00:00Z",
+    generated_at: "2026-03-20T12:03:00Z",
+    charts: [
+      {
+        chart_id: "chart_01_reported-vs-computed-p-scatter",
+        title: "Verification scatter",
+        template_id: "reported_vs_computed_p_scatter",
+        source_ref: {
+          source_kind: "stats_report",
+          paper_id: "paper-2024-glucose",
+          run_id: "run-002",
+          source_label: "stats_report.json",
+        },
+        field_mappings: [
+          { target_field: "reported_p", source_field: "reported_p" },
+          { target_field: "computed_p", source_field: "computed_p" },
+        ],
+        filters: [],
+        sort: { field: "reported_p", direction: "asc" },
+        transforms: [
+          { kind: "field_mapping", description: "Mapped reported_p -> reported_p.", field: "reported_p" },
+          { kind: "field_mapping", description: "Mapped computed_p -> computed_p.", field: "computed_p" },
+          { kind: "sort", description: "Sorted rows by reported_p ascending.", field: "reported_p" },
+        ],
+        warnings: [
+          {
+            code: "stats_report.approximate_pair_skipped",
+            severity: "warning",
+            message: "Approximate reported p values were skipped from the scatter snapshot.",
+          },
+        ],
+        data_snapshot_ref: {
+          kind: "data_csv",
+          path: "data/chart_01_reported-vs-computed-p-scatter.csv",
+          mime_type: "text/csv",
+        },
+        spec_ref: {
+          kind: "spec_json",
+          path: "specs/chart_01_reported-vs-computed-p-scatter.json",
+          mime_type: "application/json",
+        },
+        render_refs: [],
+      },
+      {
+        chart_id: "chart_02_table-numeric-line",
+        title: "Measurement line",
+        template_id: "table_numeric_line",
+        source_ref: {
+          source_kind: "document_table",
+          paper_id: "paper-2025-nutrition",
+          run_id: "run-003",
+          table_id: "tbl-002",
+          source_label: "document_artifact_v2.json",
+        },
+        field_mappings: [
+          { target_field: "group", source_field: "Group" },
+          { target_field: "measurement", source_field: "Measurement" },
+        ],
+        filters: [],
+        sort: { field: "group", direction: "asc" },
+        transforms: [
+          { kind: "field_mapping", description: "Mapped Group -> group.", field: "group" },
+          { kind: "field_mapping", description: "Mapped Measurement -> measurement.", field: "measurement" },
+          { kind: "coerce_numeric", description: "Coerced Measurement values to numeric.", field: "measurement" },
+        ],
+        warnings: [],
+        data_snapshot_ref: {
+          kind: "data_csv",
+          path: "data/chart_02_table-numeric-line.csv",
+          mime_type: "text/csv",
+        },
+        spec_ref: {
+          kind: "spec_json",
+          path: "specs/chart_02_table-numeric-line.json",
+          mime_type: "application/json",
+        },
+        render_refs: [],
+      },
+    ],
+    source_items: [
+      {
+        source_kind: "stats_report",
+        paper_id: "paper-2024-glucose",
+        run_id: "run-002",
+        source_label: "stats_report.json",
+      },
+      {
+        source_kind: "document_table",
+        paper_id: "paper-2025-nutrition",
+        run_id: "run-003",
+        table_id: "tbl-002",
+        source_label: "document_artifact_v2.json",
+      },
+    ],
+    generation_request: {
+      chart_pack_id: MOCK_CHART_PACK_ID,
+      title: "Verification and measurement chart pack",
+      charts: [
+        {
+          title: "Verification scatter",
+          template_id: "reported_vs_computed_p_scatter",
+          source_ref: {
+            source_kind: "stats_report",
+            paper_id: "paper-2024-glucose",
+            run_id: "run-002",
+            source_label: "stats_report.json",
+          },
+          field_mappings: [
+            { target_field: "reported_p", source_field: "reported_p" },
+            { target_field: "computed_p", source_field: "computed_p" },
+          ],
+          filters: [],
+          sort: { field: "reported_p", direction: "asc" },
+        },
+        {
+          title: "Measurement line",
+          template_id: "table_numeric_line",
+          source_ref: {
+            source_kind: "document_table",
+            paper_id: "paper-2025-nutrition",
+            run_id: "run-003",
+            table_id: "tbl-002",
+            source_label: "document_artifact_v2.json",
+          },
+          field_mappings: [
+            { target_field: "group", source_field: "Group" },
+            { target_field: "measurement", source_field: "Measurement" },
+          ],
+          filters: [],
+          sort: { field: "group", direction: "asc" },
+        },
+      ],
+    },
+    render_env: {
+      engine: "chart_pack_template_renderer",
+      version: "v0",
+      notes: "Deterministic template-driven spec builder over saved artifact snapshots.",
+    },
+    caution_notes: [
+      "Some charts include warning states; inspect source lineage before reuse.",
+      "Reported/computed p charts include only exact numeric pairs and skip approximate values.",
+      "Document-table charts rely on saved table structure and explicit numeric coercion only.",
+    ],
+    warnings: [
+      {
+        code: "stats_report.approximate_pair_skipped",
+        severity: "warning",
+        message: "Approximate reported p values were skipped from the scatter snapshot.",
+      },
+    ],
+  },
+  data_snapshots: {
+    "chart_01_reported-vs-computed-p-scatter": [
+      "reported_p,computed_p",
+      "0.01,0.009",
+      "0.05,0.04",
+      "0.20,0.18",
+    ].join("\n"),
+    "chart_02_table-numeric-line": [
+      "group,measurement",
+      "Baseline,4.1",
+      "Week 6,3.4",
+      "Week 12,2.8",
+    ].join("\n"),
+  },
+  specs: {
+    "chart_01_reported-vs-computed-p-scatter": {
+      chart_id: "chart_01_reported-vs-computed-p-scatter",
+      title: "Verification scatter",
+      template_id: "reported_vs_computed_p_scatter",
+      mark: "point",
+      encoding: { x: "reported_p", y: "computed_p" },
+      row_count: 3,
+      warnings: [
+        {
+          code: "stats_report.approximate_pair_skipped",
+          severity: "warning",
+          message: "Approximate reported p values were skipped from the scatter snapshot.",
+        },
+      ],
+    },
+    "chart_02_table-numeric-line": {
+      chart_id: "chart_02_table-numeric-line",
+      title: "Measurement line",
+      template_id: "table_numeric_line",
+      mark: "line",
+      encoding: { x: "group", y: "measurement" },
+      row_count: 3,
+      warnings: [],
+    },
+  },
+  markdown: [
+    "# Verification and measurement chart pack",
+    "",
+    "- Chart Pack ID: chartpack_20260320T120000Z_mock1234",
+    "- Charts: 2",
+    "",
+    "## Charts",
+    "### Verification scatter",
+    "- Template: reported_vs_computed_p_scatter",
+    "- Data snapshot: data/chart_01_reported-vs-computed-p-scatter.csv",
+    "",
+    "| reported_p | computed_p |",
+    "| --- | --- |",
+    "| 0.01 | 0.009 |",
+    "| 0.05 | 0.04 |",
+    "| 0.20 | 0.18 |",
+  ].join("\n"),
+};
+
+const MOCK_SECONDARY_CHART_PACK_RESPONSE: ChartPackResponse = {
+  chart_pack: {
+    chart_pack_id: MOCK_SECONDARY_CHART_PACK_ID,
+    title: "Status count review pack",
+    created_at: "2026-03-19T22:15:00Z",
+    generated_at: "2026-03-19T22:16:00Z",
+    charts: [
+      {
+        chart_id: "chart_01_stats-check-status-counts",
+        title: "Verification status counts",
+        template_id: "stats_check_status_counts",
+        source_ref: {
+          source_kind: "stats_report",
+          paper_id: "paper-2023-imaging",
+          run_id: "run-001",
+          source_label: "stats_report.json",
+        },
+        field_mappings: [
+          { target_field: "status", source_field: "status" },
+          { target_field: "value", source_field: "count" },
+        ],
+        filters: [],
+        sort: { field: "status", direction: "asc" },
+        transforms: [
+          { kind: "field_mapping", description: "Mapped status -> status.", field: "status" },
+          { kind: "field_mapping", description: "Mapped count -> value.", field: "value" },
+          { kind: "sort", description: "Sorted rows by status ascending.", field: "status" },
+        ],
+        warnings: [],
+        data_snapshot_ref: {
+          kind: "data_csv",
+          path: "data/chart_01_stats-check-status-counts.csv",
+          mime_type: "text/csv",
+        },
+        spec_ref: {
+          kind: "spec_json",
+          path: "specs/chart_01_stats-check-status-counts.json",
+          mime_type: "application/json",
+        },
+        render_refs: [],
+      },
+    ],
+    source_items: [
+      {
+        source_kind: "stats_report",
+        paper_id: "paper-2023-imaging",
+        run_id: "run-001",
+        source_label: "stats_report.json",
+      },
+    ],
+    generation_request: {
+      chart_pack_id: MOCK_SECONDARY_CHART_PACK_ID,
+      title: "Status count review pack",
+      charts: [
+        {
+          title: "Verification status counts",
+          template_id: "stats_check_status_counts",
+          source_ref: {
+            source_kind: "stats_report",
+            paper_id: "paper-2023-imaging",
+            run_id: "run-001",
+            source_label: "stats_report.json",
+          },
+          field_mappings: [
+            { target_field: "status", source_field: "status" },
+            { target_field: "value", source_field: "count" },
+          ],
+          filters: [],
+          sort: { field: "status", direction: "asc" },
+        },
+      ],
+    },
+    render_env: {
+      engine: "chart_pack_template_renderer",
+      version: "v0",
+      notes: "Deterministic template-driven spec builder over saved artifact snapshots.",
+    },
+    caution_notes: [],
+    warnings: [],
+  },
+  data_snapshots: {
+    "chart_01_stats-check-status-counts": [
+      "status,value",
+      "inconsistent,1",
+      "verified,3",
+    ].join("\n"),
+  },
+  specs: {
+    "chart_01_stats-check-status-counts": {
+      chart_id: "chart_01_stats-check-status-counts",
+      title: "Verification status counts",
+      template_id: "stats_check_status_counts",
+      mark: "bar",
+      encoding: { x: "status", y: "value" },
+      row_count: 2,
+      warnings: [],
+    },
+  },
+  markdown: [
+    "# Status count review pack",
+    "",
+    "- Chart Pack ID: chartpack_20260319T221500Z_mock5678",
+    "- Charts: 1",
+    "",
+    "## Charts",
+    "### Verification status counts",
+    "- Template: stats_check_status_counts",
+    "- Data snapshot: data/chart_01_stats-check-status-counts.csv",
+    "",
+    "| status | value |",
+    "| --- | --- |",
+    "| inconsistent | 1 |",
+    "| verified | 3 |",
+  ].join("\n"),
+};
+
+const MOCK_CHART_PACK_LIST_RESPONSE: ChartPackListResponse = {
+  total: 2,
+  items: [
+    {
+      chart_pack_id: MOCK_CHART_PACK_ID,
+      title: "Verification and measurement chart pack",
+      created_at: "2026-03-20T12:00:00Z",
+      generated_at: "2026-03-20T12:03:00Z",
+      chart_count: 2,
+      warning_count: 1,
+    },
+    {
+      chart_pack_id: MOCK_SECONDARY_CHART_PACK_ID,
+      title: "Status count review pack",
+      created_at: "2026-03-19T22:15:00Z",
+      generated_at: "2026-03-19T22:16:00Z",
+      chart_count: 1,
+      warning_count: 0,
+    },
+  ],
+};
+
 const MOCK_IMAGE_EVIDENCE_ID = "imageev_20260322_mock1234";
 const MOCK_SECONDARY_IMAGE_EVIDENCE_ID = "imageev_20260322_mock5678";
 
@@ -1360,6 +1716,17 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       level: "caution",
     },
   };
+}
+
+export function getMockChartPack(chartPackId: string): ChartPackResponse {
+  if (chartPackId === MOCK_SECONDARY_CHART_PACK_ID) {
+    return deepClone(MOCK_SECONDARY_CHART_PACK_RESPONSE);
+  }
+  return deepClone(MOCK_CHART_PACK_RESPONSE);
+}
+
+export function getMockChartPackIndex(): ChartPackListResponse {
+  return deepClone(MOCK_CHART_PACK_LIST_RESPONSE);
 }
 
 export { SAMPLE_PDF };

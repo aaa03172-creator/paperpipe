@@ -431,6 +431,143 @@ export interface StatsRepairResponse {
   results: StatsRepairResult[];
 }
 
+export type ChartSourceKind = "stats_report" | "document_table";
+
+export type ChartTemplateId =
+  | "stats_check_status_counts"
+  | "reported_vs_computed_p_scatter"
+  | "table_numeric_bar"
+  | "table_numeric_line";
+
+export type ChartWarningSeverity = "info" | "warning" | "error";
+
+export type ChartFilterOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "in";
+
+export type ChartSortDirection = "asc" | "desc";
+
+export type ChartTransformKind = "field_mapping" | "filter" | "sort" | "coerce_numeric";
+
+export type ChartArtifactKind = "data_csv" | "spec_json" | "render_png" | "render_svg";
+
+export type ChartValueKind = "text" | "numeric" | "boolean";
+
+export type ChartScalar = string | number | boolean;
+
+export interface ChartSourceRef {
+  source_kind: ChartSourceKind;
+  paper_id: string;
+  run_id: string;
+  table_id?: string | null;
+  source_label?: string | null;
+}
+
+export interface ChartFieldMapping {
+  target_field: string;
+  source_field: string;
+  label?: string | null;
+}
+
+export interface ChartFilter {
+  field: string;
+  op: ChartFilterOp;
+  value: ChartScalar | ChartScalar[];
+}
+
+export interface ChartSort {
+  field: string;
+  direction: ChartSortDirection;
+}
+
+export interface ChartTransform {
+  kind: ChartTransformKind;
+  description: string;
+  field?: string | null;
+  value?: ChartScalar | ChartScalar[] | null;
+}
+
+export interface ChartWarning {
+  code: string;
+  severity: ChartWarningSeverity;
+  message: string;
+}
+
+export interface ChartArtifactRef {
+  kind: ChartArtifactKind;
+  path: string;
+  mime_type?: string | null;
+}
+
+export interface ChartRenderEnv {
+  engine: string;
+  version: string;
+  notes?: string | null;
+}
+
+export interface ChartDefinition {
+  chart_id: string;
+  title: string;
+  template_id: ChartTemplateId;
+  source_ref: ChartSourceRef;
+  field_mappings: ChartFieldMapping[];
+  filters: ChartFilter[];
+  sort?: ChartSort | null;
+  transforms: ChartTransform[];
+  warnings: ChartWarning[];
+  data_snapshot_ref?: ChartArtifactRef | null;
+  spec_ref?: ChartArtifactRef | null;
+  render_refs: ChartArtifactRef[];
+}
+
+export interface ChartPackRequestSnapshot {
+  chart_pack_id?: string | null;
+  title?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  charts: Array<{
+    chart_id?: string | null;
+    title?: string | null;
+    template_id: ChartTemplateId;
+    source_ref: ChartSourceRef;
+    field_mappings: ChartFieldMapping[];
+    filters: ChartFilter[];
+    sort?: ChartSort | null;
+  }>;
+}
+
+export interface ChartPack {
+  chart_pack_id: string;
+  title: string;
+  created_at: string;
+  generated_at?: string | null;
+  charts: ChartDefinition[];
+  source_items: ChartSourceRef[];
+  generation_request?: ChartPackRequestSnapshot | null;
+  render_env?: ChartRenderEnv | null;
+  caution_notes: string[];
+  warnings: ChartWarning[];
+}
+
+export interface ChartPackResponse {
+  chart_pack: ChartPack;
+  markdown: string;
+  data_snapshots: Record<string, string>;
+  specs: Record<string, Record<string, unknown>>;
+}
+
+export interface ChartPackListItem {
+  chart_pack_id: string;
+  title: string;
+  created_at: string;
+  generated_at?: string | null;
+  chart_count: number;
+  warning_count: number;
+}
+
+export interface ChartPackListResponse {
+  items: ChartPackListItem[];
+  total: number;
+}
+
 export interface EvidenceHighlight {
   claim_id: string;
   page: number;

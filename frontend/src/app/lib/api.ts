@@ -2,6 +2,8 @@ import { apiPath, APP_CONFIG } from "./config";
 import {
   ApiResult,
   ArtifactBundle,
+  ChartPackListResponse,
+  ChartPackResponse,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
   JobEnqueueResponse,
@@ -20,6 +22,8 @@ import {
 import {
   createMockJob,
   getMockArtifactsLatest,
+  getMockChartPack,
+  getMockChartPackIndex,
   getMockHealth,
   getMockImageEvidence,
   getMockImageEvidenceIndex,
@@ -676,6 +680,34 @@ export async function syncToObsidian(paperId: string, runId: string): Promise<Ap
       reason: "obsidian sync unavailable",
     };
   }
+}
+
+export async function getChartPack(chartPackId: string): Promise<ApiResult<ChartPackResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ChartPackResponse>([`/chart-packs/${encodeURIComponent(chartPackId)}`]),
+    () => getMockChartPack(chartPackId),
+    "chart pack unavailable",
+  );
+}
+
+export async function getChartPackIndex(): Promise<ApiResult<ChartPackListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ChartPackListResponse>(["/chart-packs"]),
+    () => getMockChartPackIndex(),
+    "chart pack index unavailable",
+  );
+}
+
+export function getChartPackDataCsvUrl(chartPackId: string, chartId: string): string {
+  return apiPath(
+    `/chart-packs/${encodeURIComponent(chartPackId)}/charts/${encodeURIComponent(chartId)}/data.csv`,
+  );
+}
+
+export function getChartPackSpecUrl(chartPackId: string, chartId: string): string {
+  return apiPath(
+    `/chart-packs/${encodeURIComponent(chartPackId)}/charts/${encodeURIComponent(chartId)}/spec.json`,
+  );
 }
 
 export async function getImageEvidence(imageEvidenceId: string): Promise<ApiResult<ImageEvidenceResponse>> {
