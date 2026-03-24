@@ -1,6 +1,6 @@
 # Processor / Watcher Override Logging Follow-up
 
-Status: Next bounded LLM follow-up
+Status: Initial implementation completed in bounded form
 Date: 2026-03-24
 Branch observed: `codex/agents-smoke-ci-check`
 Scope: additive logging and bounded replay/reporting only
@@ -49,6 +49,12 @@ This lane remains lower risk than reader/stats because it mostly affects routing
 - bounded replay/report over a small curated sample
 - decision note on whether processor/watcher disagreement is frequent enough to justify later model work
 
+Current implementation:
+- `/Users/jangseongjin/paperpipe/src/schemas/intake_override_log.py`
+- `/Users/jangseongjin/paperpipe/src/services/intake_override_log.py`
+- `/Users/jangseongjin/paperpipe/src/processor.py`
+- `/Users/jangseongjin/paperpipe/src/watcher.py`
+
 ## 5. Checklist
 
 - record original LLM slot when available
@@ -93,3 +99,7 @@ That keeps the next lane narrow:
 1. batch-ish path first
 2. local watcher path second
 3. bounded replay/report third
+
+Current judgment:
+- initial implementation now exists in both `processor` and `watcher`
+- next bounded step is to add a small replay/report over a curated sample rather than widening the logging shape

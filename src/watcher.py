@@ -13,6 +13,7 @@ from src.processor import (
     derive_saved_issues_state,
     process_local_pdf as processor_process_local_pdf,
 )
+from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
 from src.obsidian import save_paper_to_obsidian
 from src.zotero import export_to_ris
 from src.schemas import PaperStatus
@@ -112,6 +113,23 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
             pass
 
     processing_status = PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW
+    issues_state = derive_saved_issues_state(
+        processing_status,
+        analysis_available=analysis_available,
+    )
+    intake_override_log = build_intake_override_log(
+        producer="watcher_local_pdf",
+        analysis_available=analysis_available,
+        llm_tagging_used=analysis_available,
+        llm_slot_classification_used=analysis_available,
+        input_slot="test",
+        stored_slot=slot,
+        input_tags=tags,
+        stored_tags=tags,
+        processing_status=processing_status.value,
+        issues_state=issues_state,
+        confidence=confidence,
+    )
 
     row = {
         "id": paper.id,
@@ -129,6 +147,7 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         "pdf_path": str(file_path),
         "local_pdf_path": str(file_path),
     }
+    row["feedback_json"] = merge_feedback_json_with_intake_override(None, intake_override_log)
 
     save_paper_to_obsidian(row, config)
     export_to_ris(row, Path(config.paths.export_dir))
@@ -138,11 +157,9 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         row["source"],
         time.strftime("%Y-%m-%d"),
         local_pdf_path=row["pdf_path"],
+        feedback_json=row["feedback_json"],
         status=processing_status.value,
-        issues_state=derive_saved_issues_state(
-            processing_status,
-            analysis_available=analysis_available,
-        ),
+        issues_state=issues_state,
     )
     if config.paths.upload_dir:
         upload_dir = Path(config.paths.upload_dir)
