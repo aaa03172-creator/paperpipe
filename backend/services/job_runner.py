@@ -18,11 +18,13 @@ from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
 from src.profiles.profile_store import DEFAULT_PROFILE_PATH, load_profiles
+from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.verify import resolve_anchor_api_context
@@ -767,13 +769,48 @@ async def run_deepread_job(
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
         claim_set = enforce_claimset_evidence_policy(claim_set)
+        resolved_claim_set = resolve_claimset_grounding(claim_set, index_artifact)
              
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
             f.write(claim_set.model_dump_json(indent=2))
+        with open(artifact_dir / "claimset.resolved.json", "w") as f:
+            f.write(resolved_claim_set.model_dump_json(indent=2))
         bootstrap_meta["artifact_claimset_written"] = True
+        bootstrap_meta["artifact_claimset_resolved_written"] = True
+        bootstrap_meta["artifact_reader_eval_written"] = False
         claim_count = len(claim_set.claims)
         bootstrap_meta["claimset_claim_count"] = claim_count
+        bootstrap_meta["claimset_grounded_span_count"] = sum(
+            1
+            for claim in resolved_claim_set.claims
+            for span in claim.evidence_spans
+            if span.grounded is True
+        )
+        bootstrap_meta["claimset_unresolved_span_count"] = sum(
+            1
+            for claim in resolved_claim_set.claims
+            for span in claim.evidence_spans
+            if span.grounded is False
+        )
+        try:
+            reader_eval = build_reader_eval_sidecar(
+                paper_id=paper_id,
+                run_id=run_id,
+                claimset=claim_set,
+                resolved_claimset=resolved_claim_set,
+                index_artifact=index_artifact,
+            )
+            write_reader_eval_sidecar(reader_eval, artifact_dir)
+            bootstrap_meta["artifact_reader_eval_written"] = True
+            bootstrap_meta["reader_eval_claim_count"] = reader_eval.metrics.claim_count
+            bootstrap_meta["reader_eval_supported_claim_count"] = reader_eval.metrics.supported_claim_count
+            bootstrap_meta["reader_eval_unsupported_claim_count"] = reader_eval.metrics.unsupported_claim_count
+            bootstrap_meta["reader_eval_heuristic_backfill_claim_count"] = (
+                reader_eval.metrics.heuristic_backfill_claim_count
+            )
+        except Exception as exc:
+            logger.warning("Failed to build reader_eval sidecar: %s", exc)
         if claim_count > 0:
             bootstrap_meta["claimset_readiness"] = "ready"
             bootstrap_meta["claimset_ready"] = True
