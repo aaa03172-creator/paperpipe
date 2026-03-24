@@ -23,6 +23,7 @@ from src.schemas import Paper, PaperStatus, PaperTagging
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
 from src.downloader import download_paper
+from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
 from src.zotero import export_to_ris
 
 logger = logging.getLogger(__name__)
@@ -396,6 +397,26 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                 else:
                     status = PaperStatus.PENDING_REVIEW
 
+                issues_state = derive_saved_issues_state(
+                    status,
+                    analysis_available=analysis_available,
+                )
+                intake_override_log = build_intake_override_log(
+                    producer="processor_daily_slots",
+                    analysis_available=analysis_available,
+                    llm_tagging_used=analysis_available,
+                    llm_slot_classification_used=bool(
+                        llm and llm.is_available() and getattr(config.llm.features.slot_classification, "enabled", False)
+                    ),
+                    input_slot=slot_name,
+                    stored_slot=resolved_slot,
+                    input_tags=tags,
+                    stored_tags=tags,
+                    processing_status=status.value,
+                    issues_state=issues_state,
+                    confidence=confidence,
+                )
+
                 serialized_attempts: list[dict[str, Any]] = []
                 for attempt in (paper.download_attempts or []):
                     if hasattr(attempt, "model_dump"):
@@ -428,6 +449,10 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     proxy_url = generate_institutional_proxy_url(doi=row["doi"], publisher_url=row["link"])
                     if proxy_url:
                         row["feedback_json"] = upsert_institutional_proxy_link("{}", proxy_url)
+                row["feedback_json"] = merge_feedback_json_with_intake_override(
+                    row.get("feedback_json"),
+                    intake_override_log,
+                )
                 
                 results.append(row)
 
@@ -449,10 +474,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                         feedback_json=row.get("feedback_json"),
                         download_attempts=row.get("download_attempts"),
                         status=row["processing_status"].value if hasattr(row["processing_status"], "value") else str(row["processing_status"]),
-                        issues_state=derive_saved_issues_state(
-                            row["processing_status"],
-                            analysis_available=analysis_available,
-                        ),
+                        issues_state=issues_state,
                     )
                 except Exception:
                     pass

@@ -4,6 +4,7 @@ from .chat import *
 from .gates import *
 from .ops import *
 from .paper_notes import *
+from .intake_override_log import *
 from .research_dna import *
 from .protocol_card import *
 from .chart_pack import *
