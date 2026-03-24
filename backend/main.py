@@ -81,7 +81,7 @@ from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from src.services.stats_repair import seed_stats_reports_from_claimset
-from .routers import chart_packs, feedback, meeting_packs, method_comparisons, obsidian, paper_notes, skills
+from .routers import chart_packs, feedback, image_evidence, meeting_packs, method_comparisons, obsidian, paper_notes, skills
 
 
 def _best_effort_log_user_action(
@@ -142,6 +142,8 @@ def _requires_api_key(method: str, path: str) -> bool:
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
     if normalized.startswith("/meeting-packs/"):
+        return True
+    if normalized.startswith("/image-evidence/"):
         return True
     if normalized.startswith("/chart-packs/"):
         return True
@@ -1316,4 +1318,5 @@ app.include_router(paper_notes.router)
 app.include_router(skills.router)
 app.include_router(meeting_packs.router)
 app.include_router(chart_packs.router)
+app.include_router(image_evidence.router)
 app.include_router(method_comparisons.router)

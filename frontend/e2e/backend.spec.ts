@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
 
 const runSoftGateCanary = process.env.PAPERPIPE_E2E_CANARY === "1";
@@ -553,6 +555,192 @@ test("paper notes detail supports learner and inspect view modes", async ({ page
   await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Learner mode keeps related papers");
   await expect(rightAside.getByRole("heading").first()).toHaveText("Properties");
+});
+
+test("backend image evidence viewer loads a registered external bundle on the real route", async ({ page, request }) => {
+  const imageEvidenceId = `imageev_backend_external_${randomUUID().slice(0, 8)}`;
+  const response = await request.post(`${backendBaseUrl}/image-evidence/register`, {
+    data: {
+      image_evidence_id: imageEvidenceId,
+      title: "E2E OMERO clean bundle",
+      paper_slug: noteSlug,
+      source_ref: {
+        source_kind: "external_image_ref",
+        external_ref: `omero://dataset/42/image/${imageEvidenceId}`,
+        source_label: "OMERO image 7",
+      },
+      content_format: "image/png",
+      metadata: {
+        width_px: 1024,
+        height_px: 768,
+        modality: "brightfield",
+        acquisition_note: "Representative backend image-evidence bundle.",
+      },
+      view_state: {
+        active_channels: ["GFP", "DAPI"],
+        zoom_level: 2.0,
+        visible_overlays: ["roi_outline"],
+      },
+      derived_outputs: [
+        {
+          derived_output_id: "thumb_clean",
+          kind: "thumbnail",
+          source_image_evidence_id: imageEvidenceId,
+          created_by: "e2e-fixture",
+          created_at: "2026-03-24T12:00:00+00:00",
+          tool_name: "napari",
+          external_ref: `omero://dataset/42/image/${imageEvidenceId}/thumbnail`,
+          note: "Representative thumbnail only.",
+        },
+      ],
+      handoff_targets: [
+        {
+          target: "omero",
+          openable_ref: `omero://dataset/42/image/${imageEvidenceId}`,
+          notes: "Open in external viewer.",
+        },
+      ],
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    image_evidence?: {
+      image_evidence_id?: string;
+      title?: string;
+      paper_slug?: string | null;
+      warnings?: Array<{ code?: string }>;
+    };
+    view_state?: { active_channels?: string[] } | null;
+    handoff_targets?: Array<{ target?: string; openable_ref?: string }>;
+  };
+  expect(payload.image_evidence?.image_evidence_id).toBe(imageEvidenceId);
+  expect(payload.image_evidence?.title).toBe("E2E OMERO clean bundle");
+  expect(payload.image_evidence?.paper_slug).toBe(noteSlug);
+  expect(payload.image_evidence?.warnings ?? []).toEqual([]);
+  expect(payload.view_state?.active_channels).toEqual(["GFP", "DAPI"]);
+  expect(payload.handoff_targets?.[0]?.target).toBe("omero");
+
+  const indexResponse = await request.get(`${backendBaseUrl}/image-evidence`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    items?: Array<{
+      image_evidence_id?: string;
+      title?: string;
+      warning_count?: number;
+      has_view_state?: boolean;
+      has_handoff?: boolean;
+    }>;
+  };
+  expect(indexPayload.items?.find((item) => item.image_evidence_id === imageEvidenceId)).toMatchObject({
+    image_evidence_id: imageEvidenceId,
+    title: "E2E OMERO clean bundle",
+    warning_count: 0,
+    has_view_state: true,
+    has_handoff: true,
+  });
+
+  await page.goto("/image-evidence");
+
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or image evidence id"]').fill(imageEvidenceId);
+  const targetCard = page.locator("article").filter({ hasText: "E2E OMERO clean bundle" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("Clean bundle", { exact: true })).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open bundle" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/image-evidence/${imageEvidenceId}$`));
+  await expect(page.getByRole("heading", { name: "E2E OMERO clean bundle", exact: true })).toBeVisible();
+  await expect(page.getByText("No bundle warnings saved.")).toBeVisible();
+  await expect(page.getByText("Representative backend image-evidence bundle.")).toBeVisible();
+  await expect(page.getByText("Thumbnail", { exact: true })).toBeVisible();
+  await expect(page.getByText("Representative thumbnail only.")).toBeVisible();
+  await expect(page.getByText("GFP")).toBeVisible();
+  await expect(page.getByText("Open in external viewer.")).toBeVisible();
+
+  await page.getByRole("link", { name: "Open note" }).click();
+  await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
+  await expect(
+    page.getByRole("banner").getByRole("heading", {
+      name: /Alzheimer Disease as a Clinical-Biological Construct/i,
+    }),
+  ).toBeVisible();
+});
+
+test("backend image evidence viewer surfaces missing-local-file warnings on the real route", async ({ page, request }) => {
+  const imageEvidenceId = `imageev_backend_missing_${randomUUID().slice(0, 8)}`;
+  const missingLocalPath = `/tmp/${imageEvidenceId}.tif`;
+  const response = await request.post(`${backendBaseUrl}/image-evidence/register`, {
+    data: {
+      image_evidence_id: imageEvidenceId,
+      title: "E2E missing local image bundle",
+      source_ref: {
+        source_kind: "local_file",
+        local_path: missingLocalPath,
+        source_label: "Missing microscope export",
+      },
+      content_format: "image/tiff",
+      metadata: {
+        modality: "fluorescence",
+      },
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as {
+    image_evidence?: {
+      image_evidence_id?: string;
+      title?: string;
+      warnings?: Array<{ code?: string; message?: string }>;
+    };
+    view_state?: unknown;
+    handoff_targets?: Array<{ target?: string }>;
+  };
+  expect(payload.image_evidence?.image_evidence_id).toBe(imageEvidenceId);
+  expect(payload.image_evidence?.title).toBe("E2E missing local image bundle");
+  expect(payload.image_evidence?.warnings?.map((warning) => warning.code)).toEqual(["LOCAL_SOURCE_MISSING"]);
+  expect(payload.image_evidence?.warnings?.[0]?.message).toContain(missingLocalPath);
+  expect(payload.view_state ?? null).toBeNull();
+  expect(payload.handoff_targets ?? []).toEqual([]);
+
+  const indexResponse = await request.get(`${backendBaseUrl}/image-evidence`);
+  expect(indexResponse.ok()).toBeTruthy();
+  const indexPayload = (await indexResponse.json()) as {
+    items?: Array<{
+      image_evidence_id?: string;
+      title?: string;
+      warning_count?: number;
+      has_view_state?: boolean;
+      has_handoff?: boolean;
+    }>;
+  };
+  expect(indexPayload.items?.find((item) => item.image_evidence_id === imageEvidenceId)).toMatchObject({
+    image_evidence_id: imageEvidenceId,
+    title: "E2E missing local image bundle",
+    warning_count: 1,
+    has_view_state: false,
+    has_handoff: false,
+  });
+
+  await page.goto("/image-evidence");
+
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.locator('input[placeholder="Search title or image evidence id"]').fill(imageEvidenceId);
+  const targetCard = page.locator("article").filter({ hasText: "E2E missing local image bundle" }).first();
+  await expect(targetCard).toBeVisible();
+  await expect(targetCard.getByText("1 warning", { exact: true })).toBeVisible();
+  await targetCard.getByRole("button", { name: "Open bundle" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/image-evidence/${imageEvidenceId}$`));
+  await expect(page.getByRole("heading", { name: "E2E missing local image bundle", exact: true })).toBeVisible();
+  await expect(page.getByText("LOCAL_SOURCE_MISSING")).toBeVisible();
+  await expect(page.getByText(`Local source file does not exist: ${missingLocalPath}`)).toBeVisible();
+  await expect(page.getByText("No derived outputs registered.")).toBeVisible();
+  await expect(page.getByText("No view state saved for this bundle.")).toBeVisible();
+  await expect(page.getByText("No handoff targets saved for this bundle.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open note" })).toHaveCount(0);
 });
 
 test("soft-gate canary: intentional backend e2e failure drill", async () => {
