@@ -4,7 +4,7 @@ import logging
 import os
 import sqlite3
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Literal
 
 from src.db_utils import get_db_connection
 from src.jobs.schemas import JobStatus
@@ -66,6 +66,7 @@ class JobQueue:
         persona_id: str = "default",
         reasoning_persona: str | None = None,
         profile_id: str | None = None,
+        parser_backend: Literal["fitz_pdfplumber", "docling"] | None = None,
         trigger_source: str = "api",
         pipeline_profile: str = "deepread",
     ) -> str:
@@ -140,6 +141,7 @@ class JobQueue:
                     "persona_id": selection.persona_id,
                     "reasoning_persona": selection.reasoning_persona,
                     "profile_id": selection.profile_id,
+                    "parser_backend": str(parser_backend or "").strip().lower() or None,
                     "run_verify": bool(run_verify),
                     "clean_reindex": bool(clean_reindex),
                 },
