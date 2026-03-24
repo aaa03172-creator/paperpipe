@@ -8,24 +8,33 @@ if [[ -z "${PYTHON_BIN}" ]]; then
 fi
 
 BACKEND_PORT="${E2E_BACKEND_PORT:-8000}"
+E2E_RUNTIME_DIR="frontend/.e2e-backend-runtime"
+E2E_CONFIG_PATH="${E2E_RUNTIME_DIR}/config.e2e.yaml"
+E2E_STORAGE_DIR="${E2E_RUNTIME_DIR}/storage"
+E2E_ARTIFACTS_DIR="${E2E_STORAGE_DIR}/artifacts"
 
-if [[ ! -f "config.yaml" ]]; then
-  cat > config.yaml <<'YAML'
+rm -rf "${E2E_RUNTIME_DIR}"
+mkdir -p "${E2E_STORAGE_DIR}"
+export PAPERPIPE_CONFIG_PATH="${E2E_CONFIG_PATH}"
+export PAPERPIPE_STORAGE_DIR="${E2E_STORAGE_DIR}"
+export PAPERPIPE_ARTIFACTS_DIR="${E2E_ARTIFACTS_DIR}"
+
+cat > "${E2E_CONFIG_PATH}" <<'YAML'
 system:
   backfill_limit_days: 3
   log_level: "INFO"
 
 paths:
-  zotero_base_dir: "./Library"
-  obsidian_vault: "./obsidian"
+  zotero_base_dir: "./frontend/.e2e-backend-runtime/Library"
+  obsidian_vault: "./frontend/.e2e-backend-runtime/obsidian"
   index_all: "00_Index/paper_collection.csv"
   index_clinical: "00_Index/mct_mci_trials.csv"
-  upload_dir: "./NotebookLM_Upload"
-  export_dir: "./export"
-  watch_folder: "./Inbox"
-  library_dir: "./Library"
-  downloads_watch_dir: "./Downloads"
-  pdf_storage_dir: "./storage/pdfs"
+  upload_dir: "./frontend/.e2e-backend-runtime/NotebookLM_Upload"
+  export_dir: "./frontend/.e2e-backend-runtime/export"
+  watch_folder: "./frontend/.e2e-backend-runtime/Inbox"
+  library_dir: "./frontend/.e2e-backend-runtime/Library"
+  downloads_watch_dir: "./frontend/.e2e-backend-runtime/Downloads"
+  pdf_storage_dir: "./frontend/.e2e-backend-runtime/storage/pdfs"
 
 search:
   constraints:
@@ -97,7 +106,6 @@ agents:
   logging:
     trace_file: "logs/agent_trace.jsonl"
 YAML
-fi
 
 "${PYTHON_BIN}" - <<'PY'
 import json
@@ -107,7 +115,8 @@ import textwrap
 import yaml
 
 root = Path.cwd()
-db_path = root / "storage" / "state.db"
+e2e_runtime = root / "frontend" / ".e2e-backend-runtime"
+db_path = e2e_runtime / "storage" / "state.db"
 db_path.parent.mkdir(parents=True, exist_ok=True)
 conn = sqlite3.connect(db_path)
 conn.execute(
@@ -141,7 +150,7 @@ conn.executemany(
 )
 
 config_raw = {}
-config_path = root / "config.yaml"
+config_path = e2e_runtime / "config.e2e.yaml"
 if config_path.exists():
     try:
         config_raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
@@ -397,7 +406,7 @@ conn.execute(
 paper_id = "paper-e2e-001"
 run_id = "run_e2e_fixture_001"
 job_id = "job-e2e-fixture-001"
-artifact_dir = root / "storage" / "artifacts" / paper_id / run_id
+artifact_dir = e2e_runtime / "storage" / "artifacts" / paper_id / run_id
 artifact_dir.mkdir(parents=True, exist_ok=True)
 
 claimset_payload = {
@@ -446,9 +455,55 @@ claimset_payload = {
 }
 
 stats_payload = {
+    "doc_id": paper_id,
+    "run_id": run_id,
+    "input_tables_used": [],
     "checks": [
-        {"check_id": "check-1", "hypothesis": "Primary endpoint difference", "verdict": "pass"},
-        {"check_id": "check-2", "hypothesis": "N consistency", "verdict": "warning"},
+        {
+            "check_id": "check-1",
+            "hypothesis": "Primary endpoint difference",
+            "test_type": "t-test",
+            "method": "manual_check",
+            "reported_p": "0.05",
+            "alpha_used": 0.05,
+            "computed_p": 0.04,
+            "decision_error": False,
+            "code": "print('ok')",
+            "outputs": "ok",
+            "verdict": "verified",
+            "evidence": [
+                {
+                    "page": 0,
+                    "raw_text": "Initial improvement window observed during early follow-up period.",
+                    "quote": "Initial improvement window observed during early follow-up period.",
+                    "rationale": "Primary endpoint evidence used by the E2E chart-pack fixture.",
+                    "highlight_source": "text_match",
+                }
+            ],
+        },
+        {
+            "check_id": "check-2",
+            "hypothesis": "N consistency",
+            "test_type": "consistency-check",
+            "method": "manual_check",
+            "reported_p": "0.12",
+            "alpha_used": 0.05,
+            "computed_p": 0.12,
+            "decision_error": False,
+            "code": "print('warning')",
+            "outputs": "warning",
+            "verdict": "partially_verified",
+            "notes": "Fixture warning for chart status counts.",
+            "evidence": [
+                {
+                    "page": 0,
+                    "raw_text": "Cohort size remained stable across the reported subgroups.",
+                    "quote": "Cohort size remained stable across the reported subgroups.",
+                    "rationale": "Secondary consistency evidence for the chart-pack fixture.",
+                    "highlight_source": "text_match",
+                }
+            ],
+        },
     ]
 }
 
@@ -477,7 +532,7 @@ bootstrap_payload = {
 
 list_missing_paper_id = "paper-e2e-list-missing-stats-001"
 list_missing_run_id = "run_e2e_list_missing_stats_001"
-list_missing_artifact_dir = root / "storage" / "artifacts" / list_missing_paper_id / list_missing_run_id
+list_missing_artifact_dir = e2e_runtime / "storage" / "artifacts" / list_missing_paper_id / list_missing_run_id
 list_missing_artifact_dir.mkdir(parents=True, exist_ok=True)
 (list_missing_artifact_dir / "claimset.json").write_text(
     json.dumps(
@@ -501,7 +556,7 @@ list_missing_artifact_dir.mkdir(parents=True, exist_ok=True)
     encoding="utf-8",
 )
 
-log_dir = root / "logs" / "jobs"
+log_dir = e2e_runtime / "logs" / "jobs"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_path = log_dir / f"{job_id}.log"
 log_lines = [
@@ -556,7 +611,7 @@ conn.execute(
 paper_id_spans = "paper-e2e-spans-001"
 run_id_spans = "run_e2e_spans_001"
 job_id_spans = "job-e2e-spans-001"
-artifact_dir_spans = root / "storage" / "artifacts" / paper_id_spans / run_id_spans
+artifact_dir_spans = e2e_runtime / "storage" / "artifacts" / paper_id_spans / run_id_spans
 artifact_dir_spans.mkdir(parents=True, exist_ok=True)
 
 claimset_payload_spans = {
@@ -592,9 +647,55 @@ claimset_payload_spans = {
 }
 
 stats_payload_spans = {
+    "doc_id": paper_id_spans,
+    "run_id": run_id_spans,
+    "input_tables_used": [],
     "checks": [
-        {"check_id": "span-check-1", "hypothesis": "Hit-rate superiority", "verdict": "pass"},
-        {"check_id": "span-check-2", "hypothesis": "Header dependency risk", "verdict": "warning"},
+        {
+            "check_id": "span-check-1",
+            "hypothesis": "Hit-rate superiority",
+            "test_type": "ranking-eval",
+            "method": "manual_check",
+            "reported_p": "0.03",
+            "alpha_used": 0.05,
+            "computed_p": 0.03,
+            "decision_error": False,
+            "code": "print('ok')",
+            "outputs": "ok",
+            "verdict": "verified",
+            "evidence": [
+                {
+                    "page": 0,
+                    "raw_text": "Section-aware method achieved a Hit Rate@5 of 0.85.",
+                    "quote": "Section-aware method achieved a Hit Rate@5 of 0.85.",
+                    "rationale": "Ranking-eval evidence for the spans fixture.",
+                    "highlight_source": "text_match",
+                }
+            ],
+        },
+        {
+            "check_id": "span-check-2",
+            "hypothesis": "Header dependency risk",
+            "test_type": "risk-check",
+            "method": "manual_check",
+            "reported_p": "0.11",
+            "alpha_used": 0.05,
+            "computed_p": 0.11,
+            "decision_error": False,
+            "code": "print('warning')",
+            "outputs": "warning",
+            "verdict": "partially_verified",
+            "notes": "Header dependency remains a documented caveat.",
+            "evidence": [
+                {
+                    "page": 1,
+                    "raw_text": "Limitations include the reliance on clear PDF headers.",
+                    "quote": "Limitations include the reliance on clear PDF headers.",
+                    "rationale": "Risk evidence for the spans fixture.",
+                    "highlight_source": "text_match",
+                }
+            ],
+        },
     ]
 }
 
