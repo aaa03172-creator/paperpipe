@@ -984,6 +984,7 @@ def list_papers(
     out = []
     for p in papers:
         item = dict(p)
+        paper_id = str(item.get("paper_id") or "").strip()
         pdf_path = item.get("pdf_path")
         pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
         item["pdf_exists"] = pdf_exists
@@ -991,7 +992,11 @@ def list_papers(
         if not pdf_exists and pdf_path:
             item["pdf_status"] = "missing"
         item["issues_state"] = _derive_paper_issues_state(item)
-        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, str(item.get("paper_id") or ""), artifact_cache)
+        ops_summary = build_ops_summary_for_paper_id(artifacts_path, paper_id, artifact_cache)
+        item["ops_summary"] = ops_summary
+        item["latest_run_id"] = (
+            getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+        ) or _latest_run_id_for_paper(paper_id)
         out.append(item)
     return out
 
@@ -1012,7 +1017,11 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     if not pdf_exists and pdf_path:
         item["pdf_status"] = "missing"
     item["issues_state"] = _derive_paper_issues_state(item)
-    item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
+    ops_summary = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
+    item["ops_summary"] = ops_summary
+    item["latest_run_id"] = (
+        getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+    ) or _latest_run_id_for_paper(paper_id)
     return item
 
 
