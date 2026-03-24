@@ -2,7 +2,12 @@ import json
 from pathlib import Path
 
 from scripts.verify_teacher_output import verify_and_route
-from src.quality.gates import EVIDENCE_LOCATION_MISSING, NUMERIC_SANITY_FAIL
+from src.quality.gates import (
+    EVIDENCE_LOCATION_MISSING,
+    NUMERIC_SANITY_FAIL,
+    TEACHER_REVIEW_FRAGMENTARY_CLAIM,
+    TEACHER_REVIEW_MISALIGNED_QUOTE,
+)
 
 
 def _write_bundle(bundle_dir: Path, paper_id: str = "paper-001") -> None:
@@ -29,6 +34,59 @@ def _write_bundle(bundle_dir: Path, paper_id: str = "paper-001") -> None:
 
 def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _write_teacher_review_eval(bundle_dir: Path, *, anchor_quality_label: str, bundle_outcome: str = "MAJOR_ISSUE") -> None:
+    payload = {
+        "schema_version": "teacher_review_eval.v1",
+        "generated_at": "2026-03-24T00:00:00Z",
+        "paper_id": "paper-sidecar",
+        "doc_id": "doc-001",
+        "bundle_dir": str(bundle_dir),
+        "review_source": "codex-precheck",
+        "review_jsonl_path": None,
+        "bundle_outcome": bundle_outcome,
+        "issue_patterns": ["synthetic-test"],
+        "metrics": {
+            "claim_count": 1,
+            "reviewed_claim_count": 1,
+            "missing_review_count": 0,
+            "extra_review_count": 0,
+            "duplicate_review_row_count": 0,
+            "direct_quote_support_count": 0,
+            "adjacent_support_count": 0,
+            "heading_level_support_count": 0,
+            "misaligned_quote_count": int(anchor_quality_label == "MISALIGNED_QUOTE"),
+            "fragmentary_claim_count": int(anchor_quality_label == "FRAGMENTARY_CLAIM"),
+            "supported_claim_count": 1,
+            "unsupported_claim_count": 0,
+            "ambiguous_claim_count": 0,
+            "good_location_count": 0,
+            "weak_location_count": 0,
+            "misleading_location_count": int(anchor_quality_label == "MISALIGNED_QUOTE"),
+            "keep_teacher_claim_count": 1,
+            "drop_teacher_claim_count": 0,
+            "supported_claim_precision": 1.0,
+        },
+        "claims": [
+            {
+                "claim_id": "CLM-001",
+                "statement": "Treatment reduced pain by 25% (p<0.05).",
+                "reviewed": True,
+                "anchor_quality_label": anchor_quality_label,
+                "support_label": "SUPPORTED",
+                "location_label": "MISLEADING" if anchor_quality_label == "MISALIGNED_QUOTE" else "GOOD",
+                "keep_teacher_claim": True,
+                "source_page": 2,
+                "source_chunk_id": "c-1",
+                "bundle_outcome": bundle_outcome,
+                "issue_pattern": "synthetic-test",
+                "reviewer": "codex-precheck",
+                "notes": None,
+            }
+        ],
+    }
+    _write_json(bundle_dir / "teacher_review_eval.json", payload)
 
 
 def _valid_teacher_output() -> dict:
@@ -123,3 +181,70 @@ def test_verify_and_route_quarantines_with_reason_codes(tmp_path: Path) -> None:
     assert out_path.parent.name == "quarantine"
     assert EVIDENCE_LOCATION_MISSING in record["reason_codes"]
     assert NUMERIC_SANITY_FAIL in record["reason_codes"]
+
+
+def test_verify_and_route_quarantines_fragmentary_or_misaligned_teacher_review_eval(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    teacher_output_path = tmp_path / "teacher_output.json"
+    goldset_root = tmp_path / "goldset"
+
+    _write_bundle(bundle_dir, paper_id="paper-sidecar")
+    _write_json(teacher_output_path, _valid_teacher_output())
+    _write_teacher_review_eval(bundle_dir, anchor_quality_label="MISALIGNED_QUOTE")
+
+    out_path, record = verify_and_route(
+        bundle_dir=bundle_dir,
+        teacher_output_path=teacher_output_path,
+        goldset_root=goldset_root,
+    )
+
+    assert record["accepted"] is False
+    assert out_path.parent.name == "quarantine"
+    assert TEACHER_REVIEW_MISALIGNED_QUOTE in record["reason_codes"]
+    assert record["teacher_review_eval_summary"]["blocking_anchor_quality_labels"] == ["MISALIGNED_QUOTE"]
+
+
+def test_verify_and_route_keeps_warning_only_teacher_review_eval_labels_non_blocking(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    teacher_output_path = tmp_path / "teacher_output.json"
+    goldset_root = tmp_path / "goldset"
+
+    _write_bundle(bundle_dir, paper_id="paper-warning-only")
+    _write_json(teacher_output_path, _valid_teacher_output())
+    _write_teacher_review_eval(bundle_dir, anchor_quality_label="ADJACENT_SUPPORT", bundle_outcome="MINOR_ISSUE")
+
+    out_path, record = verify_and_route(
+        bundle_dir=bundle_dir,
+        teacher_output_path=teacher_output_path,
+        goldset_root=goldset_root,
+    )
+
+    assert record["accepted"] is True
+    assert out_path.parent.name == "accepted"
+    assert TEACHER_REVIEW_FRAGMENTARY_CLAIM not in record["reason_codes"]
+    assert TEACHER_REVIEW_MISALIGNED_QUOTE not in record["reason_codes"]
+    assert record["teacher_review_eval_summary"]["blocking_anchor_quality_labels"] == []
+    assert record["teacher_review_eval_summary"]["warning_anchor_quality_labels"] == ["ADJACENT_SUPPORT"]
+    assert record["teacher_review_eval_summary"]["observed_anchor_quality_labels"] == ["ADJACENT_SUPPORT"]
+
+
+def test_verify_and_route_records_heading_level_warning_without_blocking(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    teacher_output_path = tmp_path / "teacher_output.json"
+    goldset_root = tmp_path / "goldset"
+
+    _write_bundle(bundle_dir, paper_id="paper-heading-warning")
+    _write_json(teacher_output_path, _valid_teacher_output())
+    _write_teacher_review_eval(bundle_dir, anchor_quality_label="HEADING_LEVEL_SUPPORT", bundle_outcome="MINOR_ISSUE")
+
+    out_path, record = verify_and_route(
+        bundle_dir=bundle_dir,
+        teacher_output_path=teacher_output_path,
+        goldset_root=goldset_root,
+    )
+
+    assert record["accepted"] is True
+    assert out_path.parent.name == "accepted"
+    assert record["teacher_review_eval_summary"]["blocking_anchor_quality_labels"] == []
+    assert record["teacher_review_eval_summary"]["warning_anchor_quality_labels"] == ["HEADING_LEVEL_SUPPORT"]
+    assert record["teacher_review_eval_summary"]["observed_anchor_quality_labels"] == ["HEADING_LEVEL_SUPPORT"]
