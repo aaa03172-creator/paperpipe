@@ -18,6 +18,11 @@ Current warning-only labels:
 - `ADJACENT_SUPPORT`
 - `HEADING_LEVEL_SUPPORT`
 
+Current verifier summary behavior:
+- blocking labels are written to `teacher_review_eval_summary.blocking_anchor_quality_labels`
+- warning-only labels are written to `teacher_review_eval_summary.warning_anchor_quality_labels`
+- all seen labels are written to `teacher_review_eval_summary.observed_anchor_quality_labels`
+
 ## Replay Set
 
 1. `zotero:zhouGliatoNeuronConversionCRISPRCasRx2020`
@@ -48,6 +53,26 @@ Current warning-only labels:
 - reason codes: `[]`
 - blocking anchor labels: `[]`
 
+## Warning-Only Replay Check
+
+### zotero:duboisAlzheimerDiseaseClinicalBiological2024
+- `accepted=true`
+- target dir: `accepted`
+- reason codes: `[]`
+- warning anchor labels:
+  - `ADJACENT_SUPPORT`
+- observed anchor labels:
+  - `ADJACENT_SUPPORT`
+
+### zotero:chandraGutMicrobiomeAlzheimers2023
+- `accepted=true`
+- target dir: `accepted`
+- reason codes: `[]`
+- warning anchor labels:
+  - `HEADING_LEVEL_SUPPORT`
+- observed anchor labels:
+  - `HEADING_LEVEL_SUPPORT`
+
 ## Current Judgment
 
 The new guardrail is aligned with the replay evidence.
@@ -56,6 +81,10 @@ It does not behave like a broad teacher-review rejection rule.
 It suppresses only the two highest-risk anchor-quality failures that were already isolated in the replay taxonomy:
 - fragmentary surviving claim
 - supported claim with non-supporting selected quote
+
+It also leaves the weaker-but-still-usable anchor-quality classes in the accepted lane while preserving them in verifier metadata:
+- adjacent support
+- heading-level support
 
 This keeps the current lane narrow:
 - no prompt rewrite

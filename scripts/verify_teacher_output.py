@@ -55,14 +55,20 @@ def _load_teacher_review_eval(bundle_dir: Path) -> tuple[Path | None, TeacherRev
         return path, None, str(exc)
 
 
-def _teacher_review_eval_guardrail(sidecar: TeacherReviewEvalSidecar) -> tuple[list[str], list[dict[str, str]], list[str]]:
+def _teacher_review_eval_guardrail(
+    sidecar: TeacherReviewEvalSidecar,
+) -> tuple[list[str], list[dict[str, str]], list[str], list[str], list[str]]:
     reason_codes: set[str] = set()
     findings: list[dict[str, str]] = []
     blocking_labels: list[str] = []
+    warning_labels: list[str] = []
+    observed_labels: list[str] = []
 
     for claim in sidecar.claims:
         if not claim.reviewed:
             continue
+        if claim.anchor_quality_label:
+            observed_labels.append(claim.anchor_quality_label)
         if claim.anchor_quality_label == "FRAGMENTARY_CLAIM":
             reason_codes.add(TEACHER_REVIEW_FRAGMENTARY_CLAIM)
             blocking_labels.append("FRAGMENTARY_CLAIM")
@@ -83,8 +89,16 @@ def _teacher_review_eval_guardrail(sidecar: TeacherReviewEvalSidecar) -> tuple[l
                     "detail": f"claim_id={claim.claim_id} flagged as misaligned quote by teacher_review_eval",
                 }
             )
+        elif claim.anchor_quality_label in {"ADJACENT_SUPPORT", "HEADING_LEVEL_SUPPORT"}:
+            warning_labels.append(claim.anchor_quality_label)
 
-    return sorted(reason_codes), findings, sorted(set(blocking_labels))
+    return (
+        sorted(reason_codes),
+        findings,
+        sorted(set(blocking_labels)),
+        sorted(set(warning_labels)),
+        sorted(set(observed_labels)),
+    )
 
 
 def verify_and_route(
@@ -112,14 +126,21 @@ def verify_and_route(
 
     teacher_review_eval_path, teacher_review_eval, teacher_review_eval_error = _load_teacher_review_eval(bundle_dir)
     blocking_anchor_quality_labels: list[str] = []
+    warning_anchor_quality_labels: list[str] = []
+    observed_anchor_quality_labels: list[str] = []
     if teacher_review_eval is not None:
-        extra_reason_codes, extra_findings, blocking_anchor_quality_labels = _teacher_review_eval_guardrail(
-            teacher_review_eval
-        )
+        (
+            extra_reason_codes,
+            extra_findings,
+            blocking_anchor_quality_labels,
+            warning_anchor_quality_labels,
+            observed_anchor_quality_labels,
+        ) = _teacher_review_eval_guardrail(teacher_review_eval)
         reason_codes.update(extra_reason_codes)
         findings.extend(extra_findings)
         metrics["teacher_review_eval_reviewed_claim_count"] = teacher_review_eval.metrics.reviewed_claim_count
         metrics["teacher_review_eval_blocking_label_count"] = len(blocking_anchor_quality_labels)
+        metrics["teacher_review_eval_warning_label_count"] = len(warning_anchor_quality_labels)
 
     accepted = len(reason_codes) == 0
 
@@ -145,6 +166,8 @@ def verify_and_route(
             "bundle_outcome": teacher_review_eval.bundle_outcome,
             "issue_patterns": teacher_review_eval.issue_patterns,
             "blocking_anchor_quality_labels": blocking_anchor_quality_labels,
+            "warning_anchor_quality_labels": warning_anchor_quality_labels,
+            "observed_anchor_quality_labels": observed_anchor_quality_labels,
         }
 
     target_dir = goldset_root / ("accepted" if accepted else "quarantine")

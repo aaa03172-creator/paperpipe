@@ -224,3 +224,27 @@ def test_verify_and_route_keeps_warning_only_teacher_review_eval_labels_non_bloc
     assert TEACHER_REVIEW_FRAGMENTARY_CLAIM not in record["reason_codes"]
     assert TEACHER_REVIEW_MISALIGNED_QUOTE not in record["reason_codes"]
     assert record["teacher_review_eval_summary"]["blocking_anchor_quality_labels"] == []
+    assert record["teacher_review_eval_summary"]["warning_anchor_quality_labels"] == ["ADJACENT_SUPPORT"]
+    assert record["teacher_review_eval_summary"]["observed_anchor_quality_labels"] == ["ADJACENT_SUPPORT"]
+
+
+def test_verify_and_route_records_heading_level_warning_without_blocking(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    teacher_output_path = tmp_path / "teacher_output.json"
+    goldset_root = tmp_path / "goldset"
+
+    _write_bundle(bundle_dir, paper_id="paper-heading-warning")
+    _write_json(teacher_output_path, _valid_teacher_output())
+    _write_teacher_review_eval(bundle_dir, anchor_quality_label="HEADING_LEVEL_SUPPORT", bundle_outcome="MINOR_ISSUE")
+
+    out_path, record = verify_and_route(
+        bundle_dir=bundle_dir,
+        teacher_output_path=teacher_output_path,
+        goldset_root=goldset_root,
+    )
+
+    assert record["accepted"] is True
+    assert out_path.parent.name == "accepted"
+    assert record["teacher_review_eval_summary"]["blocking_anchor_quality_labels"] == []
+    assert record["teacher_review_eval_summary"]["warning_anchor_quality_labels"] == ["HEADING_LEVEL_SUPPORT"]
+    assert record["teacher_review_eval_summary"]["observed_anchor_quality_labels"] == ["HEADING_LEVEL_SUPPORT"]
