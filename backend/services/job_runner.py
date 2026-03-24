@@ -24,6 +24,7 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.services.deepread_state_projection import promote_deepread_structured_state_for_note
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
@@ -907,10 +908,21 @@ async def run_deepread_job(
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
 
         # 6. Complete
+        _mark_run_meta("succeeded")
+
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
             note_path = _resolve_note_path_for_paper(config, paper_id)
             if note_path:
+                promotion = promote_deepread_structured_state_for_note(
+                    vault_path=Path(config.paths.obsidian_vault).expanduser(),
+                    note_path=note_path,
+                    artifact_dir=artifact_dir,
+                )
+                if promotion["status"] in {"created", "refreshed"}:
+                    await emit("read", 76, f"Canonical state {promotion['status']}: {note_path.stem}")
+                else:
+                    await emit("read", 76, f"Canonical state skipped: {promotion['reason']}")
                 stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
                 deepread_md = build_deepread_markdown(
                     model_name=getattr(reader_agent, "model_name", "reader"),
@@ -925,7 +937,6 @@ async def run_deepread_job(
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
-        _mark_run_meta("succeeded")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
         return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
