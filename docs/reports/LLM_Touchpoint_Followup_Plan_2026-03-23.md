@@ -1,6 +1,6 @@
 # LLM Touchpoint Follow-Up Plan
 
-Status: Open follow-up plan
+Status: Active follow-up plan; Workstreams 1-3 completed in bounded form
 Date: 2026-03-23
 Branch observed: `codex/agents-smoke-ci-check`
 Scope: measurement, validation, and additive guardrails only
@@ -39,6 +39,13 @@ Important buffer layers already present:
 
 The next work should focus on making LLM outputs more measurable before any training or contract redesign is considered.
 
+Progress snapshot as of 2026-03-24:
+- [done] Workstream 1: reader evaluation sidecar and bounded real-paper replay
+- [done] Workstream 2: stats fallback taxonomy sidecar and bounded replay
+- [done] Workstream 3: teacher-review spot-check, eval sidecar, anchor-quality taxonomy, and pre-accept suppression for the two highest-risk labels
+- [next] Workstream 4: processor and watcher override logging
+- [later] Workstream 5: cloud table fallback cost/fidelity review
+
 ## 2. Non-Goals
 
 Do not do these as part of this follow-up plan:
@@ -56,7 +63,6 @@ Do not do these as part of this follow-up plan:
 - Stats fallback taxonomy and parser comparison logging
 
 ### P1: Next batch
-- Teacher review human spot-check protocol
 - Processor and watcher override logging
 
 ### P2: Later
@@ -192,6 +198,20 @@ Why next:
 - spot-check results can be compared against teacher output without editing the original artifact
 - at least one recurring disagreement pattern is surfaced or the protocol can justify that it is not currently a major risk
 
+Current state:
+- completed in bounded form
+- current outputs:
+  - `/Users/jangseongjin/paperpipe/src/schemas/teacher_review_eval.py`
+  - `/Users/jangseongjin/paperpipe/src/services/teacher_review_eval_sidecar.py`
+  - `/Users/jangseongjin/paperpipe/scripts/build_teacher_review_eval.py`
+  - `/Users/jangseongjin/paperpipe/docs/reports/Teacher_Review_Eval_Sidecar_Round1_2026-03-24.md`
+  - `/Users/jangseongjin/paperpipe/docs/reports/Teacher_Review_Anchor_Quality_Full_Replay_2026-03-24.md`
+  - `/Users/jangseongjin/paperpipe/docs/reports/Teacher_Review_Pre_Accept_Suppression_Replay_2026-03-24.md`
+- current policy:
+  - block `FRAGMENTARY_CLAIM`
+  - block `MISALIGNED_QUOTE`
+  - keep `ADJACENT_SUPPORT` and `HEADING_LEVEL_SUPPORT` as warning-only
+
 ## 7. Workstream 4: Processor and Watcher Override Logging
 
 Primary files:
@@ -269,6 +289,10 @@ Use this order:
 4. Processor and watcher override logging
 5. Cloud fallback cost/fidelity review
 
+Current next lane:
+1. Processor and watcher override logging
+2. Cloud fallback cost/fidelity review
+
 Do not reorder the sequence unless a new production incident shows that intake classification is causing more damage than claim or stats artifacts.
 
 ## 10. Decision Gates Before Any Training
@@ -286,17 +310,18 @@ If any item above is missing, the default decision is:
 
 ## 11. Safest Immediate Next 3 Experiments
 
-1. Reader claim/evidence evaluation sidecar
-- target: `/Users/jangseongjin/paperpipe/src/agents/reader_agent.py`
-- measure: unsupported claims, grounding, compression drift
+1. Processor and watcher override logging
+- target: `/Users/jangseongjin/paperpipe/src/processor.py`
+- target: `/Users/jangseongjin/paperpipe/src/watcher.py`
+- measure: triage overrides, slot disagreement, tag disagreement, analysis-unavailable fallback
 
-2. Stats fallback taxonomy with parser comparison
-- target: `/Users/jangseongjin/paperpipe/src/agents/stats_agent.py`
-- measure: unverifiable reasons, degenerate-table rate, parser-vs-cloud delta
+2. Cloud table fallback cost/fidelity review
+- target: `/Users/jangseongjin/paperpipe/src/ingest/cloud_table_fallback.py`
+- measure: invocation rate, useful recovery rate, cost per useful recovered table
 
-3. Teacher review spot-check protocol
-- target: `/Users/jangseongjin/paperpipe/src/quality/teacher_review.py`
-- measure: agreement, supported-claim precision, no-supported-claims frequency
+3. Training candidacy recheck after new intake logs exist
+- target: bounded review note only
+- measure: whether processor/watcher disagreement is frequent enough to justify later model work
 
 ## 12. Explicit Guardrails
 
