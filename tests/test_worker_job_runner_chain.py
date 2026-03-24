@@ -243,6 +243,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         note_content = note_path.read_text(encoding="utf-8")
         assert note_content.count("## 🤖 Agent Deep Read") == 1
         assert "smoke claim" in note_content
+        structured_path = vault_dir / ".pp" / "paper_chain_001" / "state.json"
+        assert structured_path.exists()
+        structured_state = json.loads(structured_path.read_text(encoding="utf-8"))
+        assert structured_state["signals"]["state_source"] == "deep_read_promotion"
+        assert structured_state["runs"][0]["action"] == "deep_read"
+        assert structured_state["runs"][0]["id"] == done.run_id
     finally:
         db_utils.DB_PATH = original_db_path
 
