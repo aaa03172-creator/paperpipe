@@ -10,6 +10,7 @@ class JobCreate(BaseModel):
     persona_id: str = "default"
     reasoning_persona: Optional[ReasoningPersonaId] = None
     profile_id: Optional[str] = None
+    parser_backend: Optional[Literal["fitz_pdfplumber", "docling"]] = None
 
 
 class JobEnqueueResponse(BaseModel):
@@ -25,6 +26,8 @@ class JobStatus(BaseModel):
     persona_id: Optional[str]
     reasoning_persona: Optional[ReasoningPersonaId] = None
     profile_id: Optional[str] = None
+    requested_parser_backend: Optional[Literal["fitz_pdfplumber", "docling"]] = None
+    parser_backend: Optional[Literal["fitz_pdfplumber", "docling"]] = None
     run_verify: Optional[int]
     clean_reindex: Optional[int] = None
     status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']
@@ -65,6 +68,7 @@ class JobBootstrapMeta(BaseModel):
     persona_id: Optional[str] = None
     reasoning_persona: Optional[ReasoningPersonaId] = None
     profile_id: Optional[str] = None
+    parser_backend: Optional[Literal["fitz_pdfplumber", "docling"]] = None
     persona_applied: Optional[bool] = None
     similar_feedback_count: Optional[int] = None
     similar_feedback_paper_ids: List[str] = []

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
 from backend.services.job_runner import run_deepread_job
+from src.services.event_log import get_execution_run_params
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -64,12 +65,14 @@ class Worker:
                 with open(log_file, "a") as f:
                     f.write(json.dumps(event) + "\n")
 
+            run_params = get_execution_run_params(job.run_id)
             run_kwargs = {
                 "job_id": job.job_id,
                 "paper_id": job.paper_id,
                 "persona_id": job.persona_id or "default",
                 "reasoning_persona": getattr(job, "reasoning_persona", None),
                 "profile_id": getattr(job, "profile_id", None),
+                "parser_backend": run_params.get("parser_backend"),
                 "run_verify": bool(job.run_verify),
                 "clean_reindex": bool(getattr(job, "clean_reindex", 0)),
                 "run_id": job.run_id,
@@ -83,6 +86,7 @@ class Worker:
                 retry_kwargs = dict(run_kwargs)
                 retry_kwargs.pop("reasoning_persona", None)
                 retry_kwargs.pop("profile_id", None)
+                retry_kwargs.pop("parser_backend", None)
                 try:
                     result = asyncio.run(run_deepread_job(**retry_kwargs))
                 except TypeError:

@@ -1,10 +1,12 @@
 from pathlib import Path
 import json
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
+from backend.services.job_runner import _resolve_ingest_parser_backend
 from src.jobs.queue import JobQueue
 from backend import main as api_main
 
@@ -27,6 +29,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
                 "run_verify": True,
                 "reasoning_persona": "researcher",
                 "profile_id": "smoke-profile",
+                "parser_backend": "docling",
             },
         )
         assert resp.status_code == 200
@@ -57,6 +60,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert action_payload["persona_id"] == "smoke-profile"
         assert action_payload["reasoning_persona"] == "researcher"
         assert action_payload["profile_id"] == "smoke-profile"
+        assert action_payload["parser_backend"] == "docling"
 
         queued = client.get(f"/jobs/{job_id}")
         assert queued.status_code == 200
@@ -66,6 +70,8 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert queued_data["persona_id"] == "smoke-profile"
         assert queued_data["reasoning_persona"] == "researcher"
         assert queued_data["profile_id"] == "smoke-profile"
+        assert queued_data["requested_parser_backend"] == "docling"
+        assert queued_data["parser_backend"] is None
         assert queued_data["run_verify"] == 1
         assert queued_data["clean_reindex"] == 0
         assert queued_data["bootstrap_meta_path"] is None
@@ -91,6 +97,8 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert run_queued_data["run_id"] == run_id
         assert run_queued_data["reasoning_persona"] == "researcher"
         assert run_queued_data["profile_id"] == "smoke-profile"
+        assert run_queued_data["requested_parser_backend"] == "docling"
+        assert run_queued_data["parser_backend"] is None
         assert run_queued_data["clean_reindex"] == 0
 
         # 2) Worker claims job and runs pipeline (patched to smoke implementation).
@@ -106,6 +114,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             persona_id: str = "default",
             reasoning_persona: str | None = None,
             profile_id: str | None = None,
+            parser_backend: str | None = None,
             run_verify: bool = False,
             clean_reindex: bool = False,
             run_id: str = None,
@@ -115,6 +124,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             assert persona_id == "smoke-profile"
             assert reasoning_persona == "researcher"
             assert profile_id == "smoke-profile"
+            assert parser_backend == "docling"
             assert clean_reindex is False
             if progress_callback:
                 await progress_callback(
@@ -159,6 +169,8 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["stage"] == "completed"
         assert done_data["reasoning_persona"] == "researcher"
         assert done_data["profile_id"] == "smoke-profile"
+        assert done_data["requested_parser_backend"] == "docling"
+        assert done_data["parser_backend"] is None
         assert done_data["artifact_dir"] is not None
         assert done_data["log_path"] is not None
         assert done_data["bootstrap_meta_path"] is not None
@@ -203,6 +215,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         artifact_dir = tmp_path / "storage" / "artifacts" / "paper_boot_meta" / "run_1"
         artifact_dir.mkdir(parents=True, exist_ok=True)
         meta = {"paper_id": "paper_boot_meta", "run_id": "run_1", "persona_applied": True}
+        meta["parser_backend"] = "fitz_pdfplumber"
         meta["similar_feedback_count"] = 2
         meta["artifact_document_written"] = True
         meta["artifact_index_written"] = True
@@ -235,6 +248,8 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert detail.status_code == 200
         payload = detail.json()
         assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert payload["requested_parser_backend"] is None
+        assert payload["parser_backend"] == "fitz_pdfplumber"
         assert payload["similar_feedback_count"] == 2
         assert payload["persona_applied"] is True
         assert payload["artifact_document_written"] is True
@@ -256,6 +271,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
         assert meta_resp.json()["paper_id"] == "paper_boot_meta"
+        assert meta_resp.json()["parser_backend"] == "fitz_pdfplumber"
         assert meta_resp.json()["persona_applied"] is True
         assert meta_resp.json()["artifact_document_written"] is True
         assert meta_resp.json()["artifact_claimset_resolved_written"] is True
@@ -266,6 +282,225 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         assert meta_resp.json()["claimset_readiness_badge"] == "READY"
         assert meta_resp.json()["claimset_ops_action"] == "none"
         assert meta_resp.json()["claimset_ops_alert"] is False
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_status_distinguishes_requested_and_effective_parser_backend(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_parser_resolution", parser_backend="docling")
+        job = queue.get_job(job_id)
+        assert job is not None
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_parser_resolution" / str(job.run_id)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "paper_id": "paper_parser_resolution",
+            "run_id": str(job.run_id),
+            "parser_backend": "fitz_pdfplumber",
+        }
+        (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "artifact_dir": str(artifact_dir),
+                "progress": 100,
+                "stage": "completed",
+            },
+        )
+
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["requested_parser_backend"] == "docling"
+        assert payload["parser_backend"] == "fitz_pdfplumber"
+
+        run_detail = client.get(f"/runs/{job.run_id}")
+        assert run_detail.status_code == 200
+        run_payload = run_detail.json()
+        assert run_payload["requested_parser_backend"] == "docling"
+        assert run_payload["parser_backend"] == "fitz_pdfplumber"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_runtime_path_preserves_requested_and_effective_parser_backend(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        resp = client.post(
+            "/jobs/deepread",
+            json={
+                "paper_id": "paper_runtime_parser_resolution",
+                "parser_backend": "docling",
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        job_id = payload["job_id"]
+        run_id = payload["run_id"]
+        assert run_id is not None
+
+        queue = JobQueue()
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        assert claimed.job_id == job_id
+
+        async def fake_run_deepread_job(
+            job_id: str,
+            paper_id: str,
+            persona_id: str = "default",
+            reasoning_persona: str | None = None,
+            profile_id: str | None = None,
+            parser_backend: str | None = None,
+            run_verify: bool = False,
+            clean_reindex: bool = False,
+            run_id: str | None = None,
+            progress_callback=None,
+            cancel_check=None,
+        ):
+            assert paper_id == "paper_runtime_parser_resolution"
+            assert parser_backend == "docling"
+            assert run_id is not None
+            artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / run_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            (artifact_dir / "bootstrap_meta.json").write_text(
+                json.dumps(
+                    {
+                        "paper_id": paper_id,
+                        "run_id": run_id,
+                        "parser_backend": "fitz_pdfplumber",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return {
+                "status": "succeeded",
+                "run_id": run_id,
+                "artifact_dir": str(artifact_dir),
+            }
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        detail_payload = detail.json()
+        assert detail_payload["status"] == "completed"
+        assert detail_payload["requested_parser_backend"] == "docling"
+        assert detail_payload["parser_backend"] == "fitz_pdfplumber"
+        assert detail_payload["bootstrap_meta_path"] is not None
+
+        run_detail = client.get(f"/runs/{run_id}")
+        assert run_detail.status_code == 200
+        run_payload = run_detail.json()
+        assert run_payload["status"] == "completed"
+        assert run_payload["requested_parser_backend"] == "docling"
+        assert run_payload["parser_backend"] == "fitz_pdfplumber"
+
+        meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
+        assert meta_resp.status_code == 200
+        assert meta_resp.json()["parser_backend"] == "fitz_pdfplumber"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_runtime_path_uses_job_runner_parser_resolution_helper(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        resp = client.post(
+            "/jobs/deepread",
+            json={
+                "paper_id": "paper_runtime_parser_helper",
+                "parser_backend": "docling",
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        job_id = payload["job_id"]
+        run_id = payload["run_id"]
+        assert run_id is not None
+
+        queue = JobQueue()
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        assert claimed.job_id == job_id
+
+        async def fake_run_deepread_job(
+            job_id: str,
+            paper_id: str,
+            persona_id: str = "default",
+            reasoning_persona: str | None = None,
+            profile_id: str | None = None,
+            parser_backend: str | None = None,
+            run_verify: bool = False,
+            clean_reindex: bool = False,
+            run_id: str | None = None,
+            progress_callback=None,
+            cancel_check=None,
+        ):
+            assert paper_id == "paper_runtime_parser_helper"
+            effective_backend = _resolve_ingest_parser_backend(
+                SimpleNamespace(ingest=SimpleNamespace(parser_backend="fitz_pdfplumber", enable_docling=False)),
+                override_backend=parser_backend,
+            )
+            assert effective_backend == "fitz_pdfplumber"
+            artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / str(run_id)
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            (artifact_dir / "bootstrap_meta.json").write_text(
+                json.dumps(
+                    {
+                        "paper_id": paper_id,
+                        "run_id": run_id,
+                        "parser_backend": effective_backend,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return {
+                "status": "succeeded",
+                "run_id": run_id,
+                "artifact_dir": str(artifact_dir),
+            }
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        detail = client.get(f"/jobs/{job_id}")
+        assert detail.status_code == 200
+        detail_payload = detail.json()
+        assert detail_payload["status"] == "completed"
+        assert detail_payload["requested_parser_backend"] == "docling"
+        assert detail_payload["parser_backend"] == "fitz_pdfplumber"
+
+        run_detail = client.get(f"/runs/{run_id}")
+        assert run_detail.status_code == 200
+        run_payload = run_detail.json()
+        assert run_payload["status"] == "completed"
+        assert run_payload["requested_parser_backend"] == "docling"
+        assert run_payload["parser_backend"] == "fitz_pdfplumber"
     finally:
         db_utils.DB_PATH = original_db_path
 

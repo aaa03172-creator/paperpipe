@@ -176,17 +176,31 @@ def _resolve_main_model(config) -> str:
     return model_name or "llama3:latest"
 
 
-def _resolve_ingest_parser_backend(config) -> str:
+def _resolve_ingest_parser_backend(config, override_backend: str | None = None) -> str:
     ingest = getattr(config, "ingest", None)
-    backend = str(getattr(ingest, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber").strip().lower()
+    configured_backend = str(
+        getattr(ingest, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber"
+    ).strip().lower()
     enable_docling = bool(getattr(ingest, "enable_docling", False))
-    if backend not in {"fitz_pdfplumber", "docling"}:
-        logger.warning("Unknown ingest parser backend in config: %s. Falling back to fitz_pdfplumber.", backend)
-        return "fitz_pdfplumber"
-    if backend == "docling" and not enable_docling:
+    allowed_backends = {"fitz_pdfplumber", "docling"}
+    if configured_backend not in allowed_backends:
+        logger.warning(
+            "Unknown ingest parser backend in config: %s. Falling back to fitz_pdfplumber.",
+            configured_backend,
+        )
+        configured_backend = "fitz_pdfplumber"
+    requested_backend = str(override_backend or "").strip().lower() or configured_backend
+    if requested_backend not in allowed_backends:
+        logger.warning(
+            "Unknown ingest parser backend override: %s. Falling back to configured backend %s.",
+            requested_backend,
+            configured_backend,
+        )
+        requested_backend = configured_backend
+    if requested_backend == "docling" and not enable_docling:
         logger.info("Docling parser backend requested but enable_docling=false. Falling back to fitz_pdfplumber.")
         return "fitz_pdfplumber"
-    return backend
+    return requested_backend
 
 
 def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
@@ -464,6 +478,9 @@ async def run_deepread_job(
     job_id: str,
     paper_id: str,
     persona_id: str = "default",
+    reasoning_persona: str | None = None,
+    profile_id: str | None = None,
+    parser_backend: str | None = None,
     run_verify: bool = False,
     clean_reindex: bool = False,
     run_id: str = None,
@@ -631,7 +648,7 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
-        parser_backend = _resolve_ingest_parser_backend(config)
+        parser_backend = _resolve_ingest_parser_backend(config, override_backend=parser_backend)
         ingest_runtime_options = _resolve_ingest_runtime_options(config)
         bootstrap_meta["parser_backend"] = parser_backend
         bootstrap_meta["table_pass2_enabled"] = bool(ingest_runtime_options.get("enable_table_pass2_ocr", False))
