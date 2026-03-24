@@ -196,7 +196,13 @@ def list_image_evidence_ids(root: Path | None = None) -> list[str]:
     base = (root or default_image_evidence_root()).expanduser().resolve()
     if not base.exists():
         return []
-    return sorted(entry.name for entry in base.iterdir() if entry.is_dir())
+    ids: list[str] = []
+    for entry in base.iterdir():
+        if not entry.is_dir():
+            continue
+        if image_evidence_json_path(entry.name, root).exists():
+            ids.append(entry.name)
+    return sorted(ids)
 
 
 def _existing_managed_paths(image_evidence_id: str, root: Path | None = None) -> set[Path]:

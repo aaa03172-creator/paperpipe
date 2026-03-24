@@ -159,3 +159,15 @@ def test_image_evidence_store_rolls_back_if_handoff_write_fails(tmp_path, monkey
     assert loaded.title == "Original title"
     assert loaded_view_state.zoom_level == 2.0
     assert loaded_handoff_targets[0].target == "napari"
+
+
+def test_list_image_evidence_ids_skips_stale_directories_without_manifest(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+    stale_dir = root / "img_stale_only"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "handoff.json").write_text("[]", encoding="utf-8")
+
+    fresh = _sample_image_evidence()
+    save_image_evidence_bundle(fresh, root=root)
+
+    assert list_image_evidence_ids(root) == [fresh.image_evidence_id]
