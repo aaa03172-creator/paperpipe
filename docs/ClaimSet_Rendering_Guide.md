@@ -1,5 +1,11 @@
 # ClaimSet Rendering Guide
 
+Status: Active reference
+Date: 2026-03-09
+Owner: Export/runtime maintainers
+Canonical: `docs/ClaimSet_Rendering_Guide.md`
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 This note explains how PaperPipe currently renders ClaimSet in exported Obsidian markdown.
 
 ## Render Location
