@@ -1,5 +1,6 @@
 profiles:
   - id: mechanism
+    revision: 0
     title: Mechanism of Action (Neuro)
     enabled: true
     schedule: daily
@@ -8,17 +9,52 @@ profiles:
       date_window_days: 365
     query:
       must:
-        - microglia
-        - neuroinflammation
+      - microglia
+      - neuroinflammation
       should:
-        - ASM
-        - acid sphingomyelinase
-        - sphingolipid
-        - ceramide
-        - autophagy
-        - lysosome
+      - ASM
+      - acid sphingomyelinase
+      - sphingolipid
+      - ceramide
+      - autophagy
+      - lysosome
       must_not:
-        - cancer
-        - carcinoma
-    notes: "Main research interest: ASM/Microglia interaction"
+      - cancer
+      - carcinoma
+    notes: 'Main research interest: ASM/Microglia interaction'
+  - id: research_dna_dna_mci_medium_chain_triglycerides_probe_20260312
+    revision: 1
+    title: Mild cognitive impairment and medium-chain triglycerides (probe) [DNA Projection]
+    enabled: false
+    schedule: manual
+    limits:
+      max_results_per_run: 20
+      date_window_days: 365
+    query:
+      must:
+      - mild cognitive impairment
+      - medium-chain triglycerides
+      should:
+      - cognition
+      must_not:
+      - animal-only studies
+      - non-cognitive outcomes only
+      - protocol, editorial, or review without primary human data
+    notes: "ResearchDNA Projection\nschema_version: research_dna.profile_projection.v1\n\
+      projection_mode: compatibility_snapshot\nsource_of_truth: /Users/jangseongjin/paperpipe/research_dna/dna_mci_medium_chain_triglycerides_probe_20260312/profile.yaml\n\
+      source_dna_id: dna_mci_medium_chain_triglycerides_probe_20260312\nsource_dna_revision:\
+      \ 3\nsource_query_version: v2\nselected_database: pubmed\ndna_status: PILOT\n\
+      exact_query: (\"mild cognitive impairment\"[Title/Abstract] OR \"mild neurocognitive\n\
+      \  disorder\"[Title/Abstract]) AND ((\"medium-chain triglycerides\"[Title/Abstract])\
+      \ OR\n  (\"medium chain triglyceride\"[Title/Abstract]) OR (\"medium chain triglyceride\
+      \ oil\"[Title/Abstract]))\n  NOT ((\"systematic review\"[Title]) OR (\"meta-analysis\"\
+      [Title]) OR (\"narrative review\"[Title])\n  OR (review[Publication Type]) OR\
+      \ (hypothesis[Title]))\nrecommended_databases:\n- pubmed\n- embase\navailable_databases:\n\
+      - pubmed\nfilters:\n  language:\n  - en\n  study_type:\n  - randomized_controlled_trial\n\
+      \  - cohort\ncriteria:\n  include:\n  - adults with mild cognitive impairment\n\
+      \  - medium-chain triglyceride intervention or exposure\n  - human clinical study\n\
+      \  exclude:\n  - animal-only studies\n  - non-cognitive outcomes only\n  - protocol,\
+      \ editorial, or review without primary human data\nquery_version_created_at: '2026-03-12T00:30:00Z'\n\
+      projection_note: This profile is a deterministic compatibility snapshot. ResearchDNA\n\
+      \  remains the canonical editable source of truth."
 defaults: {}
