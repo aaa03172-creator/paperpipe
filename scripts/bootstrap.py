@@ -4,32 +4,31 @@ import os
 import json
 import logging
 import argparse
-import time
+import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import requests
 from dotenv import load_dotenv
-from anthropic import AsyncAnthropic
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # Import Pydantic Models for Validation
-from src.schemas.agent_artifacts import ClaimSet, ScientificClaim, EvidenceSpan, FeedbackCase
+from src.schemas.agent_artifacts import ClaimSet
 from src.config import load_config
+from src.json_repair import repair_and_parse_json
+from src.llm_provider import get_llm_provider
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("bootstrap")
 
-# Load Secrets
+# Load env
 env_path = Path(__file__).parent.parent / ".env"
 logger.info(f"Loading .env from: {env_path}")
 load_dotenv(dotenv_path=env_path)
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-
-if not ANTHROPIC_API_KEY:
-    logger.warning("⚠️  ANTHROPIC_API_KEY not found in .env. Teacher mode will fail if not provided.")
-else:
-    logger.info(f"✅ ANTHROPIC_API_KEY loaded: {ANTHROPIC_API_KEY[:10]}...")
 
 # Constants
 BACKEND_URL = "http://127.0.0.1:8000"
@@ -83,14 +82,19 @@ async def run_student_job(paper_id: str) -> Dict[str, Any]:
 
 async def run_teacher_review(student_claims: Dict, doc_text: str, context: str) -> Optional[ClaimSet]:
     """
-    Step 2: Teacher (Claude 3.5 Sonnet)
+    Step 2: Teacher (configured local-first provider)
     Reviews and corrects the student's work.
     """
-    if not ANTHROPIC_API_KEY:
-        logger.error("Cannot run Teacher without API Key.")
+    try:
+        cfg = load_config()
+    except Exception as e:
+        logger.error(f"Cannot load config for teacher review: {e}")
         return None
 
-    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    provider = get_llm_provider(cfg.llm)
+    if provider is None or not provider.is_available():
+        logger.error("Cannot run Teacher without an available configured LLM provider.")
+        return None
     
     # Construct Payload
     student_json = json.dumps(student_claims, indent=2)
@@ -113,26 +117,22 @@ Review the student's claims.
 """
 
     try:
-        logger.info("👨‍🏫 Teacher: Claude is reviewing...")
-        message = await client.messages.create(
-            model="claude-opus-4-5-20251101",
-            max_tokens=4096,
-            temperature=0, # Deterministic
-            system=SYSTEM_PROMPT_EDITOR,
-            messages=[
-                {"role": "user", "content": user_message}
-            ]
+        logger.info("👨‍🏫 Teacher: configured provider is reviewing...")
+        content = provider.review_claimset_bundle(
+            prompt=user_message,
+            system_prompt=SYSTEM_PROMPT_EDITOR,
         )
-        
-        content = message.content[0].text
-        # Clean JSON
-        if "```json" in content:
-             content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-             content = content.split("```")[1].split("```")[0].strip()
-            
-        data = json.loads(content)
-        return ClaimSet(**data)
+        if not content:
+            logger.error("Teacher returned empty content.")
+            return None
+
+        data = repair_and_parse_json(content)
+        if isinstance(data, dict) and isinstance(data.get("ClaimSet"), dict):
+            data = data["ClaimSet"]
+        elif isinstance(data, dict) and isinstance(data.get("claimset"), dict):
+            data = data["claimset"]
+
+        return ClaimSet.model_validate(data)
         
     except Exception as e:
         logger.error(f"Teacher failed: {e}")
@@ -178,7 +178,7 @@ async def inject_golden_data(paper_id: str, run_id: str, golden_claims: ClaimSet
     payload = {
         "paper_id": paper_id,
         "run_id": run_id,
-        "user_correction": f"Golden Shot by Claude 3.5:\n{correction_text}",
+        "user_correction": f"Golden review by configured PaperPipe teacher:\n{correction_text}",
         "accepted": False # It's a correction, so strictly speaking the Student's orginal was 'not accepted' fully, or we can say True if we replace it. 
                           # The prompt said "Set accepted=False".
     }

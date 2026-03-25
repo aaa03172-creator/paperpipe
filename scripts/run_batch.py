@@ -1,10 +1,14 @@
-
 import asyncio
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # Import the logic from bootstrap
 from scripts.bootstrap import process_paper

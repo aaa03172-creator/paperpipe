@@ -10,6 +10,14 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.timeout_policy import (
+    default_reader_timeout_base_seconds,
+    default_stats_timeout_base_seconds,
+    estimate_reader_timeout_seconds,
+    estimate_stats_timeout_seconds,
+    is_timeout_exception,
+    time_limit,
+)
 
 
 def update_reading_status_workflow(identifier: str, status: str, console: Console) -> None:
@@ -27,7 +35,15 @@ def update_reading_status_workflow(identifier: str, status: str, console: Consol
     console.print("   (Try using exact Paper ID, DOI, or Title from 'paperpipe stats' or 'paperpipe fetch --save')")
 
 
-def run_deepread_workflow(identifier: str, verify: bool, console: Console) -> None:
+def run_deepread_workflow(
+    identifier: str,
+    verify: bool,
+    console: Console,
+    *,
+    reader_timeout_sec: int = 0,
+    stats_timeout_sec: int = 0,
+    adaptive_step_timeout: bool = True,
+) -> None:
     import csv
 
     config = load_config()
@@ -93,7 +109,24 @@ def run_deepread_workflow(identifier: str, verify: bool, console: Console) -> No
             from src.agents.stats_agent import StatsVerificationAgent
 
         console.print("[bold]1️⃣  Ingesting PDF...[/bold]")
-        ingester = IngestAgent()
+        ingest_conf = getattr(config, "ingest", None)
+        parser_backend = str(getattr(ingest_conf, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber").strip().lower()
+        enable_docling = bool(getattr(ingest_conf, "enable_docling", False))
+        if parser_backend == "docling" and not enable_docling:
+            parser_backend = "fitz_pdfplumber"
+        ingester = IngestAgent(
+            parser_backend=parser_backend,
+            enable_ocr_fallback=bool(getattr(ingest_conf, "enable_ocr_fallback", False)),
+            ocr_lang=str(getattr(ingest_conf, "ocr_lang", "eng") or "eng"),
+            ocr_min_text_chars=int(getattr(ingest_conf, "ocr_min_text_chars", 200)),
+            enable_table_pass2_ocr=bool(getattr(ingest_conf, "enable_table_pass2_ocr", False)),
+            enable_cloud_table_fallback=bool(getattr(ingest_conf, "enable_cloud_table_fallback", False)),
+            cloud_table_page_budget=int(getattr(ingest_conf, "cloud_table_page_budget", 2)),
+            cloud_table_model=str(getattr(ingest_conf, "cloud_table_model", "gpt-4o-mini") or "gpt-4o-mini"),
+            cloud_table_base_url=getattr(ingest_conf, "cloud_table_base_url", None),
+            cloud_table_api_key=getattr(ingest_conf, "cloud_table_api_key", None),
+            cloud_table_timeout_seconds=int(getattr(ingest_conf, "cloud_table_timeout_seconds", 30)),
+        )
         doc = ingester.process_v2(str(pdf_path))
         if not doc:
             console.print("[red]❌ Ingest Agent failed to produce v2 artifact.[/red]")
@@ -119,7 +152,33 @@ def run_deepread_workflow(identifier: str, verify: bool, console: Console) -> No
 
         console.print("[bold]3️⃣  Deep Reading (Agentic Analysis)...[/bold]")
         reader = ReaderAgent(model_name=config.agents.main_model, persona_hint=persona_hint)
-        claims_set = reader.analyze(doc)
+        page_count = len(getattr(doc, "pages", []) or [])
+        table_count = len(getattr(doc, "tables", []) or [])
+        llm_timeout_default = max(15, int(getattr(config.llm, "timeout_seconds", 15) or 15))
+        reader_timeout_base = (
+            int(reader_timeout_sec)
+            if int(reader_timeout_sec) > 0
+            else default_reader_timeout_base_seconds(llm_timeout_default)
+        )
+        reader_timeout_budget = estimate_reader_timeout_seconds(
+            reader_timeout_base,
+            page_count=page_count,
+            table_count=table_count,
+            adaptive=bool(adaptive_step_timeout),
+        )
+        console.print(f"   ⏱️ Reader timeout budget: {reader_timeout_budget}s (adaptive={bool(adaptive_step_timeout)})")
+        try:
+            with time_limit(int(reader_timeout_budget)):
+                claims_set = reader.analyze(doc)
+        except Exception as exc:
+            if not is_timeout_exception(exc):
+                raise
+            console.print(
+                f"[red]❌ Reader timeout after {reader_timeout_budget}s. "
+                "Retry with --reader-timeout-sec <sec>.[/red]"
+            )
+            return
+
         if not claims_set:
             console.print("[red]❌ Reader Agent failed to extract claims.[/red]")
             return
@@ -130,10 +189,32 @@ def run_deepread_workflow(identifier: str, verify: bool, console: Console) -> No
         if verify:
             console.print("\n[bold magenta]4️⃣  Starting Stats Verification Agent (Reflexion Loop)...[/bold magenta]")
             verifier = StatsVerificationAgent()
-            with console.status("[bold magenta]   🕵️‍♀️ Verifying Claims (Docker Sandbox Active)...[/bold magenta]", spinner="dots"):
-                stats_report = verifier.run(job_id=identifier.replace("/", "_"), doc=doc, claims=claims_set)
-            console.print(f"   ✅ Verification Complete. Checks run: {len(stats_report.checks)}")
-            stats_md = build_stats_markdown(stats_report)
+            stats_timeout_base = (
+                int(stats_timeout_sec)
+                if int(stats_timeout_sec) > 0
+                else default_stats_timeout_base_seconds(llm_timeout_default)
+            )
+            stats_timeout_budget = estimate_stats_timeout_seconds(
+                stats_timeout_base,
+                page_count=page_count,
+                table_count=table_count,
+                claim_count=len(claims_set.claims),
+                adaptive=bool(adaptive_step_timeout),
+            )
+            console.print(f"   ⏱️ Stats timeout budget: {stats_timeout_budget}s (adaptive={bool(adaptive_step_timeout)})")
+            try:
+                with console.status("[bold magenta]   🕵️‍♀️ Verifying Claims (Docker Sandbox Active)...[/bold magenta]", spinner="dots"):
+                    with time_limit(int(stats_timeout_budget)):
+                        stats_report = verifier.run(job_id=identifier.replace("/", "_"), doc=doc, claims=claims_set)
+                console.print(f"   ✅ Verification Complete. Checks run: {len(stats_report.checks)}")
+                stats_md = build_stats_markdown(stats_report)
+            except Exception as exc:
+                if not is_timeout_exception(exc):
+                    raise
+                console.print(
+                    f"[yellow]⚠️ Stats verification timed out after {stats_timeout_budget}s. "
+                    "Continuing without stats section.[/yellow]"
+                )
 
         md_output = build_deepread_markdown(
             model_name=reader.model_name,
