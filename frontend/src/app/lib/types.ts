@@ -31,6 +31,7 @@ export interface PaperNoteSummary {
   slug: string;
   title: string;
   note_path: string;
+  structured_state_present?: boolean;
   id?: string | null;
   aliases: string[];
   tags: string[];
@@ -153,7 +154,7 @@ export interface SkillClaimCard {
 
 export interface SkillRunRecord {
   id: string;
-  action: "extract_markdown" | "validate_citations" | "critical_appraisal";
+  action: "extract_markdown" | "validate_citations" | "critical_appraisal" | "deep_read";
   ts: string;
   status: "succeeded" | "failed" | "blocked";
   summary: string;
@@ -894,6 +895,8 @@ export interface JobStatus {
   persona_id?: string;
   reasoning_persona?: ReasoningPersonaId | null;
   profile_id?: string | null;
+  requested_parser_backend?: "fitz_pdfplumber" | "docling" | null;
+  parser_backend?: "fitz_pdfplumber" | "docling" | null;
   run_verify?: number | null;
   clean_reindex?: number | null;
   status: JobLifecycle;

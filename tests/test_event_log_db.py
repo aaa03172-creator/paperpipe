@@ -118,6 +118,7 @@ def test_queue_enqueue_creates_execution_run_and_structured_event(tmp_path, monk
             run_verify=True,
             reasoning_persona="researcher",
             profile_id="persona-a",
+            parser_backend="docling",
         )
         job = queue.get_job(job_id)
         assert job is not None
@@ -143,6 +144,7 @@ def test_queue_enqueue_creates_execution_run_and_structured_event(tmp_path, monk
         assert run_row["pipeline_profile"] == "deepread"
         assert json.loads(run_row["params_json"])["reasoning_persona"] == "researcher"
         assert json.loads(run_row["params_json"])["profile_id"] == "persona-a"
+        assert json.loads(run_row["params_json"])["parser_backend"] == "docling"
         assert job_row is not None
         assert job_row["persona_id"] == "persona-a"
         assert job_row["reasoning_persona"] == "researcher"

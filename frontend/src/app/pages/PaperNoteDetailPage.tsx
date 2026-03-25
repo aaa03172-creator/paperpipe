@@ -6,12 +6,12 @@ import { ArrowLeft, ExternalLink, FileText, FlaskConical, LibraryBig, Link2, Pan
 import { getApiErrorMessage, getPaperNoteDetail, logClientUserAction, runSkillAction } from "../lib/api";
 import {
   OutputModeFamily,
+  PaperNoteContextTrace,
   PaperNoteDetailResponse,
   PaperNoteReference,
   PaperNoteRelated,
   PaperNoteSummary,
   SkillActionInfo,
-  SkillClaimCard,
   SkillRunRecord,
   StructuredPaperState,
 } from "../lib/types";
@@ -516,6 +516,85 @@ function PropertiesPanel({
   );
 }
 
+function SavedStatePanel({
+  note,
+  state,
+  contextTrace,
+}: {
+  note: PaperNoteSummary | null;
+  state: StructuredPaperState | null;
+  contextTrace?: PaperNoteContextTrace | null;
+}) {
+  const structuredStateEntry = contextTrace?.trace.find((entry) => entry.action === "structured_state_loaded") ?? null;
+  const structuredStatePath = structuredStateEntry?.source_path ?? (note ? `.pp/${note.slug}/state.json` : null);
+  const structuredStateLoaded = structuredStateEntry ? structuredStateEntry.outcome === "loaded" : Boolean(state);
+  const summary = contextTrace?.summary ?? null;
+
+  return (
+    <Card className="overflow-hidden" data-testid="paper-note-saved-state-panel">
+      <CardHeader>
+        <CardTitle>Saved state</CardTitle>
+        <CardDescription>Shows whether canonical sidecar state backed this detail view.</CardDescription>
+      </CardHeader>
+      <Separator />
+      <CardContent className="grid gap-3 pt-4">
+        <div className="flex flex-wrap gap-1.5">
+          <Badge
+            className={
+              structuredStateLoaded
+                ? "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
+                : "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]"
+            }
+            data-testid="paper-note-saved-state-status"
+          >
+            {structuredStateLoaded ? "Loaded" : "Missing"}
+          </Badge>
+          {summary ? <Badge variant="outline">trace {summary.entry_count}</Badge> : null}
+          {state?.updated_at ? <Badge variant="outline">updated {formatDateTime(state.updated_at)}</Badge> : null}
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-[var(--pp-text-dim)]">Expected sidecar path</p>
+          <p className="mt-1 break-all text-sm text-[var(--pp-text-primary)]">{structuredStatePath ?? "-"}</p>
+        </div>
+        {structuredStateLoaded ? (
+          <p className="text-sm text-[var(--pp-text-secondary)]">
+            Canonical sidecar state is available for this note detail view.
+          </p>
+        ) : (
+          <p className="text-sm text-[var(--pp-status-failed-text)]">
+            No canonical sidecar state was loaded for this note. Related papers and references may still render from note and
+            index metadata.
+          </p>
+        )}
+        {summary ? (
+          <>
+            <div className="flex flex-wrap gap-1.5" data-testid="paper-note-context-trace-summary">
+              <Badge variant="outline">source paths {summary.source_path_count}</Badge>
+              <Badge variant="outline">related {summary.related_count}</Badge>
+              <Badge variant="outline">references {summary.reference_count}</Badge>
+            </div>
+            <details className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+              <summary className="cursor-pointer text-sm font-medium text-[var(--pp-text-primary)]">Trace summary</summary>
+              {structuredStateEntry ? (
+                <p className="mt-2 text-xs text-[var(--pp-text-secondary)]">{structuredStateEntry.detail}</p>
+              ) : null}
+              {summary.source_paths.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-xs text-[var(--pp-text-dim)]">
+                  {summary.source_paths.slice(0, 4).map((path) => (
+                    <li key={path} className="break-all">
+                      {path}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </details>
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function OutlinePanel({
   outline,
   onNavigate,
@@ -794,9 +873,11 @@ function ActionsPanel({
 function AutomationResultsPanel({
   state,
   focusTarget,
+  structuredStatePath,
 }: {
   state: StructuredPaperState | null;
   focusTarget: FocusTarget | null;
+  structuredStatePath?: string | null;
 }) {
   const runs = state?.runs ?? [];
   return (
@@ -816,8 +897,14 @@ function AutomationResultsPanel({
             </Badge>
           </div>
         ) : null}
-        {runs.length === 0 ? (
-          <p className="text-sm text-[var(--pp-text-dim)]">No structured runs recorded yet.</p>
+        {!state ? (
+          <div className="space-y-2">
+            <p className="text-sm text-[var(--pp-status-failed-text)]">No canonical sidecar state was loaded for this note.</p>
+            {structuredStatePath ? <p className="break-all text-xs text-[var(--pp-text-dim)]">{structuredStatePath}</p> : null}
+            <p className="text-xs text-[var(--pp-text-dim)]">Run history only appears after the note-side saved state is available.</p>
+          </div>
+        ) : runs.length === 0 ? (
+          <p className="text-sm text-[var(--pp-text-dim)]">Canonical sidecar state loaded, but no structured runs are recorded yet.</p>
         ) : (
           <div className="grid gap-3">
             {runs.map((run: SkillRunRecord) => {
@@ -864,12 +951,15 @@ function AutomationResultsPanel({
 }
 
 function ClaimSetPanel({
-  claims,
+  state,
   focusTarget,
+  structuredStatePath,
 }: {
-  claims: SkillClaimCard[];
+  state: StructuredPaperState | null;
   focusTarget: FocusTarget | null;
+  structuredStatePath?: string | null;
 }) {
+  const claims = state?.claimset ?? [];
   return (
     <Card className="overflow-hidden">
       <CardHeader>
@@ -878,8 +968,14 @@ function ClaimSetPanel({
       </CardHeader>
       <Separator />
       <CardContent className="pt-4">
-        {claims.length === 0 ? (
-          <p className="text-sm text-[var(--pp-text-dim)]">No structured claims are available for this note.</p>
+        {!state ? (
+          <div className="space-y-2">
+            <p className="text-sm text-[var(--pp-status-failed-text)]">No canonical sidecar state was loaded for this note.</p>
+            {structuredStatePath ? <p className="break-all text-xs text-[var(--pp-text-dim)]">{structuredStatePath}</p> : null}
+            <p className="text-xs text-[var(--pp-text-dim)]">Structured claims only appear after canonical sidecar state is available.</p>
+          </div>
+        ) : claims.length === 0 ? (
+          <p className="text-sm text-[var(--pp-text-dim)]">Canonical sidecar state loaded, but no structured claims are recorded yet.</p>
         ) : (
           <div className="grid gap-3">
             {claims.map((claim) => (
@@ -1043,6 +1139,7 @@ export function PaperNoteDetailPage() {
 
   const note = data?.note ?? null;
   const structuredState = data?.structured_state ?? null;
+  const contextTrace = data?.context_trace ?? null;
   const availableActions = data?.available_actions ?? [];
   const focusTarget = useMemo(() => parseFocusParam(searchParams.get("focus")), [searchParams]);
   const viewerMode = useMemo(() => parseViewerOutputMode(searchParams.get("view")), [searchParams]);
@@ -1050,6 +1147,10 @@ export function PaperNoteDetailPage() {
   const tags = useMemo(() => note?.tags ?? [], [note]);
   const workbenchPaperId = useMemo(() => resolveWorkbenchPaperId(note), [note]);
   const outline = useMemo(() => extractOutline(data?.body_markdown ?? "", note?.title), [data?.body_markdown, note?.title]);
+  const structuredStatePath = useMemo(() => {
+    const structuredStateEntry = contextTrace?.trace.find((entry) => entry.action === "structured_state_loaded") ?? null;
+    return structuredStateEntry?.source_path ?? (note ? `.pp/${note.slug}/state.json` : null);
+  }, [contextTrace, note]);
 
   function logOpenWorkbench(origin: string) {
     if (!workbenchPaperId) {
@@ -1302,6 +1403,7 @@ export function PaperNoteDetailPage() {
             <div className="sticky top-4 grid gap-4">
               {viewerMode === "builder_debug" ? (
                 <>
+                  <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
                   <ActionsPanel
                     actions={availableActions}
                     runningAction={runningAction}
@@ -1311,14 +1413,15 @@ export function PaperNoteDetailPage() {
                     onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                     onRun={handleRunAction}
                   />
-                  <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
-                  <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
+                  <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                   <PropertiesPanel note={note} aliases={aliases} tags={tags} />
                   <RelatedPapersPanel related={data.related} />
                   <ReferencesPanel references={data.references} />
                 </>
               ) : (
                 <>
+                  <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
                   <PropertiesPanel note={note} aliases={aliases} tags={tags} />
                   <RelatedPapersPanel related={data.related} />
                   <ReferencesPanel references={data.references} />
@@ -1331,8 +1434,8 @@ export function PaperNoteDetailPage() {
                     onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                     onRun={handleRunAction}
                   />
-                  <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
-                  <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
+                  <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 </>
               )}
             </div>
@@ -1350,6 +1453,7 @@ export function PaperNoteDetailPage() {
           <div className="grid gap-4">
             {viewerMode === "builder_debug" ? (
               <>
+                <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
                 <ActionsPanel
                   actions={availableActions}
                   runningAction={runningAction}
@@ -1359,8 +1463,8 @@ export function PaperNoteDetailPage() {
                   onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                   onRun={handleRunAction}
                 />
-                <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
-                <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
+                <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 <PropertiesPanel note={note} aliases={aliases} tags={tags} />
                 <OutlinePanel outline={outline} onNavigate={() => setSidePanelOpen(false)} />
                 <RelatedPapersPanel related={data.related} onNavigate={() => setSidePanelOpen(false)} />
@@ -1368,6 +1472,7 @@ export function PaperNoteDetailPage() {
               </>
             ) : (
               <>
+                <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
                 <PropertiesPanel note={note} aliases={aliases} tags={tags} />
                 <OutlinePanel outline={outline} onNavigate={() => setSidePanelOpen(false)} />
                 <RelatedPapersPanel related={data.related} onNavigate={() => setSidePanelOpen(false)} />
@@ -1381,8 +1486,8 @@ export function PaperNoteDetailPage() {
                   onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                   onRun={handleRunAction}
                 />
-                <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
-                <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
+                <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
               </>
             )}
           </div>

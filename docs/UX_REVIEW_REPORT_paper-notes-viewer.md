@@ -218,6 +218,38 @@ Reviewer: Codex
   - `builder_debug`: structured state와 automation output을 먼저 확인하려는 운영자/개발자
 - Current friction:
   - 현재 detail page는 하나의 static panel order만 제공해서, reading-oriented 사용자와 debug-oriented 사용자가 같은 정보 밀도를 같은 순서로 받아야 한다.
+
+## 7.9) `/papers` Discoverability Checkpoint (2026-03-25)
+- Screen/Flow: `/papers` default list entry
+- Goal action: 대표 real paper가 search 없이도 기본 진입에서 더 빨리 발견되게 한다.
+- Primary persona: 첫 제품 데모나 실제 검토에서 saved-state-backed paper를 먼저 찾고 싶은 연구자/운영자
+- Current friction:
+  - default `/papers` ordering은 `date_processed` 위주라서 최신 fixture/e2e row가 representative real paper보다 먼저 온다.
+  - 현재 repo에서는 representative paper가 search로는 잘 잡히지만, default first payload discoverability는 약하다.
+- Quick decision:
+  - 새 filter나 새 UI chrome은 추가하지 않는다.
+  - current owner인 paper-notes backend ordering만 좁게 조정한다.
+  - explicit query relevance와 explicit user sort semantics는 유지하고, default list에서만 `saved state + richer structured signal` discoverability를 올린다.
+- BMAP:
+  - Motivation: 높음. 데모/실사용 모두 entry list에서 review-ready note를 빨리 찾는 게 중요하다.
+  - Ability: 높음. 기존 `structured_state_present`, `claim_count`, `updated_at` 신호만으로도 개선 가능하다.
+  - Prompt: 추가 CTA보다 row ordering 개선이 더 직접적이다.
+- B.I.A.S:
+  - Block: 사용자는 기본 list를 현재 truth ranking으로 읽기 쉽다.
+  - Interpret: saved-state-backed, claim-rich note가 위에 오면 “지금 열어볼 가치가 있는 row”가 더 자연스럽게 읽힌다.
+  - Act: search 없이 representative note detail/workbench로 바로 넘어갈 확률이 높아진다.
+  - Store: `/papers`가 단순 vault dump가 아니라 truth-aware entry surface로 더 일관되게 기억된다.
+- Peak-End:
+  - Peak는 representative paper가 search 없이도 상단에서 바로 보이는 순간이다.
+  - Pit는 fixture/e2e note가 실제 데모 후보보다 먼저 보여 product story를 흐리는 순간이다.
+- Ethics:
+  - Regret: 통과. row priority를 현재 structured truth 기준으로 더 정직하게 맞춘다.
+  - Black Mirror: 통과. engagement 최적화가 아니라 current review value를 더 잘 드러내는 정렬이다.
+  - In Real-Life: 통과. 연구자는 먼저 “지금 바로 검토 가능한 note”를 찾는다.
+- Concrete change:
+  - default `/paper-notes` ordering에서 `structured_state_present`, `claim_count`, `updated_at`를 활용한 bounded discoverability boost를 적용한다.
+  - explicit query relevance search는 그대로 유지한다.
+  - explicit `sort_by=confidence` 또는 non-default sort path는 기존 semantics를 유지한다.
   - output/view mode boundary는 문서로는 정리됐지만 viewer surface에서는 아직 보이지 않는다.
 - Quick decision:
   - new runtime or data fetch는 추가하지 않는다.
@@ -409,6 +441,89 @@ Reviewer: Codex
   - desktop/mobile detail visual baselines 4장을 `--update-snapshots=all`로 재생성
   - current wording(`Inspect`, `Review details`, `Current focus`)이 이미지 artifact에도 그대로 반영되도록 정렬
   - spacing audit은 별도 layout patch 없이 종료
+
+## 7.14) Detail Saved-State Truth Visibility Checkpoint (2026-03-24)
+- Screen/Flow: `/papers/:slug` detail viewer
+- Goal action: 사용자가 이 detail 화면이 실제 canonical sidecar state에 기반하는지, 아니면 note/index metadata만으로 부분 렌더된 상태인지 바로 구분한다.
+- Primary persona: note detail에서 evidence review 전 trust level을 빠르게 판단하고 필요 시 Workbench로 넘어가는 연구자
+- Current friction:
+  - `structured_state`가 없을 때도 `Run history`와 `Structured claims`가 generic empty state처럼 보여, “loaded but empty”와 “missing canonical truth”가 섞여 읽힌다.
+  - backend는 `context_trace`와 `.pp/<slug>/state.json` load/missing 정보를 이미 주지만, 현재 detail UI는 이 시스템 truth를 노출하지 않는다.
+- Success metric: operator가 detail route 진입 후 5초 안에 canonical sidecar state load 여부와 expected path를 말할 수 있고, trace summary를 열어 source-path basis를 확인할 수 있다.
+- Quick Review:
+  - P0는 숨은 truth를 새로 계산하는 것이 아니라, 이미 있는 `structured_state_loaded` 결과를 그대로 보이게 하는 것이다.
+  - empty-state copy는 “missing sidecar”와 “loaded but empty”를 분리해야 한다.
+  - `context_trace`는 debug wall이 아니라 compact disclosure여야 한다.
+- Full Review:
+  - P0: right rail과 mobile sheet에 `Saved state` panel을 추가해 loaded/missing status, expected sidecar path, trace summary를 보여준다.
+  - P1: `Run history`와 `Structured claims` empty state를 `missing canonical sidecar` vs `loaded but empty`로 분리한다.
+  - P2: trace disclosure는 compact summary만 보여주고, full operational inspector로 커지지 않게 유지한다.
+- BMAP diagnosis:
+  - Motivation: 높음. 사용자는 이 화면을 믿어도 되는지 즉시 알고 싶다.
+  - Ability: 기존 rail 안에 한 장의 compact panel과 더 직접적인 empty-state copy만 추가하면 충분하다.
+  - Prompt: `Saved state` status badge와 path line이 가장 직접적인 prompt다.
+- B.I.A.S diagnosis:
+  - Block: 현재 generic empty cards는 missing truth를 차단한다.
+  - Interpret: `Loaded` vs `Missing` badge와 path가 상태를 즉시 해석하게 만든다.
+  - Act: operator는 바로 Workbench handoff 또는 further review 필요 여부를 결정할 수 있다.
+  - Store: detail route가 “겉보기 viewer”가 아니라 “inspectable system truth surface”로 기억된다.
+- Peak-End design notes:
+  - Peak는 detail route를 열자마자 “이 화면이 어떤 saved state를 보고 있는지”가 읽히는 순간이다.
+  - Pit는 빈 카드 때문에 시스템이 성공했는지 실패했는지 헷갈리는 순간이다.
+  - Transition은 note detail -> Workbench handoff이며, trust level을 먼저 보여줘야 다음 행동이 자연스럽다.
+- Concrete changes:
+  - `Saved state` panel 추가
+  - loaded/missing badge + expected `.pp/<slug>/state.json` path 노출
+  - compact `context_trace` summary disclosure 추가
+  - `Run history`와 `Structured claims` empty-state copy를 missing vs loaded-empty로 분리
+- Ethics check:
+  - Regret: 통과. 없는 truth를 꾸미지 않고, 실제 missing 상태를 더 직접적으로 드러낸다.
+  - Black Mirror: 통과. persuasion이나 false urgency 없이, operator trust boundary만 더 명확히 한다.
+  - In Real-Life: 통과. 연구 도구가 “지금 내가 실제 saved state를 읽고 있는지”를 솔직하게 말해주는 수준이다.
+- Next PR-sized actions:
+  - trace disclosure usage를 보고 필요할 때만 deeper inspector를 검토한다.
+  - if detail truth visibility remains weak in practice, mirror the same wording into the desktop workbench entry card rather than adding a second trace subsystem.
+
+## 7.15) List Saved-State Entry Visibility Checkpoint (2026-03-24)
+- Screen/Flow: `/papers` list row
+- Goal action: 사용자가 list 단계에서 “이 note가 canonical saved state를 이미 갖고 있는지”를 detail 진입 전 구분한다.
+- Primary persona: 여러 note 후보 중 어디부터 review/workbench로 들어갈지 정하는 연구자
+- Current friction:
+  - 현재 list는 `ops_summary`와 structured badges를 잘 보여주지만, note-level sidecar state 존재 여부는 직접 말해주지 않는다.
+  - 결과적으로 “artifact health는 괜찮아 보이는데 saved state는 없는 note”와 “saved state까지 있는 note”가 같은 종류의 row처럼 읽힐 수 있다.
+- Success metric: operator가 `/papers` list에서 row를 열기 전 3초 안에 `Saved state` vs `No saved state`를 읽을 수 있다.
+- Quick Review:
+  - P0는 새 state 계산이 아니라, index build 시 이미 알고 있는 sidecar 존재 여부를 row-level truth badge로 올리는 것이다.
+  - `Action needed` 같은 artifact-health 문구와 섞이지 않도록, saved-state visibility는 별도 badge로 두는 것이 맞다.
+  - `No saved state`는 error dramatization이 아니라 trust boundary disclosure여야 한다.
+- Full Review:
+  - P0: paper-note list item payload에 `structured_state_present`를 추가하고 row badge로 드러낸다.
+  - P1: structured fixture row는 `Saved state`, no-sidecar fixture row는 `No saved state`를 functional test로 고정한다.
+  - P2: list에서 full trace/path를 보여주지는 않고, detail route의 `Saved state` panel로 handoff한다.
+- BMAP diagnosis:
+  - Motivation: 높음. list 단계에서 review-ready 후보를 빨리 가려야 한다.
+  - Ability: 높음. backend index는 이미 sidecar load 여부를 알고 있어 새 추론이 필요 없다.
+  - Prompt: badge 한 개면 충분하다.
+- B.I.A.S diagnosis:
+  - Block: 현재는 row가 “note exists”와 “canonical sidecar exists”를 구분하지 않는다.
+  - Interpret: `Saved state` / `No saved state`는 review readiness를 더 직접적으로 해석하게 만든다.
+  - Act: operator는 detail 진입 또는 Workbench handoff 우선순위를 더 빨리 정한다.
+  - Store: `/papers`는 단순 note browser가 아니라 truth-aware entry point로 기억된다.
+- Peak-End design notes:
+  - Peak는 row 하나만 보고도 trust level을 즉시 읽는 순간이다.
+  - Pit는 sidecar가 없는 note를 구조화 review-ready note처럼 오해하는 순간이다.
+  - Transition은 list -> detail이며, list는 compact trust cue만 주고 full explanation은 detail에 맡긴다.
+- Concrete changes:
+  - `structured_state_present`를 list payload에 추가
+  - row badge로 `Saved state` / `No saved state` 노출
+  - loaded/missing row assertions을 backend Playwright에 추가
+- Ethics check:
+  - Regret: 통과. 실제 sidecar truth를 더 이르게 드러낸다.
+  - Black Mirror: 통과. urgency나 shame 없이 상태만 솔직하게 보여준다.
+  - In Real-Life: 통과. 실제 연구자는 list 단계에서 review-ready 신호를 먼저 본다.
+- Next PR-sized actions:
+  - if badge density grows too high, row metadata rail에서 saved-state badge를 더 compact하게 재배치한다.
+  - keep full path and trace in detail only; do not clone the inspector into list rows.
 
 ## 8) Next PR-sized actions
 이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`다.

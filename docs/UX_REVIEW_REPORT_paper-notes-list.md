@@ -145,3 +145,36 @@ Reviewer: Codex
   - eyebrow를 `Paper note index`로 교체
   - subtitle을 `Search notes, filter structured signals, and open the paper detail you need.`로 교체
   - search placeholder를 `Title, alias, or slug`로 정리
+
+## 10) Desktop Visual Threshold Checkpoint (2026-03-23)
+- Screen/Flow: `/papers` desktop visual regression coverage
+- Goal action: paper notes list의 screenshot diff가 실제 hierarchy drift를 더 민감하게 잡고, 과하게 느슨한 tolerance에 의존하지 않게 한다.
+- Primary persona: list search/header/filter rhythm이 의도치 않게 무너지는지 검토하는 maintainer
+- Current friction:
+  - desktop `/papers` visual spec는 core full-page routes보다 훨씬 큰 `maxDiffPixels`를 쓰고 있었다.
+  - 그 값이면 header/list density drift가 생겨도 visual review가 지나치게 관대해질 수 있었다.
+  - audit 중 확인한 결과, darwin desktop baseline도 이전 header copy 상태를 보존하고 있어 threshold 판단 전에 baseline refresh가 필요했다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - desktop paper-notes-list screenshot threshold를 좁힌다.
+  - stale desktop baseline을 current UI로 다시 고정한 뒤 targeted rerun으로 안정성을 확인한다.
+- BMAP:
+  - Motivation: 중간 이상. `/papers`는 core browse surface라 regression review 신뢰도가 중요하다.
+  - Ability: baseline과 route가 이미 안정적이므로 threshold만 좁게 조정하면 된다.
+  - Prompt: “full-page routes와 비슷한 수준으로 맞춘다”는 원칙이 가장 간단하다.
+- B.I.A.S:
+  - Block: 너무 큰 tolerance가 drift를 숨길 수 있다.
+  - Interpret: 더 타이트한 threshold는 screenshot diff를 더 신뢰할 수 있게 만든다.
+  - Act: 이후 layout drift를 보고 바로 판단하기 쉬워진다.
+  - Store: `/papers`도 다른 core surfaces와 같은 verification discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 desktop `/papers`가 current UI baseline과 더 타이트한 threshold 둘 다 맞춘 순간이다.
+  - Pit는 full-page route인데 tolerance가 과하게 크고 baseline도 예전 copy를 가리키던 상태였다.
+  - Transition은 threshold audit -> baseline refresh -> targeted rerun -> stable green이다.
+- Ethics:
+  - Regret: 통과. UI를 바꾸지 않고 검증 신뢰도만 높인다.
+  - Black Mirror: 통과. “green”을 더 값싸게 만드는 방향이 아니라 반대로 엄격하게 만든다.
+  - In Real-Life: 통과. maintainers가 실제 화면 변화를 더 정확히 검토하게 된다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "paper notes list layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "paper notes list layout"`

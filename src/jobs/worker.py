@@ -72,6 +72,7 @@ class Worker:
                 "persona_id": str(run_params.get("persona_id") or job.persona_id or "default"),
                 "reasoning_persona": run_params.get("reasoning_persona"),
                 "profile_id": run_params.get("profile_id"),
+                "parser_backend": run_params.get("parser_backend"),
                 "run_verify": bool(job.run_verify),
                 "clean_reindex": bool(getattr(job, "clean_reindex", 0)),
                 "run_id": job.run_id,
@@ -85,6 +86,7 @@ class Worker:
                 compatibility_kwargs = dict(run_kwargs)
                 compatibility_kwargs.pop("reasoning_persona", None)
                 compatibility_kwargs.pop("profile_id", None)
+                compatibility_kwargs.pop("parser_backend", None)
                 try:
                     result = asyncio.run(run_deepread_job(**compatibility_kwargs))
                 except TypeError:

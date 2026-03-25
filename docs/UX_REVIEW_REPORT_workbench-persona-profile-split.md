@@ -91,3 +91,81 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Split `AnalysisWorkbench` controls into `Reasoning` and `Profile` selectors with compatibility request mapping.
 - Add lightweight visual verification for the updated control row in mock and backend workbench flows.
 - After selector adoption, evaluate the first shared output/view mode surface separately instead of bundling it into this change.
+
+## 7.1) Backend Workbench Shell Coverage Checkpoint (2026-03-24)
+- Screen/Flow: `/workbench/:paperId` desktop + mobile shell layout
+- Goal action: workbench header, rail, PDF shell, artifact column, and timeline hierarchy drift가 route-level screenshot에서 바로 보이게 한다.
+- Primary persona: workbench shell drift를 visual regression으로 확인하는 maintainer
+- Current friction:
+  - workbench는 rail screenshot과 claim-highlight subregion coverage는 있었지만, shell 전체를 한 번에 보는 route-level baseline이 없었다.
+  - 그래서 header/control row/column balance가 흔들려도 PDF highlight와 rail subregion만으로는 변화를 늦게 알아차릴 수 있었다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - existing rail + claim-highlight subregion coverage는 유지한다.
+  - 기본 workbench shell을 interaction 없이 연 뒤 desktop/mobile viewport screenshot 2개를 추가한다.
+  - timeline 시각값만 mask 처리해 locale/time noise를 줄인다.
+- BMAP:
+  - Motivation: 높음. workbench는 core reading/action surface라 shell drift를 조용히 허용하면 안 된다.
+  - Ability: 기존 backend route와 PDF/rail readiness check가 있어 full-page contract를 좁게 추가할 수 있다.
+  - Prompt: route-level shell screenshot 하나가 header/control/three-pane balance를 가장 직접적으로 고정한다.
+- B.I.A.S:
+  - Block: subregion-only coverage는 shell hierarchy drift를 바로 보여주지 못했다.
+  - Interpret: full-page shell baseline이 current workbench contract를 더 직접적으로 설명한다.
+  - Act: 이후 header/control/timeline density drift를 diff에서 더 빨리 판단할 수 있다.
+  - Store: workbench도 triage, paper notes, viewer routes와 같은 backend visual discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 desktop/mobile workbench shell이 current UI 기준선으로 추가된 순간이다.
+  - Pit는 rail/PDF는 green인데 route shell 전체는 screenshot contract가 없던 상태였다.
+  - Transition은 existing workbench open helper 분리 -> shell snapshot 추가 -> rerun green이다.
+- Ethics:
+  - Regret: 통과. runtime behavior를 바꾸지 않고 verification만 강화한다.
+  - Black Mirror: 통과. PDF highlight subregion과 shell baseline을 함께 두어 UI polish를 과장하지 않는다.
+  - In Real-Life: 통과. maintainers가 실제 workbench shell drift를 더 빠르게 검토할 수 있다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "workbench shell layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "workbench shell layout"`
+
+## 7.2) Parser Pilot Status Clarity Checkpoint (2026-03-24)
+- Screen/Flow: `/workbench/:paperId` run controls and terminal log drawer during bounded parser-pilot runs
+- Goal action: understand whether the workbench requested `docling` and whether the runtime actually resolved to `docling` or fell back to `fitz_pdfplumber`
+- Primary persona: research operator running a bounded parser pilot behind the existing hidden query-param lane
+- Current friction:
+  - before this patch, the workbench could imply that a requested parser override definitely ran even when backend config silently resolved to the default backend
+  - parser status also disappeared when switching papers inside the workbench rail, which made multi-paper pilot sessions easy to misread
+  - stale terminal hydration could overwrite the just-enqueued parser pilot log line with a completed fixture run, which blurred the operator's current action
+- Quick decision:
+  - keep the parser pilot surface hidden and bounded to the existing query lane
+  - make requested vs effective parser state explicit in existing workbench copy
+  - preserve the current parser query only for workbench-internal paper switching
+  - prove the real backend path with one seeded backend e2e fixture rather than widening the UI
+- BMAP:
+  - Motivation: high; a parser pilot is only useful if the operator can trust which backend actually ran.
+  - Ability: previously weak because requested and effective parser state were conflated.
+  - Prompt: the existing control row and terminal drawer are enough if the copy is explicit.
+- B.I.A.S:
+  - Block: silent fallback hid the true runtime decision.
+  - Interpret: the operator could read a requested override as an effective backend.
+  - Act: this creates the wrong follow-up decision about parser quality or pilot readiness.
+  - Store: ambiguous status would teach the wrong mental model for every later pilot run.
+- Peak-End:
+  - Peak should stay on the run result, not on guessing the backend.
+  - Pit was the silent ambiguity after enqueue or after opening a completed run.
+  - Transition is now explicit: requested parser first, resolved parser when known.
+  - End should leave a clean audit trail in both the control copy and terminal drawer.
+- Ethics:
+  - Regret: pass; the change removes ambiguity rather than nudging behavior.
+  - Black Mirror: pass; no hidden upsell or coercive control, only runtime truthfulness.
+  - In Real-Life: pass; operators should be able to trust what backend actually ran before interpreting parser output quality.
+- Concrete changes:
+  - preserve `?parser_backend=...` only during workbench rail navigation
+  - treat the route query as pre-run seed state only; once a persisted job loads, rely on requested/effective backend metadata from the backend
+  - show `Parser fitz_pdfplumber (requested docling)` when the backend resolves away from the requested parser
+  - keep `Requested parser docling` for queued/requested-only states
+  - refresh effective parser after completion only when the current workbench screen still owns that paper/job
+  - append the parser-resolution line during initial terminal hydration so the real backend path is visible on first load, not only after stream updates
+  - isolate backend parser e2e runs onto a dedicated runtime DB so cold-load verification does not inherit parser pilot metadata from a previous session
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/mock.spec.ts -g "parser"`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "requested and resolved parser backends separately|does not infer requested parser from route query when persisted job metadata is absent"`
+  - `cd frontend && PAPERPIPE_E2E_ENABLE_PARSER_WORKER=1 npx playwright test -c playwright.backend.parser.config.ts e2e/backend.spec.ts -g "deep read run resolves parser fallback in the browser flow"`

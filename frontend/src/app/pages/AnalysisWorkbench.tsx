@@ -106,6 +106,7 @@ function chooseActiveClaimId(
 type StatsActionMode = "repair" | "rebuild";
 type WorkbenchActionMode = StatsActionMode | "sync";
 type ReasoningSelection = ReasoningPersonaId | "auto";
+type ParserBackendOverride = "fitz_pdfplumber" | "docling";
 
 type WorkbenchActionFeedback =
   | {
@@ -176,12 +177,71 @@ function buildRunSelection(reasoning: ReasoningSelection, profileId: string): {
   };
 }
 
+function resolveParserBackendOverride(rawValue: string | null): ParserBackendOverride | undefined {
+  const normalized = String(rawValue || "").trim().toLowerCase();
+  if (normalized === "fitz_pdfplumber" || normalized === "docling") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function buildWorkbenchPaperPath(paperId: string, parserBackendOverride?: ParserBackendOverride): string {
+  const encodedPaperId = encodeURIComponent(paperId);
+  if (!parserBackendOverride) {
+    return `/workbench/${encodedPaperId}`;
+  }
+  const query = new URLSearchParams({ parser_backend: parserBackendOverride });
+  return `/workbench/${encodedPaperId}?${query.toString()}`;
+}
+
+function describeParserSelection(
+  job: JobStatus | null,
+  fallbackRequested?: ParserBackendOverride,
+  allowFallbackRequested = false,
+): string | null {
+  const requested = job?.requested_parser_backend ?? (allowFallbackRequested ? fallbackRequested : undefined);
+  const effective = job?.parser_backend;
+  if (effective && requested && effective !== requested) {
+    return `Parser ${effective} (requested ${requested})`;
+  }
+  if (effective) {
+    return `Parser ${effective}`;
+  }
+  if (requested) {
+    return `Requested parser ${requested}`;
+  }
+  return null;
+}
+
+function buildParserResolutionMessage(job: JobStatus | null): string | null {
+  const effective = job?.parser_backend;
+  if (!effective) {
+    return null;
+  }
+  const requested = job?.requested_parser_backend;
+  if (requested && requested !== effective) {
+    return `resolved parser backend: ${effective} (requested ${requested})`;
+  }
+  return `resolved parser backend: ${effective}`;
+}
+
+function buildParserResolutionLogKey(job: JobStatus | null): string | null {
+  if (!job?.job_id || job.status !== "completed" || !job.parser_backend) {
+    return null;
+  }
+  return `${job.job_id}:${job.requested_parser_backend ?? ""}:${job.parser_backend}`;
+}
+
 export function AnalysisWorkbench() {
   const params = useParams<{ paperId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const paperId = params.paperId ?? "";
   const focusIssues = searchParams.get("focus") === "issues";
+  const parserBackendOverride = useMemo(
+    () => resolveParserBackendOverride(searchParams.get("parser_backend")),
+    [searchParams],
+  );
 
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [paper, setPaper] = useState<PaperDetail | null>(null);
@@ -202,6 +262,7 @@ export function AnalysisWorkbench() {
   const [highlightMode, setHighlightMode] = useState<"soft" | "focus">("soft");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [preserveRequestedParserSelection, setPreserveRequestedParserSelection] = useState(false);
 
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
@@ -283,9 +344,16 @@ export function AnalysisWorkbench() {
   );
 
   const jobRef = useRef<JobStatus | null>(null);
+  const paperIdRef = useRef<string>(paperId);
   const activeClaimIdRef = useRef<string | null>(activeClaimId);
   const focusIssuesRef = useRef<boolean>(focusIssues);
   const pdfBlobUrlRef = useRef<string | null>(null);
+  const parserResolutionLogRef = useRef<string | null>(null);
+
+  jobRef.current = job;
+  paperIdRef.current = paperId;
+  activeClaimIdRef.current = activeClaimId;
+  focusIssuesRef.current = focusIssues;
 
   useEffect(() => {
     if (selectedReasoningPersona !== "auto" && !reasoningOptions.some((option) => option.id === selectedReasoningPersona)) {
@@ -349,16 +417,17 @@ export function AnalysisWorkbench() {
   );
 
   useEffect(() => {
-    jobRef.current = job;
+    const key = buildParserResolutionLogKey(job);
+    const message = buildParserResolutionMessage(job);
+    if (!key || !message) {
+      return;
+    }
+    if (parserResolutionLogRef.current === key) {
+      return;
+    }
+    parserResolutionLogRef.current = key;
+    setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][INFO] ${message}`]);
   }, [job]);
-
-  useEffect(() => {
-    activeClaimIdRef.current = activeClaimId;
-  }, [activeClaimId]);
-
-  useEffect(() => {
-    focusIssuesRef.current = focusIssues;
-  }, [focusIssues]);
 
   useEffect(() => {
     return () => {
@@ -383,6 +452,12 @@ export function AnalysisWorkbench() {
   }, [paper?.title, paperId]);
 
   useEffect(() => {
+    if (!parserBackendOverride) {
+      setPreserveRequestedParserSelection(false);
+    }
+  }, [parserBackendOverride]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadWorkbench() {
@@ -392,6 +467,10 @@ export function AnalysisWorkbench() {
 
       setLoadError(null);
       setActionFeedback(null);
+      setJob(null);
+      setTimelineEvents([]);
+      setTerminalLogs([]);
+      parserResolutionLogRef.current = null;
       clearMockMode();
       replacePdfBlobUrl(null);
       setObsidianMirror(null);
@@ -458,16 +537,26 @@ export function AnalysisWorkbench() {
           if (!mounted) {
             return;
           }
+          if (paperIdRef.current !== paperId || jobRef.current?.job_id !== initialJob.job_id) {
+            return;
+          }
           if (timelineResult.isMock) {
             markMockMode(timelineResult.reason);
           }
           setTimelineEvents(timelineResult.data.events);
-          setTerminalLogs(
-            timelineResult.data.events.map((event) => {
+          const parserResolutionKey = buildParserResolutionLogKey(initialJob);
+          const parserResolutionMessage = buildParserResolutionMessage(initialJob);
+          if (parserResolutionKey) {
+            parserResolutionLogRef.current = parserResolutionKey;
+          }
+          const nextTerminalLogs = timelineResult.data.events.map((event) => {
               const level = event.level ?? (event.event === "error" ? "ERROR" : "INFO");
               return `[${event.ts ?? new Date().toISOString()}][${level}] ${event.message ?? event.raw ?? event.event}`;
-            }),
-          );
+            });
+          if (parserResolutionMessage) {
+            nextTerminalLogs.push(`[${new Date().toISOString()}][INFO] ${parserResolutionMessage}`);
+          }
+          setTerminalLogs(nextTerminalLogs);
         } else {
           setTimelineEvents([]);
           setTerminalLogs([]);
@@ -508,6 +597,8 @@ export function AnalysisWorkbench() {
 
     let subscription: StreamSubscription | null = null;
     let latestStage = currentJob.stage;
+    const ownsCurrentScreen = (jobId = streamJobId) =>
+      paperIdRef.current === paperId && jobRef.current?.job_id === jobId;
 
     subscription = connectJobStream(
       {
@@ -519,6 +610,9 @@ export function AnalysisWorkbench() {
       },
       {
         onStatus: (next) => {
+          if (!ownsCurrentScreen(next.job_id)) {
+            return;
+          }
           latestStage = next.stage;
           setJob(next);
           setTimelineEvents((prev) => {
@@ -535,6 +629,9 @@ export function AnalysisWorkbench() {
           });
         },
         onLog: (line, level = "INFO") => {
+          if (!ownsCurrentScreen()) {
+            return;
+          }
           const timestamp = new Date().toISOString();
           setTerminalLogs((prev) => [...prev.slice(-499), `[${timestamp}][${level}] ${line}`]);
           setTimelineEvents((prev) => {
@@ -550,6 +647,9 @@ export function AnalysisWorkbench() {
           });
         },
         onDone: (status) => {
+          if (!ownsCurrentScreen()) {
+            return;
+          }
           setJob((prev) =>
             prev
               ? {
@@ -561,10 +661,33 @@ export function AnalysisWorkbench() {
                 }
               : prev,
           );
+          if (mockMode) {
+            return;
+          }
+          void getJob(streamJobId)
+            .then((jobResult) => {
+              if (!ownsCurrentScreen(jobResult.data.job_id)) {
+                return;
+              }
+              if (jobResult.isMock) {
+                markMockMode(jobResult.reason);
+              }
+              setJob(jobResult.data);
+            })
+            .catch((error) => {
+              const message = getApiErrorMessage(error);
+              setTerminalLogs((prev) => [...prev.slice(-499), `[${new Date().toISOString()}][ERROR] ${message}`]);
+            });
         },
         onArtifactReady: async () => {
+          if (!ownsCurrentScreen()) {
+            return;
+          }
           try {
             const [nextArtifacts, nextPapers] = await Promise.all([getArtifactsLatest(paperId), getPapers()]);
+            if (!ownsCurrentScreen()) {
+              return;
+            }
             if (nextArtifacts.isMock) {
               markMockMode(nextArtifacts.reason);
             }
@@ -574,6 +697,9 @@ export function AnalysisWorkbench() {
             setPapers(nextPapers.data);
             setArtifactBundle(nextArtifacts.data);
             const nextNotebook = await resolveNotebook(nextArtifacts.data);
+            if (!ownsCurrentScreen()) {
+              return;
+            }
             setNotebook(nextNotebook);
             setActiveClaimId(
               chooseActiveClaimId(nextNotebook, focusIssuesRef.current, activeClaimIdRef.current),
@@ -753,6 +879,7 @@ export function AnalysisWorkbench() {
         persona_id: runSelection.personaId,
         reasoning_persona: runSelection.reasoningPersona,
         profile_id: runSelection.profileId,
+        parser_backend: parserBackendOverride,
       });
 
       if (enqueueResult.isMock) {
@@ -766,6 +893,7 @@ export function AnalysisWorkbench() {
         persona_id: runSelection.personaId,
         reasoning_persona: runSelection.reasoningPersona,
         profile_id: runSelection.profileId,
+        requested_parser_backend: parserBackendOverride,
         status: "queued",
         progress: 0,
         stage: "ingest",
@@ -774,7 +902,10 @@ export function AnalysisWorkbench() {
 
       setJob(newJob);
       setTimelineEvents([]);
-      setTerminalLogs([`[${new Date().toISOString()}][INFO] deepread enqueued (${newJob.job_id})`]);
+      const enqueueSummary = parserBackendOverride
+        ? `deepread enqueued (${newJob.job_id}, requested_parser=${parserBackendOverride})`
+        : `deepread enqueued (${newJob.job_id})`;
+      setTerminalLogs([`[${new Date().toISOString()}][INFO] ${enqueueSummary}`]);
       setTerminalOpen(true);
     } catch (error) {
       const message = getApiErrorMessage(error);
@@ -821,6 +952,11 @@ export function AnalysisWorkbench() {
     syncingObsidian ||
     Boolean(actionFeedback);
   const showRebuildNotice = runningStatsAction === "rebuild";
+  const parserSelectionLabel = describeParserSelection(
+    job,
+    parserBackendOverride,
+    preserveRequestedParserSelection || (mockMode && Boolean(parserBackendOverride)),
+  );
   const controlsDesktop = (
     <>
       <label className="inline-flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2 py-1.5 text-xs text-[var(--pp-text-secondary)]">
@@ -863,6 +999,12 @@ export function AnalysisWorkbench() {
         <Play className="h-3.5 w-3.5" />
         Deep Read Run
       </button>
+
+      {parserSelectionLabel ? (
+        <p data-testid="workbench-parser-selection" className="text-[11px] text-[var(--pp-text-dim)]">
+          {parserSelectionLabel}
+        </p>
+      ) : null}
 
       <button
         type="button"
@@ -1011,6 +1153,12 @@ export function AnalysisWorkbench() {
           Deep Read Run
         </button>
       </div>
+
+      {parserSelectionLabel ? (
+        <p data-testid="workbench-parser-selection-mobile" className="text-[11px] text-[var(--pp-text-dim)]">
+          {parserSelectionLabel}
+        </p>
+      ) : null}
 
       {canRepairStats ? (
         <button
@@ -1220,6 +1368,7 @@ export function AnalysisWorkbench() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelectPaper={(nextPaperId) => {
+            setPreserveRequestedParserSelection(Boolean(parserBackendOverride));
             logClientUserAction({
               paper_id: nextPaperId,
               action_type: "workbench_select_paper",
@@ -1228,7 +1377,7 @@ export function AnalysisWorkbench() {
                 from_paper_id: paperId,
               },
             });
-            navigate(`/workbench/${encodeURIComponent(nextPaperId)}`);
+            navigate(buildWorkbenchPaperPath(nextPaperId, parserBackendOverride));
           }}
         />
       }
