@@ -1,5 +1,11 @@
 # Downloader Monitoring Runbook
 
+Status: Active
+Date: 2026-03-09
+Owner: Operations maintainers
+Canonical runbook: `docs/downloader_monitoring.md`
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 This runbook fixes downloader ops monitoring as a repeatable dashboard + alert flow.
 
 ## Dashboard Job
