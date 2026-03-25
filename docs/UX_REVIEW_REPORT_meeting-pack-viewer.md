@@ -27,7 +27,7 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
 ### P2
 - The existing in-body copy still leans operational, which is acceptable for this lane because the route is explicitly draft-management oriented.
-- This route does not appear to have dedicated backend visual coverage yet, so wording changes should rely on build plus mock-route verification for now.
+- Backend visual coverage now exists for index/detail shells, so future work can focus on trace readability or action-safety checks rather than more header cleanup.
 
 ### Full Review Coverage
 - 6P storyboard context: Problem is opaque saved draft state; emotion is low trust in draft artifacts without quick operational context; action is open meeting-pack index or direct pack id; struggle is decoding inspector-style framing; attempt is review title, status, trace, and validation before acting; happy ending is a bounded draft review surface whose role is immediately obvious.
@@ -65,6 +65,68 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Layout level: no route, panel, or control structure changes.
 - Runtime contract: rerender/regenerate, trace filters, and validation UI stay unchanged.
 
+## 7.2) Backend Visual Coverage Checkpoint (2026-03-23)
+- Screen/Flow: `/meeting-packs` index and `/meeting-packs/:packId` detail visual regression coverage
+- Goal action: wording cleanup 이후에도 desktop/mobile meeting-pack viewer hierarchy drift가 screenshot 레일에서 바로 보이게 한다.
+- Primary persona: 저장된 meeting-pack draft를 열어 review context와 operational controls를 함께 확인하는 운영자
+- Current friction:
+  - meeting-pack route는 mock coverage는 있었지만 backend visual baseline이 없었다.
+  - generated `meetingpack_*` ids와 created timestamps가 화면에 직접 보여서, baseline을 추가해도 mask strategy가 없으면 매번 흔들릴 수 있었다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - backend visual spec에 index/detail snapshot 4개만 추가한다.
+  - `Created` 값과 displayed `meetingpack_*` ids만 mask 처리해 baseline noise를 줄인다.
+- BMAP:
+  - Motivation: 높음. meeting-pack route도 viewer lane의 일부라 screenshot review 레일이 있어야 wording/spacing drift를 빨리 잡을 수 있다.
+  - Ability: backend generate route가 있으므로 one-paper fixture를 만들어 visual spec만 좁게 추가하면 된다.
+  - Prompt: index/detail 두 화면만 고정해도 route-level hierarchy regression을 충분히 잡을 수 있다.
+- B.I.A.S:
+  - Block: visual coverage 부재로 meeting-pack route만 regression review가 상대적으로 약했다.
+  - Interpret: current UI contract를 baseline 이미지로 남기면 변화 해석이 쉬워진다.
+  - Act: wording/layout drift가 생기면 snapshot diff로 바로 확인할 수 있다.
+  - Store: meeting-pack route도 다른 viewer routes와 같은 verification discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 index/detail 둘 다 current review surface를 baseline으로 남긴 순간이다.
+  - Pit는 mock text assertions는 green인데 backend screenshot 기준선이 없는 상태였다.
+  - Transition은 backend fixture generation -> visual snapshot update -> re-run green이다.
+- Ethics:
+  - Regret: 통과. runtime behavior를 바꾸지 않고 verification만 강화한다.
+  - Black Mirror: 통과. 시각 polish를 과장하지 않고 drift detection 레일만 추가한다.
+  - In Real-Life: 통과. maintainers가 실제 viewer 변화를 더 정확히 검토할 수 있다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "meeting pack detail layout|meeting pack index layout" --update-snapshots=all`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "meeting pack detail layout|meeting pack index layout"`
+
+## 7.3) Visual Threshold Discipline Checkpoint (2026-03-24)
+- Screen/Flow: `/meeting-packs` index/detail desktop + mobile visual regression coverage
+- Goal action: meeting-pack screenshots가 generated id/time mask를 유지하면서도 과하게 느슨한 tolerance 없이 hierarchy drift를 잡게 만든다.
+- Primary persona: meeting-pack route의 shell drift와 density 변화를 visual review로 확인하는 maintainer
+- Current friction:
+  - meeting-pack route는 visual coverage는 있었지만 detail/index tolerance가 다른 full-page viewers보다 더 느슨했다.
+  - created timestamps와 `meetingpack_*` ids는 이미 mask 처리하지만, tolerance까지 크게 두면 shell drift를 지나치게 쉽게 통과시킬 수 있다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - existing mask strategy는 유지한 채 desktop/mobile detail/index threshold를 한 단계 낮춰 rerun으로 안정성을 확인한다.
+- BMAP:
+  - Motivation: 중간 이상. meeting-pack route는 operational review surface라 shell drift도 quietly 허용하면 안 된다.
+  - Ability: current snapshots와 masking이 안정적이어서 threshold만 조정해도 확인 가능하다.
+  - Prompt: dynamic mask는 유지하고 threshold만 줄이는 게 가장 작은 audit이다.
+- B.I.A.S:
+  - Block: 느슨한 tolerance가 operational-shell drift를 숨길 수 있다.
+  - Interpret: tighter threshold는 current meeting-pack shell contract를 더 신뢰 가능하게 만든다.
+  - Act: 이후 wording/layout drift가 생기면 snapshot diff를 더 빨리 믿고 판단할 수 있다.
+  - Store: meeting-pack route도 protocol/chart-pack과 비슷한 verification discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 desktop/mobile 4개 meeting-pack visual tests가 더 낮은 threshold에서도 green으로 통과한 순간이다.
+  - Pit는 mask는 충분한데 tolerance까지 커서 drift를 놓칠 수 있던 상태다.
+  - Transition은 threshold reduction -> targeted rerun -> stable green이다.
+- Ethics:
+  - Regret: 통과. UI를 바꾸지 않고 verification만 엄격하게 한다.
+  - Black Mirror: 통과. generated ids/timestamps를 가린다고 해서 shell drift까지 관대하게 보지 않는다.
+  - In Real-Life: 통과. maintainers가 meeting-pack route 변화를 더 정확히 검토할 수 있다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "meeting pack detail layout|meeting pack index layout"`
+
 ## Ethics check results
 - Regret: Low. The route is easier to read without hiding its operational nature.
 - Black Mirror: Low if the route continues to say that draft controls do not replace canonical evidence review.
@@ -72,5 +134,5 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
 ## Next PR-sized actions
 - Add dedicated UX review coverage if the route gets broader user-facing use beyond current operational workflows.
-- If this route gains backend visual coverage later, snapshot the index shell and a representative detail header.
+- If future changes touch action safety, add a narrow interaction-focused check around rerender/regenerate result notices.
 - Keep future work focused on trace readability or action safety, not on broadening the route into an editor.

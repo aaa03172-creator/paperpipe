@@ -70,6 +70,36 @@ Canonical parent: `docs/ux-review.md`
 - In Real-Life: A reviewer should be able to explain which version is current, why it changed, and how strongly it is evidence-linked. The inspector should make that trivial.
 
 ## Next PR-sized actions
-- Reassess whether repeated real usage justifies promoting `protocol-knowledge` beyond a bounded pilot.
+- Treat `protocol-knowledge` as an active bounded spec and prefer spec-following hardening over scope expansion.
 - If the lane keeps proving useful, add more granular backend visual coverage for selected subregions rather than opening editor controls.
 - Defer editor or activation controls until repeated usage proves the lane should move beyond read-only review.
+
+## 7.1) Visual Threshold Discipline Checkpoint (2026-03-24)
+- Screen/Flow: `/protocol-cards` index/detail desktop + mobile visual regression coverage
+- Goal action: protocol inspector screenshots가 과하게 느슨한 tolerance 없이도 hierarchy drift를 잡게 만든다.
+- Primary persona: protocol knowledge route의 shell drift를 visual review로 확인하는 maintainer
+- Current friction:
+  - protocol route는 backend visual coverage는 있지만, detail/index tolerance가 다른 full-page routes보다 다소 느슨했다.
+  - 그 상태에서는 current-version emphasis나 version-card density 변화가 충분히 민감하게 잡히지 않을 수 있다.
+- Quick decision:
+  - runtime UI는 바꾸지 않는다.
+  - desktop/mobile detail/index threshold만 한 단계 낮춰 rerun으로 안정성을 확인한다.
+- BMAP:
+  - Motivation: 중간 이상. protocol route는 active bounded spec이라 drift를 quietly 허용하면 안 된다.
+  - Ability: current snapshots와 route fixtures가 이미 있어 threshold 조정만으로 확인 가능하다.
+  - Prompt: “한 단계만 낮추고 rerun”이 가장 작은 audit 방식이다.
+- B.I.A.S:
+  - Block: 느슨한 tolerance가 shell drift를 숨길 수 있다.
+  - Interpret: tighter threshold는 current protocol shell contract를 더 선명하게 만든다.
+  - Act: 이후 version hierarchy나 trust framing drift를 diff에서 더 빨리 읽을 수 있다.
+  - Store: protocol route도 다른 core viewers와 비슷한 verification discipline을 갖게 된다.
+- Peak-End:
+  - Peak는 desktop/mobile 4개 protocol visual tests가 더 낮은 threshold에서도 green으로 통과한 순간이다.
+  - Pit는 visual coverage는 있어도 tolerance가 너무 커서 drift를 놓칠 수 있던 상태다.
+  - Transition은 threshold reduction -> targeted rerun -> stable green이다.
+- Ethics:
+  - Regret: 통과. UI를 바꾸지 않고 verification만 엄격하게 한다.
+  - Black Mirror: 통과. 느슨한 green을 허용하지 않고 실제 shell drift를 더 잘 잡게 만든다.
+  - In Real-Life: 통과. maintainers가 protocol route 변화를 더 정확히 검토할 수 있다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "protocol knowledge detail layout|protocol knowledge index layout"`
