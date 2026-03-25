@@ -64,6 +64,7 @@ interface DeepReadRequest {
   persona_id?: string;
   reasoning_persona?: ReasoningPersonaId;
   profile_id?: string;
+  parser_backend?: "fitz_pdfplumber" | "docling";
 }
 
 interface RepairStatsRequest {

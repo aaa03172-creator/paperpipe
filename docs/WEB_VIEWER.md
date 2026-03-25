@@ -18,7 +18,7 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 - 목록: `/papers`
 - 상세: `/papers/:slug`
 
-챗봇 자체는 이번 스프린트 범위 밖입니다. 대신 아래 미래 대비 훅은 유지합니다.
+챗봇 자체는 현재 활성 제품 범위 밖입니다. 대신 아래 미래 대비 훅은 유지합니다.
 - canonical structured state: `vault/.pp/<slug>/state.json`
 - URL focus deep link:
   - `/papers/<slug>?focus=claim:<id>`
@@ -39,9 +39,10 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   - list/detail/actions 단위의 trigger-based micro-backlog는 해당 `docs/UX_REVIEW_REPORT_<flow>.md`에 남긴다.
 
 ## 데이터 소스
-- Source of truth: `config.yaml`의 `paths.obsidian_vault`
+- Vault source root: `config.yaml`의 `paths.obsidian_vault`
 - Current implementation intentionally uses backend runtime indexing, not a Next.js build-time filesystem pass.
 - Structured sidecar source of truth for skill runs: `vault/.pp/<slug>/state.json`
+- note body/frontmatter는 operator-facing mirror surface이며, canonical run/claim/evidence state를 대체하지 않는다.
 - 주로 사용하는 frontmatter 키:
   - `id`, `aliases`, `tags`, `date_processed`, `confidence`, `status`
   - `pp.structured_path`, `pp.last_run`, `pp.actions_done`, `pp.signals.*`
@@ -51,7 +52,7 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   - 상대 경로에 `paperpipe` 문자열 포함
 
 ## 백엔드 API
-새 라우터: `backend/routers/paper_notes.py`
+현재 라우터: `backend/routers/paper_notes.py`
 
 - `GET /paper-notes`
   - query:
@@ -133,7 +134,7 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 - `POST /api/chat`
   - stub only
   - default `CHAT_ENABLED=false` => `501 Not Implemented`
-  - even with `CHAT_ENABLED=true`, this sprint still returns `501 Not Implemented`
+  - even with `CHAT_ENABLED=true`, the current runtime still returns `501 Not Implemented`
   - no external LLM/provider call, no memory, no RAG
 
 ## Viewer Output Mode
@@ -186,7 +187,8 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   - optional `context_trace`
     - summary of which note/index/sidecar paths contributed to the detail view
     - operational/debug contract only
-    - current UI may ignore it safely
+    - current UI may keep it behind an optional/debug disclosure
+    - but detail surfaces should not require operator narration to explain missing canonical structured state or which saved sidecar path was used
   - Actions card: `available_actions[]` -> `POST /skills/run`
     - `Add short note summary` toggle -> `append_markdown_summary`
     - toggle은 note-local state이며, 다른 note로 이동하면 기본값으로 reset된다.
@@ -198,7 +200,9 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
     - write-scope badges: `state updated`, `frontmatter updated`, `body summary/body skipped`
     - badges는 `run.artifacts.write_scope.{structured_state,frontmatter_pp,markdown_summary}`에서 직접 파생된다.
     - legacy runs without `artifacts.write_scope` keep rendering normally and simply omit these badges.
+    - when `structured_state` is absent, product-ready detail surfaces should say that no canonical sidecar state was loaded instead of relying only on a generic empty run-history card.
   - ClaimSet cards: `structured_state.claimset[]`
+    - empty-state copy should preserve the same distinction: missing sidecar truth vs loaded-but-empty structured claims
   - `focus` query 지원:
     - `claim:<id>`
     - `evidence:<id>`
@@ -251,7 +255,7 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   - `pp.signals`
   - `claimset.tags`, `entities`, `mesh`, `outcomes`
   - `pp.signals.last_appraisal` (query/relevance support)
-  - optional `ops_summary` (latest artifact health derived from `storage/artifacts/<paper_id>/<run_id>`)
+  - optional `ops_summary` (latest artifact health derived from the preferred run artifact directory under `storage/artifacts/<paper-segment>/<run_id>`)
 - 제외 규칙:
   - 디렉터리명 `.obsidian`, `_backup`
   - 숨김 경로(`.` prefix) 전반

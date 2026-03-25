@@ -25,6 +25,37 @@ test("mock mode fallback renders full phase3 flow", async ({ page }) => {
   await expect(terminalDrawer.locator("pre")).toContainText("deepread enqueued", { timeout: 15_000 });
 });
 
+test("workbench query param scopes parser pilot override into the enqueue path", async ({ page }) => {
+  await page.goto("/workbench/paper-2023-imaging?parser_backend=docling");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Terminal logs" }).click();
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Deep Read Run" }).click();
+  await expect(page.getByTestId("workbench-parser-selection").first()).toContainText("Requested parser docling");
+  await expect(terminalDrawer.locator("pre")).toContainText("requested_parser=docling", { timeout: 15_000 });
+});
+
+test("workbench rail keeps parser pilot query when selecting another paper", async ({ page }) => {
+  await page.goto("/workbench/paper-2023-imaging?parser_backend=docling");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await page.getByRole("button", { name: /Ketogenic Intervention and Glucose Variability/i }).click();
+  await expect(page).toHaveURL(/\/workbench\/paper-2024-glucose\?parser_backend=docling$/);
+
+  await page.getByRole("button", { name: "Terminal logs" }).click();
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Deep Read Run" }).click();
+  await expect(page.getByTestId("workbench-parser-selection").first()).toContainText("Requested parser docling");
+  await expect(terminalDrawer.locator("pre")).toContainText("requested_parser=docling", { timeout: 15_000 });
+});
+
 test("encoded paper id route does not crash in workbench", async ({ page }) => {
   await page.goto("/workbench/paper%25id");
 

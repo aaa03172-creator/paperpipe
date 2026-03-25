@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-SkillActionName = Literal["extract_markdown", "validate_citations", "critical_appraisal"]
+SkillActionName = Literal["extract_markdown", "validate_citations", "critical_appraisal", "deep_read"]
 SkillRunStatus = Literal["succeeded", "failed", "blocked"]
 SkillNetworkMode = Literal["none", "allowlist", "full"]
 

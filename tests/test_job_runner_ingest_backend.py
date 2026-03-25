@@ -28,6 +28,21 @@ def test_resolve_ingest_backend_invalid_value_falls_back_to_fitz() -> None:
     assert _resolve_ingest_parser_backend(config) == "fitz_pdfplumber"
 
 
+def test_resolve_ingest_backend_override_prefers_requested_backend_when_allowed() -> None:
+    config = SimpleNamespace(ingest=SimpleNamespace(parser_backend="fitz_pdfplumber", enable_docling=True))
+    assert _resolve_ingest_parser_backend(config, override_backend="docling") == "docling"
+
+
+def test_resolve_ingest_backend_override_ignores_invalid_override() -> None:
+    config = SimpleNamespace(ingest=SimpleNamespace(parser_backend="docling", enable_docling=True))
+    assert _resolve_ingest_parser_backend(config, override_backend="invalid") == "docling"
+
+
+def test_resolve_ingest_backend_override_still_respects_docling_gate() -> None:
+    config = SimpleNamespace(ingest=SimpleNamespace(parser_backend="fitz_pdfplumber", enable_docling=False))
+    assert _resolve_ingest_parser_backend(config, override_backend="docling") == "fitz_pdfplumber"
+
+
 def test_build_anchor_verify_summary_maps_verdict_counts() -> None:
     checks = [
         SimpleNamespace(verdict="verified"),

@@ -612,7 +612,10 @@ class OllamaProvider(LLMProvider):
         
         try:
             # Test connection by creating a client instance
-            self.ollama_client = ollama.Client(host=self.host) 
+            self.ollama_client = ollama.Client(
+                host=self.host,
+                timeout=self.config.timeout_seconds,
+            )
             # Attempt to list models to confirm connectivity
             self.ollama_client.list()
             self.client = True # Mark as available

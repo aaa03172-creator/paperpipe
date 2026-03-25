@@ -90,6 +90,10 @@ export function connectJobStream(options: JobStreamOptions, handlers: JobStreamH
         persona_id: payload.persona_id ? String(payload.persona_id) : undefined,
         reasoning_persona: payload.reasoning_persona ? String(payload.reasoning_persona) as JobStatus["reasoning_persona"] : undefined,
         profile_id: payload.profile_id ? String(payload.profile_id) : undefined,
+        requested_parser_backend: payload.requested_parser_backend
+          ? String(payload.requested_parser_backend) as JobStatus["requested_parser_backend"]
+          : undefined,
+        parser_backend: payload.parser_backend ? String(payload.parser_backend) as JobStatus["parser_backend"] : undefined,
         status: String(payload.status ?? "running") as JobStatus["status"],
         progress: Number(payload.progress ?? 0),
         stage: payload.stage ? String(payload.stage) : undefined,
@@ -197,6 +201,8 @@ function connectMockStream(options: JobStreamOptions, handlers: JobStreamHandler
       job_id: options.jobId,
       paper_id: options.paperId,
       run_id: options.runId,
+      requested_parser_backend: seedStatus.requested_parser_backend,
+      parser_backend: seedStatus.parser_backend,
       status: frame.status,
       progress: frame.progress,
       stage: frame.stage,

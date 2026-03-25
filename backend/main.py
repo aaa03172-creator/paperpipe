@@ -271,6 +271,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
     meta_path = _resolve_bootstrap_meta_path(job)
     meta = _read_bootstrap_meta(meta_path)
     params = get_execution_run_params(getattr(job, "run_id", None))
+    requested_parser_backend = str(params.get("parser_backend") or "").strip() or None
     selection = normalize_persona_selection(
         persona_id=meta.get("persona_id") or params.get("persona_id") or getattr(job, "persona_id", None),
         reasoning_persona=meta.get("reasoning_persona") or params.get("reasoning_persona") or getattr(job, "reasoning_persona", None),
@@ -293,6 +294,8 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "persona_id": selection.persona_id,
             "reasoning_persona": selection.reasoning_persona,
             "profile_id": selection.profile_id,
+            "requested_parser_backend": requested_parser_backend,
+            "parser_backend": meta.get("parser_backend"),
             "similar_feedback_count": meta.get("similar_feedback_count"),
             "persona_applied": meta.get("persona_applied"),
             "artifact_document_written": meta.get("artifact_document_written"),
@@ -992,6 +995,7 @@ def list_papers(
     out = []
     for p in papers:
         item = dict(p)
+        paper_id = str(item.get("paper_id") or "").strip()
         pdf_path = item.get("pdf_path")
         pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
         item["pdf_exists"] = pdf_exists
@@ -999,7 +1003,11 @@ def list_papers(
         if not pdf_exists and pdf_path:
             item["pdf_status"] = "missing"
         item["issues_state"] = _derive_paper_issues_state(item)
-        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, str(item.get("paper_id") or ""), artifact_cache)
+        ops_summary = build_ops_summary_for_paper_id(artifacts_path, paper_id, artifact_cache)
+        item["ops_summary"] = ops_summary
+        item["latest_run_id"] = (
+            getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+        ) or _latest_run_id_for_paper(paper_id)
         out.append(item)
     return out
 
@@ -1020,7 +1028,11 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     if not pdf_exists and pdf_path:
         item["pdf_status"] = "missing"
     item["issues_state"] = _derive_paper_issues_state(item)
-    item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
+    ops_summary = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
+    item["ops_summary"] = ops_summary
+    item["latest_run_id"] = (
+        getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+    ) or _latest_run_id_for_paper(paper_id)
     return item
 
 
@@ -1091,6 +1103,7 @@ def enqueue_job(job_req: JobCreate):
             job_req.persona_id,
             job_req.reasoning_persona,
             job_req.profile_id,
+            job_req.parser_backend,
         )
     except DuplicateOpenJobError as exc:
         raise HTTPException(
@@ -1125,6 +1138,7 @@ def enqueue_job(job_req: JobCreate):
             "persona_id": selection.persona_id,
             "reasoning_persona": selection.reasoning_persona,
             "profile_id": selection.profile_id,
+            "parser_backend": job_req.parser_backend,
             "run_verify": bool(job_req.run_verify),
             "clean_reindex": bool(job_req.clean_reindex),
         },

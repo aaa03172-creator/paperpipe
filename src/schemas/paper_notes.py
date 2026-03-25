@@ -22,6 +22,7 @@ class PaperNoteIndexItem(BaseModel):
     slug: str
     title: str
     note_path: str
+    structured_state_present: bool = False
     id: str | None = None
     aliases: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)

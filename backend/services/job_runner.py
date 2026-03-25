@@ -26,10 +26,17 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.services.deepread_state_projection import promote_deepread_structured_state_for_note
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
     write_stats_fallback_eval_sidecar,
+)
+from src.timeout_policy import (
+    default_reader_timeout_base_seconds,
+    estimate_reader_timeout_seconds,
+    is_timeout_exception,
+    time_limit,
 )
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
@@ -215,17 +222,31 @@ def _resolve_main_model(config) -> str:
     return model_name or "llama3:latest"
 
 
-def _resolve_ingest_parser_backend(config) -> str:
+def _resolve_ingest_parser_backend(config, override_backend: str | None = None) -> str:
     ingest = getattr(config, "ingest", None)
-    backend = str(getattr(ingest, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber").strip().lower()
+    configured_backend = str(
+        getattr(ingest, "parser_backend", "fitz_pdfplumber") or "fitz_pdfplumber"
+    ).strip().lower()
     enable_docling = bool(getattr(ingest, "enable_docling", False))
-    if backend not in {"fitz_pdfplumber", "docling"}:
-        logger.warning("Unknown ingest parser backend in config: %s. Falling back to fitz_pdfplumber.", backend)
-        return "fitz_pdfplumber"
-    if backend == "docling" and not enable_docling:
+    allowed_backends = {"fitz_pdfplumber", "docling"}
+    if configured_backend not in allowed_backends:
+        logger.warning(
+            "Unknown ingest parser backend in config: %s. Falling back to fitz_pdfplumber.",
+            configured_backend,
+        )
+        configured_backend = "fitz_pdfplumber"
+    requested_backend = str(override_backend or "").strip().lower() or configured_backend
+    if requested_backend not in allowed_backends:
+        logger.warning(
+            "Unknown ingest parser backend override: %s. Falling back to configured backend %s.",
+            requested_backend,
+            configured_backend,
+        )
+        requested_backend = configured_backend
+    if requested_backend == "docling" and not enable_docling:
         logger.info("Docling parser backend requested but enable_docling=false. Falling back to fitz_pdfplumber.")
         return "fitz_pdfplumber"
-    return backend
+    return requested_backend
 
 
 def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
@@ -305,6 +326,40 @@ def _collect_embed_params(config: Any) -> Dict[str, Any]:
         "chunking": None,
         "embed_model": embed_model,
     }
+
+
+def _apply_reader_timeout_budget(reader_agent: Any, timeout_budget_sec: int) -> Dict[str, Any]:
+    """
+    Best-effort local-provider timeout override for the current reader instance.
+    Keeps the change scoped to this reader path without widening the global config contract.
+    """
+    budget = max(1, int(timeout_budget_sec))
+    adapter = getattr(reader_agent, "adapter", None)
+    provider = getattr(adapter, "provider", None)
+    provider_config = getattr(provider, "config", None)
+    current_timeout = int(getattr(provider_config, "timeout_seconds", 0) or 0)
+    result: Dict[str, Any] = {
+        "applied": False,
+        "previous_timeout_sec": current_timeout,
+        "effective_timeout_sec": current_timeout,
+    }
+
+    if provider is None or provider_config is None or current_timeout >= budget:
+        return result
+
+    try:
+        provider_config.timeout_seconds = budget
+        reinitializer = getattr(provider, "_initialize", None)
+        if callable(reinitializer):
+            reinitializer()
+        result["applied"] = True
+        result["effective_timeout_sec"] = int(getattr(provider_config, "timeout_seconds", budget) or budget)
+        return result
+    except Exception as exc:
+        logger.warning("Reader timeout override failed: %s", exc)
+        result["error"] = str(exc)
+        result["effective_timeout_sec"] = int(getattr(provider_config, "timeout_seconds", current_timeout) or current_timeout)
+        return result
 
 
 def _extract_doc_doi_hint(doc: Any) -> Optional[str]:
@@ -505,6 +560,7 @@ async def run_deepread_job(
     persona_id: str = "default",
     reasoning_persona: str | None = None,
     profile_id: str | None = None,
+    parser_backend: str | None = None,
     run_verify: bool = False,
     clean_reindex: bool = False,
     run_id: str = None,
@@ -694,7 +750,7 @@ async def run_deepread_job(
             return {"status": "cancelled", "run_id": run_id}
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
-        parser_backend = _resolve_ingest_parser_backend(config)
+        parser_backend = _resolve_ingest_parser_backend(config, override_backend=parser_backend)
         ingest_runtime_options = _resolve_ingest_runtime_options(config)
         bootstrap_meta["parser_backend"] = parser_backend
         bootstrap_meta["table_pass2_enabled"] = bool(ingest_runtime_options.get("enable_table_pass2_ocr", False))
@@ -812,6 +868,36 @@ async def run_deepread_job(
             run_meta["models_used"]["reader"] = main_model
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
+        page_count = len(getattr(doc_artifact, "pages", []) or [])
+        table_count = len(getattr(doc_artifact, "tables", []) or [])
+        llm_conf = getattr(config, "llm", None)
+        llm_timeout_default = max(15, int(getattr(llm_conf, "timeout_seconds", 15) or 15))
+        reader_timeout_base = default_reader_timeout_base_seconds(llm_timeout_default)
+        reader_timeout_budget = estimate_reader_timeout_seconds(
+            reader_timeout_base,
+            page_count=page_count,
+            table_count=table_count,
+            adaptive=True,
+        )
+        bootstrap_meta["reader_timeout_base_sec"] = reader_timeout_base
+        bootstrap_meta["reader_timeout_budget_sec"] = reader_timeout_budget
+        bootstrap_meta["reader_timeout_adaptive"] = True
+        bootstrap_meta["reader_page_count"] = page_count
+        bootstrap_meta["reader_table_count"] = table_count
+        bootstrap_meta["reader_timeout_triggered"] = False
+        bootstrap_meta["reader_timeout_error_type"] = None
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_timeout_base_sec"] = reader_timeout_base
+            run_meta["reader_timeout_budget_sec"] = reader_timeout_budget
+            run_meta["reader_timeout_adaptive"] = True
+            run_meta["reader_page_count"] = page_count
+            run_meta["reader_table_count"] = table_count
+            run_meta["reader_timeout_triggered"] = False
+            run_meta["reader_timeout_error_type"] = None
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+        await emit("read", 54, f"Reader timeout budget: {reader_timeout_budget}s")
         try:
             reader_agent = ReaderAgent(
                 model_name=main_model,
@@ -820,7 +906,39 @@ async def run_deepread_job(
         except TypeError:
             # Test doubles may expose a simplified constructor.
             reader_agent = ReaderAgent()
-        claim_set = reader_agent.analyze(doc_artifact)
+        timeout_override = _apply_reader_timeout_budget(reader_agent, reader_timeout_budget)
+        bootstrap_meta["reader_provider_timeout_sec"] = timeout_override["effective_timeout_sec"]
+        bootstrap_meta["reader_provider_timeout_override_applied"] = bool(timeout_override["applied"])
+        if timeout_override.get("error"):
+            bootstrap_meta["reader_provider_timeout_override_error"] = str(timeout_override["error"])
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_provider_timeout_sec"] = timeout_override["effective_timeout_sec"]
+            run_meta["reader_provider_timeout_override_applied"] = bool(timeout_override["applied"])
+            if timeout_override.get("error"):
+                run_meta["reader_provider_timeout_override_error"] = str(timeout_override["error"])
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+        try:
+            with time_limit(int(reader_timeout_budget)):
+                claim_set = reader_agent.analyze(doc_artifact)
+        except Exception as exc:
+            if not is_timeout_exception(exc):
+                raise
+            timeout_message = (
+                f"Reader step timed out after {reader_timeout_budget}s "
+                f"(pages={page_count}, tables={table_count})"
+            )
+            bootstrap_meta["reader_timeout_triggered"] = True
+            bootstrap_meta["reader_timeout_error_type"] = type(exc).__name__
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                run_meta["reader_timeout_triggered"] = True
+                run_meta["reader_timeout_error_type"] = type(exc).__name__
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+            await emit("read", 55, timeout_message, level="ERROR")
+            raise TimeoutError(timeout_message) from exc
         
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
@@ -980,10 +1098,21 @@ async def run_deepread_job(
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
 
         # 6. Complete
+        _mark_run_meta("succeeded")
+
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
             note_path = _resolve_note_path_for_paper(config, paper_id)
             if note_path:
+                promotion = promote_deepread_structured_state_for_note(
+                    vault_path=Path(config.paths.obsidian_vault).expanduser(),
+                    note_path=note_path,
+                    artifact_dir=artifact_dir,
+                )
+                if promotion["status"] in {"created", "refreshed"}:
+                    await emit("read", 76, f"Canonical state {promotion['status']}: {note_path.stem}")
+                else:
+                    await emit("read", 76, f"Canonical state skipped: {promotion['reason']}")
                 stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
                 deepread_md = build_deepread_markdown(
                     model_name=getattr(reader_agent, "model_name", "reader"),
@@ -998,7 +1127,6 @@ async def run_deepread_job(
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
-        _mark_run_meta("succeeded")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
         return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}

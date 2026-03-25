@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}"
+
 PYTHON_BIN="$(command -v python3 || command -v python)"
 if [[ -z "${PYTHON_BIN}" ]]; then
   echo "python3/python not found" >&2
@@ -22,6 +26,7 @@ E2E_CHART_PACKS_REL="./frontend/.e2e-backend-runtime/storage/chart_packs"
 E2E_METHOD_COMPARISONS_REL="./frontend/.e2e-backend-runtime/storage/method_comparisons"
 E2E_IMAGE_EVIDENCE_REL="./frontend/.e2e-backend-runtime/storage/image_evidence"
 E2E_PROTOCOL_CARDS_REL="./frontend/.e2e-backend-runtime/storage/protocol_cards"
+E2E_DB_REL="./frontend/.e2e-backend-runtime/storage/state.db"
 
 rm -rf "${E2E_RUNTIME_DIR}"
 mkdir -p "${E2E_RUNTIME_DIR}"
@@ -32,6 +37,7 @@ export PAPERPIPE_CHART_PACKS_DIR="${E2E_CHART_PACKS_REL}"
 export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_REL}"
 export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_REL}"
 export PAPERPIPE_PROTOCOL_CARDS_DIR="${E2E_PROTOCOL_CARDS_REL}"
+export PAPERPIPE_DB_PATH="${E2E_DB_REL}"
 
 cat > "${E2E_CONFIG_PATH}" <<YAML
 system:
@@ -185,7 +191,7 @@ root = Path.cwd()
 e2e_runtime = root / "frontend" / ".e2e-backend-runtime"
 vault_path = e2e_runtime / "obsidian"
 shutil.rmtree(vault_path, ignore_errors=True)
-db_path = root / "storage" / "state.db"
+db_path = root / "frontend" / ".e2e-backend-runtime" / "storage" / "state.db"
 db_path.parent.mkdir(parents=True, exist_ok=True)
 conn = sqlite3.connect(db_path)
 conn.execute(
@@ -261,6 +267,7 @@ conn.execute(
 )
 e2e_paper_ids = [
     "paper-e2e-001",
+    "paper-e2e-parser-fallback-001",
     "paper-e2e-note-backed-bbox-001",
     "paper-e2e-methodcmp-alpha-001",
     "paper-e2e-methodcmp-beta-001",
@@ -305,6 +312,17 @@ conn.execute(
     (
         "paper-e2e-001",
         "E2E Seed Paper",
+        str(pdf.resolve()),
+    ),
+)
+conn.execute(
+    """
+    INSERT OR REPLACE INTO papers (paper_id, title, pdf_path, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+    """,
+    (
+        "paper-e2e-parser-fallback-001",
+        "E2E Parser Fallback Paper",
         str(pdf.resolve()),
     ),
 )
@@ -715,6 +733,27 @@ repair_note = textwrap.dedent(
     """
 )
 
+parser_fallback_note = textwrap.dedent(
+    """\
+    ---
+    id: paper-e2e-parser-fallback-001
+    aliases:
+      - "E2E Parser Fallback Note"
+    tags:
+      - Medicine/Neurology
+      - Ops/ParserPilot
+    date_processed: 2026-03-24
+    confidence: 0.76
+    status: INDEXED
+    ---
+
+    # E2E Parser Fallback Note
+
+    ## One-Line Summary
+    This fixture proves the workbench distinguishes requested parser overrides from the resolved runtime backend.
+    """
+)
+
 rebuild_note = textwrap.dedent(
     """\
     ---
@@ -814,6 +853,7 @@ methodcmp_beta_note = textwrap.dedent(
 (vault_papers_dir / f"{structured_signal_peer_slug}.md").write_text(structured_signal_peer_note, encoding="utf-8")
 (vault_papers_dir / f"{action_slug}.md").write_text(action_note, encoding="utf-8")
 (vault_papers_dir / f"{quiet_action_slug}.md").write_text(quiet_action_note, encoding="utf-8")
+(vault_papers_dir / "paper-e2e-parser-fallback-001.md").write_text(parser_fallback_note, encoding="utf-8")
 (vault_papers_dir / "paper-e2e-repair-001.md").write_text(repair_note, encoding="utf-8")
 (vault_papers_dir / "paper-e2e-rebuild-001.md").write_text(rebuild_note, encoding="utf-8")
 (vault_papers_dir / "paper-e2e-list-missing-stats-001.md").write_text(list_missing_stats_note, encoding="utf-8")
@@ -1323,6 +1363,50 @@ note_backed_run_id = "run_e2e_note_backed_bbox_001"
 note_backed_artifact_dir = root / "storage" / "artifacts" / note_backed_paper_id / note_backed_run_id
 note_backed_artifact_dir.mkdir(parents=True, exist_ok=True)
 
+parser_fallback_paper_id = "paper-e2e-parser-fallback-001"
+parser_fallback_run_id = "run_e2e_parser_fallback_001"
+parser_fallback_job_id = "job-e2e-parser-fallback-001"
+parser_fallback_artifact_dir = root / "storage" / "artifacts" / parser_fallback_paper_id / parser_fallback_run_id
+parser_fallback_artifact_dir.mkdir(parents=True, exist_ok=True)
+
+parser_fallback_claimset_payload = copy.deepcopy(claimset_payload)
+parser_fallback_claimset_payload["doc_id"] = parser_fallback_paper_id
+parser_fallback_document_payload = copy.deepcopy(document_payload)
+parser_fallback_document_payload["doc_id"] = parser_fallback_paper_id
+parser_fallback_stats_payload = copy.deepcopy(stats_payload)
+parser_fallback_stats_payload["doc_id"] = parser_fallback_paper_id
+parser_fallback_stats_payload["run_id"] = parser_fallback_run_id
+parser_fallback_bootstrap_payload = copy.deepcopy(bootstrap_payload)
+parser_fallback_bootstrap_payload["parser_backend"] = "fitz_pdfplumber"
+
+(parser_fallback_artifact_dir / "claimset.resolved.json").write_text(
+    json.dumps(parser_fallback_claimset_payload, indent=2),
+    encoding="utf-8",
+)
+(parser_fallback_artifact_dir / "claimset.json").write_text(
+    json.dumps(parser_fallback_claimset_payload, indent=2),
+    encoding="utf-8",
+)
+(parser_fallback_artifact_dir / "document_artifact.json").write_text(
+    json.dumps(parser_fallback_document_payload, indent=2),
+    encoding="utf-8",
+)
+(parser_fallback_artifact_dir / "stats_report.json").write_text(
+    json.dumps(parser_fallback_stats_payload, indent=2),
+    encoding="utf-8",
+)
+(parser_fallback_artifact_dir / "bootstrap_meta.json").write_text(
+    json.dumps(parser_fallback_bootstrap_payload, indent=2),
+    encoding="utf-8",
+)
+(parser_fallback_artifact_dir / "run_meta.json").write_text(
+    json.dumps(
+        {"paper_id": parser_fallback_paper_id, "run_id": parser_fallback_run_id, "status": "completed"},
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+
 note_backed_claimset_payload = {
     "doc_id": note_backed_paper_id,
     "claims": [
@@ -1541,6 +1625,86 @@ conn.execute(
         "deepread_enqueued",
         "ui",
         json.dumps({"run_id": run_id}),
+    ),
+)
+
+parser_fallback_log_path = log_dir / f"{parser_fallback_job_id}.log"
+parser_fallback_log_lines = [
+    {
+        "timestamp": "2026-03-24T09:00:01Z",
+        "stage": "ingest",
+        "progress": 25,
+        "level": "INFO",
+        "message": "Requested parser override: docling",
+    },
+    {
+        "timestamp": "2026-03-24T09:00:02Z",
+        "stage": "ingest",
+        "progress": 55,
+        "level": "INFO",
+        "message": "Resolved runtime backend: fitz_pdfplumber",
+    },
+    {
+        "timestamp": "2026-03-24T09:00:03Z",
+        "stage": "completed",
+        "progress": 100,
+        "level": "INFO",
+        "message": "Parser fallback fixture completed",
+    },
+]
+parser_fallback_log_path.write_text(
+    "\n".join(json.dumps(line) for line in parser_fallback_log_lines) + "\n",
+    encoding="utf-8",
+)
+
+conn.execute(
+    """
+    INSERT OR REPLACE INTO jobs (
+        job_id, run_id, paper_id, persona_id, reasoning_persona, profile_id, run_verify, clean_reindex,
+        status, progress, stage, created_at, started_at, finished_at,
+        artifact_dir, log_path, error_code, error_message
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), ?, ?, NULL, NULL)
+    """,
+    (
+        parser_fallback_job_id,
+        parser_fallback_run_id,
+        parser_fallback_paper_id,
+        "default",
+        "researcher",
+        "parser_pilot",
+        0,
+        0,
+        "completed",
+        100,
+        "completed",
+        str(parser_fallback_artifact_dir.resolve()),
+        str(parser_fallback_log_path.resolve()),
+    ),
+)
+conn.execute(
+    """
+    INSERT OR REPLACE INTO execution_runs (
+        run_id, paper_id, trigger_source, pipeline_profile, status, created_at, started_at, finished_at,
+        params_json, metrics_json
+    )
+    VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), ?, ?)
+    """,
+    (
+        parser_fallback_run_id,
+        parser_fallback_paper_id,
+        "ui",
+        "deepread",
+        "completed",
+        json.dumps(
+            {
+                "persona_id": "default",
+                "reasoning_persona": "researcher",
+                "profile_id": "parser_pilot",
+                "parser_backend": "docling",
+            }
+        ),
+        json.dumps({"requested_parser_backend": "docling", "resolved_parser_backend": "fitz_pdfplumber"}),
     ),
 )
 
@@ -2012,6 +2176,20 @@ PY
 if [[ "${E2E_BOOTSTRAP_ONLY:-0}" == "1" ]]; then
   echo "E2E backend runtime bootstrap completed."
   exit 0
+fi
+
+WORKER_PID=""
+cleanup() {
+  if [[ -n "${WORKER_PID}" ]]; then
+    kill "${WORKER_PID}" >/dev/null 2>&1 || true
+    wait "${WORKER_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ "${E2E_ENABLE_FAKE_WORKER:-0}" == "1" ]]; then
+  trap cleanup EXIT INT TERM
+  "${PYTHON_BIN}" frontend/scripts/run_fake_worker_for_e2e.py &
+  WORKER_PID="$!"
 fi
 
 "${PYTHON_BIN}" -m uvicorn backend.main:app --host 127.0.0.1 --port "${BACKEND_PORT}"

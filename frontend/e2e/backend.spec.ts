@@ -6,13 +6,16 @@ import { fileURLToPath } from "node:url";
 const runSoftGateCanary = process.env.PAPERPIPE_E2E_CANARY === "1";
 const runRealSmoke = process.env.PAPERPIPE_REAL_SMOKE === "1";
 const requireRealSmokeCandidates = process.env.PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES === "1";
+const runParserWorkerLane = process.env.PAPERPIPE_E2E_ENABLE_PARSER_WORKER === "1";
 const backendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
 const noteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
 const noteBackedWorkbenchPaperId = "paper-e2e-note-backed-bbox-001";
+const parserFallbackWorkbenchPaperId = "paper-e2e-parser-fallback-001";
 const methodComparisonAlphaPaperId = "paper-e2e-methodcmp-alpha-001";
 const methodComparisonBetaPaperId = "paper-e2e-methodcmp-beta-001";
 const structuredNoteSlug = "zoterostructuredSkillsClaimset2026";
+const missingStateNoteSlug = "zoteroduboisAmnesticMCIProdromal2004";
 const actionNoteSlug = "zoteroliveValidateCitations2026";
 const quietActionNoteSlug = "zoteroquietValidateCitations2026";
 const runId = "skill-20260226T130003000000+0000-critical_appraisal";
@@ -1520,6 +1523,113 @@ test("backend workbench reuses the same operational state summary language as li
   await expect(page.getByTestId("workbench-ops-reason")).toContainText("Open in Workbench to repair the Stats Snapshot.");
 });
 
+test("backend workbench shows requested and resolved parser backends separately", async ({ page }) => {
+  await page.goto(`/workbench/${encodeURIComponent(parserFallbackWorkbenchPaperId)}`);
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByTestId("workbench-parser-selection").first()).toContainText(
+    "Parser fitz_pdfplumber (requested docling)",
+  );
+
+  await page.getByRole("button", { name: "Terminal logs" }).click({ force: true });
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+  await expect(terminalDrawer.locator("pre")).toContainText(
+    "resolved parser backend: fitz_pdfplumber (requested docling)",
+  );
+});
+
+test("backend workbench does not infer requested parser from route query when persisted job metadata is absent", async ({
+  page,
+}) => {
+  await page.goto("/workbench/paper-e2e-001?parser_backend=docling");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await expect(page.getByTestId("workbench-parser-selection")).toHaveCount(0);
+});
+
+test("backend workbench deep read run resolves parser fallback in the browser flow", async ({ page }) => {
+  test.skip(!runParserWorkerLane, "requires dedicated parser worker lane");
+
+  await page.goto("/workbench/paper-e2e-001?parser_backend=docling");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first().click();
+
+  await expect(page.getByTestId("workbench-parser-selection").first()).toContainText(
+    "Parser fitz_pdfplumber (requested docling)",
+    { timeout: 15_000 },
+  );
+
+  const terminalDrawer = page.locator('aside[aria-hidden="false"]').first();
+  if (!(await terminalDrawer.getByText("Terminal Logs", { exact: true }).isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: /^Terminal logs$/ }).first().click({ force: true });
+  }
+  await expect(terminalDrawer.getByText("Terminal Logs", { exact: true })).toBeVisible();
+  await expect(terminalDrawer.locator("pre")).toContainText("deepread enqueued", { timeout: 15_000 });
+  await expect(terminalDrawer.locator("pre")).toContainText(
+    "resolved parser backend: fitz_pdfplumber (requested docling)",
+    { timeout: 15_000 },
+  );
+});
+
+test("backend parser completion does not overwrite the next selected paper", async ({ page, request }) => {
+  test.skip(!runParserWorkerLane, "requires dedicated parser worker lane");
+
+  await page.goto("/workbench/paper-e2e-001?parser_backend=docling");
+
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Deep Read(?: Run)?/ }).first().click();
+  await page.getByRole("button", { name: /E2E Note-backed BBox Fixture/i }).click();
+
+  await expect(page).toHaveURL(/\/workbench\/paper-e2e-note-backed-bbox-001\?parser_backend=docling$/);
+  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      const response = await request.get(`${backendBaseUrl}/jobs?paper_id=paper-e2e-001`);
+      if (!response.ok()) {
+        return "request_failed";
+      }
+      const payload = (await response.json()) as unknown;
+      const jobs =
+        Array.isArray(payload)
+          ? payload
+          : payload && typeof payload === "object" && Array.isArray((payload as { jobs?: unknown[] }).jobs)
+            ? (payload as { jobs: unknown[] }).jobs
+            : [];
+      return jobs.some((job) => {
+        if (!job || typeof job !== "object") {
+          return false;
+        }
+        const row = job as { requested_parser_backend?: unknown; parser_backend?: unknown; status?: unknown };
+        return (
+          row.requested_parser_backend === "docling" &&
+          row.parser_backend === "fitz_pdfplumber" &&
+          row.status === "completed"
+        );
+      })
+        ? "completed"
+        : "pending";
+    }, { timeout: 15_000 })
+    .toBe("completed");
+
+  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+  const noteBackedClaimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
+  await expect(
+    noteBackedClaimsPanel.getByRole("button", {
+      name: /The intervention shows an initial improvement window during early follow-up\./,
+    }),
+  ).toBeVisible();
+  await expect(page.getByTestId("workbench-parser-selection").first()).toContainText("Requested parser docling");
+});
+
 test("backend workbench preserves content review context when opened in issue focus mode", async ({ page }) => {
   await page.goto("/workbench/paper-e2e-list-missing-stats-001?focus=issues");
 
@@ -1612,7 +1722,8 @@ test.describe("mobile backend UX", () => {
 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByRole("heading").nth(1)).toHaveText("Actions");
+    await expect(sheet.getByRole("heading").nth(1)).toHaveText("Saved state");
+    await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
   });
 });
@@ -1664,18 +1775,24 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Inspect mode lifts");
   const rightAside = page.locator("main > aside").nth(1);
-  await expect(rightAside.getByRole("heading").first()).toHaveText("Actions");
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Saved state");
+  await expect(rightAside.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Learner" }).click();
   await expect(page).toHaveURL(new RegExp(`/papers/${structuredNoteSlug}$`));
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Learner mode keeps related papers");
-  await expect(rightAside.getByRole("heading").first()).toHaveText("Properties");
+  await expect(rightAside.getByRole("heading").first()).toHaveText("Saved state");
+  await expect(rightAside.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
 });
 
 test("paper notes detail renders structured actions, run history, and structured claims cards", async ({ page }) => {
   await page.goto(`/papers/${structuredNoteSlug}`);
 
   await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible();
+  const savedStatePanel = page.getByTestId("paper-note-saved-state-panel");
+  await expect(savedStatePanel.getByTestId("paper-note-saved-state-status")).toContainText("Loaded");
+  await expect(savedStatePanel).toContainText(`.pp/${structuredNoteSlug}/state.json`);
+  await expect(savedStatePanel.getByTestId("paper-note-context-trace-summary")).toContainText("source paths");
 
   const propertiesPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Properties", exact: true }) }).first();
   await expect(propertiesPanel).toContainText("4");
@@ -1713,6 +1830,25 @@ test("paper notes detail renders structured actions, run history, and structured
   const structuredSignalsPeer = relatedSection.locator("li").filter({ hasText: "Structured Signals Peer Fixture" }).first();
   await expect(structuredSignalsPeer).toBeVisible();
   await expect(structuredSignalsPeer).toContainText("structured signals: Amyloid, biomarker, memory, Neurology");
+});
+
+test("paper notes detail surfaces missing canonical sidecar state separately from loaded-empty state", async ({ page }) => {
+  await page.goto(`/papers/${missingStateNoteSlug}`);
+
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Amnestic MCI or prodromal Alzheimer's disease?" })).toBeVisible();
+
+  const savedStatePanel = page.getByTestId("paper-note-saved-state-panel");
+  await expect(savedStatePanel.getByTestId("paper-note-saved-state-status")).toContainText("Missing");
+  await expect(savedStatePanel).toContainText(`.pp/${missingStateNoteSlug}/state.json`);
+  await expect(savedStatePanel).toContainText("No canonical sidecar state was loaded for this note.");
+
+  const automationPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Run history", exact: true }) }).first();
+  await expect(automationPanel).toContainText("No canonical sidecar state was loaded for this note.");
+  await expect(automationPanel).toContainText("Run history only appears after the note-side saved state is available.");
+
+  const claimsetPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Structured claims", exact: true }) }).first();
+  await expect(claimsetPanel).toContainText("No canonical sidecar state was loaded for this note.");
+  await expect(claimsetPanel).toContainText("Structured claims only appear after canonical sidecar state is available.");
 });
 
 test("paper notes detail deep links focus run, claim, and evidence cards", async ({ page }) => {
@@ -2022,6 +2158,7 @@ test("paper notes list finds structured-signal matches and surfaces structured a
   await expect(page.getByText("relevance first")).toBeVisible();
   const row = page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first();
   await expect(row).toBeVisible();
+  await expect(row).toContainText("Saved state");
   await expect(row).toContainText("Structured");
   await expect(row).toContainText("ClaimSet ready");
   await expect(row).toContainText("4 cites");
@@ -2037,6 +2174,15 @@ test("paper notes list finds structured-signal matches and surfaces structured a
   await expect(signals.locator('[data-testid="paper-note-list-signal-chip"][data-highlighted="false"]').first()).toContainText(/Tau|memory|biomarker/);
   await expect(row).toContainText("Medicine/Neurology");
   await expect(page.getByText("No notes matched the current filters.")).toHaveCount(0);
+});
+
+test("paper notes list surfaces missing saved-state truth before detail entry", async ({ page }) => {
+  await page.goto("/papers?q=prodromal", { waitUntil: "networkidle" });
+
+  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
+  const row = page.getByTestId("paper-note-list-row").filter({ hasText: "Amnestic MCI or prodromal Alzheimer's disease?" }).first();
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("No saved state");
 });
 
 test("paper notes list supports quoted exact-phrase search", async ({ page }) => {

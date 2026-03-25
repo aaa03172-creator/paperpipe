@@ -276,6 +276,7 @@ def _build_index_item(
         slug=note_path.stem,
         title=title,
         note_path=relative_path.as_posix(),
+        structured_state_present=structured_state is not None,
         id=(str(frontmatter.get("id")).strip() if frontmatter.get("id") is not None else None),
         aliases=aliases,
         tags=tags,
@@ -316,12 +317,46 @@ def _parse_date_for_sort(value: str | None) -> tuple[int, str]:
         return (1, raw)
 
 
-def _index_sort_key(item: PaperNoteIndexItem) -> tuple[Any, ...]:
+def _parse_datetime_for_sort(value: str | None) -> tuple[int, str]:
+    if not value:
+        return (0, "")
+    raw = value.strip()
+    if not raw:
+        return (0, "")
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return (1, parsed.astimezone(timezone.utc).isoformat())
+    except Exception:
+        return (1, raw)
+
+
+def _claim_count_for_sort(item: PaperNoteIndexItem) -> int:
+    signals = item.pp_signals if isinstance(item.pp_signals, dict) else {}
+    value = signals.get("claim_count")
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return 0
+
+
+def _default_discoverability_sort_key(item: PaperNoteIndexItem) -> tuple[Any, ...]:
     return (
+        1 if item.structured_state_present else 0,
+        _claim_count_for_sort(item),
+        _parse_datetime_for_sort(item.updated_at),
         _parse_date_for_sort(item.date_processed),
         item.confidence if item.confidence is not None else -1.0,
         item.title.lower(),
     )
+
+
+def _index_sort_key(item: PaperNoteIndexItem) -> tuple[Any, ...]:
+    return _default_discoverability_sort_key(item)
 
 
 def _build_index(vault_path: Path) -> PaperNoteListResponse:
@@ -720,7 +755,10 @@ def _apply_sort(
     query_terms: list[str] | None = None,
 ) -> list[PaperNoteIndexItem]:
     output = sorted(items, key=lambda item: item.title.lower())
-    if sort_by == "confidence":
+    using_default_sort = sort_by == "date_processed" and sort_order == "desc" and not query_terms
+    if using_default_sort:
+        output = sorted(output, key=_default_discoverability_sort_key, reverse=True)
+    elif sort_by == "confidence":
         output = sorted(
             output,
             key=lambda item: item.confidence if item.confidence is not None else -1.0,

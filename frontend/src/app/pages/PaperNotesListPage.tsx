@@ -150,6 +150,11 @@ function listBadgeClassName(tone: ListBadgeTone): string {
 function buildStateBadges(item: PaperNoteSummary): Array<{ label: string; tone: ListBadgeTone }> {
   const signals = (item.pp_signals ?? {}) as Record<string, unknown>;
   const badges: Array<{ label: string; tone: ListBadgeTone }> = [];
+  if (item.structured_state_present === true) {
+    badges.push({ label: "Saved state", tone: "success" });
+  } else if (item.structured_state_present === false) {
+    badges.push({ label: "No saved state", tone: "warning" });
+  }
   if (signals.has_claimset === true || (item.claim_tags?.length ?? 0) > 0) {
     badges.push({ label: "ClaimSet ready", tone: "success" });
   }
