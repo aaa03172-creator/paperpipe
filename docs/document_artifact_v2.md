@@ -1,5 +1,11 @@
 # DocumentArtifact v2 Contract
 
+Status: Active contract
+Date: 2026-03-09
+Owner: Artifact/runtime maintainers
+Canonical: `docs/document_artifact_v2.md`
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+
 ## Purpose
 - Provide a stable, shared artifact for Ingest/Reader/Stats/Indexer integration.
 - Keep current v1 artifact intact; v2 is additive.
