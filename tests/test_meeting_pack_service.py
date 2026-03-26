@@ -35,6 +35,9 @@ def _write_state(
     claim_text: str = "Intervention changed the inflammatory pathway.",
     tags: list[str] | None = None,
     outcomes: list[str] | None = None,
+    include_direct_evidence: bool = True,
+    grounded: bool | None = None,
+    resolution: str | None = None,
 ) -> None:
     state_path = vault_path / ".pp" / slug / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,19 +58,25 @@ def _write_state(
                 id="claim_abc123",
                 run_id="skill-20260313T000000Z-critical_appraisal",
                 claim=claim_text,
-                evidence=[
-                    SkillClaimEvidence(
-                        id="evidence_def456",
-                        claim_id="claim_abc123",
-                        run_id="skill-20260313T000000Z-critical_appraisal",
-                        text="Evidence text",
-                        locator={
-                            "page": 2,
-                            "section": "Results",
-                            "source": "state.json",
-                        },
-                    )
-                ],
+                evidence=(
+                    [
+                        SkillClaimEvidence(
+                            id="evidence_def456",
+                            claim_id="claim_abc123",
+                            run_id="skill-20260313T000000Z-critical_appraisal",
+                            text="Evidence text",
+                            locator={
+                                "page": 2,
+                                "section": "Results",
+                                "source": "state.json",
+                            },
+                            grounded=grounded,
+                            resolution=resolution,
+                        )
+                    ]
+                    if include_direct_evidence
+                    else []
+                ),
                 tags=tags or [],
                 outcomes=outcomes or [],
             )
@@ -585,6 +594,58 @@ def test_generate_meeting_pack_marks_empty_pack_as_background_only(tmp_path):
     assert response.pack.readiness == "background_only"
     assert response.markdown is not None
     assert "- Readiness: background_only" in response.markdown
+
+
+def test_generate_meeting_pack_keeps_claim_without_direct_support_as_background_only(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "claim-without-support"
+    _write_state(vault_path, slug, include_direct_evidence=False)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.readiness == "background_only"
+    assert "Structured evidence refs are missing" in (
+        response.pack.one_page_summary.key_points[0].uncertainty_note or ""
+    )
+    assert any(
+        "lacked explicit evidence refs" in uncertainty
+        for uncertainty in response.pack.one_page_summary.uncertainties
+    )
+
+
+def test_generate_meeting_pack_flags_missing_grounding_metadata_for_direct_support(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "direct-support-without-grounding"
+    _write_state(vault_path, slug, include_direct_evidence=True, grounded=None, resolution=None)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.readiness == "evidence_backed"
+    assert "citation-grounding metadata is missing" in (
+        response.pack.one_page_summary.key_points[0].uncertainty_note or ""
+    )
+    assert any(
+        "missing or unresolved citation-grounding metadata" in uncertainty
+        for uncertainty in response.pack.one_page_summary.uncertainties
+    )
 
 
 def test_generate_meeting_pack_modes_have_visible_contrast(tmp_path):
