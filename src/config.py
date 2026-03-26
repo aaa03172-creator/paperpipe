@@ -72,7 +72,7 @@ class LocalLLMConfig(BaseModel):
         "classifier": "llama3:8b",
         "tagger": "biomistral:7b",
         "embedder": "nomic-embed-text",
-        "judge": "openhermes-2.5-mistral",
+        "judge": "llama3:latest",
         "chat": "phi3" # Default chat model
     }
     concurrency: int = 4
