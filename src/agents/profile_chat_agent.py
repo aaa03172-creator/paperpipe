@@ -1,3 +1,10 @@
+"""LLM helper for profile patch suggestions.
+
+This module is separate from the Deep Read reasoning persona system in
+`src.persona_modes.py`. It edits boolean search profiles and proposes audit
+patches only.
+"""
+
 import logging
 import json
 from src.agents.adapter import OllamaModelAdapter
@@ -7,9 +14,11 @@ from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
-STRICT_LIBRARIAN_PROMPT = """You are a Strict Data Librarian managing a biomedical research database. Your job is to translate the user's natural language requests into precise JSON Patches to update Boolean search profiles (`must`, `must_not`, `should`, and limits).
+PROFILE_PATCH_ASSISTANT_PROMPT = """You are a profile patch assistant for a biomedical research database.
+This helper is separate from the Deep Read reasoning persona system and should only produce search-profile edits.
+Your job is to translate the user's natural language requests into precise JSON Patches to update Boolean search profiles (`must`, `must_not`, `should`, and limits).
 
-Your Persona Rules:
+Operating Rules:
 1. **Extreme Caution (Prevent Explosions):** Never allow broad, ambiguous terms (e.g., 'tamoxifen', 'genotyping', 'mouse') without a specific biological anchor (e.g., 'microglia', 'CNS', 'brain'). If the user asks for a broad term, proactively add anchors to the `must` list or specific exclusions to the `must_not` list.
 2. **Ontology Expansion (Domain Expert):** If the user suggests a basic biological/medical term, AUTOMATICALLY expand it to a robust Boolean OR group using MeSH terms and synonyms (e.g., if user says 'sleep', you add `(sleep OR insomnia OR circadian rhythm OR "sleep deprivation")`). Add this entire expanded string as the `value` in the patch.
 3. **Pessimistic Limits:** If a query broadens significantly, prefer lowering `max_results_per_run` to prevent API exhaustion.
@@ -31,7 +40,9 @@ OUTPUT SCHEMA (JSON):
 }}
 """
 
-AUDIT_PROMPT = """You are a Performance Auditor for a database. A search profile is consistently hitting its API limit (max_results_per_run), causing potential data loss (truncation).
+PROFILE_AUDIT_PROMPT = """You are a profile audit assistant for a biomedical research database.
+This helper is separate from the Deep Read reasoning persona system and should only produce search-profile fixes.
+A search profile is consistently hitting its API limit (max_results_per_run), causing potential data loss (truncation).
 
 Your Goal: Propose a PatchRequest to reduce result volume while maintaining relevance.
 Strategies:
@@ -51,6 +62,8 @@ Same as PatchRequest.
 """
 
 class ProfileChatAgent:
+    """Generate `PatchRequest` suggestions for profile editing flows only."""
+
     def __init__(self, model_name: str = None):
         self.config = load_config()
         # Default to llama3 if not specified
@@ -61,13 +74,13 @@ class ProfileChatAgent:
         """
         Generates a PatchRequest based on the user's chat input.
         """
-        prompt = STRICT_LIBRARIAN_PROMPT.format(
+        prompt = PROFILE_PATCH_ASSISTANT_PROMPT.format(
             profile_json=profile.model_dump_json(),
             user_request=user_request,
             profile_id=profile.id
         )
-        
-        logger.info(f"🤖 Profile Chat Agent thinking for profile '{profile.id}'...")
+
+        logger.info(f"🤖 Profile patch assistant thinking for profile '{profile.id}'...")
         
         try:
             # Force JSON mode
@@ -95,15 +108,15 @@ class ProfileChatAgent:
         """
         Generates a patch to fix a profile that is hitting limits effectively.
         """
-        prompt = AUDIT_PROMPT.format(
+        prompt = PROFILE_AUDIT_PROMPT.format(
             profile_json=profile.model_dump_json(),
             hit_ratio=hit_ratio,
             days=days,
             current_limit=profile.limits.max_results_per_run,
             profile_id=profile.id
         )
-        
-        logger.info(f"🤖 Audit Agent thinking for profile '{profile.id}'...")
+
+        logger.info(f"🤖 Profile audit assistant thinking for profile '{profile.id}'...")
         
         try:
             # Re-use adapter

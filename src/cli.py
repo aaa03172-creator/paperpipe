@@ -936,7 +936,7 @@ def profiles_chat(
     prompt: str = typer.Argument(None, help="Natural language request (optional, will ask if missing)")
 ):
     """
-    [v3.0] Chat with the Strict Data Librarian to update search profiles.
+    [v3.0] Chat with the profile patch assistant to update search profiles.
     """
     try:
         from src.profiles.profile_store import (
@@ -1000,7 +1000,7 @@ def profiles_chat(
 
         # 4. Agent Generation
         agent = ProfileChatAgent()
-        with console.status("[bold green]🤖 Librarian is thinking...[/bold green]"):
+        with console.status("[bold green]🤖 Profile assistant is thinking...[/bold green]"):
             patch_request = agent.generate_patch(selected_profile, prompt)
             
         # 5. Dry Run & Validation
@@ -1046,7 +1046,7 @@ def profiles_chat(
             console.print("\n[bold red]🚫 RISK VIOLATIONS DETECTED:[/bold red]")
             for err in risk_errors:
                 console.print(f" - {err}")
-            console.print("[bold red]The Strict Librarian Refuses to Save Risky Profiles.[/bold red]")
+            console.print("[bold red]The profile assistant refuses to save risky profiles.[/bold red]")
             return
 
         # 8. Confirmation
@@ -1122,7 +1122,7 @@ def profiles_audit(
             console.print(f"   - Limit Hit Rate: {hit_ratio:.1%} ({limit_hits}/{total_runs} runs)")
             console.print(f"   - Avg Fetched: {avg_items:.1f} (Limit: {profile.limits.max_results_per_run})")
             
-            if typer.confirm("   🛠️  Ask Librarian to fix this?"):
+            if typer.confirm("   🛠️  Ask profile assistant to fix this?"):
                 if not agent: agent = ProfileChatAgent()
                 
                 with console.status("   🤖 Generating Fix..."):
