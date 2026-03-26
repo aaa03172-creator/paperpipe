@@ -17,7 +17,14 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _write_state(vault_path: Path, slug: str) -> None:
+def _write_state(
+    vault_path: Path,
+    slug: str,
+    *,
+    include_direct_evidence: bool = True,
+    grounded: bool | None = None,
+    resolution: str | None = None,
+) -> None:
     state_path = vault_path / ".pp" / slug / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
@@ -41,20 +48,26 @@ def _write_state(vault_path: Path, slug: str) -> None:
                         "id": "claim_abc123",
                         "run_id": "skill-20260313T000000Z-critical_appraisal",
                         "claim": "Intervention changed the inflammatory pathway.",
-                        "evidence_ids": ["evidence_def456"],
-                        "evidence": [
-                            {
-                                "id": "evidence_def456",
-                                "claim_id": "claim_abc123",
-                                "run_id": "skill-20260313T000000Z-critical_appraisal",
-                                "text": "Evidence text",
-                                "locator": {
-                                    "page": 2,
-                                    "section": "Results",
-                                    "source": "state.json",
-                                },
-                            }
-                        ],
+                        "evidence_ids": ["evidence_def456"] if include_direct_evidence else [],
+                        "evidence": (
+                            [
+                                {
+                                    "id": "evidence_def456",
+                                    "claim_id": "claim_abc123",
+                                    "run_id": "skill-20260313T000000Z-critical_appraisal",
+                                    "text": "Evidence text",
+                                    "locator": {
+                                        "page": 2,
+                                        "section": "Results",
+                                        "source": "state.json",
+                                    },
+                                    "grounded": grounded,
+                                    "resolution": resolution,
+                                }
+                            ]
+                            if include_direct_evidence
+                            else []
+                        ),
                     }
                 ],
                 "entities": ["inflammatory pathway"],
@@ -162,6 +175,36 @@ def test_meeting_packs_api_generates_roundtrip_and_markdown(tmp_path, monkeypatc
     markdown = client.get(f"/meeting-packs/{pack_id}/markdown")
     assert markdown.status_code == 200
     assert "## Slide Outline" in markdown.text
+
+
+def test_meeting_packs_api_claim_without_direct_support_stays_background_only(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "claim-without-support"
+    _write_state(vault_dir, slug, include_direct_evidence=False)
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()["pack"]
+
+    assert payload["readiness"] == "background_only"
+    assert "Structured evidence refs are missing" in (
+        payload["one_page_summary"]["key_points"][0]["uncertainty_note"] or ""
+    )
 
 
 def test_meeting_packs_api_lists_saved_packs_with_recent_first_order(tmp_path, monkeypatch):
