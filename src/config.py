@@ -81,6 +81,7 @@ class CloudLLMConfig(BaseModel):
     provider: Literal["openai"] = "openai"
     api_key: Optional[str] = None
     model: str = "gpt-4o"
+    embedding_model: Optional[str] = None
 
 class LLMConfig(BaseModel):
     mode: Literal["cloud", "local", "hybrid"] = "local" # Default local-first runtime

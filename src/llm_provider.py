@@ -635,7 +635,7 @@ class OllamaProvider(LLMProvider):
             if task == "tagging":
                 return self.models.get("tagger", "biomistral:7b")
             if task == "escalation":
-                return self.models.get("judge", "openhermes-2.5-mistral")
+                return self.models.get("judge", "llama3:latest")
             if task == "teacher_review":
                 return self.models.get("teacher_review", self.models.get("chat", "phi3"))
             if task == "one_liner":
