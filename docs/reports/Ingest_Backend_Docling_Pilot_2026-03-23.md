@@ -14,6 +14,7 @@ The reusable manifest for this pilot is:
 
 - [ingest_backend_pilot_20260323.json](/Users/jangseongjin/paperpipe/goldset/manifests/ingest_backend_pilot_20260323.json)
 - [ingest_backend_pilot_expanded_20260323.json](/Users/jangseongjin/paperpipe/goldset/manifests/ingest_backend_pilot_expanded_20260323.json)
+- [ingest_backend_pilot_expanded_broad_20260324.json](/Users/jangseongjin/paperpipe/goldset/manifests/ingest_backend_pilot_expanded_broad_20260324.json)
 
 It exists to avoid:
 - empty placeholder PDFs
@@ -64,6 +65,24 @@ python3 scripts/eval/compare_ingest_backends.py \
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r10/summary.json`
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r10/metrics.json`
 - `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r10/detailed_results.jsonl`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/summary.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/metrics.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/detailed_results.jsonl`
+- `snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_20260323_r12/summary.json`
+- `snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_20260323_r12/details.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r13/summary.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r13/details.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r14/summary.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r14/details.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/summary.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/details.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/summary.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/metrics.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/detailed_results.jsonl`
+- `snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_broad_20260324_r17/summary.json`
+- `snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_broad_20260324_r17/details.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_broad_20260324_r18/summary.json`
+- `snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_broad_20260324_r18/details.json`
 
 ## Sample Set
 
@@ -96,14 +115,15 @@ Latest verdict should be read from `r9`, which keeps the `r8` hybrid table behav
 - raw table loss docs: `1`
 - meaningful table loss docs: `0`
 
-Expanded follow-up on `r10`:
-- overall decision: `failed`
-- failed check: `meaningful_table_loss_docs`
+Expanded follow-up on `r11`:
+- overall decision: `passed`
+- failed check: none
 - document count: `18`
 - candidate docs with table fallback: `1 / 18`
-- meaningful table loss docs: `2`
+- meaningful table loss docs: `0`
 - raw table loss docs: `6`
 - meaningful page-loss docs: `0`
+- same-page merge docs: `2`
 
 ## Interpretation
 
@@ -120,9 +140,27 @@ It is evidence that:
 
 The current `r9` run should be interpreted as a bounded hybrid parser-backend comparison, not as evidence that pure docling alone resolves all table cases.
 
-The current `r10` run should be interpreted as a stronger stress test of fallback frequency and table segmentation behavior.
+The current `r11` run should be interpreted as a stronger stress test of fallback frequency and table segmentation behavior.
 It does not show broad page-level coverage failure.
-It does show that the current meaningful-table-count gate still over-penalizes same-page merged tables on some documents.
+It shows that same-page merged tables are common enough to deserve their own category instead of being treated as hard table-loss failures.
+
+The `r12` same-page merge audit should be interpreted as a content-preservation check on that new bucket.
+It shows that the current `Benedict 2020` and `Dubois 2021` merge cases preserve normalized baseline cell coverage.
+
+The `r15` section-quality audit should be interpreted as a page-aware text coverage check with clarified doc-vs-page bucket counts and overlap classification on the expanded set.
+It does not show missing substantive pages, total-text collapse, or one-section collapse.
+It surfaces three low page-text-ratio review docs, and all of their flagged pages still classify into layout-heavy buckets rather than `needs_manual_review`.
+
+The `r16` through `r18` broad-manifest reruns should be interpreted as a second generalization pass on a disjoint 12-document set.
+That pass did not introduce new fallback use, same-page merge cases, or section-quality review buckets.
+
+Pilot control path:
+- bounded runtime pilot requests can now carry `parser_backend` through [main.py](/Users/jangseongjin/paperpipe/backend/main.py), [queue.py](/Users/jangseongjin/paperpipe/src/jobs/queue.py), and [job_runner.py](/Users/jangseongjin/paperpipe/backend/services/job_runner.py)
+- the current caller-side entry point is [AnalysisWorkbench.tsx](/Users/jangseongjin/paperpipe/frontend/src/app/pages/AnalysisWorkbench.tsx), which accepts a route-level query param such as `/workbench/<paper_id>?parser_backend=docling`
+- workbench rail navigation preserves that bounded query param so pilot mode is not silently dropped while reviewing neighboring papers
+- queued job status exposes the requested backend from execution-run params
+- completed job status and bootstrap metadata expose the effective backend resolved by the runner
+- requesting `docling` does not bypass `config.ingest.enable_docling`; when that flag is off, the effective backend still resolves to `fitz_pdfplumber`
 
 ## Safe Conclusion
 
@@ -207,14 +245,12 @@ Latest expanded result:
 - `docling` still succeeds on all 18 documents
 - `docs_with_table_fallback_count` is only `1`, and that one case is still `Hansson 2023`
 - page-aware sectioning remains intact across the expanded set
-- the run still fails the current zero-threshold `meaningful_table_loss_docs` gate on:
-  - `Benedict 2020`
-  - `Dubois 2021`
+- the run now passes after reclassifying same-page merged-table cases separately from true page-loss cases
 
 Important nuance:
 - neither expanded blocker is a page-level table miss
 - both look like same-page multi-table merge cases
-- ad hoc page-coverage check on `r10` shows `meaningful page-loss docs = 0`
+- ad hoc page-coverage check on `r10` and the formal `r11` metric both show `meaningful page-loss docs = 0`
 
 Observed patterns:
 - `Benedict 2020`: baseline has two meaningful tables on page 7; docling emits one larger meaningful table on page 7
@@ -222,13 +258,92 @@ Observed patterns:
 
 Interpretation:
 - fallback frequency is low on the expanded set
-- section quality did not regress
-- current blocker has shifted from missing-page recovery to segmentation/metric ambiguity on pages containing multiple meaningful tables
+- no expanded document shows missing substantive pages, total-text collapse, or one-section collapse in the formal section audit
+- current blocker has shifted from missing-page recovery to content-level confidence about same-page merged tables
+
+## Same-page Merge Audit
+
+The new sidecar audit script:
+- [audit_table_merge_semantics.py](/Users/jangseongjin/paperpipe/scripts/eval/audit_table_merge_semantics.py)
+
+Latest audit artifacts:
+- [summary.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_20260323_r12/summary.json)
+- [details.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_20260323_r12/details.json)
+
+Audit result on the two `same_page_merge_docs` from `r11`:
+- document count: `2`
+- semantic merge preserved count: `2`
+- content gap count: `0`
+
+What that means:
+- `Benedict 2020` preserves normalized baseline cell coverage after the two page-7 tables are merged into one larger table
+- `Dubois 2021` preserves normalized baseline cell coverage after the three page-8 decision tables are merged into one larger grouped table
+- current evidence still supports “behind-flag optional hybrid pilot”, not “default parser replacement”
+
+## Section Quality Audit
+
+The new sidecar audit script:
+- [audit_section_quality.py](/Users/jangseongjin/paperpipe/scripts/eval/audit_section_quality.py)
+
+Latest audit artifacts:
+- [summary.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/summary.json)
+- [details.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/details.json)
+
+Audit result on the expanded `r11` fixture set:
+- document count: `18`
+- page coverage preserved count: `15`
+- missing substantive page docs: `0`
+- low page-text-ratio docs: `3`
+- low page-text-ratio doc bucket counts: `table_heavy_page=1`, `table_and_figure_heavy_page=1`, `figure_heavy_page=1`
+- low page-text-ratio page bucket counts: `table_heavy_page=1`, `table_and_figure_heavy_page=1`, `figure_heavy_page=4`
+- low page-text-ratio unclassified docs: `0`
+- low total-text-ratio docs: `0`
+- section collapse docs: `0`
+
+Automatic review-bucket classification on the low-ratio docs shows why they should stay in a review bucket instead of being treated as outright text-coverage failure:
+- `Therriault 2022` page 4 overlaps a baseline table-heavy page; docling keeps the page but does not mirror the dense table-as-text payload that `fitz/pdfplumber` emits there
+- `Craft 2020` page 8 is now explicitly classified as a `table_and_figure_heavy_page`, matching its mixed baseline signals
+- `Olsson 2016` pages 5-8 are figure-heavy meta-analysis plots where baseline text includes large amounts of chart-label text and docling keeps mostly the figure captions
+
+What that means:
+- the earlier one-section collapse bug remains fixed
+- docling keeps substantive page presence across the expanded set
+- the remaining section/text review bucket is concentrated on layout-heavy pages where baseline text density is inflated by table or figure labels
+- the current expanded review bucket no longer contains any unclassified low-ratio docs
+- current evidence supports “optional hybrid pilot with explicit audits”, not “default parser replacement”
+
+## Broad Manifest Follow-up
+
+The second expanded manifest adds 12 more non-empty local PDFs outside the first 18-document set.
+
+Artifacts:
+- [ingest_backend_pilot_expanded_broad_20260324.json](/Users/jangseongjin/paperpipe/goldset/manifests/ingest_backend_pilot_expanded_broad_20260324.json)
+- [summary.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/summary.json)
+- [metrics.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/metrics.json)
+- [summary.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/table_merge_audits/docling_same_page_merge_audit_broad_20260324_r17/summary.json)
+- [summary.json](/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_broad_20260324_r18/summary.json)
+
+Broad rerun result:
+- compare decision: `passed`
+- document count: `12`
+- docs with table fallback: `0`
+- meaningful table loss docs: `0`
+- same-page merge docs: `0`
+- low text ratio docs: `0`
+- merge audit document count: `0`
+- section audit page coverage preserved count: `12 / 12`
+- section audit low page-text-ratio docs: `0`
+- section audit unclassified docs: `0`
+
+What that means:
+- the clarified `r15` review-bucket logic does not immediately produce new review cases on the second broad fixture set
+- the hybrid optional backend can clear a disjoint 12-document broad rerun without fallback use on this sample
+- the current promotion limit is still architectural, not because of a newly observed regression on this broad set
 
 ## Next Action
 
 Do the next parser pilot only after:
 1. keeping `goldset/manifests/ingest_backend_pilot_20260323.json` as the bounded fixture set
 2. treating the current `docling` path as a hybrid optional backend, not as proof that pure docling table extraction is sufficient
-3. refining the eval gate for same-page merged tables before any stronger promotion claim
+3. rerunning the same merge audit on future `same_page_merge_docs` buckets before any stronger promotion claim
 4. keeping both raw and meaningful table metrics, plus fallback metadata, in future reruns so count noise and rescue frequency stay visible

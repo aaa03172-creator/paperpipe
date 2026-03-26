@@ -7,7 +7,7 @@ Canonical: `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`
 
 ## Purpose
 
-Package the current Docling / ingest-eval / teacher-review dirty tail as one bounded evaluation lane.
+Package the current remaining Docling / ingest-eval dirty tail as one bounded evaluation lane.
 
 This note is not a parser-adoption approval.
 This note is not a new product/runtime roadmap.
@@ -16,18 +16,19 @@ Its job is to keep the current evaluation work separate from:
 - the active bounded-spec docs tail
 - frontend visual-coverage hardening
 - generated snapshots and runtime artifacts
+- already-separated runtime shell work
 
 ## Current Judgment
 
-The current Docling / ingest-eval / teacher-review tail should be treated as:
+The current remaining Docling / ingest-eval tail should be treated as:
 - a bounded evaluation lane
 - an optional pilot / sidecar lane
 - not ready for default runtime adoption
 
 Why:
 - `docs/reports/Docling_Tool_Intake_Decision_2026-03-23.md` already classifies Docling as a behind-flag optional parser pilot candidate
-- `docs/reports/Ingest_Backend_Docling_Pilot_2026-03-23.md` now carries the stronger `r11` expanded rerun plus `r12` and `r13` audits
-- the teacher-review work is additive precision/eval-sidecar work, not a broad runtime rewrite
+- `docs/reports/Ingest_Backend_Docling_Pilot_2026-03-23.md` now carries the stronger `r11` expanded rerun plus `r12`, `r15`, `r16`, `r17`, and `r18` audits
+- runtime shell plumbing was already split into `aa3d43a feat(runtime): close runtime shell lane`
 
 ## Included Source Tail
 
@@ -45,43 +46,37 @@ Interpretation:
 - these files belong together as the parser-eval and tool-intake narrative
 - they support a bounded optional pilot story, not a default-backend switch
 
-### B. Teacher-review eval and anchor-quality docs
+### B. Supporting code and test tail
 
-- `docs/reports/Teacher_Review_Spot_Check_Round_2026-03-23_Precheck.md`
-- `docs/reports/Teacher_Review_Spot_Check_Major_Bundles_2026-03-23.md`
-- `docs/reports/Teacher_Review_Eval_Sidecar_Round1_2026-03-24.md`
-- `docs/reports/Teacher_Review_Precision_Followup_2026-03-24.md`
-- `docs/reports/Teacher_Review_Anchor_Quality_Replay_2026-03-24.md`
-- `docs/reports/Teacher_Review_Anchor_Quality_Full_Replay_2026-03-24.md`
-- `docs/reports/Teacher_Review_Anchor_Quality_Extended_Replay_2026-03-24.md`
-
-Interpretation:
-- these files are bounded evaluation reports for teacher-review precision
-- they should remain sidecar-style quality work, not be confused with a new product surface
-
-### C. Supporting code and test tail
-
-- `scripts/bootstrap.py`
-- `src/services/cli_workflows.py`
 - `scripts/eval/audit_table_merge_semantics.py`
 - `scripts/eval/audit_section_quality.py`
-- `src/schemas/teacher_review_eval.py`
-- `src/services/teacher_review_eval_sidecar.py`
 - `tests/test_table_merge_audit.py`
 - `tests/test_section_quality_audit.py`
-- `tests/test_teacher_review_eval_sidecar.py`
 
 Interpretation:
 - these changes support the bounded evaluation lane operationally
 - they do not by themselves justify default parser adoption or a broader runtime redesign
-- `scripts/bootstrap.py` and `src/services/cli_workflows.py` should be read as supporting operational/eval plumbing, not as a new product lane
+
+### C. Supporting evidence bundles
+
+- `goldset/manifests/ingest_backend_pilot_expanded_broad_20260324.json`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/`
+- `snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_broad_20260324_r16/`
+- `snapshots/ingest_backend_eval/table_merge_audits/`
+- `snapshots/ingest_backend_eval/section_quality_audits/`
+
+Interpretation:
+- these are bounded evidence artifacts for parser-eval judgments
+- they should be reviewed as evidence bundles, not as canonical runtime data
 
 ## Explicit Exclusions
 
 Do not treat these as part of the canonical source package for this lane:
 - `snapshots/ingest_backend_eval/`
 - `storage/`
-- `goldset/reviews/spot_checks/teacher_review_spot_check_20260323_round1_codex_precheck.jsonl`
+- `scripts/bootstrap.py`
+- `src/services/cli_workflows.py`
+- teacher-review eval or spot-check docs/code outside the parser-eval path
 - frontend visual-snapshot files under `frontend/e2e/visual-backend.backend.spec.ts-snapshots/`
 - active bounded-spec docs such as `docs/METHOD_COMPARISON.md`, `docs/CHART_PACK.md`, `docs/PROTOCOL_KNOWLEDGE.md`, and `docs/IMAGE_EVIDENCE.md`
 
@@ -115,7 +110,7 @@ Without that evidence, keep this lane bounded.
 
 ## Conclusion
 
-The right reading of the current Docling / ingest-eval / teacher-review tail is:
+The right reading of the current remaining Docling / ingest-eval tail is:
 - real work
 - worth preserving
 - still bounded
