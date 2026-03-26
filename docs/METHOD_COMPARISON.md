@@ -15,12 +15,12 @@ Related docs:
 
 ## Purpose
 
-`Method Comparison` is a bounded, paper-centric comparison artifact.
+`Method Comparison` is a bounded, paper-centric comparison artifact family.
 
 It exists to let operators compare a small curated set of method-relevant fields across selected papers without introducing:
 - a new spreadsheet platform
 - a new project/workspace model
-- a second truth store beside current paper/run/artifact state
+- a second canonical truth store beside current paper/run/artifact state
 
 The current lane is intentionally narrow:
 - file-backed
@@ -30,7 +30,7 @@ The current lane is intentionally narrow:
 
 ## Current Implementation Status
 
-Implemented in workspace:
+Implemented in current runtime slice:
 - `src/schemas/method_comparison.py`
 - `src/method_comparisons/store.py`
 - `src/method_comparisons/source_loader.py`
@@ -51,7 +51,7 @@ Currently deferred:
 
 ## Current Judgment
 
-At the current repo stage, `Method Comparison` is the strongest candidate for an active bounded spec among the recent future lanes.
+At the current repo stage, `Method Comparison` is mature enough to remain frozen as an active bounded spec.
 
 That judgment is based on:
 - direct fit with the current paper-first runtime
@@ -123,6 +123,8 @@ storage/method_comparisons/<comparison_id>/
 ```
 
 Current rule:
+- `comparison.json` remains the primary bundle-local manifest
+- `comparison.csv` and `comparison.md` are deterministic sibling exports inside the same bundle
 - the saved bundle is a derived artifact, not a new canonical research-state store
 - repeated generation with the same inputs should remain deterministic in row order, column order, and export ordering
 

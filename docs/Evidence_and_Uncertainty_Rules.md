@@ -1,11 +1,11 @@
 # Evidence and Uncertainty Rules
 
 Status: Active bounded rule  
-Date: 2026-03-18  
+Date: 2026-03-24  
 Owner: Runtime/design maintainers  
 Canonical: `docs/Evidence_and_Uncertainty_Rules.md`  
 Canonical parent: `docs/Lattice_v3_Master_Spec.md`  
-Applies to: `ClaimSet`, `StatsReport`, `claimset.resolved.json`, Obsidian export, paper-note state, `Meeting Pack`, future `/api/chat`
+Applies to: `ClaimSet`, `StatsReport`, `claimset.resolved.json`, Obsidian export, paper-note state, `Meeting Pack`, stub-only `/api/chat` compatibility surface
 
 Related docs:
 - `docs/Lattice_v3_Master_Spec.md`
@@ -127,6 +127,35 @@ The current repository already implements these rules across schemas, policy cod
 
 These operational summaries are useful, but they must not be mistaken for scientific truth by themselves.
 
+### 4.4 Validation and freshness summary vocabulary
+
+When a bounded lane needs a compact validation or trust summary, prefer a small additive shape rather than inventing a new truth policy.
+
+Recommended shared vocabulary:
+- `readiness`
+  - example: `evidence_backed`, `background_only`
+- `warnings[]`
+  - explicit caution messages or machine-generated validation notes
+- `freshness_state`
+  - `current`
+  - `stale`
+  - `unknown`
+- `trace_available`
+  - `true|false`
+- `can_regenerate`
+  - `true|false|unknown`
+
+Rules:
+- these fields summarize trust or recoverability; they do not replace claim/evidence truth
+- `freshness_state=stale` or `unknown` must not be hidden by polished rendering
+- `trace_available=false` does not weaken evidence rules; it only says observability is limited
+- bounded lanes may extend this shape, but they should reuse the vocabulary when possible
+- current adoption is intentionally partial:
+  - `Meeting Pack` currently uses the richest subset (`readiness`, `warnings[]`, regenerateability, trace-adjacent observability)
+  - paper-note/workbench surfaces use adjacent operational vocabulary such as `ops_summary.state` and `context_trace`
+  - some bounded lanes are warning-centric or validation-status-centric and do not need every field yet
+- do not add dummy `freshness_state`, `trace_available`, or `can_regenerate` fields just to make a lane look uniform unless a real shared consumer requires them
+
 ## 5. Current Integration Points
 
 - `src/schemas/agent_artifacts.py`
@@ -144,7 +173,7 @@ These operational summaries are useful, but they must not be mistaken for scient
 - `backend/routers/obsidian.py`
   - prefers `claimset.resolved.json` and exposes primary evidence grounding fields
 - `src/schemas/chat.py`
-  - reuses additive locator/evidence-ref shape for future chat surfaces
+  - reuses additive locator/evidence-ref shape for the current stub-only `/api/chat` compatibility surface
 - `src/schemas/meeting_pack.py`
   - reuses locator/evidence refs and keeps caution/readiness states explicit
 - `docs/WEB_VIEWER.md` and `docs/Lattice_Paper_Notes_Web_Viewer_Spec.md`

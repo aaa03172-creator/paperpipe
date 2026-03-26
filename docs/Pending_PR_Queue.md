@@ -7,15 +7,36 @@ Canonical: `docs/Pending_PR_Queue.md`
 
 ## Queued
 
-## Bounded Pilots (Implemented in workspace, intentionally not promoted to active spec)
-- Title: `image-evidence bounded pilot`
-- Priority: Medium
-- Purpose: Keep the already-implemented Image Evidence lane as a hardened metadata-first sidecar until repeated real usage proves it belongs in the current core review loop.
-- References:
-  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
-  - `docs/reports/Image_Evidence_Backend_Core_Staging_Prep_2026-03-22.md`
-  - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
-  - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
+## Current packaging reference
+- Use `docs/reports/Current_State_Packaging_2026-03-24.md` as the current separation note for the mixed dirty tree.
+- Read it before bundling docs-state changes together with visual-coverage or Docling/eval work.
+- Use `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md` as the default source-only bundle.
+- Use `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md` as the lane-specific packaging note for the current Docling / ingest-eval / teacher-review tail.
+- Use `docs/reports/Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md` as the lane-specific packaging note for the current frontend visual-coverage tail.
+- Use `docs/reports/Frontend_Core_UI_Refinement_Closeout_2026-03-24.md` as the frontend lane closeout note before reopening any viewer/work-surface UI work.
+- Use `docs/reports/Current_State_Staging_Guide_2026-03-24.md` before staging any current source changes from the mixed dirty tree.
+- Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` for the default action order when work resumes.
+
+## Current recommended posture
+- Keep the Docling / ingest-eval / teacher-review tail packaged separately under `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`.
+- Keep the frontend visual-coverage tail packaged separately under `docs/reports/Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md`.
+- Treat the frontend visual-coverage lane as closed unless a route regresses or a new viewer shell lacks coverage.
+- Use `docs/reports/Current_State_Update_2026-03-24.md` as the current posture note.
+- Use `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md` as the default source-only bundle.
+- Use `docs/reports/Current_State_Staging_Guide_2026-03-24.md` as the current practical staging rule.
+- Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` as the current concrete action checklist.
+- Keep deferred lanes closed and avoid opening a new bounded feature or packaging lane from the current dirty tree.
+
+## Current Holds
+- No bounded pilots are currently open.
+- `Project Memory` remains a backend-only hold behind `docs/reports/Project_Memory_API_Gate_2026-03-23.md` and should not be treated as a viewer/API pilot.
+
+## Recent status changes
+- `Image Evidence` was promoted to an active bounded spec on 2026-03-23.
+
+## Reading rule
+- Use `Current packaging reference`, `Current recommended posture`, and `Current Holds` above as the only current action-order guidance.
+- Treat the completed items and historical notes below as implementation records, not as replacement posture or next-step instructions.
 
 ## PR-DOC-MethodComparison-v1 (Completed in workspace)
 - Title: `docs: promote Method Comparison to active bounded spec`
@@ -119,6 +140,22 @@ Canonical: `docs/Pending_PR_Queue.md`
   - `docs/archive/Protocol_Knowledge_Layer_RFC_2026-03-18.md`
   - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
 
+## PR-DOC-ImageEvidence-v1 (Completed in workspace)
+- Title: `docs: promote Image Evidence to active bounded spec`
+- Priority: Medium
+- Purpose: Freeze the implemented Image Evidence lane as an active bounded spec while keeping it explicitly bounded as a metadata-first image-evidence sidecar rather than a microscopy platform or image-analysis runtime.
+- Scope:
+  - [done] added `docs/IMAGE_EVIDENCE.md` as the active bounded spec
+  - [done] aligned `docs/README.md` with the promoted bounded spec
+  - [done] updated `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md` to reflect the current-state recheck and promotion
+  - [done] removed `image-evidence bounded pilot` from the remaining pilot queue
+- References:
+  - `docs/IMAGE_EVIDENCE.md`
+  - `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+  - `docs/reports/Image_Evidence_Backend_Core_Staging_Prep_2026-03-22.md`
+  - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
+  - `docs/archive/Image_Evidence_Viewer_v0_Implementation_Plan_2026-03-18.md`
+
 ## PR-BE-ProjectMemory-FileStore-v0 (Completed in workspace)
 - Title: `backend: add Project Memory schema/store v0`
 - Priority: Medium
@@ -142,13 +179,17 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Priority: Low
 - Purpose: Keep the Project Memory lane backend-only until an explicit product decision approves a project-scoped runtime surface instead of letting `/projects` semantics arrive through implementation momentum.
 - References:
+  - `docs/reports/Deferred_Lanes_Recheck_2026-03-24.md`
   - `docs/archive/Project_Memory_Layer_RFC_2026-03-18.md`
   - `docs/reports/Project_Memory_API_Gate_2026-03-23.md`
 
 - Title: `future/local-backup-restore-semantics`
 - Priority: Low
 - Purpose: Unify local-first backup-before-apply, restore-readiness, and rerender-vs-restore semantics without pretending the repo already has a first-class project backup API.
-- Reference: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
+- References:
+  - `docs/reports/Deferred_Lanes_Recheck_2026-03-24.md`
+  - `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
+  - `docs/reports/Local_Backup_Restore_Gate_2026-03-24.md`
 
 ## PR-DOC-BE-MeetingPack-v1 (Completed in workspace)
 - Title: `docs/backend: define Meeting Pack v1 as evidence-linked lab meeting draft artifact`
@@ -185,7 +226,7 @@ Canonical: `docs/Pending_PR_Queue.md`
   - v1 non-goals: PPTX export, Google Slides export, auto-designed slide visuals, chatbot integration.
   - current limitation: bounded legacy regenerate fallback policy, branch-required rollout / API escalation policy for the new Meeting Pack CI verify lane (currently blocked on this private repo by GitHub branch-protection `403` plan limits), broader synonym coverage beyond the small alias map, looser cross-focus majority/outlier semantics beyond the current same-source-population guard, and deeper note/context-derived tuning beyond the current framing layer는 아직 follow-up이다.
 
-## Next Up (2026-03-18)
+## Historical Queue Note (2026-03-18)
 - Recommended next: package the already-committed backend/API stack into a PR/change-summary bundle
   - 이유: `PR-M0` baseline adoption은 이미 commit `5c09619`로 실행됐고, 그 뒤의 Meeting Pack/runtime/paper-notes/skills/obsidian/method-comparison follow-up lane도 개별 commit으로 고정됐다. 현재 남은 ambiguity는 baseline adoption 여부가 아니라, 이 committed stack을 어떤 narrative로 묶고 어떤 dirty tail을 별도 lane으로 남길지다.
 - Current stack note: use `docs/reports/Committed_Backend_API_Stack_Summary_2026-03-18.md` as the current packaging summary

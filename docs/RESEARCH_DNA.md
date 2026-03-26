@@ -119,15 +119,15 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 - broader source expansion beyond the initial policy-allowed pilot path
 - richer policy dimensions beyond the current `labeled_count + precision_delta + optional goldset_recall_delta` rule
 
-현재 이미 존재하는 canonical executable lane은 그대로 유지된다.
+현재 이미 존재하는 compatibility-safe executable lane은 그대로 유지된다.
 - `config/profiles.yaml`
 - `src/profiles/profile_schema.py`
 - `src/profiles/patch_schema.py`
 - `src/profiles/patch_apply.py`
 - `src/agents/profile_chat_agent.py`
 
-## P0 Scope
-이번 v1에서 채택하는 범위는 아래로 제한한다.
+## Current Bounded Scope
+현재 bounded scope는 아래로 제한한다.
 - standards-backed Search Profile structure
 - two-round interview only
   - `Researcher 4`
@@ -141,8 +141,8 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 - `recommended_databases`와 `available_databases` 분리
 - goldset sanity check는 optional
 
-## Non-Goals
-다음 항목은 v1 구현 금지 또는 문서 주차 대상이다.
+## Current Non-Goals
+다음 항목은 현재 bounded scope 밖에 둔다.
 - full PRESS automation
 - mandatory grey literature at intake
 - external DOI archiving
@@ -161,7 +161,7 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 - profile mutation은 optimistic revision guard를 거쳐야 한다.
 
 ### Implementation
-- 첫 PR은 문서/스키마/스토어/서비스 순서로 작게 나눈다.
+- 추가 implementation slice가 필요하면 문서/스키마/스토어/서비스 순서로 작게 나눈다.
 - CLI/API는 wrapper여야 하며, 로직이 CLI-only가 되면 안 된다.
 
 ### Operations
@@ -228,7 +228,7 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 ## Runtime Paths
 Research DNA는 하드코딩된 repo-root 경로를 만들지 않는다.
 
-향후 구현 원칙:
+현재 runtime path 원칙:
 - path resolution은 `src/services/runtime_paths.py`를 통해 들어간다.
 - human-editable DNA asset root의 기본 경로는 `<paperpipe_home>/research_dna/`를 권장한다.
 - generated eval artifacts는 `<storage_root>/search_eval/` 아래에 둔다.
@@ -668,7 +668,7 @@ governance:
 ## Minimal API Or Service Hooks
 이 문서는 구현 순서를 강제하지 않지만, 코어 로직은 service layer에 있어야 한다.
 
-최소 future operations:
+현재 최소 service operations는 아래와 같다.
 1. `create_dna(topic, intent)`
 2. `log_interview(dna_id, round, question_id, question, answer)`
 3. `update_dna(dna_id, patch)`
@@ -682,8 +682,8 @@ governance:
 - 모든 write path는 append-only audit를 남겨야 함
 - CLI/API는 동일 service contract를 재사용해야 함
 
-## Small-PR Sequence
-작게 시작하려면 순서는 아래가 맞다.
+## Historical Small-PR Sequence
+현재 lane이 어떤 순서로 작게 열렸는지 기록으로 남긴다.
 1. `docs/RESEARCH_DNA.md`
 2. `src/profiles/research_dna_schema.py`
 3. `src/profiles/research_dna_store.py`

@@ -7,7 +7,7 @@ Canonical: `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
 
 ## Purpose
 
-Record the current implementation status of the recently opened bounded artifact layers and recommend which lane should be promoted next from `future RFC / pilot lane` into an active bounded-spec candidate.
+Record the current implementation status of the recently opened bounded artifact layers and the promotion decisions that moved them from `future RFC / pilot lane` into active bounded specs.
 
 This is a current-state review, not a replacement runtime spec.
 
@@ -31,7 +31,7 @@ Out of scope:
 | Method Comparison | Implemented | Implemented | Strong | Highest | Promoted to active spec |
 | Chart Pack | Implemented | Implemented | Strong | Medium-high | Promoted to active spec |
 | Protocol Knowledge | Implemented | Implemented | Strong | Medium-high | Promoted to active spec |
-| Image Evidence | Implemented | Implemented | Strong | Medium | Keep as bounded pilot / experimental sidecar |
+| Image Evidence | Implemented | Implemented | Strong | Medium | Promoted to active spec (metadata-first sidecar) |
 
 ## Applied status
 
@@ -39,7 +39,7 @@ As of 2026-03-23, the recommendation in this review has been applied as follows:
 - `Method Comparison` is now an active bounded spec at `docs/METHOD_COMPARISON.md`
 - `Chart Pack` is now an active bounded spec at `docs/CHART_PACK.md`
 - `Protocol Knowledge` is now an active bounded spec at `docs/PROTOCOL_KNOWLEDGE.md`
-- `Image Evidence` remains a bounded pilot and is not promoted to active spec in this step
+- `Image Evidence` is now an active bounded spec at `docs/IMAGE_EVIDENCE.md`
 
 ## Evidence snapshot
 
@@ -107,7 +107,7 @@ Current limits:
 - still intentionally metadata-first, not image-analysis runtime
 - farther from the current paper-first core loop than Method Comparison
 - should not be mistaken for a microscopy platform or stronger claim-grounding layer
-- active bounded spec under `docs/` does not exist yet; current reference remains an archive RFC + implementation plan
+- should stay bounded as a metadata-first sidecar even after active-spec promotion
 
 Primary references:
 - `docs/archive/Image_Evidence_Viewer_Layer_RFC_2026-03-18.md`
@@ -139,9 +139,9 @@ Primary references:
 - `docs/UX_REVIEW_REPORT_protocol-knowledge-inspector.md`
 - `.codex/work/2026-03-23_protocol-knowledge-v0/progress.md`
 
-## Recommendation
+## Applied promotion record
 
-### Promote next: Method Comparison
+### Promoted: Method Comparison
 
 Reason:
 - it is the most paper-centric lane
@@ -149,45 +149,44 @@ Reason:
 - it solves a repeated comparison task without introducing a new platform model
 - it has enough backend, viewer, and test coverage to justify writing an active bounded spec next
 
-Recommended next step:
+Applied decision:
 - completed on 2026-03-23 via `docs/METHOD_COMPARISON.md`
 
-### Promote: Chart Pack
+### Promoted: Chart Pack
 
 Reason:
 - the runtime slice is real and useful
 - but it is still more downstream and presentation-oriented than Method Comparison
 - promoting it before Method Comparison would prioritize a communication artifact over the more directly evidence-linked operator workflow
 
-Recommended next step:
+Applied decision:
 - completed on 2026-03-23 via `docs/CHART_PACK.md`
 
-### Keep as bounded pilot / experimental sidecar: Image Evidence
+### Promoted: Image Evidence
 
 Reason:
-- the implementation is strong, but the product fit is narrower
-- it is intentionally metadata-first and should remain carefully bounded
-- promoting it too early would overstate its role in the current paper-first product loop
+- the implementation is strong and now has schema/store/API/viewer plus mock, real-backend, and visual verification
+- the raw-vs-derived boundary is explicit enough to freeze without reopening platform scope
+- promotion clarifies the current metadata-first sidecar contract instead of leaving a mature lane in pilot limbo
 
-Recommended next step:
-- keep it as a hardened sidecar lane
-- only consider active bounded-spec promotion when repeated real usage proves it is part of the core review loop rather than an adjacent specialist tool
+Applied decision:
+- completed on 2026-03-23 via `docs/IMAGE_EVIDENCE.md`
 
-### Promote: Protocol Knowledge
+### Promoted: Protocol Knowledge
 
 Reason:
 - it now has implemented backend/API/viewer slices plus real-backend and visual coverage
 - it fits the current knowledge-review loop more directly than `Image Evidence`
 - its protocol identity/version split is clear enough to freeze without opening authoring or execution semantics
 
-Recommended next step:
+Applied decision:
 - completed on 2026-03-23 via `docs/PROTOCOL_KNOWLEDGE.md`
 
 ## Queue impact
 
 Queue order should now read:
-1. `image-evidence` bounded pilot / experimental sidecar
-2. remaining future RFCs: `project-memory`, `local-backup-restore`
+1. `project-memory` backend-only hold with API explicitly gated
+2. remaining future/deferred lanes: `future/project-memory-api-v0`, `local-backup-restore`
 
 ## Non-recommendations
 
@@ -205,6 +204,6 @@ The current result is:
 - `Method Comparison` promoted
 - `Chart Pack` promoted
 - `Protocol Knowledge` promoted
-- `Image Evidence` intentionally held as a bounded pilot
+- `Image Evidence` promoted
 
-The next move is not to promote `Image Evidence` by momentum alone. It should stay a hardened sidecar until real usage proves it belongs in the core review loop.
+The next move is not to demote `Image Evidence` back into a vague pilot lane. It should stay an explicitly bounded, metadata-first sidecar artifact family unless a later product decision broadens it.

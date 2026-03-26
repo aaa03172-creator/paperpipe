@@ -1,20 +1,20 @@
 # API Chat Contract
 
-Status: Stub-only for this sprint
+Status: Stub-only compatibility surface
 Date: 2026-03-09
 Owner: Chat/runtime maintainers
 Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 
 ## Scope
-- `/api/chat` exists only as a future integration hook.
+- `/api/chat` exists only as a stub-only integration hook.
 - shared `output_mode_family` is now accepted as an additive request hint and echoed in the stub response.
-- This sprint does not implement:
+- The current runtime does not implement:
   - LLM provider calls
   - chat UI
   - memory or conversation persistence
   - RAG or retrieval orchestration
 - When `CHAT_ENABLED=false` (default), the endpoint returns `501 Not Implemented`.
-- When `CHAT_ENABLED=true`, the endpoint still returns `501 Not Implemented` in this sprint.
+- When `CHAT_ENABLED=true`, the endpoint still returns `501 Not Implemented` in the current runtime.
 
 ## Canonical State Source
 - Structured paper state lives at `.pp/<slug>/state.json` inside the Obsidian vault.
@@ -173,7 +173,7 @@ Current response:
   "error_code": "CHAT_NOT_IMPLEMENTED",
   "chat_enabled": false,
   "output_mode_family": "learner",
-  "message": "CHAT_ENABLED=false. /api/chat is a stub only in this sprint; no LLM provider, memory, or RAG call is executed.",
+  "message": "CHAT_ENABLED=false. /api/chat is a stub-only compatibility surface; no LLM provider, memory, or RAG call is executed.",
   "external_calls": false
 }
 ```

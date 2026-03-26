@@ -62,7 +62,7 @@ Treat these as the active runtime centers unless the audit proves otherwise:
 - `Chart Pack`
 - `Image Evidence`
 - `Method Comparison`
-- `Protocol Card`
+- `Protocol Knowledge` (`protocol_card` bundles)
 
 4. Product positioning
 - product may serve small lab/project contexts
@@ -86,7 +86,14 @@ For this workflow:
 - no new first-class memory schema/API/runtime should be proposed unless the task explicitly reopens that lane
 - `/api/chat` stub-only status remains a hard boundary
 
-### 3. Prefer existing canonicals over new top-level docs
+### 3. Research DNA and Profile are not co-equal canonicals
+
+For this workflow:
+- audit `ResearchDNA` as the editable search-design source of truth
+- audit `Profile` as an executable projection or compatibility surface unless code proves a broader migration
+- do not treat `ResearchDNA` and `Profile` as two peer editable canonicals by default
+
+### 4. Prefer existing canonicals over new top-level docs
 
 Default output shape:
 - one dated audit/refocus note
@@ -98,9 +105,13 @@ Create a new top-level active doc only if the content cannot fit cleanly into:
 - `docs/RESEARCH_DNA.md`
 - `docs/MEETING_PACK.md`
 - `docs/CHART_PACK.md`
+- `docs/METHOD_COMPARISON.md`
+- `docs/PROTOCOL_KNOWLEDGE.md`
+- `docs/IMAGE_EVIDENCE.md`
+- `docs/WEB_VIEWER.md`
 - `docs/README.md`
 
-### 4. Reference review is delta-only
+### 5. Reference review is delta-only
 
 Do not reopen broad external reference review from scratch unless the audit shows the repo has changed enough to alter an earlier judgment.
 
@@ -122,16 +133,20 @@ Audit before proposing structure changes.
 - storage roots and file-backed state
 - schema boundaries
 - run/job/event provenance
+- compatibility-safe extension points and migration-sensitive surfaces
 - frontend routes and what is actually exposed
 
 ### Required surfaces to inspect
 
-- `Research DNA` schema/store/service/API
+- `Research DNA` schema/store/service/API and projected `Profile` compatibility surface
 - paper note structured state and its stable IDs
 - claim/evidence artifact contracts
+- content review / `issues_state` / ingest quality flags
 - job queue, execution runs, job events, user actions
 - Meeting Pack source resolution and artifact contract
 - Chart Pack / Image Evidence / Method Comparison bounded layers
+- operator approval/review signals such as `accepted`, `approved`, or revision-conflict guarded writes where they exist
+- stale-artifact precedence, failed-run recording, blocked-action recording, and any open-question / blocked / negative-result surfaces
 - any existing `project` or `workspace` implementation evidence
 
 ### Audit output contract
@@ -161,6 +176,12 @@ Once the audit is done, clarify only what the current repo can actually support.
 - inventing a new generic workspace DB surface
 - moving existing paper/run/artifact truth into a new memory layer
 - replacing existing bounded artifact roots with a new umbrella platform
+- replacing an existing contract when `extend`, `alias`, or `deprecate` would work
+
+If a schema or storage change is recommended, include:
+- compatibility impact
+- migration or fallback plan
+- why an additive path is insufficient if replacement is proposed
 
 ## Canonical Owners To Start From
 
@@ -189,6 +210,38 @@ Use these as the default hypothesis.
 - `storage/method_comparisons/<comparison_id>/`
 - `storage/protocol_cards/<protocol_id>/`
 - Obsidian exports and rendered markdown
+
+## Ownership Guardrails
+
+### Zotero owns
+
+- bibliographic metadata as imported source data
+- attachment origin and external library identity
+
+Zotero does not own:
+- screening decisions
+- `Research DNA`
+- claim/evidence cards in PaperPipe structured state
+- run logs
+- Meeting Pack, Chart Pack, or similar derived artifacts
+
+### Obsidian owns
+
+- note body, rendered markdown, and mirror/navigation context
+- operator-facing note organization
+
+Obsidian does not own:
+- canonical run provenance
+- append-only audit logs
+- runtime DB state
+- structured truth that already exists in `.pp/<slug>/state.json` or runtime storage
+
+### PaperPipe owns
+
+- paper-scoped structured sidecar state
+- `Research DNA` and projection provenance
+- `jobs`, `execution_runs`, `job_events`, `user_actions`
+- artifact manifests and evidence-linked downstream bundles
 
 ## Thin Link Guidance
 
@@ -221,11 +274,17 @@ Recommended minimal `relation_type` taxonomy:
 - `derived_from`
 - `supports`
 - `references`
+- `generated_by_run`
+- `used_in_artifact`
 - `selected_by`
-- `generated_by`
 - `linked_note`
-- `projects_to`
 - `uses_profile`
+- `supersedes`
+
+Future-only unless code proves first-class support:
+- `belongs_to_project`
+- `triggered_by_decision`
+- `linked_to_experiment`
 
 Only add a new taxonomy term when the existing set cannot express the relation clearly.
 
@@ -253,6 +312,23 @@ Do not invent a much larger review state machine unless current code already use
 ### Meeting Pack
 
 Keep the existing draft/regenerate/rerender/readiness model rather than expanding into a general presentation workflow.
+
+## Operational Record Checklist
+
+Audit these as `implemented`, `partial`, or `missing` without inventing a new top-level subsystem first:
+
+- stale artifact precedence or detection
+- open-question recording
+- blocked-reason recording
+- negative-result recording
+- failed-run and blocked-action recording
+- human sign-off or approval markers
+- ingest quality flags such as `issues_state`
+- surfaced contradiction/conflict markers
+
+Rule of thumb:
+- if a signal exists only in rendered markdown, generated pack copy, or dated reports, count it as `partial`
+- prefer a small schema hook, log field, or artifact validation field before adding a new first-class object
 
 ## Biomedical Hook Rule
 
@@ -359,15 +435,18 @@ Phase B: Bounded clarification
 - treat project/workspace as future RFC if current runtime is still paper/job/artifact-first
 - do not open a first-class memory/chat platform lane
 - memory may appear only as a future integration appendix unless explicitly reopened
+- treat `ResearchDNA` as the editable search-design source and `Profile` as a projected compatibility surface unless code proves otherwise
 - reference review is delta-only; reuse existing fit reviews first
 - no giant redesign, framework migration, or broad file moves
+- prefer `extend` / `alias` / `deprecate` over replace
 
 [CURRENT BASELINE TO RESPECT]
 - paper note structured state under `.pp/<slug>/state.json`
 - Research DNA under `research_dna/<dna_id>/...`
 - run/ops state in `jobs`, `execution_runs`, `job_events`, `user_actions`
 - run artifacts under `storage/artifacts/<paper-segment>/<run_id>/`, with legacy raw `paper_id` directories preserved when present
-- bounded downstream artifact lanes such as Meeting Pack, Chart Pack, Image Evidence, Method Comparison, and Protocol Card
+- bounded downstream artifact lanes such as Meeting Pack, Chart Pack, Image Evidence, Method Comparison, and Protocol Knowledge
+- current product reality is still paper/job/artifact-first even if future positioning discusses project/workspace use
 
 [OUTPUT]
 1. Current state audit
@@ -378,6 +457,10 @@ Phase B: Bounded clarification
 
 [SPECIAL RULES]
 - normalize around existing IDs first: `paper_id`, `paper_slug`, `run_id`, `dna_id`, `pack_id`, `claim_id`, `evidence_id`
+- classify stale-artifact handling, failed-run recording, blocked actions, approval markers, ingest quality flags, and open-question / negative-result signals as implemented / partial / missing
+- if those signals appear only in generated artifact text or dated reports, mark them `partial`
+- do not default to `belongs_to_project`, `triggered_by_decision`, or `linked_to_experiment` unless first-class project/decision/experiment support exists in code
 - if a concept exists only in a historical RFC or isolated legacy schema, mark it `future RFC` or `partial`
 - if a recommendation would change product shape, say so explicitly and park it
+- if a schema/storage change is proposed, include compatibility impact and migration/fallback
 ```

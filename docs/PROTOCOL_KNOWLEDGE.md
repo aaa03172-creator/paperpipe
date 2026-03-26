@@ -38,7 +38,7 @@ The current lane is intentionally:
 
 ## Current Implementation Status
 
-Implemented in workspace:
+Implemented in current runtime slice:
 - `src/schemas/protocol_card.py`
 - `src/protocol_cards/store.py`
 - `src/protocol_cards/service.py`
@@ -123,6 +123,8 @@ storage/protocol_cards/<protocol_id>/
 ```
 
 Current rule:
+- `protocol_card.json` remains the primary bundle-local identity and metadata file
+- `versions/*.json` remain bundle-local version members rather than a separate truth surface
 - the bundle is a derived protocol-reference artifact, not a new generalized knowledge platform
 - whole-card upserts may rewrite the bundle deterministically
 - version snapshots remain inspectable on disk
@@ -154,7 +156,7 @@ Current rule:
 ### 7. Protocol knowledge must not become a hidden runtime executor
 
 Current rule:
-- protocol cards are saved knowledge artifacts
+- protocol cards are saved protocol-reference artifacts
 - they do not imply SOP approval, instrument control, or lab workflow automation
 - the inspector must keep trust-boundary language explicit
 
