@@ -16,12 +16,12 @@ Related docs:
 - `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`
 
 ## Current Implementation Status
-- Phase 1 completed in workspace:
+- Implemented in the current runtime:
   - `src/schemas/meeting_pack.py`
   - `src/meeting_packs/store.py`
   - `src/services/runtime_paths.py::meeting_packs_root()`
   - regression tests for schema/store/runtime paths
-- Generation surface also completed in workspace:
+- Generation surface is also implemented in the current runtime:
   - `src/meeting_packs/source_resolver.py`
   - `src/meeting_packs/evidence.py`
   - `src/meeting_packs/service.py`
@@ -47,7 +47,7 @@ Related docs:
   - CI workflow now runs the same lane under `.github/workflows/meeting-pack-verify.yml`
   - structured `one_page_summary.consensus_points[]` / `conflicts[]` + Markdown `[Consensus]` / `[Conflict]` rendering
   - saved `retrieval_trace[]` for selector/load observability during pack generation
-- 아직 남은 것:
+- Currently deferred or open follow-ups:
   - whether bounded legacy fallback should stay as-is or be tightened/further expanded
   - whether the new CI lane should be made branch-required and whether drift should remain CI-scoped rather than API/operator-blocking
   - current GitHub settings limitation: `scripts/enable_required_checks.sh` cannot currently promote `meeting-pack-verify` to a required branch check on this private repo because the branch protection API returns `403 Upgrade to GitHub Pro or make this repository public`
@@ -116,8 +116,8 @@ Related docs:
 - architecture:
   - `Meeting Pack`이 separate research state로 커지지 않고 downstream draft artifact로 남아 있다.
 - implementation:
-- current stable lane은 `paper/note/screening/topic/profile -> state.json -> evidence ledger -> deterministic markdown`이다.
-- current source loading rule should stay `selector metadata/context -> state.json -> evidence ledger/artifacts -> markdown`.
+- current stable lane은 `selector metadata/context -> canonical paper state (+ explicit source artifacts when named) -> evidence ledger -> deterministic markdown`이다.
+- current source loading rule should stay `selector metadata/context -> canonical paper state/source artifacts -> evidence ledger -> markdown`.
 - retrieval observability should stay deterministic and path/id grounded, not semantic black-box tracing.
 - operations:
   - real probe까지 남아 있어 test-only 구현 상태는 아니다.
@@ -169,7 +169,7 @@ Shared rule:
 - traces may not override claim/evidence truth
 - traces should stay additive and cheap enough to persist without opening a new observability subsystem
 
-## V1 Checklist Review (2026-03-13)
+## Historical V1 Checklist Review (2026-03-13)
 `Meeting Pack` v1 checklist review는 `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`에 기록한다.
 
 현재 판정:
@@ -181,14 +181,14 @@ Shared rule:
 - `weak/conflicting evidence is surfaced honestly`: pass
 - `no fabricated numeric claims`: pass
 
-현재 우선순위는 richer semantics 확장보다 아래 v1 hardening이다.
+현재 우선순위는 richer semantics 확장보다 아래 hardening이다.
 - bounded legacy regenerate fallback policy
 - local drift-enforcing verify lane의 CI/operator escalation 여부
 
 ## Purpose
 `Meeting Pack`은 PaperPipe가 이미 보유한 structured research state를 바탕으로, 실험실 미팅에서 바로 검토 가능한 발표 초안을 생성하는 downstream draft artifact다.
 
-이 기능은 v1에서 아래를 목표로 한다.
+현재 bounded surface는 아래를 목표로 한다.
 - one-page summary
 - slide outline (`5-8` slides)
 - speaker notes
@@ -199,17 +199,19 @@ Shared rule:
 이 문서는 중요한 경계 하나를 먼저 고정한다.
 - `Meeting Pack`은 canonical research state를 새로 소유하지 않는다.
 - `Meeting Pack`은 existing evidence-linked state를 재구성한 draft output이다.
-- v1은 발표 내용의 correctness와 evidence traceability를 먼저 해결하고, visual slide export는 의도적으로 뒤로 미룬다.
+- 현재 surface는 발표 내용의 correctness와 evidence traceability를 먼저 해결하고, visual slide export는 의도적으로 뒤로 미룬다.
 
 ## Current Judgment
 현재 repo 상황에서 `Meeting Pack`은 아래 위치에 놓는 것이 가장 자연스럽다.
 
-- 상위 입력 truth:
+- 상위 canonical 입력 truth:
   - `vault/.pp/<slug>/state.json`
+  - explicitly named run artifacts under `storage/artifacts/<paper-segment>/<run_id>/`
+- context-only secondary inputs:
   - paper note frontmatter/body
   - project/research notes
   - screening rationale
-  - research/project profile
+  - `ResearchDNA` projected profiles
 - 출력 artifact:
   - `storage/meeting_packs/<pack_id>/meeting_pack.json`
   - `storage/meeting_packs/<pack_id>/meeting_pack.md`
@@ -221,6 +223,7 @@ Shared rule:
 - pack은 단일 paper note를 넘는 multi-source artifact일 수 있다.
 - existing `.pp/<slug>/state.json`는 paper-scoped canonical state이므로 pack 자체의 canonical 저장소로 재사용하면 scope가 뒤섞인다.
 - `storage/artifacts/`는 ingest/read/verify run 결과물용이므로, meeting draft는 별도 root가 더 명확하다.
+- note/profile/screening context는 framing과 selection context를 줄 수 있지만, canonical claim/evidence truth를 새로 소유하지 않는다.
 
 ## Supported Modes
 모든 모드는 같은 output contract를 사용하지만 강조점이 달라야 한다.
@@ -313,7 +316,7 @@ Generator는 아래 우선순위를 지켜 source를 읽는다.
 ## Evidence-Linking Rule
 모든 major section은 evidence에 연결되어야 한다.
 
-v1에서 이 규칙은 아래 수준으로 강제한다.
+현재 contract에서는 이 규칙을 아래 수준으로 강제한다.
 - `one_page_summary.key_points[*]`는 `evidence_refs[]`를 가진다.
 - `one_page_summary.consensus_points[*]`는 `source_item_ids[]`와 `evidence_refs[]`를 가진다.
 - partial convergence type은 가능하면 `outlier_source_item_ids[]`도 가져야 한다.
@@ -338,13 +341,13 @@ existing contract 정렬:
 
 ### Pack identity
 - `pack_id`는 unique write key다.
-- v1 권장 형식:
+- current recommended format:
   - `meetingpack_<timestamp>_<mode>_<shorthash>`
 - current implementation은 same-request regenerate collision을 줄이기 위해 timestamp에 microsecond precision을 쓸 수 있다.
 - 같은 `pack_id`를 다시 render/save할 때는 overwrite 가능해야 하지만, append-only duplicate dump를 남기면 안 된다.
 
 ## Pydantic Contract
-v1은 최소한 아래 구조를 `src/schemas/meeting_pack.py`로 고정한다.
+현재 contract는 최소한 아래 구조를 `src/schemas/meeting_pack.py`로 고정한다.
 
 ```json
 {
@@ -510,7 +513,7 @@ v1은 최소한 아래 구조를 `src/schemas/meeting_pack.py`로 고정한다.
 - `one_page_summary.conflicts[]`는 free text warning이 아니라 reusable structured review artifact다.
 
 ## Generation Request Contract
-v1 request는 typed source selection을 받아야 한다.
+현재 request는 typed source selection을 받아야 한다.
 
 ```json
 {
@@ -546,7 +549,7 @@ full target selector type:
 - lower-priority inputs가 `state.json` truth를 override하지 못하게 막는 규칙은 현재 지원 subset에서만 먼저 고정한다.
 
 ## Generation Flow
-v1 생성 순서는 아래를 따른다.
+현재 generation sequence는 아래를 따른다.
 
 1. resolve selected source items
 2. read high-priority structured evidence from `state.json`
@@ -564,7 +567,7 @@ v1 생성 순서는 아래를 따른다.
 - no auto-designed visual slides
 
 ### `screening_decision` ref format
-- v1 ref는 반드시 `<dna_id>:<run_id>`다.
+- current ref는 반드시 `<dna_id>:<run_id>`다.
 - 이 selector는 개별 candidate row가 아니라 screening run 전체의 decision context를 읽는다.
 - pack에는 `include/exclude/unclear` count와 top `reason_code` 요약만 context layer로 올린다.
 - no heavy chart/image generation
@@ -594,7 +597,7 @@ rendering rules:
 - 같은 `meeting_pack.json`에서 다시 렌더하면 idempotent output이 나와야 한다.
 
 ## API Surface
-v1 권장 endpoint:
+Current endpoint surface:
 
 - `POST /meeting-packs/generate`
   - request: `MeetingPackGenerateRequest`
@@ -654,10 +657,10 @@ v1 권장 endpoint:
 ## Future Path To Slide Export
 slide export는 `Meeting Pack` 위에 올라가는 separate lane으로 다뤄야 한다.
 
-future sequence:
+current downstream sequence:
 1. `Meeting Pack` output contract 안정화
 2. mode별 outline quality와 evidence coverage 검증
 3. optional slide block/template mapping
 4. only then PPTX/Google Slides export consideration
 
-즉, future slide export는 `meeting_pack.json`을 consumer로 읽어야 하며, v1 pack contract를 우회해 direct-to-slide generation을 추가하면 안 된다.
+즉, slide export 확장은 `meeting_pack.json`을 consumer로 읽어야 하며, current pack contract를 우회해 direct-to-slide generation을 추가하면 안 된다.

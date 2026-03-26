@@ -5,6 +5,43 @@ Date: 2026-03-13
 Owner: Lattice runtime maintainers
 Purpose: keep a single reference map for specs, runbooks, templates, and historical records.
 
+## First-product baseline entrypoint
+
+Use this section first when you need the current first shipped/demo-ready product baseline without re-reading the full doc tree.
+
+Read in this order:
+
+1. `docs/Product_Positioning_Principles.md`
+   - Product identity, core assertions, and explicit non-positioning traps.
+   - Start here if the question is "what kind of product is this, really?"
+2. `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
+   - The first-product promise, launch-defining loop, minimum deep-read bar, and out-of-scope lanes.
+   - Start here if the question is "what counts as the first product?"
+3. `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
+   - The go/no-go checklist for the current first-product slice.
+   - Start here if the question is "is the current slice launch-credible?"
+4. `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
+   - The actual current canonical objects, now/later/not-this-product cut, and the researcher journey the repo honestly supports.
+   - Start here if the question is "what does the runtime really support today?"
+5. `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
+   - Recorded rehearsal result for the bounded current-runtime slice.
+   - Start here if the question is "did we actually run the story end to end?"
+6. `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+   - The current stop/continue decision and smallest remaining follow-ups.
+   - Start here if the question is "what should we do next?"
+7. `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
+   - Direct answers to the recurring baseline questions: product identity, source of truth, v1 user, core workflow, first-class entities, current non-promises, and remaining doc/runtime gaps.
+   - Start here if the question is "what is the concise repo-grounded answer?"
+
+If you need the shortest path to the current answer, use:
+
+- product shape -> `docs/Product_Positioning_Principles.md`
+- first-product bar -> `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
+- launch judgment -> `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
+- actual supported journey -> `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
+- proof and current stop/continue call -> `docs/reports/Release_Rehearsal_Run_2026-03-25.md` and `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+- direct baseline Q&A -> `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
+
 ## Canonical hierarchy
 
 ### 1. Governance and working rules
@@ -45,7 +82,7 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
 - `docs/API_CHAT_CONTRACT.md`
   - Chat/API contract for the current runtime.
 - `docs/RESEARCH_DNA.md`
-  - Search-design asset spec for the future `DRAFT -> PILOT -> LOCKED` reproducibility lane.
+  - Search-design asset spec for the bounded `DRAFT -> PILOT -> LOCKED` reproducibility lane.
 - `docs/MEETING_PACK.md`
   - Evidence-linked lab meeting draft generation spec for downstream presentation packs.
   - Standard local verification: `./scripts/run_meeting_pack_verify.sh`
@@ -56,6 +93,8 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
   - Deterministic chart artifact spec for file-backed visualization bundles built from saved structured artifacts.
 - `docs/PROTOCOL_KNOWLEDGE.md`
   - Versioned, evidence-linked protocol reference spec for saved protocol-card bundles and the read-first inspector.
+- `docs/IMAGE_EVIDENCE.md`
+  - Metadata-first image-evidence sidecar spec for registered image bundles and the read-only inspector.
 - `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
   - Indexer policy source of truth.
 - `docs/document_artifact_v2.md`
@@ -102,6 +141,16 @@ Purpose: keep a single reference map for specs, runbooks, templates, and histori
 - Reports index: `docs/reports/README.md`
 - Archive index: `docs/archive/README.md`
 - Dated validation and audit outputs live under `docs/reports/`
+- Current state / packaging / staging posture is currently summarized by:
+  - `docs/reports/Current_State_Update_2026-03-24.md`
+  - `docs/reports/Current_State_Packaging_2026-03-24.md`
+  - `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
+  - `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+  - `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md`
+- Current lane-specific packaging notes are:
+  - `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`
+  - `docs/reports/Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md`
+  - `docs/reports/Frontend_Core_UI_Refinement_Closeout_2026-03-24.md`
 - Zero-reference or superseded proposals, fit reviews, plans, release notes, and snapshots live under `docs/archive/`
 - `docs/archive/External_Reference_Fit_Review_2026-03-18.md`
   - Consolidated current-system-safe interpretation of recent external references across OCR/parser, retrieval/reranking, enrichment, note/memory, and agentic RAG references.

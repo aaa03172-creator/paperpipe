@@ -1,8 +1,8 @@
 # Lattice v3.0 Master Spec (Final Blueprint)
-부제: **지식의 구조화를 위한 자율 진화형 통합 연구 시스템** — 로컬 LLM(Ollama) + effGen + FastAPI + Obsidian
+부제: **로컬 우선, paper-centered, paper/job/artifact 중심의 biomedical evidence workspace 런타임** — FastAPI + local-first storage + bounded artifact lanes
 
 Status: Active  
-Date: 2026-03-09  
+Date: 2026-03-24  
 Owner: Lattice runtime maintainers  
 Canonical: `docs/Lattice_v3_Master_Spec.md`  
 Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v3_Master_Spec.md`, `docs/PaperPipe_v3_Master_Spec_Final_Blueprint_v1_2.md`
@@ -10,6 +10,9 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 > 이 문서는 사용자가 작성한 “[PaperPipe v3.0] Final Blueprint”를 **구현 가능한 마스터 스펙**으로 재정리한 버전입니다.  
 > 목표는 “Antigravity(코딩 에이전트)에게 그대로 전달해도 흔들리지 않게” **계약(스키마/상태머신/API/DoD)** 을 명확히 하는 것입니다.
 > 제품 공식 명칭은 **Lattice**이며, 코드/패키지 경로의 `paperpipe` 표기는 하위 호환(legacy namespace)으로 유지합니다.
+
+> 현재 범위 노트 (2026-03-24): 본 스펙은 현재 1차 제품 기준의 `paper-first`, `job/run/artifact-first`, `single-operator-first` 경계를 따른다.  
+> first-class `Project`, broad memory/chat, generalized workspace/platform lane은 별도 채택 전까지 본 스펙의 활성 런타임 범위에 포함하지 않는다.
 
 ---
 
@@ -29,14 +32,44 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 
 ---
 
-## 1. 시스템 개요 (Project Overview)
+## 1. 시스템 개요 (System Overview)
 
 ### 1.1 End‑to‑End 범위
-논문 수집 → PDF 파싱/표 추출 → 임베딩 인덱싱 → 심층 읽기(ClaimSet) → 통계 검증(PythonREPL) → 결과물(Artifact) 저장 → Obsidian 반영 → UI에서 교정/피드백 저장.
+현재 활성 제품 범위는 `paper-first`, `job/run/artifact-first` biomedical evidence workflow이다.
 
-### 1.2 “유일한 저장소” 선언
-- **Zotero(DB Layer)**: PDF 원문 및 메타데이터의 유일한 원본(SoT)  
-- **Obsidian(Knowledge Layer)**: 검증된 결과물(Artifact)의 영구 지식화(SoK)
+주 경로는 다음과 같다: 논문 수집 → PDF 파싱/표 추출 → 임베딩 인덱싱 → 심층 읽기(ClaimSet) → 통계 검증(sandboxed verification) → 결과물(Artifact) 저장 → Obsidian 반영 → UI에서 교정/피드백 저장.
+
+이 스펙은 현재 first-class `Project` runtime owner를 가정하지 않으며, broad memory/chat lane은 별도 채택 전까지 범위 밖으로 둔다.
+
+사용자는 자연어, 노트, 업로드, bounded automation으로 이 런타임을 조작할 수 있다.
+하지만 현재 canonical truth는 schema-backed structured state에 남아야 하며, 답변/요약/markdown/export는 그 상태나 명시적 source data에서 파생된 output으로 취급한다.
+
+### 1.2 Ownership / Source of Truth 경계
+전역 단일 SoT를 가정하지 않고, 레이어별 owner를 분리한다.
+
+- **Zotero(Source Data Layer)**: 서지 메타데이터, 첨부 파일, PDF 원문의 source owner
+- **Lattice/PaperPipe runtime (Canonical Structured State Layer)**: paper-scoped saved state, jobs/runs/events, `Research DNA`, run artifacts, bounded downstream sidecars의 canonical owner
+- **Obsidian(Knowledge Mirror / Export Layer)**: 검증된 결과물과 노트를 반영하는 human-facing knowledge mirror/export destination. canonical run state, provenance, structured search state의 owner는 아님
+
+현재 활성 런타임의 중심은 `papers`, `jobs`, `artifacts`이며, first-class `Project`는 별도 채택 전까지 미래 결정으로 둔다.
+
+### 1.2A Local-First Operating Assumptions
+현재 기본 작동 단위는 single-operator local research workspace다.
+
+- 클라우드나 네트워크 의존 경로는 확장 옵션이지 제품 정체성이 아니다.
+- local-first는 감성 문구가 아니라 아래 운영 의미를 가진다:
+  - data ownership
+  - recovery and rerunability
+  - portability across local research environments
+  - offline survivability for core review flows
+  - limited dependence on external providers for canonical state access
+
+### 1.2B Adapter / Port Boundary
+외부 시스템과 파일 포맷은 canonical owner가 아니라 adapter/port로 취급한다.
+
+- Zotero, PubMed-style search sources, filesystem imports, and instrument/result files are source-side adapters.
+- Obsidian, markdown exports, reports, and downstream handoff files are mirror/export adapters.
+- 이 adapter layer는 데이터를 들여오거나 내보내는 경로일 뿐이며, current canonical structured state를 조용히 대체하면 안 된다.
 
 ### 1.3 명칭 정책 (Brand Contract)
 - 사용자 노출(UI/문서/로그 라벨)의 제품명은 `Lattice`를 사용한다.
@@ -57,7 +90,7 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 ## 2. 5‑Tier Decoupled Architecture
 
 ### 2.1 레이어 정의
-1) **DB Layer: Zotero**  
+1) **Source Data Layer: Zotero-backed imports**  
 - Better BibTeX 기반 **CSL‑JSON export**를 `storage/zotero_export.json` 로 동기화  
 - PDF 첨부 경로 포함
 
@@ -67,17 +100,17 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 - SSE 이벤트 스트림 제공  
 - Artifact 조회/피드백 저장/Obsidian 반영 트리거
 
-3) **Engine Layer: Lattice Engine (legacy package: PaperPipe + effGen) (src/)**  
+3) **Engine Layer: Lattice Engine (legacy package: PaperPipe) (src/)**  
 - Ingest → Index → Read → Verify 워커  
-- Ollama adapter로 로컬 LLM 호출  
-- (옵션) effGen tool-use 기반 에이전트
+- 설정 가능한 LLM adapters / tool runners / verification sandbox  
+- legacy 또는 optional external tool-use adapters는 남아 있을 수 있으나, core paper/job/artifact runtime model을 다시 정의하지 않는다
 
 4) **Control Layer: Web UI (frontend/)**  
 - 논문 목록/상태 표시  
 - Reasoning/Profile 선택(compatibility alias 포함) / 실행 / 모니터링  
 - JSON Artifact 시각화/교정 입력(HITL)
 
-5) **Knowledge Layer: Obsidian**  
+5) **Knowledge Mirror Layer: Obsidian**  
 - `{CiteKey}.md` 생성/업데이트(idempotent)  
 - Related papers 링크/근거/요약/검증 결과 보존
 
@@ -120,13 +153,28 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 - `trace_id`: 로그 상관관계 ID (job_id 또는 run_id와 동일하게 사용 가능)
 
 ### 4.2 Artifact 저장 경로(표준)
-- `storage/artifacts/{paper_id}/{run_id}/`
+- `storage/artifacts/{paper_segment}/{run_id}/`
+  - `paper_segment`는 런타임 path helper가 선택한 artifact paper directory segment를 의미한다.
+  - 기존 raw `{paper_id}` 디렉터리가 이미 존재하면 backward compatibility를 위해 계속 조회/사용할 수 있다.
   - `document_artifact.json`
   - `chunks.jsonl` (또는 parquet)
   - `claimset.json`
   - `stats_report.json`
   - `run_meta.json`
   - `stdout.log` / `agent_trace.jsonl` 등
+
+### 4.2A Bounded derived artifact family defaults
+`Meeting Pack`, `Chart Pack`, `Method Comparison`, `Image Evidence`, `Protocol Knowledge` 같은 bounded artifact lane은 아래 공통 규칙을 따른다.
+
+- file-backed derived bundle로 저장한다.
+- 현재 paper/run/artifact truth 옆에 second canonical truth store를 만들지 않는다.
+- runtime이 stable identifier를 이미 가진 경우, derived bundle은 source input, canonical structured state, 또는 generating run으로 되돌아갈 수 있는 lineage를 유지한다.
+- API는 schema/service/store 위의 thin wrapper로 유지한다.
+- viewer/inspector는 기본적으로 read-first, review-first surface다.
+- warning, readiness, conflict, missing support는 artifact 안에서 숨기지 않는다.
+- operational trace나 validation metadata는 additive observability일 뿐 scientific truth를 대체하지 않는다.
+- 빠른 draft generation과 trusted scientific state를 같은 것으로 취급하지 않는다. AI-generated draft, reviewed, user-verified, approved 같은 trust boundary는 lane별 bounded contract 안에서 계속 구분한다.
+- deterministic regeneration/export ordering을 우선하고, silent partial overwrite를 허용하지 않는다.
 
 ### 4.3 필수 Pydantic 스키마 (src/schemas/)
 > 아래 스키마는 **하드코딩(불변 계약)** 한다. (Schema‑Persona Boundary)
@@ -197,18 +245,18 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 
 ### 5.2 Indexer Agent
 **입력:** `DocumentArtifact`  
-**출력:** `Chunk` + 벡터스토어(ChromaDB)
+**출력:** `Chunk` + retrieval index artifacts
 
 - chunking 전략은 config로 조절하되, **Chunk 스키마는 고정**
-- 모델: `nomic-embed-text` (기본)
+- embedder choice is config-driven; current runtime should treat the embedding model as an implementation setting, not a product-shape contract
 - 재인덱싱 트리거: PDF 해시 변경, chunking 변경, embed model 변경
 
 ### 5.3 Scientific Reader Agent
 **입력:** Chunks + core reasoning persona + optional profile context + Few‑shot 사례(동적)  
 **출력:** `ClaimSet` (근거(evidence) 의무)
 
-- 기본 모델: `llama3:8b`
-- Soft tag 전문 필요 시: `biomistral` 경유 가능
+- reader model choice is config-driven
+- domain tagging or specialist assists may use an additional configured model when justified, but that remains an implementation choice rather than a fixed contract
 - **출력은 JSON 스키마를 만족해야 하며**, 스키마 미준수 시 재시도/실패 처리
 - reasoning persona는 search/synthesis/review 판단 기준을 바꾼다.
 - profile context는 topic/lab/query overlay를 제공한다.
@@ -218,8 +266,8 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 **입력:** `DocumentArtifact.tables` + ClaimSet에서 필요한 항목  
 **출력:** `StatsReport`
 
-- tool: `effGen.tools.PythonREPL`
-- 엄격 JSON 포맷이 필요하면 `openhermes2.5-mistral` 계열 활용(권장)
+- tool: configured sandboxed Python verification runner (legacy runtime often exposed this through `PythonREPL` compatibility)
+- verifier model/provider choice is config-driven; if strict JSON output is needed, prefer a JSON-compliance-capable verifier through the configured runtime rather than hard-coding a specific model family
 - 샌드박스 제한(필수):
   - 네트워크 금지
   - 파일 접근은 `storage/sandbox/{job_id}/`만
@@ -228,25 +276,32 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 
 ---
 
-## 6. 멀티 모델 매핑 (Model Routing)
+## 6. 멀티 모델 매핑 예시 (Historical Implementation Examples)
+
+> 이 섹션의 provider/model 이름은 현재 release-shape의 고정 계약이 아니라 historical implementation examples다.
+> 현재 활성 계약은 아래만 요구한다:
+> - model/provider choice는 config-driven이어야 한다
+> - local-first가 기본이어야 한다
+> - `/api/chat`은 별도 채택 전까지 stub-only다
+> - 특정 provider/model family를 현재 제품 정체성으로 승격하지 않는다
 
 > 모델 선택은 config로 “강제 매핑”한다. (일관성/재현성)
 
 예시:
 - Ingest: (LLM 불필요)  
-- Index: `nomic-embed-text`  
-- Read: `llama3:8b` (+ biomistral)  
-- Verify: `openhermes2.5-mistral` (JSON 준수)  
+- Index: configured local embedder
+- Read: configured reader model
+- Verify: configured JSON-compliance-capable verifier
 - (옵션) Judge/QA: 상위 모델(클라우드)로 에스컬레이션 가능하나 기본은 로컬-first
 
 ### 6.1 LLM 런타임 기본 정책 (Parity 기준: 2026-03-05)
-- **기본 모드(default)는 `local`** 로 한다. (OpenAI 키 비필수)
+- **기본 모드(default)는 `local`** 로 한다. (cloud-provider credential 비필수)
 - `cloud` 모드는 명시적으로 선택한 경우에만 사용한다.
 - `hybrid` 모드는 로컬 우선(local-first)이며, 클라우드는 선택적 에스컬레이션 경로로만 사용한다.
 - 모드별 키 정책:
-  - `local`: `OPENAI_API_KEY` 없어도 정상 동작해야 함
-  - `cloud`: `OPENAI_API_KEY` 필수
-  - `hybrid`: `OPENAI_API_KEY` 선택(없으면 클라우드 경로만 비활성)
+  - `local`: cloud-provider credential 없이도 정상 동작해야 함
+  - `cloud`: configured cloud-provider credential 필수
+  - `hybrid`: configured cloud-provider credential 선택(없으면 클라우드 경로만 비활성)
 
 ### 6.2 LLM 설정 계약 (Config Contract)
 `llm` 설정은 아래 중첩 스키마를 기준으로 한다. (레거시 단일 provider 키 사용 금지)
@@ -255,22 +310,21 @@ Retired compatibility stubs: `docs/Lattice_v3_UIUX_MASTER.md`, `docs/PaperPipe_v
 llm:
   mode: "local"  # default: local
   local:
-    provider: "ollama"
-    base_url: "http://localhost:11434"
+    provider: "<local_provider>"
+    base_url: "<provider_base_url>"
     models:
-      classifier: "llama3:8b"
-      tagger: "biomistral:7b"
-      embedder: "nomic-embed-text"
-      judge: "openhermes-2.5-mistral"
-      chat: "phi3"
+      classifier: "<reader_model>"
+      tagger: "<domain_tagger_model>"
+      embedder: "<embedder_model>"
+      judge: "<verifier_model>"
   cloud:
-    provider: "openai"
+    provider: "<cloud_provider>"
     api_key: ""   # mode=cloud일 때 필수, 그 외 선택
-    model: "gpt-4o"
+    model: "<cloud_model>"
   features:
-    trial_extraction: { enabled: true, model: "gpt-4o-mini" }
-    slot_classification: { enabled: true, model: "gpt-4o-mini" }
-    one_liner: { enabled: true, model: "gpt-4o-mini" }
+    trial_extraction: { enabled: true, model: "<feature_model>" }
+    slot_classification: { enabled: true, model: "<feature_model>" }
+    one_liner: { enabled: true, model: "<feature_model>" }
 ```
 
 ---
@@ -516,7 +570,7 @@ llm:
 
 ## 14. Security / Safety (필수)
 
-### 14.1 PythonREPL 샌드박스
+### 14.1 샌드박스 Python 검증 실행기
 - 네트워크 차단
 - 경로 제한(`storage/sandbox/{job_id}/`)
 - 시간/메모리 제한
@@ -534,20 +588,25 @@ llm:
 
 ---
 
-## Phase 0 (Optional): AI‑Assisted Bootstrapping **with Cross‑Teacher Validation**
+## Phase 0 (Optional Historical Lane): AI‑Assisted Bootstrapping **with Cross‑Teacher Validation**
 별칭: **Prompt-level distillation / Golden‑Shot bootstrapping**
 
 > 목적: 시스템 본격 가동 전에, “사람이 UI에서 교정해야 할 초기 구간”을 **교사(클라우드 LLM)에게 외주**하여  
 > **고품질 Golden examples(권장 30~50개)** 를 피드백 DB에 미리 적재한다.  
 > 단, **대규모 오염(잘못된 정답 주입)** 을 막기 위해 **교사 2명(교차검증)** + 자동 검증 게이트를 필수로 둔다.
+>
+> 현재 범위 노트:
+> - 이 lane은 optional historical bootstrap guidance이며, first-product release gate의 필수 구성요소가 아니다.
+> - 현재 활성 runtime은 이 섹션을 기본 경로로 요구하지 않는다.
+> - chat/memory lane 재오픈이나 cloud-first 운영을 의미하지 않는다.
 
 ### 0A. 역할 정의 (Teacher‑Student)
-- **Student (로컬)**: llama3:8b (PaperPipe deepread 기본 엔진)
+- **Student (로컬)**: configured local reader model (PaperPipe deepread 기본 엔진)
 - **Teacher‑1 (Editor)**: “교정자” — 학생 JSON을 논문 근거에 맞게 수정해 **정답 JSON** 생성
 - **Teacher‑2 (Auditor/Judge)**: “감사/채점자” — Teacher‑1의 정답 JSON을 **루브릭으로 검수**하고 PASS/FAIL 및 수정 지시를 산출
 
 > Teacher‑2는 Teacher‑1과 **다른 모델/다른 제공자**를 권장(동일 편향 감소).  
-> 예: Teacher‑1=OpenAI, Teacher‑2=Anthropic (또는 반대).  
+> 예시는 단지 “서로 다른 provider/model family를 쓰라”는 뜻일 뿐이며, 특정 상용 제공자를 현재 제품 계약으로 의미하지 않는다.  
 > (가격/모델명은 시점에 따라 변동될 수 있으므로 스펙에는 고정하지 않음)
 
 ### 0B. 데이터 최소 전송(권장)
@@ -603,7 +662,7 @@ Auditor 프롬프트에 다음 규칙을 명시:
 - 스키마 필드 누락/불일치/타입 오류는 즉시 FAIL
 
 ### 0F. 저장/추적(재현성 필수)
-`storage/artifacts/{paper_id}/{run_id}/bootstrap/`에 아래를 저장:
+`storage/artifacts/{paper_segment}/{run_id}/bootstrap/`에 아래를 저장:
 - `student_output_claimset.json` (원본)
 - `teacher1_answer.json`
 - `teacher2_audit.json`
@@ -648,7 +707,26 @@ Auditor 프롬프트에 다음 규칙을 명시:
 - [x] `{CiteKey}.md` 업데이트가 idempotent(중복 폭증 없음)
 - [x] related papers/근거 링크 섹션 생성
 
-### 15.2 정량 Acceptance Criteria (권장값, UI/운영 공통)
+### 15.1A Minimum Deep Read Success Bar
+현재 런타임에서 `deep read succeeded`는 background job 종료만을 뜻하지 않는다.
+
+최소 성공 기준:
+- 실제 biomedical paper가 현재 deep-read/job path로 enqueue되고 처리된다.
+- run 결과가 transient log만이 아니라 inspectable paper-scoped saved state를 남긴다.
+- saved state는 viewer와 downstream artifact가 요구하는 현재 최소 구조를 유지한다:
+  - `runs`
+  - `signals`
+  - `claimset`
+  - `entities`
+  - `mesh`
+  - `outcomes`
+- promoted claim은 evidence-linked이거나 explicit uncertainty-marking 상태로 남아야 한다.
+- weak/partial/missing support는 warning, readiness, issue state로 surfaced되어야 하며 false clean success로 승격되면 안 된다.
+- rerun 또는 follow-up artifact generation은 실패하거나 partial일 수 있지만, saved state를 조용히 망가뜨리거나 숨은 partial bundle을 남기면 안 된다.
+
+### 15.2 운영 목표 (권장값, 출시 단독 게이트 아님)
+- 첫 외부 ship/demo의 go/no-go 판단은 `docs/reports/First_Shippable_Product_Bar_2026-03-24.md` 와 `docs/reports/Launch_Readiness_Checklist_2026-03-24.md` 를 따른다.
+- 아래 수치는 로컬 운영/성능 목표이며, 단독으로 제품 readiness를 판정하지 않는다.
 - API `POST /jobs/deepread` 응답시간: p95 <= 500ms (로컬 기준, 큐 적재만 수행)
 - API `GET /runs/{run_id}` 응답시간: p95 <= 200ms
 - API `GET /runs/{run_id}/timeline?limit=500` 응답시간: p95 <= 350ms
@@ -671,14 +749,14 @@ paperpipe/
 │   ├── schemas/             # Pydantic schemas (hard contract)
 │   ├── persona_modes.py     # built-in reasoning persona catalog + compatibility normalization
 │   ├── output_modes.py      # shared output/view mode family helpers
-│   ├── adapter.py           # Ollama JSON communication adapter
+│   ├── adapter.py           # local/provider JSON communication adapter
 │   └── jobs/                # (권장) job runner / worker entrypoints
 ├── configs/
 │   ├── config.yaml
 │   └── prompts/             # profile/context overlays and prompt assets
 ├── storage/
-│   ├── rag/                 # ChromaDB vector store
-│   ├── sandbox/             # PythonREPL isolated workdir
+│   ├── rag/                 # vector-store payloads / retrieval index artifacts
+│   ├── sandbox/             # sandboxed Python verification workdir
 │   ├── artifacts/           # run outputs (json/jsonl)
 │   └── zotero_export.json
 └── logs/                    # system/job logs (jsonl + text)
@@ -728,12 +806,12 @@ paperpipe/
 - `embed_params`(chunking, embed model)
 - `tool_policy_version`(샌드박스/도구 호출 제한 버전)
 - 현재 구현(2026-02-25):
-  - worker가 `storage/artifacts/{paper_id}/{run_id}/run_meta.json` 생성
+  - worker가 `storage/artifacts/{paper_segment}/{run_id}/run_meta.json` 생성
   - `persona_id`, `reasoning_persona`, `profile_id` lineage 기록
   - `pdf_sha256`, `pdf_mtime`, `llm_params`, `embed_params`, `models_used`, `tool_policy_version` 기록
-  - `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 `config.yaml`, `config/profiles.yaml` 스냅샷(존재 시) 저장
+  - `storage/artifacts/{paper_segment}/{run_id}/snapshots/`에 `config.yaml`, `config/profiles.yaml` 스냅샷(존재 시) 저장
 
-> 권장: run 시작 시점에 `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 config/prompt를 복사해 “나중에 바뀌어도 과거 run 재현 가능”하게 한다.
+> 권장: run 시작 시점에 `storage/artifacts/{paper_segment}/{run_id}/snapshots/`에 config/prompt를 복사해 “나중에 바뀌어도 과거 run 재현 가능”하게 한다.
 
 ### 18.5 API 보안(로컬이라도 최소 보호) — 권장(실전에서는 필수)
 - 기본 배포는 `localhost` 또는 내부망으로 제한
@@ -765,7 +843,7 @@ paperpipe/
   - 기존 AI 블록(`<!-- AI_AGENT_START --> ... <!-- AI_AGENT_END -->`)은 append 대신 구간 교체
 
 ### 18.8 비용 관리(로컬 자원) — 권장
-- Ollama 모델별 메모리/VRAM 요구사항을 문서화
+- local model runtime별 메모리/VRAM 요구사항을 문서화
 - run 옵션으로 “index-only / read-only / verify-only” 제공(불필요 단계 스킵)
 - LLM 호출 재시도 횟수/최대 토큰/최대 컨텍스트를 config로 제어
 
@@ -813,4 +891,4 @@ paperpipe/
 - 출력 JSON 스키마는 Pydantic 계약을 따라야 한다.
 - 장시간 작업은 동기 실행 금지, Job 큐 기반 + SSE로 로그 스트리밍.
 - EvidenceSpan 없는 claim은 confidence를 자동으로 낮추고 “검증 불가” 표시.
-- PythonREPL은 sandbox 제한(네트워크/경로/시간/패키지) 강제.
+- sandboxed Python verification runner는 sandbox 제한(네트워크/경로/시간/패키지) 강제.

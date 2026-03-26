@@ -22,10 +22,10 @@ It exists to support fast review and downstream handoff without introducing:
 - a generic dataset platform
 - a dashboard/runtime shell
 - a freeform chart builder
-- a second truth store beside current paper/run/artifact state
+- a second canonical truth store beside current paper/run/artifact state
 
 The current lane is intentionally:
-- artifact-first
+- source-artifact-driven
 - template-first
 - deterministic
 - file-backed
@@ -33,7 +33,7 @@ The current lane is intentionally:
 
 ## Current Implementation Status
 
-Implemented in workspace:
+Implemented in current runtime slice:
 - `src/schemas/chart_pack.py`
 - `src/chart_packs/store.py`
 - `src/chart_packs/source_loader.py`
@@ -65,7 +65,7 @@ That judgment is based on:
 
 ## Current Boundary
 
-### 1. Request shape stays artifact-first and template-first
+### 1. Request shape stays source-artifact-driven and template-first
 
 Current pack request is centered on:
 - `chart_pack_id?`
@@ -144,6 +144,8 @@ storage/chart_packs/<chart_pack_id>/
 ```
 
 Current rule:
+- `chart_pack.json` remains the primary bundle-local manifest for the pack
+- `chart_pack.md`, `data/*.csv`, and `specs/*.json` are sibling derived bundle members
 - `data/<chart_id>.csv` is the normalized tabular snapshot
 - `specs/<chart_id>.json` is the deterministic render spec
 - render files may exist later, but they are optional derived outputs rather than the primary bundle contract
@@ -185,7 +187,7 @@ The current spec does not include:
 
 ## Relationship To Other Bounded Lanes
 
-- `Chart Pack` may feed `Meeting Pack` later as a downstream presentation-oriented artifact, but it must not become a hidden second truth store inside meeting-pack storage.
+- `Chart Pack` may feed `Meeting Pack` later as a downstream presentation-oriented artifact, but it must not become a hidden second canonical truth store inside meeting-pack storage.
 - `Method Comparison` remains a separate evidence-linked comparison artifact; it should not be forced into numeric backbone duty unless a later bounded extension proves that need.
 - `Image Evidence` remains a separate metadata-first sidecar and should not be folded into chart-pack render semantics.
 
