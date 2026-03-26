@@ -34,6 +34,12 @@ class LLMProvider:
         """API 키가 설정되어 있고 클라이언트가 준비되었는지 확인"""
         return self.client is not None
 
+    def _temperature_for_task(self, task: str) -> float:
+        """Use deterministic decoding for gate decisions to reduce approval drift."""
+        if task == "escalation":
+            return 0.0
+        return 0.3
+
     def _get_model(self, task: str) -> str:
         """작업에 적합한 모델을 반환 (override 우선)"""
         # Default behavior: rely on feature config overrides if enabled, else provider default
@@ -556,7 +562,7 @@ class OpenAIProvider(LLMProvider):
         request_params = {
             "model": model,
             "messages": messages,
-            "temperature": 0.3,
+            "temperature": self._temperature_for_task(task),
             "timeout": self.config.timeout_seconds,
         }
         if is_json or schema: # OpenAI uses response_format for JSON, schema is not directly passed
@@ -644,7 +650,7 @@ class OllamaProvider(LLMProvider):
         logger.info(f"Making LLM request to Ollama model '{model}' for task '{task}'.")
 
         options = {
-            "temperature": 0.3,
+            "temperature": self._temperature_for_task(task),
             "num_predict": 4096, # Max tokens to generate
         }
         
