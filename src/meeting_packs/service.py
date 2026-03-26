@@ -388,6 +388,7 @@ def _build_meeting_pack(
         secondary_note_items,
         screening_contexts,
         conflicts,
+        ledger.evidence_ref_map,
     )
     opening_slide, context_slide, limits_slide, closing_slide = _build_boundary_slides(
         request=request,
@@ -418,7 +419,7 @@ def _build_meeting_pack(
         title=request.title or _default_title(request.mode, selected_ref_titles[0]),
         created_at=created_at,
         status="draft",
-        readiness=_meeting_pack_readiness(claim_rows),
+        readiness=_meeting_pack_readiness(claim_rows, ledger.evidence_ref_map),
         generation_request=MeetingPackRequestSnapshot(**request.model_dump()),
         regenerated_from_pack_id=regenerated_from_pack_id,
         source_items=_pack_source_items(bundle),
@@ -643,8 +644,13 @@ def _legacy_selector_items(source_items: list[MeetingPackSourceItem]) -> list[Me
     return direct_paper_states
 
 
-def _meeting_pack_readiness(claim_rows: list[tuple[str, str, Any]]) -> MeetingPackReadiness:
-    return "evidence_backed" if claim_rows else "background_only"
+def _meeting_pack_readiness(
+    claim_rows: list[tuple[str, str, Any]],
+    evidence_ref_map: dict[tuple[str, str, str], str],
+) -> MeetingPackReadiness:
+    if any(_claim_has_direct_support(paper_slug, claim, evidence_ref_map) for _, paper_slug, claim in claim_rows):
+        return "evidence_backed"
+    return "background_only"
 
 
 def _meeting_pack_response(
@@ -785,6 +791,7 @@ def _build_uncertainties(
     secondary_note_items: list[MeetingPackSourceItem],
     screening_contexts: list[ResolvedMeetingPackScreeningContext],
     conflicts: list[MeetingPackConflict],
+    evidence_ref_map: dict[tuple[str, str, str], str],
 ) -> list[str]:
     if not claim_rows:
         uncertainties = ["No structured claims were available; treat the pack as background-only."]
@@ -801,6 +808,13 @@ def _build_uncertainties(
     ):
         uncertainties.append(
             "At least one highlighted claim carries mixed confidence and should be framed cautiously."
+        )
+    if any(
+        _claim_grounding_uncertainty_note(claim, _claim_ref_ids(paper_slug, claim, evidence_ref_map))
+        for _, paper_slug, claim in claim_rows
+    ):
+        uncertainties.append(
+            "At least one evidence-linked claim is still missing or unresolved citation-grounding metadata; re-check citation linkage before presentation."
         )
     uncertainties.append(
         "Numeric effect sizes and figure choices should still be re-verified from source text before presenting."
@@ -940,6 +954,28 @@ def _claim_ref_ids(paper_slug: str, claim: Any, evidence_ref_map: dict[tuple[str
     return refs
 
 
+def _claim_has_direct_support(
+    paper_slug: str,
+    claim: Any,
+    evidence_ref_map: dict[tuple[str, str, str], str],
+) -> bool:
+    return bool(_claim_ref_ids(paper_slug, claim, evidence_ref_map))
+
+
+def _claim_grounding_state(claim: Any) -> str:
+    saw_grounding_metadata = False
+    for evidence in getattr(claim, "evidence", []):
+        grounded = getattr(evidence, "grounded", None)
+        resolution = str(getattr(evidence, "resolution", "") or "").strip().upper()
+        if grounded is True:
+            return "resolved"
+        if resolution and not any(token in resolution for token in ("FAILED", "AMBIGUOUS", "UNRESOLVED")):
+            return "resolved"
+        if grounded is False or resolution:
+            saw_grounding_metadata = True
+    return "unresolved" if saw_grounding_metadata else "missing"
+
+
 def _key_point_label(mode: str, index: int) -> str:
     if mode == "experiment_proposal":
         return f"Prior evidence {index}"
@@ -979,10 +1015,27 @@ def _support_summary(ref_ids: list[str]) -> str:
 def _claim_uncertainty_note(claim: Any, ref_ids: list[str]) -> str | None:
     if not ref_ids:
         return "Structured evidence refs are missing for this claim."
+    notes: list[str] = []
     confidence = getattr(claim, "confidence", None)
     if confidence is not None and float(confidence) < 0.6:
-        return "Claim confidence is mixed; present as tentative."
-    return None
+        notes.append("Claim confidence is mixed; present as tentative.")
+    grounding_note = _claim_grounding_uncertainty_note(claim, ref_ids)
+    if grounding_note:
+        notes.append(grounding_note)
+    if not notes:
+        return None
+    return " ".join(notes)
+
+
+def _claim_grounding_uncertainty_note(claim: Any, ref_ids: list[str]) -> str | None:
+    if not ref_ids:
+        return None
+    grounding_state = _claim_grounding_state(claim)
+    if grounding_state == "resolved":
+        return None
+    if grounding_state == "unresolved":
+        return "Direct evidence refs exist, but citation-grounding metadata is unresolved; re-check citation linkage before presentation."
+    return "Direct evidence refs exist, but citation-grounding metadata is missing; re-check citation linkage before presentation."
 
 
 def _merge_uncertainty_notes(*notes: str | None) -> str | None:
