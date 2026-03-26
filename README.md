@@ -1,5 +1,59 @@
 # Lattice Runtime Guide
 
+Lattice is a local-first, paper-centered biomedical research workspace for a single primary operator.
+It helps you move from paper ingestion and deep read to evidence-linked structured state, reproducible search-design refinement, and meeting-ready downstream artifacts without hiding provenance or uncertainty.
+
+Current runtime shape:
+- paper-first
+- job/run/artifact-first
+- human-reviewable
+- additive rather than fully autonomous
+
+This repo is not currently:
+- a generic research agent
+- a chatbot-first copilot
+- a first-class project/workspace platform
+- a broad memory-first research system
+
+## What You Can Do Today
+
+- Run a deep read
+  - enqueue a paper, inspect run state, and review saved paper state
+- Inspect saved paper state
+  - use paper notes and workbench to review evidence, uncertainty, and operational status
+- Refine reproducible search design
+  - create, pilot, screen, refine, and lock `Research DNA`
+- Generate a meeting-ready artifact
+  - produce and reopen `Meeting Pack` drafts from saved structured state
+- Inspect bounded artifact viewers
+  - review saved method comparisons, chart packs, image evidence, and protocol cards
+
+## Workflow Surfaces
+
+Implemented runtime commands:
+- `lattice start`
+- `paperpipe start`
+
+Implemented CLI workflows:
+- `paperpipe deepread`
+- `paperpipe read`
+- `paperpipe repair-stats`
+- `paperpipe export`
+- `paperpipe research-dna ...`
+
+Short command reference:
+- [docs/CLI_WORKFLOW_REFERENCE.md](/Users/jangseongjin/paperpipe/docs/CLI_WORKFLOW_REFERENCE.md)
+
+Current main UI/API surfaces:
+- `/papers`
+- `/papers/:slug`
+- `/workbench/:paperId`
+- `/meeting-packs`
+- `/method-comparisons`
+- `/chart-packs`
+- `/image-evidence`
+- `/protocol-cards`
+
 ## Quick Start
 
 ```bash
@@ -13,19 +67,12 @@ Compatibility alias:
 paperpipe start
 ```
 
-## Runtime Security Environment Variables
+For the current first-product boundary and product identity:
+- [docs/Product_Positioning_Principles.md](/Users/jangseongjin/paperpipe/docs/Product_Positioning_Principles.md)
+- [docs/reports/First_Shippable_Product_Bar_2026-03-24.md](/Users/jangseongjin/paperpipe/docs/reports/First_Shippable_Product_Bar_2026-03-24.md)
+- [docs/reports/First_Product_Baseline_QA_2026-03-25.md](/Users/jangseongjin/paperpipe/docs/reports/First_Product_Baseline_QA_2026-03-25.md)
 
-| Variable | Purpose | Default |
-| :--- | :--- | :--- |
-| `LATTICE_API_KEY` | Enable `X-API-Key` auth for write APIs (`POST /jobs/deepread`, `POST /jobs/{id}/cancel`, `POST /feedback`, `POST /obsidian/sync`) | disabled |
-| `LATTICE_MASK_LOCAL_PATHS` | Mask absolute local paths in API responses (`true/false`) | `false` |
-| `LATTICE_CORS_ALLOW_ORIGINS` | Comma-separated allowed origins | `http://127.0.0.1:8000,http://localhost:8000` |
-| `LATTICE_MAX_CONCURRENT_JOBS` | Max simultaneously running jobs | `1` |
-| `LATTICE_MAX_QUEUED_JOBS` | Max queued jobs before `429 QUEUE_FULL` | unlimited (`0`) |
-
-Legacy env aliases are still supported: `PAPERPIPE_API_KEY`, `PAPERPIPE_MASK_LOCAL_PATHS`, `PAPERPIPE_CORS_ALLOW_ORIGINS`, `PAPERPIPE_MAX_CONCURRENT_JOBS`, `PAPERPIPE_MAX_QUEUED_JOBS`.
-
-## Example: Secure Local Run
+## Runtime Security
 
 ```bash
 export LATTICE_API_KEY="change-me"
@@ -37,7 +84,19 @@ export LATTICE_MAX_QUEUED_JOBS="20"
 lattice start
 ```
 
-## Example: Authenticated Write Request
+Key runtime controls:
+- `LATTICE_API_KEY`
+- `LATTICE_MASK_LOCAL_PATHS`
+- `LATTICE_CORS_ALLOW_ORIGINS`
+- `LATTICE_MAX_CONCURRENT_JOBS`
+- `LATTICE_MAX_QUEUED_JOBS`
+
+Legacy `PAPERPIPE_*` aliases are still supported.
+
+Full runbook:
+- [docs/runtime_security_env.md](/Users/jangseongjin/paperpipe/docs/runtime_security_env.md)
+
+Example authenticated write:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
@@ -48,72 +107,53 @@ curl -X POST "http://127.0.0.1:8000/jobs/deepread" \
 
 ## CI Verification Gates
 
-Run the agent smoke gate locally:
+Use the smallest gate that matches the surface you changed.
+
+Agent/runtime smoke:
 
 ```bash
 ./scripts/run_agents_smoke.sh
 ```
 
-This runs the targeted Ruff + pytest smoke set for the currently supported agent surface.
-
-GitHub Actions entry point:
-- `.github/workflows/agents-smoke.yml`
-
-Run the full frontend verification gate locally:
+Frontend verification:
 
 ```bash
 cd frontend
 npm run verify:frontend
 ```
 
-This runs build + mock E2E + backend E2E in order.
-
-Run the opt-in real-paper smoke only on a runner that has access to local PaperPipe config/storage:
+Opt-in real-paper smoke:
 
 ```bash
 cd frontend
 npm run e2e:backend:real-smoke
 ```
 
-Notes:
-- This path uses the current `PAPERPIPE_CONFIG_PATH` / `PAPERPIPE_STORAGE_DIR` / `PAPERPIPE_DB_PATH` / `PAPERPIPE_ARTIFACTS_DIR` values.
-- It does not start the seeded E2E backend harness.
-- GitHub Actions entry point: `.github/workflows/frontend-real-smoke.yml` (manual, self-hosted only).
-- GitHub can dispatch this workflow by filename only after the file exists on the repository default branch. The repository default branch is currently `main`, so the workflow is registered on `main` even when the actual implementation ref lives on `master` or a feature branch.
-- Manual dispatch should point `--ref` at the implementation branch you want to test. Example: `gh workflow run frontend-real-smoke.yml --ref codex/<your-branch> -f config_path=config.yaml`.
-- If the repository has no matching `self-hosted`, `paperpipe-real-smoke` runner online, the run will stay `queued` until a runner comes online.
-- The dedicated self-hosted runner path expects `python3`, `node`, and `npm` to already exist on the runner machine. It uses runner-local Python instead of `actions/setup-python`.
+Current workflow entry points:
+- `.github/workflows/agents-smoke.yml`
+- `.github/workflows/frontend-e2e.yml`
+- `.github/workflows/frontend-real-smoke.yml`
+- `.github/workflows/soft-gate-master.yml`
 
 Branch note:
-- The repository default branch is `main`.
-- The current PR workflows `.github/workflows/pr-scope-guard.yml`, `.github/workflows/agents-smoke.yml`, and `.github/workflows/frontend-e2e.yml` are scoped to `pull_request` events targeting `master`.
-- Keep that split explicit until the repo's integration branch strategy is unified.
+- repository default branch is `main`
+- current PR checks still target `master`
+- keep that split explicit until the integration branch strategy is unified
 
-Repository plan limitations can block branch protection/ruleset APIs on private repos.
-After enabling GitHub Pro/Team (or making the repo public), enforce PR required checks:
+If repository plan limits prevent branch protection/rulesets on a private repo, required checks can still be enabled later:
 
 ```bash
 ./scripts/enable_required_checks.sh master
 ```
 
-This applies the following required contexts on `master`:
-- `guard`
-- `agents-smoke`
-- `e2e-mock`
-- `e2e-backend`
-
 ## Soft Gate (No Branch Protection Plan)
 
-If branch protection is unavailable due to plan limits on a private repository, a soft gate workflow is enabled:
+If branch protection is unavailable, the repo can use:
+- workflow: `.github/workflows/soft-gate-master.yml`
+- trigger: push to `master`
+- behavior: auto-revert a failing head commit after frontend checks fail
 
-- Workflow: `.github/workflows/soft-gate-master.yml`
-- Trigger: push to `master`
-- Checks: `frontend` mock/backend E2E
-- Action on failure: auto-revert the failing head commit on `master`
-
-Notes:
-- Revert commits are prefixed with `revert(soft-gate):` and are excluded from recursive auto-revert.
-- This is a recovery mechanism, not a pre-merge hard block.
+This is a recovery mechanism, not a pre-merge hard block.
 
 ## Ops Monitoring
 
@@ -126,7 +166,8 @@ python scripts/downloader_ops_dashboard.py --db storage/state.db --out storage/r
 - Exit `0`: healthy (no threshold crossed)
 - Exit `2`: alert condition (wire to Slack/email/webhook)
 
-Runbook:
-- [downloader_monitoring.md](/Users/jangseongjin/paperpipe/docs/downloader_monitoring.md)
+Runbooks:
+- [docs/runtime_security_env.md](/Users/jangseongjin/paperpipe/docs/runtime_security_env.md)
+- [docs/downloader_monitoring.md](/Users/jangseongjin/paperpipe/docs/downloader_monitoring.md)
 - [docs/README.md](/Users/jangseongjin/paperpipe/docs/README.md)
-- [Lattice_v3_Master_Spec.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_Master_Spec.md)
+- [docs/Lattice_v3_Master_Spec.md](/Users/jangseongjin/paperpipe/docs/Lattice_v3_Master_Spec.md)
