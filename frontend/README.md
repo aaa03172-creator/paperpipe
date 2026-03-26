@@ -65,6 +65,11 @@ npm run e2e:mock
 cd frontend
 npm run e2e:backend
 ```
+- parser worker가 필요한 bounded browser fallback 시나리오:
+```bash
+cd frontend
+npm run e2e:backend:parser-worker
+```
 - 실데이터 real smoke 시나리오:
 ```bash
 cd frontend
@@ -74,6 +79,7 @@ npm run e2e:backend:real-smoke
 - 기본 동작은 `config.yaml` 기준이며, 후보 paper가 없으면 `skip`이 아니라 실패합니다.
 - 실행 전 `python ../scripts/check_frontend_real_smoke_env.py --require-candidates` preflight가 자동으로 수행됩니다.
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
+- `e2e:backend:parser-worker`는 같은 seeded harness를 쓰되, parser fallback browser-flow 검증을 위해 opt-in fake worker sidecar를 함께 띄웁니다.
 - GitHub Actions에서 같은 경로를 수동 실행하려면 workflow 파일이 repo default branch에 등록돼 있어야 합니다. 현재 default branch는 `main`입니다.
 - 따라서 `.github/workflows/frontend-real-smoke.yml`는 `main`에 등록돼 있고, 실제 테스트 대상은 `--ref`로 별도 브랜치를 지정합니다. 예: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`
 - repo에 `self-hosted`, `paperpipe-real-smoke` 라벨을 가진 러너가 없으면 dispatch는 성공해도 job은 계속 `queued` 상태로 남습니다.
@@ -92,6 +98,7 @@ npm run lint
 npm run build
 npm run e2e:mock
 npm run e2e:backend
+npm run e2e:backend:parser-worker
 ```
 
 ## GitHub Actions 연동

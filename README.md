@@ -44,7 +44,7 @@ Implemented CLI workflows:
 Short command reference:
 - [docs/CLI_WORKFLOW_REFERENCE.md](/Users/jangseongjin/paperpipe/docs/CLI_WORKFLOW_REFERENCE.md)
 
-Current main UI/API surfaces:
+Current main UI surfaces:
 - `/papers`
 - `/papers/:slug`
 - `/workbench/:paperId`
@@ -53,6 +53,13 @@ Current main UI/API surfaces:
 - `/chart-packs`
 - `/image-evidence`
 - `/protocol-cards`
+
+Representative API examples:
+- `POST /jobs/deepread`
+- `GET /papers`
+- `GET /papers/{paper_id}`
+- `GET /research-dna/{dna_id}`
+- `GET /meeting-packs`
 
 ## Quick Start
 
