@@ -109,6 +109,18 @@ def test_reader_retries_when_first_response_has_empty_claims():
     assert calls["n"] >= 2
 
 
+def test_reader_uses_boundary_aligned_base_prompt_and_runtime_overlay():
+    reader = ReaderAgent(
+        model_name="llama3:latest",
+        persona_hint="reasoning_persona=librarian\nprofile_id=coglab",
+    )
+
+    assert "evidence-grounded Deep Read analyst" in reader.system_prompt
+    assert "separate from optional reasoning persona, profile context, and feedback overlays" in reader.system_prompt
+    assert "Runtime overlay:" in reader.system_prompt
+    assert "reasoning_persona=librarian" in reader.system_prompt
+
+
 def test_reader_drops_unsupported_limitations_when_source_text_lacks_support():
     doc = _make_doc()
     reader = ReaderAgent(model_name="llama3:latest")

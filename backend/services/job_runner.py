@@ -839,7 +839,7 @@ async def run_deepread_job(
             hint_sections.append(profile_hint)
         persona_hint = "\n\n".join(section for section in hint_sections if section) or None
 
-        # Dynamic Few-Shot Injection based on persona
+        # Dynamic few-shot injection based on reasoning/profile context.
         feedback_query_text = persona_hint if persona_hint else paper_id
         similar_feedback = _load_similar_feedback_top3(query_text=feedback_query_text, limit=3)
         
