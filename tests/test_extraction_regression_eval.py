@@ -217,13 +217,13 @@ def test_compare_extraction_outputs_cli_writes_metrics_and_rows(tmp_path: Path) 
             "documents": [
                 {
                     "paper_id": "paper-ok",
-                    "gold_path": str(gold_ok),
-                    "prediction_path": str(pred_ok),
+                    "gold_path": "gold_ok.json",
+                    "prediction_path": "pred_ok.json",
                 },
                 {
                     "paper_id": "paper-swap",
-                    "gold_path": str(gold_swap),
-                    "prediction_path": str(pred_swap),
+                    "gold_path": "gold_swap.json",
+                    "prediction_path": "pred_swap.json",
                 },
             ],
         },

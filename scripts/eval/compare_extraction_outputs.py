@@ -59,6 +59,15 @@ def _load_manifest(path: Path) -> list[dict[str, Any]]:
     return [doc for doc in documents if isinstance(doc, dict)]
 
 
+def _resolve_manifest_entry_path(manifest_path: Path, raw_path: str) -> Path:
+    candidate = Path(str(raw_path or "").strip()).expanduser()
+    if not candidate.is_absolute():
+        candidate = (manifest_path.parent / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+    return candidate
+
+
 def _normalize_text(value: Any) -> str | None:
     text = str(value or "").strip().lower()
     if not text:
@@ -403,8 +412,8 @@ def run_comparison(
     documents = _load_manifest(manifest_path)
     rows: list[dict[str, Any]] = []
     for doc in documents:
-        gold_path = Path(str(doc.get("gold_path") or "")).expanduser().resolve()
-        prediction_path = Path(str(doc.get("prediction_path") or "")).expanduser().resolve()
+        gold_path = _resolve_manifest_entry_path(manifest_path, str(doc.get("gold_path") or ""))
+        prediction_path = _resolve_manifest_entry_path(manifest_path, str(doc.get("prediction_path") or ""))
         paper_id = str(doc.get("paper_id") or "").strip() or None
         if not gold_path.exists():
             raise FileNotFoundError(f"gold_missing={gold_path}")
