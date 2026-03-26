@@ -90,7 +90,7 @@ class _ChunkRecord:
 class ReaderAgent:
     """
     Agent responsible for critical scientific reading and claim extraction.
-    Uses a 'Senior Postdoc' persona and structured JSON output.
+    Uses a fixed deep-read base stance with optional runtime overlays.
     """
 
     def __init__(
@@ -106,7 +106,9 @@ class ReaderAgent:
         self.max_context_chars = max(6000, int(max_context_chars))
 
         self.output_schema = ClaimSet.model_json_schema()
-        self.system_prompt = """You are a highly analytical and rigorous Senior Postdoc researcher in a Biomedical Convergence and Cognitive Science laboratory. Your role is to mentor and assist the Lead Researcher by critically deep-reading papers. 
+        self.system_prompt = """You are PaperPipe's evidence-grounded Deep Read analyst.
+Maintain a rigorous scientific review stance focused on extraction-ready claims, grounded evidence, uncertainty, and conservative claim promotion.
+This base instruction is separate from optional reasoning persona, profile context, and feedback overlays.
 
 Your goal is NOT to summarize the paper. Your goal is to extract verifiable claims with grounded evidence only.
 
@@ -119,7 +121,9 @@ Follow these strict directives:
 6. Do not include limitations unless the limitation wording is directly supported by the provided source text.
 """
         if persona_hint:
-            self.system_prompt += f"\n\nPersona override:\n{persona_hint}\n"
+            # Compatibility note: persona_hint may include reasoning persona, profile
+            # context, and similar-feedback overlays from the runner.
+            self.system_prompt += f"\n\nRuntime overlay:\n{persona_hint}\n"
 
     def analyze(self, doc: DocumentArtifact | DocumentArtifactV2) -> Optional[ClaimSet]:
         """
