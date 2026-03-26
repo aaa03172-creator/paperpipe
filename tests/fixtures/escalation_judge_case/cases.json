@@ -1,0 +1,60 @@
+{
+  "schema_version": "escalation_judge_smoke.v1",
+  "description": "Small representative smoke set for escalation judge regression checks.",
+  "cases": [
+    {
+      "case_id": "approve_mci_mct_rct",
+      "expected_approved": true,
+      "paper": {
+        "title": "Randomized placebo-controlled trial of medium-chain triglycerides in mild cognitive impairment",
+        "summary": "In a double-blind randomized placebo-controlled trial, adults with mild cognitive impairment received medium-chain triglycerides or placebo for 24 weeks. The intervention group showed significant improvement in memory composite scores with acceptable gastrointestinal safety and adherence.",
+        "tags": ["#MCI", "#ketosis", "#clinical_trial"]
+      }
+    },
+    {
+      "case_id": "approve_mci_ketone_ester_pilot",
+      "expected_approved": true,
+      "paper": {
+        "title": "Pilot ketone ester supplementation improves cognitive task performance in patients with mild cognitive impairment",
+        "summary": "This pilot clinical study enrolled patients diagnosed with mild cognitive impairment and evaluated ketone ester supplementation for 12 weeks. Investigators report improved executive-function task scores, preserved activities of daily living, and no major safety concerns.",
+        "tags": ["#MCI", "#ketone_ester", "#pilot_trial"]
+      }
+    },
+    {
+      "case_id": "approve_crelox_methods",
+      "expected_approved": true,
+      "paper": {
+        "title": "Optimizing tamoxifen induction and recombination efficiency in inducible Cre-loxP mouse models",
+        "summary": "This methods-focused study benchmarks tamoxifen dosing, washout windows, and recombination-efficiency readouts for inducible Cre-loxP neuroscience experiments. The paper provides actionable protocol guidance and troubleshooting steps for minimizing off-target recombination.",
+        "tags": ["#methods", "#Cre-loxP", "#tamoxifen"]
+      }
+    },
+    {
+      "case_id": "reject_unrelated_sports_nutrition",
+      "expected_approved": false,
+      "paper": {
+        "title": "Ketogenic diet improves endurance performance in collegiate cyclists",
+        "summary": "Healthy trained cyclists followed a ketogenic diet and completed endurance testing. Performance and body-composition outcomes improved, but the study did not involve neurological disease, cognition, or neuroscience methods.",
+        "tags": ["#sports_nutrition", "#healthy_adults"]
+      }
+    },
+    {
+      "case_id": "reject_unrelated_materials_science",
+      "expected_approved": false,
+      "paper": {
+        "title": "Ceramide-inspired self-assembly improves membrane stability in synthetic polymer films",
+        "summary": "This materials-science paper studies synthetic polymer films and uses ceramide-inspired chemistry to improve membrane stability. The work is not about brain disease, neuroinflammation, cognition, or biomedical methods relevant to PaperPipe.",
+        "tags": ["#materials_science", "#polymer"]
+      }
+    },
+    {
+      "case_id": "reject_ambiguous_mixed_population_review",
+      "expected_approved": false,
+      "paper": {
+        "title": "Narrative review of dietary interventions across aging, dementia, and general wellness populations",
+        "summary": "This narrative review broadly discusses dietary interventions across healthy aging, Alzheimer's disease, and general wellness populations. It does not present MCI-specific evidence, new data, or a clear high-significance finding that warrants automatic approval.",
+        "tags": ["#review", "#mixed_population"]
+      }
+    }
+  ]
+}
