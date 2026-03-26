@@ -105,6 +105,8 @@ Related docs:
 - `rerender`는 saved `meeting_pack.json`에서 deterministic markdown을 다시 생성하는 explicit recovery lane이다.
 - response-level `markdown_sync`는 saved markdown과 deterministic render의 drift 여부를 자동으로 surfaced 한다.
 - pack contract는 `readiness`로 `evidence_backed` vs `background_only`를 구분한다.
+- `evidence_backed`는 claim text 존재만이 아니라 최소 `1`개의 direct structured evidence ref가 있는 경우에만 허용한다.
+- direct structured evidence ref가 있더라도 `grounded` / `resolution` metadata가 비어 있거나 unresolved면 pack 안에서 uncertainty로 surfaced 해야 하며, full citation verification처럼 말하면 안 된다.
 - regenerated draft는 `regenerated_from_pack_id`로 immediate parent lineage를 남긴다.
 - legacy packs that predate `generation_request` storage can still rerender, and regenerate may use a bounded `source_items` fallback only when selector reconstruction is deterministic.
 - `validate`는 saved request 또는 bounded legacy fallback이 있더라도 current vault에서 selector set을 다시 풀 수 없으면 `can_regenerate=false` / `regenerate_strategy=unavailable`로 내려야 한다.
@@ -588,6 +590,7 @@ v1 권장 endpoint:
 - router는 thin wrapper여야 한다.
 - CLI-only path는 만들지 않는다.
 - `MeetingPackResponse`는 current slice에서 `markdown_sync`를 함께 돌려줄 수 있어야 한다.
+- `readiness=evidence_backed`는 최소 하나의 direct structured evidence ref를 전제로 해야 하고, missing/unresolved grounding metadata는 uncertainty note로 남겨야 한다.
 - local standard verify lane은 `./scripts/run_meeting_pack_verify.sh`를 기준으로 유지하고, targeted pytest + real-input smoke + stored-bundle sync check + docs lint를 한 번에 묶어야 한다.
 
 ## Example Output Shape
