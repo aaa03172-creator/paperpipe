@@ -57,6 +57,11 @@ This prompt captures a current-system-safe way to review a large Codex/Claude op
 
 This prompt captures a current-system-safe way to refine the main app work surfaces through hierarchy, spacing, copy, and token cleanup without drifting into landing-page grammar, generic dashboard patterns, or route/state redesign.
 
+### Workflow/messaging adaptation set (2026-03-27)
+- `docs/archive/Feynman_Workflow_Messaging_Review_Prompt_2026-03-27.md`
+
+This prompt captures a current-system-safe way to review workflow framing, artifact-centered messaging, README structure, and role/task naming against `getcompanion-ai/feynman` without drifting into project-centric runtime claims, generic research-agent positioning, or Feynman-style multi-agent runtime imitation.
+
 ### Deep research visualization adaptation set (2026-03-18)
 - `docs/archive/Deep_Research_Reports_2_3_4_Fit_Review_2026-03-18.md`
 - `docs/archive/Research_Data_Visualization_Layer_RFC_2026-03-18.md`

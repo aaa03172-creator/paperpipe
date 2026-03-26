@@ -32,6 +32,15 @@ Read in this order:
 7. `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
    - Direct answers to the recurring baseline questions: product identity, source of truth, v1 user, core workflow, first-class entities, current non-promises, and remaining doc/runtime gaps.
    - Start here if the question is "what is the concise repo-grounded answer?"
+8. `docs/reports/First_Product_Demo_Runbook_2026-03-27.md`
+   - The actual demo/handoff script for the bounded first-product slice.
+   - Start here if the question is "how should we show or hand off the current product honestly?"
+9. `docs/reports/First_Product_Demo_FAQ_2026-03-27.md`
+   - Presenter-facing short answers for the most likely demo questions.
+   - Start here if the question is "what should I say when asked directly?"
+10. `docs/reports/First_Product_Demo_Script_3min_2026-03-27.md`
+   - A short spoken script for the current first-product demo.
+   - Start here if the question is "what exactly should I say in the demo?"
 
 If you need the shortest path to the current answer, use:
 
@@ -41,6 +50,39 @@ If you need the shortest path to the current answer, use:
 - actual supported journey -> `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
 - proof and current stop/continue call -> `docs/reports/Release_Rehearsal_Run_2026-03-25.md` and `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
 - direct baseline Q&A -> `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
+- demo / handoff script -> `docs/reports/First_Product_Demo_Runbook_2026-03-27.md`
+- presenter FAQ -> `docs/reports/First_Product_Demo_FAQ_2026-03-27.md`
+- 3-minute spoken script -> `docs/reports/First_Product_Demo_Script_3min_2026-03-27.md`
+
+## Task-first entrypoint
+
+If the question is not "which spec is canonical?" but "what can the current product actually help an operator do?", start here:
+
+1. Run a deep read
+   - `README.md`
+   - `backend/main.py` (`POST /jobs/deepread`)
+   - `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
+2. Inspect saved paper state
+   - `docs/WEB_VIEWER.md`
+   - `docs/Lattice_Paper_Notes_Web_Viewer_Spec.md`
+   - `frontend/src/App.tsx` (`/papers`, `/papers/:slug`, `/workbench/:paperId`)
+3. Refine reproducible search design
+   - `docs/RESEARCH_DNA.md`
+   - `src/cli.py` (`paperpipe research-dna ...`)
+4. Generate a meeting-ready artifact
+   - `docs/MEETING_PACK.md`
+   - `backend/main.py` / `backend/routers/meeting_packs.py`
+5. Inspect bounded artifact viewers
+   - `docs/METHOD_COMPARISON.md`
+   - `docs/CHART_PACK.md`
+   - `docs/IMAGE_EVIDENCE.md`
+   - `docs/PROTOCOL_KNOWLEDGE.md`
+
+Use this path when you need the current supported workflow story without implying a broader project-centric or generic research-agent runtime.
+
+For the implemented CLI surface, command group boundaries, and honest command-vs-route-vs-doc-label distinctions, use:
+
+- `docs/CLI_WORKFLOW_REFERENCE.md`
 
 ## Canonical hierarchy
 
@@ -129,6 +171,8 @@ If you need the shortest path to the current answer, use:
   - Recorded midpoint decision log for what is implemented now vs intentionally deferred.
 
 ### 6. Runtime and ops runbooks
+- `docs/CLI_WORKFLOW_REFERENCE.md`
+  - Current implemented CLI surface grouped into operator-facing workflows, secondary utilities, and retained legacy/diagnostic commands.
 - `docs/runtime_security_env.md`
 - `docs/downloader_monitoring.md`
 - `docs/institutional_access.md`
