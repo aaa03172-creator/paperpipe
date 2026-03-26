@@ -1,6 +1,6 @@
 # Feynman Workflow/Messaging Fit Review
 
-Status: Active fit review  
+Status: Applied fit review  
 Date: 2026-03-27  
 Owner: Runtime/product maintainers  
 Canonical parents:
@@ -361,6 +361,38 @@ Stop after README + docs map if:
 - the product message is already clearer
 - no new claims were introduced
 - the current first-product boundary remains intact
+
+## 7. Current closeout judgment
+
+Immediate doc-only items from this fit review are now applied:
+
+- `README.md`
+  - product identity moved to the top
+  - `What You Can Do Today` added
+  - `What this repo is not` added
+  - runtime commands, CLI workflows, UI surfaces, and representative API examples separated more explicitly
+- `docs/README.md`
+  - task-first entrypoint added
+- `docs/CLI_WORKFLOW_REFERENCE.md`
+  - implemented command groups now documented with honest operator-facing vs utility/legacy separation
+
+Current judgment:
+
+- keep these changes
+- do not widen this lane into broader product repositioning
+- do not add Feynman-style bundled runtime roles
+- do not add invented task commands or generic-agent messaging
+
+Deferred on purpose:
+
+- splitting `README.md` into a separate product overview and runtime runbook
+- building a new shared artifact-overview surface
+- pushing task labels deeper into viewer UI without a separate route-level need
+
+Recommended stop point:
+
+- treat this messaging/doc lane as closed unless a new runtime boundary problem or README honesty issue appears
+- move the next work pass to a different product or release bottleneck instead of continuing copy churn
 
 ## Source notes
 
