@@ -3,10 +3,10 @@
 Status: Closed  
 Date: 2026-03-25  
 Owner: Lattice runtime maintainers  
-Canonical parents:
-- `docs/reports/Current_State_Update_2026-03-24.md`
-- `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md`
-- `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
+Current posture anchors:
+- `docs/Lattice_v3_Master_Spec.md`
+- `docs/Pending_PR_Queue.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
 
 ## Purpose
 
@@ -67,20 +67,18 @@ Reopen docs-only cleanup only if one of these becomes true:
 ## Recommended posture after closeout
 
 - treat the docs-only cleanup lane as closed
-- use the current posture notes and staging guide as the default reference set
+- use the current posture notes and queue docs as the default reference set
 - open a new docs pass only for a specific bounded inconsistency
 - do not treat ongoing dirty docs by themselves as proof that a broad cleanup lane should reopen
 
 ## References
 
-- `docs/README.md`
+- `docs/Lattice_v3_Master_Spec.md`
 - `docs/reports/README.md`
 - `docs/Pending_PR_Queue.md`
-- `docs/reports/Current_State_Update_2026-03-24.md`
-- `docs/reports/Current_State_Packaging_2026-03-24.md`
-- `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
-- `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
-- `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+- `docs/reports/Deferred_Lanes_Recheck_2026-03-24.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
 
 ## Bottom line
 
