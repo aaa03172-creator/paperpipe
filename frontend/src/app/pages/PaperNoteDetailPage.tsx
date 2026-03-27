@@ -6,6 +6,7 @@ import { ArrowLeft, ExternalLink, FileText, FlaskConical, LibraryBig, Link2, Pan
 import { getApiErrorMessage, getPaperNoteDetail, logClientUserAction, runSkillAction } from "../lib/api";
 import {
   OutputModeFamily,
+  PaperNoteContextTrace,
   PaperNoteDetailResponse,
   PaperNoteReference,
   PaperNoteRelated,
@@ -964,6 +965,73 @@ function ClaimSetPanel({
   );
 }
 
+function getStructuredStateTraceEntry(contextTrace: PaperNoteContextTrace | null | undefined) {
+  if (!contextTrace?.trace?.length) {
+    return null;
+  }
+  return [...contextTrace.trace].reverse().find((entry) => entry.action === "structured_state_loaded") ?? null;
+}
+
+function StructuredStateNotice({
+  state,
+  contextTrace,
+  noteSlug,
+}: {
+  state: StructuredPaperState | null;
+  contextTrace: PaperNoteContextTrace | null | undefined;
+  noteSlug: string | null | undefined;
+}) {
+  if (state) {
+    return null;
+  }
+
+  const traceEntry = getStructuredStateTraceEntry(contextTrace);
+  const expectedPath = traceEntry?.source_path ?? (noteSlug ? `.pp/${noteSlug}/state.json` : null);
+  const traceSummary = contextTrace?.summary;
+  const hasCompactTrace =
+    Boolean(contextTrace?.available) &&
+    ((traceSummary?.entry_count ?? 0) > 0 || (traceSummary?.related_count ?? 0) > 0 || (traceSummary?.reference_count ?? 0) > 0);
+
+  return (
+    <Card
+      className="overflow-hidden border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)]/40"
+      data-testid="paper-note-structured-state-notice"
+    >
+      <CardHeader>
+        <CardTitle>Structured state is not loaded</CardTitle>
+        <CardDescription>
+          Reading content is available, but no saved structured sidecar was loaded for run history or structured claims.
+        </CardDescription>
+      </CardHeader>
+      <Separator />
+      <CardContent className="pt-4">
+        <p className="text-sm text-[var(--pp-text-secondary)]">
+          This note can still be reviewed, but the structured panels below reflect a missing canonical sidecar rather than an empty saved run.
+        </p>
+        {expectedPath ? (
+          <p
+            className="mt-2 break-all text-xs text-[var(--pp-text-dim)]"
+            data-testid="paper-note-structured-state-path"
+          >
+            Expected sidecar: {expectedPath}
+          </p>
+        ) : null}
+        {hasCompactTrace ? (
+          <div className="mt-3 flex flex-wrap gap-1.5" data-testid="paper-note-context-trace-summary">
+            <Badge variant="outline">trace {traceSummary?.entry_count ?? 0}</Badge>
+            {typeof traceSummary?.related_count === "number" && traceSummary.related_count > 0 ? (
+              <Badge variant="outline">related {traceSummary.related_count}</Badge>
+            ) : null}
+            {typeof traceSummary?.reference_count === "number" && traceSummary.reference_count > 0 ? (
+              <Badge variant="outline">references {traceSummary.reference_count}</Badge>
+            ) : null}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function PaperNoteDetailPage() {
   const params = useParams<{ slug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1043,6 +1111,7 @@ export function PaperNoteDetailPage() {
 
   const note = data?.note ?? null;
   const structuredState = data?.structured_state ?? null;
+  const contextTrace = data?.context_trace ?? null;
   const availableActions = data?.available_actions ?? [];
   const focusTarget = useMemo(() => parseFocusParam(searchParams.get("focus")), [searchParams]);
   const viewerMode = useMemo(() => parseViewerOutputMode(searchParams.get("view")), [searchParams]);
@@ -1311,6 +1380,7 @@ export function PaperNoteDetailPage() {
                     onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                     onRun={handleRunAction}
                   />
+                  <StructuredStateNotice state={structuredState} contextTrace={contextTrace} noteSlug={note?.slug} />
                   <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
                   <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
                   <PropertiesPanel note={note} aliases={aliases} tags={tags} />
@@ -1331,6 +1401,7 @@ export function PaperNoteDetailPage() {
                     onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                     onRun={handleRunAction}
                   />
+                  <StructuredStateNotice state={structuredState} contextTrace={contextTrace} noteSlug={note?.slug} />
                   <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
                   <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
                 </>
@@ -1359,6 +1430,7 @@ export function PaperNoteDetailPage() {
                   onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                   onRun={handleRunAction}
                 />
+                <StructuredStateNotice state={structuredState} contextTrace={contextTrace} noteSlug={note?.slug} />
                 <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
                 <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
                 <PropertiesPanel note={note} aliases={aliases} tags={tags} />
@@ -1381,6 +1453,7 @@ export function PaperNoteDetailPage() {
                   onAppendMarkdownSummaryChange={setAppendMarkdownSummary}
                   onRun={handleRunAction}
                 />
+                <StructuredStateNotice state={structuredState} contextTrace={contextTrace} noteSlug={note?.slug} />
                 <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} />
                 <ClaimSetPanel claims={structuredState?.claimset ?? []} focusTarget={focusTarget} />
               </>

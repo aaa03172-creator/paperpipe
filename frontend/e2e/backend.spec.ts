@@ -377,6 +377,13 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   await expect(propertiesPanel.getByText("INDEXED", { exact: true })).toBeVisible();
   await expect(propertiesPanel.locator("dd").getByText("Medicine/Neurology", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "One-Line Summary" })).toBeVisible();
+  const structuredStateNotice = page.getByTestId("paper-note-structured-state-notice");
+  await expect(structuredStateNotice).toContainText("Structured state is not loaded");
+  await expect(structuredStateNotice).toContainText("missing canonical sidecar");
+  await expect(page.getByTestId("paper-note-structured-state-path")).toContainText(
+    ".pp/zoteroduboisAlzheimerDiseaseClinicalBiological2024/state.json",
+  );
+  await expect(page.getByTestId("paper-note-context-trace-summary")).toContainText("trace 5");
 
   const relatedHeading = page.getByRole("heading", { name: "Related Papers" }).first();
   await expect(relatedHeading).toBeVisible();
@@ -548,6 +555,7 @@ test("paper notes detail supports learner and inspect view modes", async ({ page
     page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
   ).toBeVisible();
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText("Inspect mode lifts");
+  await expect(page.getByTestId("paper-note-structured-state-notice")).toContainText("Structured state is not loaded");
   const rightAside = page.locator("main > aside").nth(1);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Actions");
 

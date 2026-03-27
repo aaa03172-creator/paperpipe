@@ -81,12 +81,43 @@ export interface PaperNoteReference {
   source: "pdf" | "doi" | "zotero" | "external";
 }
 
+export type PaperNoteContextTraceOutcome = "loaded" | "filtered" | "resolved" | "derived" | "missing";
+
+export interface PaperNoteContextTraceEntry {
+  order: number;
+  action: string;
+  outcome: PaperNoteContextTraceOutcome;
+  detail: string;
+  source_path?: string | null;
+  matched_slugs: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface PaperNoteContextTraceSummary {
+  entry_count: number;
+  source_path_count: number;
+  related_count: number;
+  reference_count: number;
+  action_counts: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  source_paths: string[];
+  related_slugs: string[];
+  reference_sources: string[];
+}
+
+export interface PaperNoteContextTrace {
+  available: boolean;
+  summary: PaperNoteContextTraceSummary;
+  trace: PaperNoteContextTraceEntry[];
+}
+
 export interface PaperNoteDetailResponse {
   note: PaperNoteSummary;
   frontmatter: Record<string, unknown>;
   body_markdown: string;
   related: PaperNoteRelated[];
   references: PaperNoteReference[];
+  context_trace?: PaperNoteContextTrace | null;
   structured_state?: StructuredPaperState | null;
   available_actions: SkillActionInfo[];
 }
