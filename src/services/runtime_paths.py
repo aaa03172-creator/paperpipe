@@ -39,6 +39,15 @@ def config_file_path(config_path: str | Path = "config.yaml") -> Path:
     return Path(raw).expanduser().resolve()
 
 
+def logs_root() -> Path:
+    value = os.getenv("PAPERPIPE_LOGS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "logs").resolve()
+    return Path("logs").resolve()
+
+
 def artifacts_root() -> Path:
     value = os.getenv("PAPERPIPE_ARTIFACTS_DIR")
     if value:
