@@ -22,6 +22,7 @@ def test_template_trial_includes_institutional_block_when_pdf_missing():
     md = get_template_trial(paper, extraction=None)
     assert "Institutional Access Available" in md
     assert "Download via KNU Libproxy" in md
+    assert "Specialty Extraction Lane" in md
 
 
 def test_template_trial_omits_institutional_block_when_local_pdf_exists():
@@ -29,4 +30,3 @@ def test_template_trial_omits_institutional_block_when_local_pdf_exists():
     paper["local_pdf_path"] = "/tmp/already.pdf"
     md = get_template_trial(paper, extraction=None)
     assert "Institutional Access Available" not in md
-
