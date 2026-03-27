@@ -32,8 +32,6 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
 
 def get_template_study(paper: Dict[str, Any]) -> str:
     """기전/방법론 연구용 노트 템플릿"""
-    tags_str = " ".join(paper.get('tags', []))
-    
     one_liner_section = ""
     if paper.get('ai_one_liner'):
         one_liner_section = f"## 🧠 One-Liner\n> {paper['ai_one_liner']}\n"
@@ -123,6 +121,10 @@ def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtracti
 '''
 
     # 추출 데이터가 있으면 요약 블록을, 없으면 기본 메시지를 사용
+    scope_block = f"""
+> [!info] Specialty Extraction Lane
+> {TrialExtraction.specialty_scope_note()}
+"""
     if extraction:
         # Schema에 정의된 메서드 사용
         summary_block = extraction.to_summary_block()
@@ -178,6 +180,7 @@ doi: {paper['doi']}
 {institutional_block}
 {one_liner_section}
 ## 🏥 Trial Quick Look
+{scope_block}
 {summary_block}
 
 {evidence_block}
@@ -230,14 +233,6 @@ def _extract_intervention_string(td: Dict[str, Any]) -> str:
         else:
             intervention_str = "Not detailed"
     return intervention_str
-
-    # [인덱스 2] 임상 추출 논문만 누적 (mct_mci_trials.csv)
-    if paper.get('slot', '').lower() == 'clinical':
-        path_clinical = config.paths.obsidian_vault / config.paths.index_clinical
-        path_clinical.parent.mkdir(parents=True, exist_ok=True)
-        update_csv_index(paper, path_clinical, is_clinical=True)
-    
-    return file_path
 
 def find_related_papers(current_paper: Dict[str, Any], config) -> str:
     """
@@ -482,7 +477,7 @@ def save_paper_to_obsidian(
     path_all.parent.mkdir(parents=True, exist_ok=True)
     update_csv_index(paper, path_all, is_clinical=False, relative_note_path=str(relative_path))
     
-    # [인덱스 2] 임상 추출 논문만 누적 (mct_mci_trials.csv) -> OnDemand는 임상 인덱스 안 건드림 (규칙상)
+    # [인덱스 2] 임상 추출 논문만 누적 (clinical_trials.csv) -> OnDemand는 임상 인덱스 안 건드림 (규칙상)
     # 하지만 일단 유지하되, override가 없을 때만
     if not index_file_override and paper.get('slot', '').lower() == 'clinical':
         path_clinical = config.paths.obsidian_vault / config.paths.index_clinical
