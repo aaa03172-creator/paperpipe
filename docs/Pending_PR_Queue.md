@@ -12,6 +12,8 @@ Canonical: `docs/Pending_PR_Queue.md`
     - `docs/archive/OpenDataLoader_PDF_Fit_Review_2026-03-20.md`
     - `docs/archive/OpenDataLoader_PDF_Hard_Doc_Pilot_Spec_2026-03-20.md`
     - `docs/archive/OpenDataLoader_PDF_Hard_Doc_Manifest_Spec_2026-03-20.md`
+    - `docs/reports/OpenDataLoader_Sidecar_First_Run_2026-03-27.md`
+    - `docs/reports/OpenDataLoader_Sidecar_Inspection_2026-03-27.md`
 
 ## Queued
 
