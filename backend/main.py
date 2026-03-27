@@ -183,6 +183,9 @@ async def api_key_guard(request: Request, call_next):
 
 queue = JobQueue()
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
+FRONTEND_DIST_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
+FRONTEND_DIST_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
 UI_SHELL_PATH = FRONTEND_DIR / "ui-shell.html"
 
@@ -946,11 +949,47 @@ def list_personas(include_disabled: bool = Query(default=False)):
 
 @app.get("/ui", include_in_schema=False)
 def ui_shell():
+    if FRONTEND_DIST_INDEX_PATH.exists():
+        return FileResponse(FRONTEND_DIST_INDEX_PATH)
     if UI_SHELL_PATH.exists():
         return FileResponse(UI_SHELL_PATH)
     if FRONTEND_INDEX_PATH.exists():
         return FileResponse(FRONTEND_INDEX_PATH)
-    raise HTTPException(status_code=404, detail=f"UI shell not found: {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}")
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            "UI shell not found: "
+            f"{FRONTEND_DIST_INDEX_PATH} or {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}"
+        ),
+    )
+
+
+@app.get("/sample.pdf", include_in_schema=False)
+def sample_pdf_asset():
+    path = FRONTEND_DIST_DIR / "sample.pdf"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
+
+
+@app.get("/vite.svg", include_in_schema=False)
+def vite_svg_asset():
+    path = FRONTEND_DIST_DIR / "vite.svg"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
+
+
+@app.get("/assets/{asset_path:path}", include_in_schema=False)
+def frontend_dist_asset(asset_path: str):
+    path = (FRONTEND_DIST_ASSETS_DIR / asset_path).resolve()
+    try:
+        path.relative_to(FRONTEND_DIST_ASSETS_DIR.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=f"Frontend asset not found: {asset_path}") from exc
+    if path.exists() and path.is_file():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
