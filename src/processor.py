@@ -20,6 +20,7 @@ from src.db_utils import (
     save_paper_state,
 )
 from src.schemas import Paper, PaperStatus, PaperTagging
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
 from src.downloader import download_paper
@@ -62,6 +63,20 @@ def last_consecutive_failures(current_streak, success_count, failure_count):
     if success_count > 0:
         return 0 
     return current_streak + failure_count
+
+
+def _merge_feedback_json_payload(feedback_json: str | None, extra_payload: Dict[str, Any]) -> str:
+    if feedback_json:
+        try:
+            parsed = json.loads(feedback_json)
+        except Exception:
+            payload: Dict[str, Any] = {"raw_feedback_json": str(feedback_json)}
+        else:
+            payload = parsed if isinstance(parsed, dict) else {"raw_feedback_json": feedback_json}
+    else:
+        payload = {}
+    payload.update(extra_payload)
+    return json.dumps(payload, ensure_ascii=False)
 
 class PaperProcessor:
     def __init__(self):
@@ -380,6 +395,34 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     tags = tag_payload.get("soft_tags", []) or []
                     confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
 
+                features = getattr(config.llm, "features", None)
+                clinical_extraction_feature = (
+                    getattr(features, "clinical_extraction", None)
+                    or getattr(features, "specialty_trial_extraction", None)
+                    or getattr(features, "trial_extraction", None)
+                )
+                clinical_extraction_enabled = bool(getattr(clinical_extraction_feature, "enabled", False))
+                clinical_extraction: Optional[BiomedicalClinicalExtraction] = None
+                if analysis_available and resolved_slot.lower() == "clinical" and clinical_extraction_enabled:
+                    extract_clinical = getattr(llm, "extract_biomedical_clinical_data", None)
+                    if callable(extract_clinical):
+                        try:
+                            extraction_candidate = extract_clinical(
+                                {
+                                    "title": paper.title,
+                                    "summary": paper.summary,
+                                    "link": paper.link,
+                                    "doi": paper.doi or paper.id,
+                                    "authors": paper.authors,
+                                    "published": paper.published,
+                                    "source": paper.source,
+                                }
+                            )
+                            if isinstance(extraction_candidate, BiomedicalClinicalExtraction):
+                                clinical_extraction = extraction_candidate
+                        except Exception as exc:
+                            logger.warning("Clinical extraction failed for %s: %s", paper.id, exc)
+
                 if confidence >= config.confidence_thresholds.high:
                     status = PaperStatus.APPROVED
                 elif confidence < config.confidence_thresholds.low:
@@ -443,11 +486,17 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     row.get("feedback_json"),
                     intake_override_log,
                 )
+                if clinical_extraction is not None:
+                    row["clinical_data"] = clinical_extraction.model_dump(mode="json")
+                    row["feedback_json"] = _merge_feedback_json_payload(
+                        row.get("feedback_json"),
+                        {"clinical_data": row["clinical_data"]},
+                    )
                 
                 results.append(row)
 
                 try:
-                    save_paper_to_obsidian(row, config)
+                    save_paper_to_obsidian(row, config, extraction=clinical_extraction)
                 except Exception:
                     pass
                 try:
