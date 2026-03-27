@@ -39,7 +39,25 @@ def test_build_deepread_structured_state_candidate_from_modern_bundle(tmp_path):
             "artifact_index_written": True,
             "artifact_claimset_written": True,
             "artifact_stats_written": True,
+            "artifact_acceptance_contract_written": True,
+            "artifact_quality_gate_written": True,
+            "artifact_clinical_extraction_written": True,
+            "clinical_extraction_status": "completed",
+            "clinical_extraction_note_type": "clinical",
             "anchor_verify_summary": {"pass": 3, "warn": 0, "fail": 0, "no_api": 0},
+        },
+    )
+    _write_json(
+        artifact_dir / "quality_gate.json",
+        {
+            "workflow": "deep_read",
+            "paper_id": "paper-1",
+            "run_id": "run-123",
+            "overall_status": "pass",
+            "current_promotion_candidate": True,
+            "review_ready": True,
+            "checks": [],
+            "reason_codes": [],
         },
     )
     _write_json(
@@ -67,6 +85,39 @@ def test_build_deepread_structured_state_candidate_from_modern_bundle(tmp_path):
             ],
         },
     )
+    _write_json(
+        artifact_dir / "clinical_extraction.json",
+        {
+            "paper_id": "paper-1",
+            "citation": {
+                "title": "Clinical bundle",
+                "authors_first": "Kim",
+                "year": 2026,
+                "journal_or_server": "Test Journal",
+                "doi": "10.1000/clinical-bundle",
+                "url": "https://example.org/clinical-bundle",
+            },
+            "study_design": {},
+            "population": {
+                "condition": "Metastatic non-small cell lung cancer",
+                "n_total": 52,
+            },
+            "intervention": {
+                "category": "small_molecule",
+                "name": "Targeted therapy",
+            },
+            "comparator": {"category": "placebo"},
+            "outcomes": {"primary": [], "secondary": [], "biomarkers": [], "safety": []},
+            "safety_adherence": {},
+            "eligibility_flags": {
+                "followup_tag": "therapeutic",
+            },
+            "extraction_quality": {
+                "confidence": "medium",
+                "missing_fields": [],
+            },
+        },
+    )
 
     state = build_deepread_structured_state_candidate(
         paper_slug="demo-note",
@@ -83,9 +134,26 @@ def test_build_deepread_structured_state_candidate_from_modern_bundle(tmp_path):
     assert state.signals["parser_backend"] == "docling"
     assert state.signals["claimset_readiness"] == "ready"
     assert state.signals["verification_status"] == "completed"
+    assert state.signals["artifact_acceptance_contract_written"] is True
+    assert state.signals["artifact_quality_gate_written"] is True
+    assert state.signals["artifact_clinical_extraction_written"] is True
+    assert state.signals["clinical_extraction_status"] == "completed"
+    assert state.signals["clinical_extraction_note_type"] == "clinical"
+    assert state.signals["clinical_condition"] == "Metastatic non-small cell lung cancer"
+    assert state.signals["clinical_intervention"] == "Targeted therapy, small molecule"
+    assert state.signals["clinical_followup_tag"] == "therapeutic"
+    assert state.signals["quality_gate_status"] == "pass"
+    assert state.signals["quality_gate_review_ready"] is True
     assert len(state.claimset) == 1
     assert state.claimset[0].run_id == "run-123"
     assert state.claimset[0].evidence[0].run_id == "run-123"
+    assert state.runs[0].data["quality_gate_status"] == "pass"
+    assert state.runs[0].data["review_ready"] is True
+    assert state.runs[0].artifacts["clinical_extraction_path"].endswith("clinical_extraction.json")
+    assert state.runs[0].data["clinical_extraction_status"] == "completed"
+    assert state.runs[0].data["clinical_condition"] == "Metastatic non-small cell lung cancer"
+    assert state.runs[0].data["clinical_intervention"] == "Targeted therapy, small molecule"
+    assert state.runs[0].data["clinical_followup_tag"] == "therapeutic"
     assert state.outcomes == ["finding"]
     assert not (tmp_path / ".pp" / "demo-note" / "state.json").exists()
 
@@ -134,6 +202,9 @@ def test_promote_deepread_structured_state_for_note_writes_canonical_state_and_f
             "claimset_ops_note": "ready",
             "claimset_ready": True,
             "artifact_claimset_written": True,
+            "artifact_clinical_extraction_written": True,
+            "clinical_extraction_status": "completed",
+            "clinical_extraction_note_type": "clinical",
         },
     )
     _write_json(
@@ -150,6 +221,28 @@ def test_promote_deepread_structured_state_for_note_writes_canonical_state_and_f
             ],
         },
     )
+    _write_json(
+        artifact_dir / "clinical_extraction.json",
+        {
+            "paper_id": "paper-3",
+            "citation": {
+                "title": "Projected clinical bundle",
+                "authors_first": "Park",
+                "year": 2026,
+                "journal_or_server": "Clinical Notes",
+                "doi": "10.1000/projected-clinical",
+                "url": "https://example.org/projected-clinical",
+            },
+            "study_design": {},
+            "population": {"condition": "Ulcerative colitis", "n_total": 40},
+            "intervention": {"category": "biologic", "name": "Monoclonal antibody"},
+            "comparator": {"category": "placebo"},
+            "outcomes": {"primary": [], "secondary": [], "biomarkers": [], "safety": []},
+            "safety_adherence": {},
+            "eligibility_flags": {"followup_tag": "therapeutic"},
+            "extraction_quality": {"confidence": "medium", "missing_fields": []},
+        },
+    )
 
     result = promote_deepread_structured_state_for_note(
         vault_path=vault_path,
@@ -162,6 +255,9 @@ def test_promote_deepread_structured_state_for_note_writes_canonical_state_and_f
     assert state is not None
     assert state.runs[0].action == "deep_read"
     assert state.signals["state_source"] == "deep_read_promotion"
+    assert state.signals["clinical_condition"] == "Ulcerative colitis"
+    assert state.signals["clinical_intervention"] == "Monoclonal antibody, biologic"
+    assert state.runs[0].data["clinical_extraction_status"] == "completed"
     note_text = note_path.read_text(encoding="utf-8")
     assert "structured_path: .pp/demo-note/state.json" in note_text
     assert "deep_read" in note_text

@@ -10,6 +10,7 @@ from src.contracts.output_bridge import (
     claim_cards_from_claimset_payload,
     normalize_claimset_payload,
 )
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.skills import SkillRunRecord, StructuredPaperState
 from src.skills.storage import (
     atomic_write_text,
@@ -47,18 +48,33 @@ def build_deepread_structured_state_candidate(
     bootstrap_meta = _load_json_dict(artifact_dir / "bootstrap_meta.json") or {}
     run_id = str(run_meta.get("run_id") or artifact_dir.name).strip() or artifact_dir.name
     run_ts = _select_run_timestamp(run_meta)
+    clinical_extraction = _load_biomedical_clinical_extraction(artifact_dir)
+    clinical_artifact_path = artifact_dir / "clinical_extraction.json"
+    clinical_status = str(
+        run_meta.get("clinical_extraction_status")
+        or bootstrap_meta.get("clinical_extraction_status")
+        or ""
+    ).strip() or None
+    clinical_note_type = str(bootstrap_meta.get("clinical_extraction_note_type") or "").strip() or None
 
     claim_cards = bind_claim_cards_to_run(claim_cards_from_claimset_payload(claimset_payload), run_id)
     claim_count = len(claim_cards)
     evidence_count = sum(len(card.evidence) for card in claim_cards)
     parser_backend = str(run_meta.get("parser_backend") or bootstrap_meta.get("parser_backend") or "").strip() or None
     claimset_readiness = str(bootstrap_meta.get("claimset_readiness") or "").strip() or None
+    quality_gate = _load_json_dict(artifact_dir / "quality_gate.json") or {}
+    quality_gate_status = str(quality_gate.get("overall_status") or "").strip() or None
+    clinical_summary = _build_clinical_extraction_summary(clinical_extraction)
 
     summary_parts = [f"Projected Deep Read artifact bundle into canonical state ({claim_count} claims"]
     if parser_backend:
         summary_parts.append(f", parser={parser_backend}")
     if claimset_readiness:
         summary_parts.append(f", readiness={claimset_readiness}")
+    if quality_gate_status:
+        summary_parts.append(f", gate={quality_gate_status}")
+    if clinical_status == "completed" and clinical_summary["condition"]:
+        summary_parts.append(f", clinical={clinical_summary['condition']}")
     summary_parts.append(").")
     run_record = SkillRunRecord(
         id=run_id,
@@ -73,6 +89,9 @@ def build_deepread_structured_state_candidate(
             "claimset_source": "claimset.resolved.json",
             "claimset_path": str(artifact_dir / "claimset.resolved.json"),
             "stats_report_path": str(artifact_dir / "stats_report.json"),
+            "acceptance_contract_path": str(artifact_dir / "acceptance_contract.json"),
+            "quality_gate_path": str(artifact_dir / "quality_gate.json"),
+            "clinical_extraction_path": str(clinical_artifact_path) if clinical_artifact_path.exists() else None,
         },
         data={
             "claim_count": claim_count,
@@ -80,6 +99,14 @@ def build_deepread_structured_state_candidate(
             "claimset_readiness": claimset_readiness,
             "claimset_ready": bootstrap_meta.get("claimset_ready"),
             "verification_status": run_meta.get("verification_status"),
+            "quality_gate_status": quality_gate.get("overall_status"),
+            "review_ready": quality_gate.get("review_ready"),
+            "current_promotion_candidate": quality_gate.get("current_promotion_candidate"),
+            "clinical_extraction_status": clinical_status,
+            "clinical_extraction_note_type": clinical_note_type,
+            "clinical_condition": clinical_summary["condition"],
+            "clinical_intervention": clinical_summary["intervention"],
+            "clinical_followup_tag": clinical_summary["followup_tag"],
         },
     )
 
@@ -105,8 +132,19 @@ def build_deepread_structured_state_candidate(
             "artifact_index_written": bootstrap_meta.get("artifact_index_written"),
             "artifact_claimset_written": bootstrap_meta.get("artifact_claimset_written"),
             "artifact_stats_written": bootstrap_meta.get("artifact_stats_written"),
+            "artifact_acceptance_contract_written": bootstrap_meta.get("artifact_acceptance_contract_written"),
+            "artifact_quality_gate_written": bootstrap_meta.get("artifact_quality_gate_written"),
+            "artifact_clinical_extraction_written": bootstrap_meta.get("artifact_clinical_extraction_written"),
+            "clinical_extraction_status": clinical_status,
+            "clinical_extraction_note_type": clinical_note_type,
+            "clinical_condition": clinical_summary["condition"],
+            "clinical_intervention": clinical_summary["intervention"],
+            "clinical_followup_tag": clinical_summary["followup_tag"],
             "verification_status": run_meta.get("verification_status"),
             "anchor_verify_summary": bootstrap_meta.get("anchor_verify_summary"),
+            "quality_gate_status": quality_gate.get("overall_status"),
+            "quality_gate_review_ready": quality_gate.get("review_ready"),
+            "quality_gate_current_promotion_candidate": quality_gate.get("current_promotion_candidate"),
             "claim_count": claim_count,
             "evidence_count": evidence_count,
         }
@@ -173,6 +211,44 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _load_biomedical_clinical_extraction(artifact_dir: Path) -> BiomedicalClinicalExtraction | None:
+    payload = _load_json_dict(artifact_dir / "clinical_extraction.json")
+    if payload is None:
+        return None
+    try:
+        return BiomedicalClinicalExtraction.model_validate(payload)
+    except Exception:
+        return None
+
+
+def _build_clinical_extraction_summary(
+    extraction: BiomedicalClinicalExtraction | None,
+) -> dict[str, str | None]:
+    if extraction is None:
+        return {
+            "condition": None,
+            "intervention": None,
+            "followup_tag": None,
+        }
+
+    intervention_parts: list[str] = []
+    if extraction.intervention.name:
+        intervention_parts.append(extraction.intervention.name)
+    if extraction.intervention.category != "unknown":
+        intervention_parts.append(extraction.intervention.category.replace("_", " "))
+    intervention = ", ".join(intervention_parts) or None
+
+    followup_tag = extraction.eligibility_flags.followup_tag
+    if followup_tag == "unknown":
+        followup_tag = None
+
+    return {
+        "condition": extraction.population.condition or None,
+        "intervention": intervention,
+        "followup_tag": followup_tag,
+    }
 
 
 def _normalize_run_status(value: Any) -> str:
