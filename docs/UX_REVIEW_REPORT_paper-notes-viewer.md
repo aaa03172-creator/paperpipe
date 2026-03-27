@@ -410,6 +410,50 @@ Reviewer: Codex
   - current wording(`Inspect`, `Review details`, `Current focus`)이 이미지 artifact에도 그대로 반영되도록 정렬
   - spacing audit은 별도 layout patch 없이 종료
 
+## 7.14) Missing Structured State Truth-Visibility Checkpoint (2026-03-28)
+- Screen/Flow: `/papers/:slug` detail, especially notes with no canonical `.pp/<slug>/state.json`
+- Goal action: 사용자가 note detail을 열었을 때 "지금 읽는 note는 열렸지만 canonical structured sidecar는 로드되지 않았다"는 사실을 바로 이해한다.
+- Primary persona: note detail에서 읽기와 검수를 섞어 쓰는 단일 연구자/operator
+- Current friction:
+  - backend는 `context_trace`와 `structured_state_loaded -> missing`을 이미 내려주지만, frontend detail은 이를 소비하지 않아 generic empty copy만 보인다.
+  - 그래서 사용자는 `No structured runs recorded yet.`를 보고 "아직 실행 안 했나?", "sidecar가 비었나?", "sidecar가 아예 없나?"를 구분하기 어렵다.
+- Truth/provenance gap:
+  - canonical structured truth의 부재는 runtime이 이미 알고 있지만, detail UI가 plain-language truth로 드러내지 않는다.
+  - 이는 storage/schema 문제가 아니라 visibility 문제다.
+- Quick decision:
+  - layout/order는 유지한다.
+  - missing structured state일 때만 작은 notice를 추가한다.
+  - `context_trace`는 full debug panel로 승격하지 않고, compact summary/source-path disclosure로만 쓴다.
+- 6P storyboard context:
+  - Problem: 사용자는 note detail을 열었는데 structured review가 비어 있고, 왜 비었는지 바로 알 수 없다.
+  - Emotion: "이 note가 아직 준비 안 된 건가, 내가 뭘 놓친 건가?"라는 불확실성이 생긴다.
+  - Action: detail route를 열고 structured review/claims 패널을 본다.
+  - Struggle: generic empty state가 canonical sidecar 부재와 단순 빈 데이터 상태를 섞어버린다.
+  - Attempt: backend가 이미 주는 `context_trace`와 expected sidecar path를 compact하게 드러낸다.
+  - Happy Ending: 사용자는 note는 읽을 수 있지만 structured sidecar가 없어서 run history/claims가 비어 있다는 점을 한 번에 이해한다.
+- BMAP:
+  - Motivation: 높음. 사용자는 structured review 가능 여부를 빠르게 알고 싶다.
+  - Ability: 작은 notice와 source-path disclosure만으로 해석 비용을 크게 줄일 수 있다.
+  - Prompt: empty-state 바로 위에서 보여주는 것이 가장 자연스럽다.
+- B.I.A.S:
+  - Block: generic empty copy는 canonical truth를 흐린다.
+  - Interpret: `No saved structured state was loaded` 같은 plain-language notice가 의미를 즉시 고정한다.
+  - Act: 사용자는 Workbench handoff나 later repair action을 더 정확히 판단할 수 있다.
+  - Store: detail route가 숨기지 않고 말해준다는 신뢰가 남는다.
+- Peak-End:
+  - Peak는 missing state가 "실행 전/비어 있음/없음" 중 무엇인지 즉시 읽히는 순간이다.
+  - Pit는 generic empty cards만 보여서 operator가 상태를 추측해야 하는 순간이다.
+  - Transition은 note reading -> structured review -> workbench handoff이며, notice가 이 전환을 더 정직하게 만든다.
+- Ethics:
+  - Regret: 통과. 이미 알고 있는 runtime truth를 더 명확하게 보여주는 변화다.
+  - Black Mirror: 통과. 불안을 과장하지 않고, 존재하는 결손만 설명한다.
+  - In Real-Life: 통과. 좋은 연구 assistant가 "파일은 열렸지만 structured sidecar는 아직 없어요"라고 말해주는 수준이다.
+- Concrete change:
+  - `PaperNoteDetailResponse` frontend type에 `context_trace`를 반영한다.
+  - `structured_state == null`이면서 backend trace가 `structured_state_loaded -> missing`인 경우, detail route에 compact notice를 노출한다.
+  - notice에는 expected sidecar path와 compact trace summary만 담고, 별도 debug panel은 만들지 않는다.
+  - existing paper-note detail backend/visual coverage에 새 truth-visibility assertion을 추가한다.
+
 ## 8) Next PR-sized actions
 이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`다.
 
