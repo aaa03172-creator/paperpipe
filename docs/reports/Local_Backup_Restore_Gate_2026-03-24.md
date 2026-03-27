@@ -3,7 +3,7 @@
 Status: Active
 Date: 2026-03-24
 Owner: Lattice runtime maintainers
-Canonical parent: `docs/archive/Local_Backup_and_Restore_Semantics_RFC_2026-03-18.md`
+Canonical parent: `docs/reports/Deferred_Lanes_Recheck_2026-03-24.md`
 
 ## Purpose
 

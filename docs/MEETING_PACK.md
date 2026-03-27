@@ -9,11 +9,8 @@ Related docs:
 - `docs/WEB_VIEWER.md`
 - `docs/API_CHAT_CONTRACT.md`
 - `docs/RESEARCH_DNA.md`
-- `docs/archive/Meeting_Pack_Fit_Review_2026-03-13.md`
-- `docs/archive/Meeting_Pack_v1_Implementation_Plan_2026-03-13.md`
-- `docs/archive/Meeting_Pack_Real_Probe_2026-03-13.md`
-- `docs/archive/Meeting_Pack_Profile_Projection_Real_Probe_2026-03-13.md`
-- `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
+- historical rollout notes existed during bounded implementation but are not promoted in the current shared docs surface
 
 ## Current Implementation Status
 - Implemented in the current runtime:
@@ -172,7 +169,7 @@ Shared rule:
 - traces should stay additive and cheap enough to persist without opening a new observability subsystem
 
 ## Historical V1 Checklist Review (2026-03-13)
-`Meeting Pack` v1 checklist review는 `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`에 기록한다.
+`Meeting Pack` v1 checklist review는 bounded rollout 동안 기록됐지만 현재 shared docs surface에는 별도 tracked note로 승격되지 않았다.
 
 현재 판정:
 - `generation works from real inputs`: pass

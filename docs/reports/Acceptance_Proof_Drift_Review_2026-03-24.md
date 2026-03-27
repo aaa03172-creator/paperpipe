@@ -34,9 +34,9 @@ Main risk:
 ### A. The current release story is already narrower than the old baseline story
 
 Repo anchors:
-- `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
-- `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
-- `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+- `docs/Pending_PR_Queue.md`
 
 Why this is aligned:
 - current release docs already keep the first-product promise narrow
@@ -58,12 +58,11 @@ Why this is aligned:
 ### A. Historical baseline proof and release-proof were not sharply separated enough
 
 Repo evidence:
-- `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
 - `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
-- `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md`
 
 Issue:
-- the checklist already said “rerun before release,” but it still leaned on the older baseline recheck in a way that could make it feel closer to a release-proof note than it really is.
+- the surviving release-facing evidence note still leans on the older baseline recheck as support, so the distinction between historical confidence and current release proof must stay explicit.
 
 Why this matters:
 - the 2026-03-18 baseline note is useful historical support
@@ -75,7 +74,7 @@ Action taken:
 ### B. Some release-proof checks were described, not command-anchored
 
 Repo evidence:
-- `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
 - `frontend/package.json`
 
 Issue:
@@ -96,23 +95,13 @@ Role:
 - useful confidence input
 - not sufficient by itself for a release claim
 
-### Current release-shape decision notes
+### Current release evidence note
 
-- `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
-- `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
-
-Role:
-- define the current first-product promise
-- define the current go/no-go framing
-
-### Current blocker/evidence notes
-
-- `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md`
-- `docs/reports/Deep_Read_Structured_State_Gap_2026-03-24.md`
+- `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
 
 Role:
-- override generic confidence with release-scoped evidence where needed
-- keep deep-read/state-surfacing rows `yellow` until closed
+- capture the bounded first-product rehearsal on current master
+- carry the current release-facing evidence without pretending older baseline support is sufficient by itself
 
 ### Concrete rerun anchors
 

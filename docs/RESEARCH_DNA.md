@@ -693,7 +693,6 @@ governance:
 7. `scripts/evaluate_search.py`
 
 ## References
-- `docs/archive/Deep_Research_Report5_Fit_Review_2026-03-11.md`
-- `docs/archive/Prompt_Review_Integrated_Priority_2026-03-11.md`
-- `docs/archive/Prompt_Review_01_Autoresearch_Search_2026-03-11.md`
-- `docs/archive/Prompt_Review_05_Research_DNA_2026-03-11.md`
+- `docs/Pending_PR_Queue.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+- `docs/reports/Research_DNA_Artifacts_Staging_Prep_2026-03-22.md`
