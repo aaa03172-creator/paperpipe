@@ -20,6 +20,7 @@ from src.db_utils import (
 )
 from src.logger import setup_logging
 from src.services.runtime_paths import logs_root
+from src.services.runtime_readiness import collect_runtime_readiness
 from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
@@ -205,6 +206,26 @@ def doctor():
 
     console.print("[bold green]All systems go![/bold green]")
     logger.info("Doctor check completed.")
+
+
+@app.command("self-test")
+def self_test(json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output.")):
+    """Run a narrow installability-focused runtime readiness check."""
+    readiness = collect_runtime_readiness()
+
+    if json_output:
+        _emit_json(readiness.model_dump())
+    else:
+        console.print("[bold blue]🧪 Runtime self-test[/bold blue]")
+        for check in readiness.checks:
+            icon = "✅" if check.status == "ok" else "⚠️" if check.status == "warn" else "❌"
+            console.print(f"{icon} {check.name}: {check.detail}")
+            if check.path:
+                console.print(f"   - Path: {check.path}")
+        console.print(f"Overall: [bold]{readiness.status}[/bold]")
+
+    if readiness.status == "error":
+        raise typer.Exit(code=1)
 
 
 @app.command()
