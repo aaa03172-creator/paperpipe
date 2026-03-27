@@ -42,7 +42,7 @@ The next safe move is not to open a new platform-shaped lane by momentum alone.
 
 Current state:
 - file-backed schema/store are implemented
-- the API question is explicitly gated in `docs/reports/Project_Memory_API_Gate_2026-03-23.md`
+- no tracked `Project Memory API` gate note is currently promoted on `master`
 
 What is still missing:
 - an approved bounded project/workspace concept in the current master spec
@@ -85,9 +85,8 @@ Preferred next move:
 
 ## References
 
-- `docs/reports/Project_Memory_API_Gate_2026-03-23.md`
 - `docs/reports/Local_Backup_Restore_Gate_2026-03-24.md`
-- `docs/reports/Bounded_Layer_Promotion_Review_2026-03-23.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
 - `docs/Pending_PR_Queue.md`
 
 ## Conclusion

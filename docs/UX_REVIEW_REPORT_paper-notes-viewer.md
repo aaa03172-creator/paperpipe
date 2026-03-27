@@ -16,7 +16,7 @@ Reviewer: Codex
 - Decision checkpoint:
   - `issues_state`는 backend contract로 유지하되, 현재는 `issues_label` 기반 backend derivation이라는 점을 기록한다.
   - richer taxonomy(`review_flags[]`)는 source-of-truth가 생기기 전까지 도입하지 않는다.
-  - cross-surface viewer/workbench 후속 작업은 repo-wide queue와 분리된 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`에서 추적하고, flow-local trigger backlog는 해당 UX review report에 남긴다.
+  - cross-surface viewer/workbench 후속 작업은 repo-wide queue와 이 UX review report의 flow-local trigger backlog에서 추적한다.
 - Success metric: `/papers` 진입 후 2분 내 목표 논문 도달률, 상세 화면에서 related 클릭률, note -> workbench 전환률
 - Constraints:
   - 기존 Lattice 런타임은 FastAPI + Vite + React Router 기반이다.
@@ -455,7 +455,7 @@ Reviewer: Codex
   - existing paper-note detail backend/visual coverage에 새 truth-visibility assertion을 추가한다.
 
 ## 8) Next PR-sized actions
-이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 `docs/PAPER_NOTES_WORKBENCH_QUEUE.md`다.
+이 섹션은 cross-surface viewer/workbench backlog의 요약이며, scoped source of truth는 이 UX review report와 repo-wide queue에 남긴 bounded follow-up들이다.
 
 1. batch producer와 watcher local producer 외의 producer/artifact level source가 준비되면 `issues_state`를 추가 승격할지 검토하기
 2. 실제 note volume과 사용 패턴을 본 뒤에만 list density preset을 검토하기
