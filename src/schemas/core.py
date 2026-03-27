@@ -225,6 +225,124 @@ class PaperTagging(BaseModel):
 
 # --- Main Schema ---
 
+class BiomedicalPopulation(BaseModel):
+    condition: Optional[str] = None
+    cohort_description: Optional[str] = None
+    inclusion_criteria: List[str] = Field(default_factory=list)
+    exclusion_criteria: List[str] = Field(default_factory=list)
+    n_total: int = 0
+    n_intervention: int = 0
+    n_control: int = 0
+    age_mean: float = 0.0
+    age_sd: float = 0.0
+    sex_female_percent: float = 0.0
+    notes: Optional[str] = None
+
+
+class BiomedicalIntervention(BaseModel):
+    category: Literal[
+        "small_molecule",
+        "biologic",
+        "cell_therapy",
+        "gene_therapy",
+        "device",
+        "procedure",
+        "diet",
+        "behavioral",
+        "biomaterial",
+        "combination",
+        "diagnostic",
+        "other",
+        "unknown",
+    ] = "unknown"
+    name: Optional[str] = None
+    dose: Optional[str] = None
+    route: Optional[str] = None
+    schedule: Optional[str] = None
+    duration_weeks: int = 0
+    cointerventions: List[str] = Field(default_factory=list)
+
+
+class BiomedicalComparator(BaseModel):
+    category: Literal["placebo", "usual_care", "active_control", "historical_control", "none", "other", "unknown"] = "unknown"
+    description: Optional[str] = None
+
+
+class BiomedicalEndpoint(BaseModel):
+    name: str
+    domain: Literal[
+        "primary",
+        "secondary",
+        "safety",
+        "biomarker",
+        "quality_of_life",
+        "function",
+        "survival",
+        "pharmacokinetics",
+        "feasibility",
+        "other",
+        "unknown",
+    ] = "unknown"
+    timepoint_weeks: int = 0
+    effect_direction: Literal["improved", "worsened", "no_change", "mixed", "not_applicable", "unknown"] = "unknown"
+    result_summary: Optional[str] = None
+    effect_size: Optional[str] = None
+    p_value: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class BiomedicalOutcomes(BaseModel):
+    primary: List[BiomedicalEndpoint] = Field(default_factory=list)
+    secondary: List[BiomedicalEndpoint] = Field(default_factory=list)
+    biomarkers: List[BiomedicalEndpoint] = Field(default_factory=list)
+    safety: List[BiomedicalEndpoint] = Field(default_factory=list)
+
+
+class BiomedicalSafetyAdherence(BaseModel):
+    adherence_reported: bool = False
+    adherence_summary: Optional[str] = None
+    adverse_events_reported: bool = False
+    adverse_events_summary: Optional[str] = None
+    serious_adverse_events: Optional[str] = None
+    dropout_n_total: int = 0
+    dropout_reasons: List[str] = Field(default_factory=list)
+
+
+class BiomedicalEligibilityFlags(BaseModel):
+    is_human_clinical_study: bool = True
+    fits_biomedical_scope: bool = True
+    reason_if_excluded: Optional[str] = None
+    followup_tag: Literal["therapeutic", "diagnostic", "device", "biomarker", "observational", "mixed", "other", "unknown"] = "unknown"
+
+
+class BiomedicalExtractionQuality(BaseModel):
+    confidence: Literal["high", "medium", "low"] = "low"
+    missing_fields: List[str] = Field(default_factory=list)
+
+
+class BiomedicalClinicalExtraction(BaseModel):
+    """Generic biomedical clinical extraction schema for the default workspace clinical lane."""
+
+    paper_id: str
+    citation: Citation
+    study_design: StudyDesign = Field(default_factory=StudyDesign)
+    population: BiomedicalPopulation = Field(default_factory=BiomedicalPopulation)
+    intervention: BiomedicalIntervention = Field(default_factory=BiomedicalIntervention)
+    comparator: BiomedicalComparator = Field(default_factory=BiomedicalComparator)
+    outcomes: BiomedicalOutcomes = Field(default_factory=BiomedicalOutcomes)
+    safety_adherence: BiomedicalSafetyAdherence = Field(default_factory=BiomedicalSafetyAdherence)
+    eligibility_flags: BiomedicalEligibilityFlags = Field(default_factory=BiomedicalEligibilityFlags)
+    extraction_quality: BiomedicalExtractionQuality = Field(default_factory=BiomedicalExtractionQuality)
+
+    @staticmethod
+    def default_scope_note() -> str:
+        return (
+            "This is the default biomedical clinical extraction contract for human clinical and "
+            "translational studies across biomedical domains. It should stay domain-neutral and "
+            "must not assume neuroscience-, Alzheimer-, MCI-, or ketone-specific scope unless a "
+            "specialty profile explicitly selects that lane."
+        )
+
 class TrialExtraction(BaseModel):
     """Specialized clinical extraction schema for the MCI/MCT/ketone review lane."""
     paper_id: str
