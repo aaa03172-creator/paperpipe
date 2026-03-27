@@ -12,7 +12,7 @@ def test_health_ready_reports_runtime_checks():
 
     assert payload["status"] in {"ok", "degraded", "error"}
     names = {entry["name"] for entry in payload["checks"]}
-    assert {"config_file", "runtime_db", "storage_root", "logs_root", "cache_root", "ui_bundle"} <= names
+    assert {"config_file", "config_root", "runtime_db", "storage_root", "logs_root", "cache_root", "ui_bundle"} <= names
 
 
 def test_health_ready_masks_paths_when_enabled(monkeypatch):
