@@ -27,6 +27,18 @@ class DownloaderOpsMetricsResponse(BaseModel):
     alerts: list[str] = Field(default_factory=list)
 
 
+class RuntimeReadinessCheck(BaseModel):
+    name: str
+    status: Literal["ok", "warn", "error"] = "ok"
+    detail: str = ""
+    path: Optional[str] = None
+
+
+class RuntimeReadinessResponse(BaseModel):
+    status: Literal["ok", "degraded", "error"] = "ok"
+    checks: list[RuntimeReadinessCheck] = Field(default_factory=list)
+
+
 class ArtifactFileEntry(BaseModel):
     exists: bool = False
     path: Optional[str] = None
