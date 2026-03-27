@@ -35,12 +35,12 @@ def test_summarize_counts_invalid_and_mismatch_cases() -> None:
     assert summary["approved_count"] == 1
 
 
-def test_load_real_fixture_has_mixed_historic_outcomes() -> None:
+def test_load_real_fixture_matches_current_policy_baseline() -> None:
     cases = _load_fixture(REAL_FIXTURE_PATH)
 
     approved = sum(1 for case in cases if case.get("expected_approved") is True)
     rejected = sum(1 for case in cases if case.get("expected_approved") is False)
 
-    assert len(cases) >= 8
-    assert approved >= 5
-    assert rejected >= 2
+    assert len(cases) == 10
+    assert approved == 4
+    assert rejected == 6
