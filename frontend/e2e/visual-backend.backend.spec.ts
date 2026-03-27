@@ -232,6 +232,7 @@ test("visual regression (backend, desktop): paper note detail layout", async ({ 
   await expect(page.locator("aside").filter({ hasText: "Properties" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "References" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open in Workbench" }).first()).toBeVisible();
+  await expect(page.getByTestId("paper-note-structured-state-notice")).toBeVisible();
 });
 
 test("visual regression (backend, desktop): workbench rail layout", async ({ page }) => {
@@ -301,6 +302,7 @@ test.describe("mobile visual regression (backend)", () => {
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Review details" })).toBeVisible();
+    await expect(sheet.getByTestId("paper-note-structured-state-notice")).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Related Papers", exact: true })).toBeVisible();
   });
 

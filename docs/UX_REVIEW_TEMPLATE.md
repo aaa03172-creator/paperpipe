@@ -10,6 +10,7 @@ Canonical parent: `docs/ux-review.md`
 - Goal action:
 - Primary persona:
 - Current friction:
+- Truth/provenance gap:
 - Success metric:
 - Constraints:
 
