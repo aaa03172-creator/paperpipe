@@ -6,8 +6,11 @@ from src.schemas.agent_artifacts import (
     StatCheckEntry,
     VerificationStatus,
 )
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.services.deepread_note_writer import (
     DEEPREAD_HEADER,
+    _format_evidence_text_for_display,
+    build_clinical_extraction_markdown,
     build_deepread_markdown,
     build_stats_markdown,
     upsert_deepread_section,
@@ -34,6 +37,44 @@ def test_build_deepread_markdown_renders_claims():
     assert "Result section evidence" in md
 
 
+def test_build_deepread_markdown_can_include_bounded_clinical_extraction_block():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="efficacy",
+                statement="Drug A improved outcome.",
+                confidence=0.91,
+            )
+        ],
+    )
+    extraction = BiomedicalClinicalExtraction(
+        paper_id="doc1",
+        citation={
+            "title": "Clinical note",
+            "authors_first": "Kim",
+            "year": 2026,
+            "journal_or_server": "Clinical Journal",
+            "doi": None,
+            "url": None,
+        },
+        population={"condition": "Ulcerative colitis", "n_total": 48},
+        intervention={"category": "biologic", "name": "Monoclonal antibody"},
+        outcomes={"primary": [{"name": "Clinical remission", "domain": "primary"}]},
+        eligibility_flags={"followup_tag": "therapeutic"},
+    )
+
+    clinical_md = build_clinical_extraction_markdown(extraction)
+    md = build_deepread_markdown("llama3:latest", claimset, clinical_md=clinical_md)
+
+    assert "### 🏥 Clinical Extraction" in md
+    assert "Ulcerative colitis, n=48" in md
+    assert "Monoclonal antibody, Biologic" in md
+    assert "Clinical remission" in md
+    assert "Therapeutic" in md
+
+
 def test_build_stats_markdown_renders_checks():
     report = StatsReport(
         doc_id="doc1",
@@ -57,6 +98,29 @@ def test_build_stats_markdown_renders_checks():
     assert "Computed" in stats_md
 
 
+def test_build_stats_markdown_renders_notes_when_present():
+    report = StatsReport(
+        doc_id="doc1",
+        run_id="run1",
+        checks=[
+            StatCheckEntry(
+                check_id="c1",
+                test_type="unknown",
+                hypothesis="A > B",
+                reported_p=None,
+                computed_p=None,
+                code="N/A",
+                outputs="Degenerate table shape detected; statistical recomputation skipped.",
+                verdict=VerificationStatus.UNVERIFIABLE,
+                notes="auto_fallback_degenerate_table_shape",
+            )
+        ],
+    )
+    stats_md = build_stats_markdown(report)
+    assert "auto_fallback_degenerate_table_shape" in stats_md
+    assert "Degenerate table shape detected" in stats_md
+
+
 def test_upsert_deepread_section_with_service_contract():
     content = "# Note\n\n## Section\nBody\n"
     claimset = ClaimSet(
@@ -76,38 +140,31 @@ def test_upsert_deepread_section_with_service_contract():
     assert "Claim." in updated
 
 
-def test_build_deepread_markdown_handles_missing_page_and_section():
+def test_build_deepread_markdown_cleans_wrapped_evidence_quote_for_display():
     claimset = ClaimSet(
         doc_id="doc1",
         claims=[
             ScientificClaim(
                 claim_id="c1",
                 type="efficacy",
-                statement="Fallback location claim.",
-                confidence=0.6,
-                evidence_spans=[EvidenceSpan(raw_text="Fallback evidence")],
+                statement="KARI compounds directly inhibit ASM activity.",
+                confidence=0.91,
+                evidence_spans=[
+                    EvidenceSpan(
+                        raw_text="S4 D and E),\nindicating that KARI compounds inhibited ASM activity with-\nout changing mRNA and protein levels.",
+                        quote="S4 D and E),\nindicating that KARI compounds inhibited ASM activity with-\nout changing mRNA and protein levels.",
+                        page=2,
+                    )
+                ],
             )
         ],
     )
+    md = build_deepread_markdown("llama3:latest", claimset)
+    assert "S4 D and E)," not in md
+    assert "with-\nout" not in md
+    assert 'indicating that KARI compounds inhibited ASM activity without changing mRNA and protein levels.' in md
 
-    md = build_deepread_markdown("model-x", claimset)
-    assert "Fallback evidence" in md
-    assert "(Section: Unknown)" in md
 
-
-def test_build_deepread_markdown_renders_table_evidence_without_raw_text():
-    claimset = ClaimSet(
-        doc_id="doc1",
-        claims=[
-            ScientificClaim(
-                claim_id="c1",
-                type="efficacy",
-                statement="Table-backed claim.",
-                confidence=0.6,
-                evidence_spans=[EvidenceSpan(raw_text=" ", table_id="tbl-1", cell_id="r1c1")],
-            )
-        ],
-    )
-
-    md = build_deepread_markdown("model-x", claimset)
-    assert "Table tbl-1, cell r1c1" in md
+def test_format_evidence_text_for_display_is_conservative_when_no_cleanup_needed():
+    text = "Direct evidence snippet from source text."
+    assert _format_evidence_text_for_display(text) == text
