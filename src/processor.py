@@ -23,6 +23,7 @@ from src.schemas import Paper, PaperStatus, PaperTagging
 from src.obsidian import save_paper_to_obsidian
 from src.pdf import extract_text_from_pdf
 from src.downloader import download_paper
+from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
 from src.zotero import export_to_ris
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,24 @@ STATE_QUARANTINED = "QUARANTINED"
 STATE_PENDING = "PENDING_REVIEW"
 STATE_INDEXED = "INDEXED"
 STATE_FAILED = "FAILED"
+
+
+def derive_saved_issues_state(processing_status: PaperStatus | str, *, analysis_available: bool) -> str:
+    if not analysis_available:
+        return "unavailable"
+
+    status_value = processing_status.value if isinstance(processing_status, PaperStatus) else str(processing_status)
+    normalized = status_value.strip().upper()
+    if normalized in {PaperStatus.APPROVED.value, PaperStatus.INDEXED.value}:
+        return "clear"
+    if normalized in {
+        PaperStatus.PENDING_REVIEW.value,
+        PaperStatus.QUARANTINED.value,
+        PaperStatus.FAILED.value,
+    }:
+        return "flagged"
+    return "unavailable"
+
 
 def last_consecutive_failures(current_streak, success_count, failure_count):
     """Updates the consecutive failure streak"""
@@ -327,6 +346,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
     """Legacy batch pipeline used by older tests/scripts."""
     config = load_config()
     llm = get_llm_provider(config.llm, config.entity_aliases)
+    analysis_available = bool(llm and llm.is_available())
     slots = getattr(config.search, "slots", {}) or {}
     fetchers = get_fetchers(config)
     results: List[Dict[str, Any]] = []
@@ -355,7 +375,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
 
                 tags: list[str] = []
                 confidence = 0.0
-                if llm and llm.is_available():
+                if analysis_available:
                     tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
                     tags = tag_payload.get("soft_tags", []) or []
                     confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
@@ -366,6 +386,26 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     status = PaperStatus.QUARANTINED
                 else:
                     status = PaperStatus.PENDING_REVIEW
+
+                issues_state = derive_saved_issues_state(
+                    status,
+                    analysis_available=analysis_available,
+                )
+                intake_override_log = build_intake_override_log(
+                    producer="processor_daily_slots",
+                    analysis_available=analysis_available,
+                    llm_tagging_used=analysis_available,
+                    llm_slot_classification_used=bool(
+                        analysis_available and getattr(config.llm.features.slot_classification, "enabled", False)
+                    ),
+                    input_slot=slot_name,
+                    stored_slot=resolved_slot,
+                    input_tags=tags,
+                    stored_tags=tags,
+                    processing_status=status.value,
+                    issues_state=issues_state,
+                    confidence=confidence,
+                )
 
                 serialized_attempts: list[dict[str, Any]] = []
                 for attempt in (paper.download_attempts or []):
@@ -399,6 +439,10 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     proxy_url = generate_institutional_proxy_url(doi=row["doi"], publisher_url=row["link"])
                     if proxy_url:
                         row["feedback_json"] = upsert_institutional_proxy_link("{}", proxy_url)
+                row["feedback_json"] = merge_feedback_json_with_intake_override(
+                    row.get("feedback_json"),
+                    intake_override_log,
+                )
                 
                 results.append(row)
 
@@ -420,6 +464,7 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                         feedback_json=row.get("feedback_json"),
                         download_attempts=row.get("download_attempts"),
                         status=row["processing_status"].value if hasattr(row["processing_status"], "value") else str(row["processing_status"]),
+                        issues_state=issues_state,
                     )
                 except Exception:
                     pass
