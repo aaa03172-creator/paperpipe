@@ -6,7 +6,7 @@ from pathlib import Path
 from src.config import load_config
 from src.db_utils import get_db_path
 from src.schemas.ops import RuntimeReadinessCheck, RuntimeReadinessResponse
-from src.services.runtime_paths import cache_root, config_file_path, logs_root, storage_root
+from src.services.runtime_paths import cache_root, config_file_path, config_root, logs_root, storage_root
 
 
 def _nearest_existing_parent(path: Path) -> Path:
@@ -60,6 +60,17 @@ def collect_runtime_readiness() -> RuntimeReadinessResponse:
                     path=str(config_path),
                 )
             )
+
+    config_root_path = config_root()
+    config_root_writable = _path_writable_target(config_root_path)
+    checks.append(
+        RuntimeReadinessCheck(
+            name="config_root",
+            status="ok" if config_root_writable else "warn",
+            detail="config root is writable" if config_root_writable else "config root is not writable",
+            path=str(config_root_path),
+        )
+    )
 
     db_path = get_db_path()
     db_writable = _path_writable_target(db_path.parent)
