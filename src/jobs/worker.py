@@ -8,6 +8,7 @@ from pathlib import Path
 from src.jobs.queue import JobQueue
 from backend.services.job_runner import run_deepread_job
 from src.services.event_log import get_execution_run_params
+from src.services.runtime_paths import logs_root
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -38,7 +39,7 @@ class Worker:
         logger.info(f"🚀 Starting Job {job.job_id} (Paper: {job.paper_id})")
         
         # Setup Logs
-        log_dir = Path("logs/jobs")
+        log_dir = logs_root() / "jobs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{job.job_id}.jsonl"
         
