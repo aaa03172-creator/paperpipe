@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import shutil
 
 from src.profiles.profile_schema import Profile, ProfileConfig
@@ -20,6 +21,7 @@ from src.meeting_packs.service import (
 from src.meeting_packs.store import (
     list_meeting_pack_ids,
     load_meeting_pack_markdown,
+    meeting_pack_artifact_path,
     meeting_pack_markdown_path,
     save_meeting_pack_bundle,
 )
@@ -342,6 +344,16 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     assert list_meeting_pack_ids(root) == [response.pack.id]
     stored = get_meeting_pack(response.pack.id, root=root)
     assert stored.pack.retrieval_trace == response.pack.retrieval_trace
+    contract_payload = meeting_pack_artifact_path(response.pack.id, "acceptance_contract.json", root)
+    quality_gate_payload = meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root)
+    assert contract_payload.exists()
+    assert quality_gate_payload.exists()
+    contract = json.loads(contract_payload.read_text(encoding="utf-8"))
+    gate = json.loads(quality_gate_payload.read_text(encoding="utf-8"))
+    assert contract["workflow"] == "meeting_pack"
+    assert gate["overall_status"] == "pass"
+    assert gate["bundle_ready"] is True
+    assert gate["discussion_ready"] is True
 
 
 def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
@@ -594,6 +606,13 @@ def test_generate_meeting_pack_marks_empty_pack_as_background_only(tmp_path):
     assert response.pack.readiness == "background_only"
     assert response.markdown is not None
     assert "- Readiness: background_only" in response.markdown
+    gate = json.loads(
+        meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert gate["overall_status"] == "warn"
+    assert gate["bundle_ready"] is True
+    assert gate["discussion_ready"] is False
+    assert "BACKGROUND_ONLY" in gate["reason_codes"]
 
 
 def test_generate_meeting_pack_keeps_claim_without_direct_support_as_background_only(tmp_path):

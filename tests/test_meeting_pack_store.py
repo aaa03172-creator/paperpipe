@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import pytest
 
 import src.meeting_packs.store as meeting_pack_store
@@ -8,8 +9,10 @@ from src.meeting_packs.store import (
     list_meeting_pack_ids,
     load_meeting_pack,
     load_meeting_pack_markdown,
+    meeting_pack_artifact_path,
     meeting_pack_json_path,
     meeting_pack_markdown_path,
+    save_meeting_pack_artifact_json,
     save_meeting_pack_bundle,
 )
 from src.schemas.meeting_pack import (
@@ -73,6 +76,7 @@ def test_meeting_pack_store_roundtrip_creates_expected_layout(tmp_path):
     assert md_path == meeting_pack_markdown_path(pack.id, root)
     assert loaded.id == pack.id
     assert loaded.title == pack.title
+    assert loaded.output_mode_family == "lab_meeting"
     assert loaded.generation_request is not None
     assert loaded.generation_request.max_slides == 6
     assert loaded_markdown == markdown
@@ -140,3 +144,37 @@ def test_meeting_pack_store_does_not_leave_partial_new_bundle_if_markdown_write_
         save_meeting_pack_bundle(pack, "# First", root)
 
     assert list_meeting_pack_ids(root) == []
+
+
+def test_meeting_pack_store_backfills_output_mode_family_for_legacy_json(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = _sample_pack()
+    json_path = meeting_pack_json_path(pack.id, root)
+    md_path = meeting_pack_markdown_path(pack.id, root)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = pack.model_dump(mode="json")
+    payload.pop("output_mode_family", None)
+    json_path.write_text(json.dumps(payload), encoding="utf-8")
+    md_path.write_text("# Draft", encoding="utf-8")
+
+    loaded = load_meeting_pack(pack.id, root)
+
+    assert loaded.output_mode_family == "lab_meeting"
+
+
+def test_meeting_pack_store_saves_additive_bundle_artifact_json(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = _sample_pack()
+    save_meeting_pack_bundle(pack, "# Draft", root)
+
+    artifact_path = save_meeting_pack_artifact_json(
+        pack.id,
+        "quality_gate.json",
+        {"overall_status": "pass", "discussion_ready": True},
+        root,
+    )
+
+    assert artifact_path == meeting_pack_artifact_path(pack.id, "quality_gate.json", root)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["overall_status"] == "pass"
+    assert payload["discussion_ready"] is True
