@@ -23,6 +23,8 @@ from src.schemas.ops import (
     DownloaderOpsMetricsResponse,
     PersonaListResponse,
     PersonaOption,
+    RuntimeReadinessCheck,
+    RuntimeReadinessResponse,
     RunTimelineEvent,
     RunTimelineResponse,
     StatsRepairRequest,
@@ -79,6 +81,7 @@ from src.services.downloader_ops_metrics import Thresholds, collect_metrics, eva
 from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
+from src.services.runtime_readiness import collect_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from src.services.stats_repair import seed_stats_reports_from_claimset
 from .routers import chart_packs, feedback, image_evidence, meeting_packs, method_comparisons, obsidian, paper_notes, skills
@@ -684,6 +687,23 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
+
+
+@app.get("/health/ready", response_model=RuntimeReadinessResponse)
+def health_ready():
+    readiness = collect_runtime_readiness()
+    return RuntimeReadinessResponse(
+        status=readiness.status,
+        checks=[
+            RuntimeReadinessCheck(
+                name=check.name,
+                status=check.status,
+                detail=check.detail,
+                path=_public_path(check.path),
+            )
+            for check in readiness.checks
+        ],
+    )
 
 
 @app.post("/api/chat", response_model=ChatStubResponse)
