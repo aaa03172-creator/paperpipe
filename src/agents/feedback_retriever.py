@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from src.agents.adapter import OllamaModelAdapter
 from src.config import load_config
 from src.schemas.agent_artifacts import FeedbackCase
+from src.services.runtime_paths import feedback_index_root
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class FeedbackRetriever:
         self.adapter = None
         self._adapter_init_failed = False
 
-        persist_path = "storage/feedback_index"
+        persist_path = str(feedback_index_root())
         try:
             config = load_config()
             if config.agents and getattr(config.agents, "feedback_index_path", None):
