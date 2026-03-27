@@ -48,6 +48,36 @@ def logs_root() -> Path:
     return Path("logs").resolve()
 
 
+def cache_root() -> Path:
+    value = os.getenv("PAPERPIPE_CACHE_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "cache").resolve()
+    return (storage_root() / "cache").resolve()
+
+
+def rag_root() -> Path:
+    value = os.getenv("PAPERPIPE_RAG_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "rag").resolve()
+
+
+def feedback_index_root() -> Path:
+    value = os.getenv("PAPERPIPE_FEEDBACK_INDEX_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "feedback_index").resolve()
+
+
+def ocr_cache_root() -> Path:
+    value = os.getenv("PAPERPIPE_OCR_CACHE_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (cache_root() / "ocr").resolve()
+
+
 def artifacts_root() -> Path:
     value = os.getenv("PAPERPIPE_ARTIFACTS_DIR")
     if value:

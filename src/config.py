@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
-from src.services.runtime_paths import config_file_path
+from src.services.runtime_paths import config_file_path, feedback_index_root, logs_root, rag_root
 
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
@@ -129,14 +129,14 @@ class AgentToolsConfig(BaseModel):
     web_search: bool = False
 
 class AgentLoggingConfig(BaseModel):
-    trace_file: str = "logs/agent_trace.jsonl"
+    trace_file: str = Field(default_factory=lambda: str(logs_root() / "agent_trace.jsonl"))
 
 class AgentConfig(BaseModel):
     enabled: bool = False
     backend: str = "ollama_adapter"
     main_model: str = "llama3:latest"
-    rag_index_path: str = "./storage/rag/"
-    feedback_index_path: str = "./storage/feedback_index/"
+    rag_index_path: str = Field(default_factory=lambda: str(rag_root()))
+    feedback_index_path: str = Field(default_factory=lambda: str(feedback_index_root()))
     tools: AgentToolsConfig = Field(default_factory=AgentToolsConfig)
     logging: AgentLoggingConfig = Field(default_factory=AgentLoggingConfig)
 
