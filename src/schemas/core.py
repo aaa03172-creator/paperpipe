@@ -226,6 +226,7 @@ class PaperTagging(BaseModel):
 # --- Main Schema ---
 
 class TrialExtraction(BaseModel):
+    """Specialized clinical extraction schema for the MCI/MCT/ketone review lane."""
     paper_id: str
     citation: Citation
     study_design: StudyDesign = Field(default_factory=StudyDesign)
@@ -238,6 +239,14 @@ class TrialExtraction(BaseModel):
     risk_of_bias_hints: RiskOfBiasHints = Field(default_factory=RiskOfBiasHints)
     eligibility_flags: EligibilityFlags = Field(default_factory=EligibilityFlags)
     extraction_quality: ExtractionQuality = Field(default_factory=ExtractionQuality)
+
+    @staticmethod
+    def specialty_scope_note() -> str:
+        return (
+            "This contract is a specialty clinical extraction lane for mild cognitive impairment, "
+            "ketone, and medium-chain triglyceride studies. It is not the generic biomedical "
+            "clinical trial schema for the whole workspace."
+        )
 
     @field_validator('eligibility_flags')
     def check_mci_consistency(cls, v, values):
