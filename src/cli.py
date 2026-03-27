@@ -19,6 +19,7 @@ from src.db_utils import (
     DB_PATH as DB_UTILS_PATH,
 )
 from src.logger import setup_logging
+from src.services.runtime_paths import logs_root
 from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
@@ -197,7 +198,7 @@ def doctor():
         else:
             console.print("ℹ️ OpenAI API Key not required in local mode.")
 
-    if Path("logs/paperpipe.log").exists():
+    if (logs_root() / "paperpipe.log").exists():
         console.print("✅ Log file accessible.")
     else:
         console.print("⚠️ Log file not found yet (will be created on first log).")
@@ -445,7 +446,9 @@ def test_filter():
 @app.command()
 def clear_logs():
     """Clear log file"""
-    open("logs/paperpipe.log", "w").close()
+    log_path = logs_root() / "paperpipe.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    open(log_path, "w").close()
     console.print("✅ Logs cleared.")
 
 
@@ -505,7 +508,7 @@ def reset():
             console.print(f"   - Deleted {db_path}")
     
     # 2. Logs
-    log_path = Path("logs/paperpipe.log")
+    log_path = logs_root() / "paperpipe.log"
     if log_path.exists():
         open(log_path, "w").close()
         console.print("   - Cleared logs")
