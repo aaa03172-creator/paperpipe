@@ -208,7 +208,7 @@ Shared rule:
 
 - 상위 canonical 입력 truth:
   - `vault/.pp/<slug>/state.json`
-- explicitly named run artifacts under `storage/artifacts/<paper-segment>/<run_id>/`
+  - explicitly named run artifacts under `storage/artifacts/<paper-segment>/<run_id>/`
 - context-only secondary inputs:
   - paper note frontmatter/body
   - project/research notes
