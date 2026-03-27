@@ -3,10 +3,10 @@
 Status: Active release evidence note  
 Date: 2026-03-25  
 Owner: Runtime/product maintainers  
-Canonical parents:
-- `docs/reports/Release_Rehearsal_Checklist_2026-03-25.md`
-- `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
-- `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+Current posture anchors:
+- `docs/reports/Acceptance_Proof_Drift_Review_2026-03-24.md`
+- `docs/reports/Current_Baseline_Recheck_2026-03-18.md`
+- `docs/reports/Docs_Only_Cleanup_Closeout_2026-03-25.md`
 
 ## Purpose
 
