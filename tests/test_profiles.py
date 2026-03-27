@@ -5,7 +5,7 @@ from src.profiles.profile_schema import Profile, QuerySpec, Limits, ProfileConfi
 from src.profiles.patch_schema import PatchRequest, PatchOp
 from src.profiles.patch_apply import apply_patch
 from src.profiles.risk_rules import validate_profile
-from src.profiles.profile_store import save_profiles, load_profiles
+from src.profiles.profile_store import save_profiles_snapshot, load_profiles
 
 class TestProfileSystem(unittest.TestCase):
     def setUp(self):
@@ -78,14 +78,45 @@ class TestProfileSystem(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("RISK", errors[0])
 
+    def test_risk_rules_accepts_oncology_anchor(self):
+        oncology = Profile(
+            id="oncology_test",
+            title="Oncology Test",
+            query=QuerySpec(
+                must=["mouse", "tumor"]
+            )
+        )
+        self.assertEqual(validate_profile(oncology), [])
+
+    def test_risk_rules_accepts_immunology_anchor(self):
+        immunology = Profile(
+            id="immunology_test",
+            title="Immunology Test",
+            query=QuerySpec(
+                must=["therapy", "t cell"]
+            )
+        )
+        self.assertEqual(validate_profile(immunology), [])
+
+    def test_risk_rules_accepts_biomaterials_anchor(self):
+        biomaterials = Profile(
+            id="biomaterials_test",
+            title="Biomaterials Test",
+            query=QuerySpec(
+                must=["drug", "biomaterial"]
+            )
+        )
+        self.assertEqual(validate_profile(biomaterials), [])
+
     def test_store_io(self):
         """Test save and load."""
         config = ProfileConfig(profiles=[self.profile])
-        save_profiles(config, self.test_yaml)
+        save_profiles_snapshot(config, self.test_yaml)
         
         loaded = load_profiles(self.test_yaml)
         self.assertEqual(len(loaded.profiles), 1)
         self.assertEqual(loaded.profiles[0].id, "neuro_test")
+        self.assertEqual(loaded.profiles[0].revision, 0)
 
 if __name__ == '__main__':
     unittest.main()
