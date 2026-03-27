@@ -1,8 +1,8 @@
 {
   "schema_version": "escalation_judge_real_fixture.v1",
   "recorded_at": "2026-03-27",
-  "expected_source": "historic_gate_decision",
-  "description": "Bounded real-history escalation judge cases recorded from the local PaperPipe state DB. expected_approved mirrors the recorded gate_decision at snapshot time.",
+  "expected_source": "policy_review_2026-03-27",
+  "description": "Bounded real-history escalation judge cases recorded from the local PaperPipe state DB. gate_decision preserves the recorded historic label, while expected_approved tracks the current bounded escalation policy baseline after 2026-03-27 review.",
   "cases": [
     {
       "paper_id": "zotero:kowalskiBrainGutMicrobiotaAxisAlzheimers2019",
@@ -39,7 +39,7 @@
     {
       "paper_id": "zotero:arnstenNeuromodulationThoughtFlexibilities2012",
       "case_id": "arnstenNeuromodulationThoughtFlexibilities2012",
-      "expected_approved": true,
+      "expected_approved": false,
       "gate_decision": "APPROVED",
       "confidence": 0.95,
       "paper": {
@@ -124,7 +124,7 @@
     {
       "paper_id": "zotero:fentonAdvancesBiomaterialsDrug2018",
       "case_id": "fentonAdvancesBiomaterialsDrug2018",
-      "expected_approved": true,
+      "expected_approved": false,
       "gate_decision": "APPROVED",
       "confidence": 0.9,
       "paper": {
@@ -140,7 +140,7 @@
     {
       "paper_id": "zotero:huPolyLacticAcidRecent2025",
       "case_id": "huPolyLacticAcidRecent2025",
-      "expected_approved": true,
+      "expected_approved": false,
       "gate_decision": "APPROVED",
       "confidence": 0.9,
       "paper": {
@@ -156,7 +156,7 @@
     {
       "paper_id": "zotero:xiaEngineeringMacrophagesCancer2020",
       "case_id": "xiaEngineeringMacrophagesCancer2020",
-      "expected_approved": true,
+      "expected_approved": false,
       "gate_decision": "APPROVED",
       "confidence": 0.9,
       "paper": {
