@@ -14,6 +14,7 @@ from src.ingest.parser_backends import (
     create_parser_backend,
 )
 from src.schemas.agent_artifacts import DocumentArtifact, PaperMetadata, Section, SourceInfo, TableData
+from src.services.runtime_paths import ocr_cache_root
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ class IngestAgent:
 
         try:
             if enable_ocr_fallback_resolved and detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved):
-                ocr_cache_path = build_ocr_cache_path(path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved)
+                ocr_cache_path = build_ocr_cache_path(path, cache_dir=ocr_cache_root(), lang=ocr_lang_resolved)
                 ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
                 if ocr_meta.get("ocr_applied") and ocr_meta.get("ocr_output_path"):
                     candidate = Path(str(ocr_meta["ocr_output_path"]))
@@ -191,7 +192,7 @@ class IngestAgent:
                     need_ocr_for_tables = detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved)
                     if need_ocr_for_tables:
                         ocr_cache_path = build_ocr_cache_path(
-                            path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved
+                            path, cache_dir=ocr_cache_root(), lang=ocr_lang_resolved
                         )
                         pass2_ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
                         if pass2_ocr_meta.get("ocr_applied") and pass2_ocr_meta.get("ocr_output_path"):

@@ -9,6 +9,7 @@ from src.schemas.agent_artifacts import DocumentArtifact, IndexArtifact, Documen
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.config import load_config
+from src.services.runtime_paths import rag_root
 
 logger = logging.getLogger(__name__)
 CHUNK_ID_VERSION = "legacy-uuid-v1"
@@ -25,9 +26,7 @@ class IndexerAgent:
         self.adapter = OllamaModelAdapter() # Helper for embeddings
         
         # Initialize ChromaDB
-        # We need a persistent path. For now, let's hardcode 'storage/rag' or get from config if available.
-        # Assuming config has agents.rag_index_path or similar.
-        self.persist_path = "storage/rag"
+        self.persist_path = str(rag_root())
         if self.config.agents and self.config.agents.rag_index_path:
              self.persist_path = self.config.agents.rag_index_path
              
