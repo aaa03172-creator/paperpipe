@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0",
+  "manifest_batch_id": "opendataloader_sidecar_hard_doc_20260327",
+  "generated_at": "2026-03-27",
+  "notes": "Frozen hard-doc subset for bounded OpenDataLoader sidecar evaluation. Selected from tracked baseline parser failure signals on current master before any OpenDataLoader outputs were generated. Sidecar-eval only; not runtime truth.",
+  "source_reference_manifest": "goldset/manifests/ingest_backend_pilot_20260323.json",
+  "selection_basis": {
+    "baseline_backend": "fitz_pdfplumber",
+    "tracked_signal_source": "snapshots/ingest_backend_eval/docling_pilot_manifest_20260323_r9/detailed_results.jsonl",
+    "included_when": [
+      "baseline table_failure_taxonomy contains NO_TABLE_FOUND",
+      "baseline table_failure_taxonomy contains DEGENERATE_SHAPE"
+    ],
+    "excluded_when": [
+      "baseline parser already looks ordinary and table-free without a stronger hard-doc signal",
+      "selection would rely on untracked local outputs or OpenDataLoader results"
+    ]
+  },
+  "documents": [
+    {
+      "document_id": "opendataloader-harddoc-001",
+      "paper_id": "doi:10.1186/s13024-023-00595-7",
+      "title": "The gut microbiome in Alzheimer's disease: what we know and what remains to be explored",
+      "doi": "10.1186/s13024-023-00595-7",
+      "year": 2023,
+      "local_path": "/Users/jangseongjin/paperpipe/Library/chandraGutMicrobiomeAlzheimers2023.pdf",
+      "source_pdf_sha256": "c2d673495fd74218a7d37ffdb6d2f1296f6e79398d8ac588e0ff4abe4e8111bc",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "text_len_baseline": 116953,
+      "page_count": 21,
+      "baseline_table_count": 0,
+      "baseline_meaningful_table_count": 0,
+      "notes": "Tracked baseline parser extracted no tables on the bounded ingest backend fixture set."
+    },
+    {
+      "document_id": "opendataloader-harddoc-002",
+      "paper_id": "doi:10.1038/s43587-023-00403-3",
+      "title": "Blood biomarkers for Alzheimer's disease in clinical practice and trials",
+      "doi": "10.1038/s43587-023-00403-3",
+      "year": 2023,
+      "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonBloodBiomarkersAlzheimers2023.pdf",
+      "source_pdf_sha256": "d63b5f55e643a11f325d5517c96eb5f3654e4b8ddc85b36630ad65a56daf2e79",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "text_len_baseline": 95417,
+      "page_count": 14,
+      "baseline_table_count": 3,
+      "baseline_meaningful_table_count": 3,
+      "notes": "Tracked baseline parser exposed degenerate table geometry; prior bounded parser eval also needed a fallback rescue on page 4."
+    },
+    {
+      "document_id": "opendataloader-harddoc-003",
+      "paper_id": "doi:10.1002/alz.12787",
+      "title": "Confounding factors of Alzheimer's disease plasma biomarkers and their impact on clinical performance",
+      "doi": "10.1002/alz.12787",
+      "year": 2023,
+      "local_path": "/Users/jangseongjin/paperpipe/Library/pichetbinetteConfoundingFactorsAlzheimers2023.pdf",
+      "source_pdf_sha256": "8724f0e1150923ead5b774e2cf8c6c0588263223e2fbc9a66010f17412a7bd08",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "text_len_baseline": 59708,
+      "page_count": 12,
+      "baseline_table_count": 0,
+      "baseline_meaningful_table_count": 0,
+      "notes": "Tracked baseline parser extracted no tables on the bounded ingest backend fixture set."
+    },
+    {
+      "document_id": "opendataloader-harddoc-004",
+      "paper_id": "doi:10.1038/s43587-022-00204-0",
+      "title": "Biomarker modeling of Alzheimer's disease using PET-based Braak staging",
+      "doi": "10.1038/s43587-022-00204-0",
+      "year": 2022,
+      "local_path": "/Users/jangseongjin/paperpipe/Library/therriaultBiomarkerModelingAlzheimers2022.pdf",
+      "source_pdf_sha256": "5ce299d5e353b96b0ddeebdab335865ae291d5cb652b7fd36a664a6e3d72c825",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "text_len_baseline": 78573,
+      "page_count": 22,
+      "baseline_table_count": 7,
+      "baseline_meaningful_table_count": 1,
+      "notes": "Tracked baseline parser exposed degenerate table geometry and noisy raw table fragments on the bounded ingest backend fixture set."
+    }
+  ]
+}
