@@ -10,6 +10,26 @@ from src.schemas import TrialExtraction, PaperStatus
 
 logger = logging.getLogger(__name__)
 
+def _get_escalation_metadata_lines(paper: Dict[str, Any]) -> str:
+    lines = []
+    final_route = str(paper.get("escalation_final_route") or "").strip()
+    if final_route:
+        lines.append(f"> **Final Route**: {final_route}")
+
+    in_scope = paper.get("escalation_in_biomedical_scope")
+    if isinstance(in_scope, bool):
+        scope_label = "In biomedical scope" if in_scope else "Out of biomedical scope"
+        lines.append(f"> **Biomedical Scope**: {scope_label}")
+
+    raw_codes = paper.get("escalation_reason_codes")
+    if isinstance(raw_codes, list):
+        codes = [str(code).strip() for code in raw_codes if str(code).strip()]
+        if codes:
+            lines.append(f"> **Reason Codes**: {', '.join(codes)}")
+
+    return "\n".join(lines)
+
+
 def _get_status_callout(paper: Dict[str, Any]) -> str:
     """Action Gates 상태에 따른 Callout 생성"""
     # [NEW] Retraction Checks First
@@ -17,16 +37,23 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
         return f"\n> [!danger] ☠️ RETRACTED PAPER\n> **Details**: {paper.get('retraction_details', 'No details provided.')}\n"
     
     status_str = paper.get('processing_status')
+    escalation_meta = _get_escalation_metadata_lines(paper)
     
     if status_str == PaperStatus.QUARANTINED:
         return "\n> [!danger] Low Confidence - Quarantined\n> This paper has been flagged for low confidence and isolated.\n"
     elif status_str == PaperStatus.PENDING_REVIEW:
-        return "\n> [!warning] Requires Human Review\n> Confidence score is in the intermediate range.\n"
+        body = "\n> [!warning] Requires Human Review\n> Confidence score is in the intermediate range."
+        if escalation_meta:
+            body += "\n" + escalation_meta
+        return body + "\n"
     elif status_str == PaperStatus.APPROVED:
         # [NEW] Escalation indicator
         if paper.get('is_escalated'):
-            reason = paper.get('escalation_reason', 'Judge Approved')
-            return f"\n> [!success] Auto-Approved (Escalated)\n> **Judge Decision**: {reason}\n"
+            reason = paper.get('escalation_reason', 'Escalation Judge Approved')
+            body = f"\n> [!success] Fast-Lane Approved (Escalation Judge)\n> **Judge Decision**: {reason}"
+            if escalation_meta:
+                body += "\n" + escalation_meta
+            return body + "\n"
         return ""
     return ""
 
@@ -95,6 +122,7 @@ def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtracti
     """[수정] 임상 연구용 템플릿 (추출 데이터 반영)"""
     # Tags as YAML list
     tags_list = str(paper.get('tags', [])).replace("'", '"')
+    status_callout = _get_status_callout(paper)
     
     # status = "Extracted" if extraction else "Extraction Needed" 
     # [UPDATED] Use ReadingStatus (Ticket 8)
@@ -178,6 +206,7 @@ doi: {paper['doi']}
 
 # {paper['title']}
 {institutional_block}
+{status_callout}
 {one_liner_section}
 ## 🏥 Trial Quick Look
 {scope_block}
