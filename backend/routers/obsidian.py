@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+import yaml
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -89,6 +90,31 @@ def _find_note_candidates(vault_path: Path, paper_id: str) -> list[Path]:
 def _find_existing_note_path(vault_path: Path, paper_id: str) -> Path | None:
     candidates = _find_note_candidates(vault_path, paper_id)
     if not candidates:
+        for note_path in sorted(vault_path.rglob("*.md")):
+            if not note_path.is_file():
+                continue
+            try:
+                content = note_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if not content.startswith("---"):
+                continue
+            lines = content.splitlines()
+            end_index = None
+            for idx in range(1, len(lines)):
+                if lines[idx].strip() == "---":
+                    end_index = idx
+                    break
+            if end_index is None:
+                continue
+            try:
+                frontmatter = yaml.safe_load("\n".join(lines[1:end_index])) or {}
+            except Exception:
+                continue
+            if not isinstance(frontmatter, dict):
+                continue
+            if str(frontmatter.get("id") or "").strip() == paper_id:
+                return note_path
         return None
     return candidates[0]
 
