@@ -18,41 +18,121 @@ logger = logging.getLogger(__name__)
 # Localized display layers can derive from these outputs later.
 CANONICAL_SUMMARY_LANGUAGE = "English"
 
-ESCALATION_FOCUS_TERMS = (
+ESCALATION_BIOMEDICAL_SCOPE_TERMS = (
+    "biomedical",
+    "disease",
+    "diseases",
+    "patient",
+    "patients",
+    "cohort",
+    "clinical",
+    "trial",
+    "randomized",
+    "translational",
+    "diagnosis",
+    "diagnostic",
+    "biomarker",
+    "blood biomarker",
+    "plasma biomarker",
+    "csf biomarker",
+    "oncology",
+    "cancer",
+    "tumor",
+    "tumour",
+    "immunology",
+    "immune",
+    "autoimmune",
+    "inflammation",
+    "cell",
+    "cellular",
+    "gene",
+    "genetic",
+    "molecular",
+    "therapeutic",
+    "treatment",
+    "bioengineering",
+    "biomaterial",
+    "device",
+    "implant",
+    "hydrogel",
+    "scaffold",
+    "regenerative",
+    "cartilage",
+    "wound healing",
+    "wound",
+    "osteoarthritis",
+    "brain",
+    "neuroscience",
     "alzheimer",
     "alzheimers",
     "mci",
-    "mild cognitive impairment",
-    "ketone",
-    "ketogenic",
-    "mct",
+    "dementia",
     "microglia",
     "neuroinflammation",
-    "amyloid",
-    "tau",
-    "biomarker",
-    "brain",
-    "cognitive",
-    "cognition",
-    "neuron",
-    "neuronal",
-    "synapse",
-    "prefrontal",
-    "cre-loxp",
-    "cre loxp",
-    "cre-er",
-    "tamoxifen",
-    "recombination",
-    "autophagy",
-    "lysosome",
-    "ceramide",
-    "sphingomyelinase",
-    "asm",
-    "gut-brain",
-    "microbiota",
+)
+
+ESCALATION_CONDITION_TERMS = (
+    "mci",
+    "mild cognitive impairment",
+    "disease",
+    "diseases",
+    "cancer",
+    "tumor",
+    "tumour",
+    "lymphoma",
+    "leukemia",
+    "melanoma",
+    "colitis",
+    "arthritis",
+    "infection",
+    "sepsis",
+    "fibrosis",
+    "diabetes",
+    "obesity",
+    "osteoarthritis",
+    "cartilage",
+    "wound",
+    "dementia",
+    "alzheimer",
+    "alzheimers",
+)
+
+ESCALATION_OUT_OF_SCOPE_TERMS = (
+    "sports performance",
+    "collegiate cyclists",
+    "endurance performance",
+    "athletes",
+    "football",
+    "soccer",
+    "basketball",
+    "macroeconomic",
+    "stock market",
+    "consumer behavior",
+    "supply chain",
+    "semiconductor",
+    "materials engineering",
+    "synthetic polymer",
+    "polymer films",
+    "sustainable materials",
+    "astrophysics",
+    "particle physics",
+    "quantum computing",
+)
+
+ESCALATION_REVIEW_STYLE_TERMS = (
+    "advances in",
+    "review",
+    "narrative review",
+    "critical review",
+    "perspective",
+    "personal view",
+    "hypothesis",
+    "what we know",
+    "remains to be explored",
 )
 
 ESCALATION_METHOD_TERMS = (
+    "assay",
     "cre-loxp",
     "cre loxp",
     "cre-er",
@@ -61,6 +141,11 @@ ESCALATION_METHOD_TERMS = (
     "recombination efficiency",
     "protocol",
     "protocol guidance",
+    "workflow",
+    "sample preparation",
+    "validation",
+    "optimized",
+    "optimization",
 )
 
 ESCALATION_GUIDANCE_TERMS = (
@@ -81,24 +166,84 @@ ESCALATION_CLINICAL_DATA_TERMS = (
     "cohort",
     "clinical study",
     "pilot",
-    "diagnosis",
-    "biomarker",
-    "blood biomarker",
+    "prospective",
+    "follow-up",
+    "followup",
+    "safety",
+    "functional outcome",
+    "response",
+    "monitoring",
 )
 
-ESCALATION_MECHANISTIC_DATA_TERMS = (
+ESCALATION_ORIGINAL_EVIDENCE_TERMS = (
+    "study",
+    "studied",
+    "results",
+    "data",
+    "identified",
+    "reveal",
+    "revealed",
+    "showed",
+    "demonstrated",
+    "predict",
+    "analysis",
+    "improves",
+    "improved",
+    "modulate",
+    "promote",
+    "measured",
+    "mouse",
+    "mice",
+    "model",
+    "models",
+    "cohort",
+    "trial",
+    "randomized",
+    "prospective",
+    "in vitro",
+)
+
+ESCALATION_MECHANISTIC_EVIDENCE_TERMS = (
+    "mechanism",
+    "pathway",
+    "regulator",
+    "regulators",
+    "modulate",
+    "promote",
+    "inhibit",
+    "activation",
+    "signaling",
     "microglia",
     "amyloid",
-    "aβ",
-    "beta-amyloid",
-    "plaque deposition",
-    "small molecule",
+    "tau",
+    "macrophage",
+    "t cell",
+    "crispr",
+    "organoid",
+    "mouse model",
     "mice",
-    "mouse",
-    "modulate",
+    "in vitro",
+    "fibrosis",
+    "tumor microenvironment",
+)
+
+ESCALATION_RESULT_IN_TITLE_TERMS = (
     "improves",
-    "prediction",
-    "neuropathological",
+    "improved",
+    "predict",
+    "predicts",
+    "modulate",
+    "modulates",
+    "promote",
+    "promotes",
+    "drives",
+    "reveals",
+    "revealed",
+    "identifies",
+    "identified",
+    "targets",
+    "concord",
+    "associated with",
 )
 
 class LLMProvider:
@@ -142,14 +287,31 @@ class LLMProvider:
 
     def _escalation_fast_reject_reason(self, paper: Dict[str, Any]) -> Optional[str]:
         text = self._paper_text_blob(paper)
-        if not any(term in text for term in ESCALATION_FOCUS_TERMS):
+        has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
+        has_guidance_lane = any(term in text for term in ESCALATION_GUIDANCE_TERMS)
+        has_clinical_data = any(term in text for term in ESCALATION_CLINICAL_DATA_TERMS)
+        has_original_evidence = any(term in text for term in ESCALATION_ORIGINAL_EVIDENCE_TERMS)
+        is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
+
+        if has_method_lane:
+            return None
+        if any(term in text for term in ESCALATION_OUT_OF_SCOPE_TERMS):
             return (
-                "Out of PaperPipe's current neuroscience lanes; keep pending review unless a human explicitly overrides."
+                "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
+            )
+        if is_review_style and not has_guidance_lane and not has_clinical_data and not has_original_evidence:
+            return (
+                "Broad review-style biomedical paper without authoritative guidance or direct clinical/translational evidence; keep pending review."
+            )
+        if not any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS):
+            return (
+                "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
             )
         return None
 
     def _escalation_fast_approve_reason(self, paper: Dict[str, Any]) -> Optional[str]:
         text = self._paper_text_blob(paper)
+        title = str(paper.get("title") or "").lower()
         negative_scope_signals = (
             "not about",
             "did not involve",
@@ -162,33 +324,47 @@ class LLMProvider:
         )
         if any(signal in text for signal in negative_scope_signals):
             return None
-        has_alz_or_cog = any(
-            term in text
-            for term in (
-                "alzheimer",
-                "alzheimers",
-                "mci",
-                "mild cognitive impairment",
-                "cognitive",
-                "cognition",
-            )
-        )
+        has_biomedical_scope = any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS)
+        has_condition_context = any(term in text for term in ESCALATION_CONDITION_TERMS)
         has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
         has_guidance_lane = any(term in text for term in ESCALATION_GUIDANCE_TERMS)
         has_clinical_data = any(term in text for term in ESCALATION_CLINICAL_DATA_TERMS)
-        has_mechanistic_data = any(term in text for term in ESCALATION_MECHANISTIC_DATA_TERMS)
+        has_original_evidence = any(term in text for term in ESCALATION_ORIGINAL_EVIDENCE_TERMS)
+        has_mechanistic_evidence = any(term in text for term in ESCALATION_MECHANISTIC_EVIDENCE_TERMS)
+        has_title_result_signal = any(term in title for term in ESCALATION_RESULT_IN_TITLE_TERMS)
+        is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
 
-        if has_method_lane:
-            return "Concrete neuroscience methods/protocol optimization is explicit; safe to auto-approve."
+        if has_method_lane and has_biomedical_scope:
+            return "Concrete biomedical methods/protocol optimization is explicit; safe to auto-approve."
 
-        if has_guidance_lane and has_alz_or_cog and ("diagnosis" in text or "biomarker" in text or "clinical" in text):
-            return "Authoritative Alzheimer/neurology guidance is explicit; safe to auto-approve."
+        if has_guidance_lane and has_biomedical_scope and (
+            "diagnosis" in text
+            or "diagnostic" in text
+            or "biomarker" in text
+            or "treatment" in text
+            or "monitoring" in text
+            or "clinical" in text
+        ):
+            return "Authoritative biomedical guidance is explicit; safe to auto-approve."
 
-        if has_alz_or_cog and has_clinical_data:
-            return "Direct Alzheimer/MCI clinical evidence is explicit; safe to auto-approve."
+        if (
+            has_biomedical_scope
+            and has_condition_context
+            and has_clinical_data
+            and has_original_evidence
+            and not is_review_style
+        ):
+            return "Direct biomedical clinical/translational evidence is explicit; safe to auto-approve."
 
-        if has_alz_or_cog and has_mechanistic_data:
-            return "Direct Alzheimer/neuroinflammation mechanism evidence is explicit; safe to auto-approve."
+        if (
+            has_biomedical_scope
+            and has_condition_context
+            and has_mechanistic_evidence
+            and has_original_evidence
+            and has_title_result_signal
+            and not is_review_style
+        ):
+            return "Direct biomedical mechanistic evidence is explicit; safe to auto-approve."
 
         return None
 
@@ -206,19 +382,19 @@ class LLMProvider:
         - Current Tags: {paper.get('tags', [])}
 
         Auto-approve ONLY if all of the following are true:
-        1. Direct fit to a current PaperPipe lane:
-           - clinical cognition / Alzheimer / MCI / ketone / biomarker / diagnosis
-           - mechanistic neuroinflammation / microglia / amyloid / tau / gut-brain / ceramide / ASM / autophagy
-           - concrete neuroscience methods or protocol optimization such as Cre-loxP / tamoxifen / recombination
-        2. The abstract suggests one of:
-           - original experimental or clinical data with a specific, strong finding
-           - an authoritative recommendation / consensus / diagnosis guidance that is clearly central to Alzheimer or neurology practice
-        3. The relevance is immediate, not a remote transfer from a general field.
+        1. Direct fit to biomedical scope with immediate routing value:
+           - human clinical or translational evidence in a defined disease or population
+           - authoritative recommendation / consensus / guidance relevant to biomedical practice
+           - concrete biomedical methods or protocol optimization
+           - strong mechanistic biomedical evidence with a specific result in disease-relevant context
+        2. The title/abstract/tags make the routing obvious from metadata alone.
+        3. The paper looks decision-relevant now, not merely interesting.
 
         Reject and keep pending review when any of these apply:
-        - broad review, critical review, narrative review, perspective, or hypothesis piece without a clearly authoritative practice recommendation
-        - generic materials, oncology, drug delivery, polymer, sports, or other cross-domain work whose neuroscience relevance is indirect
-        - interesting but not clearly must-keep, must-read, or decision-changing from metadata alone
+        - broad review, critical review, narrative review, perspective, or hypothesis piece without a clearly authoritative recommendation
+        - indirect or ambiguous biomedical relevance
+        - interesting but uncertain from metadata alone
+        - clearly out of PaperPipe's biomedical workspace scope
 
         Return JSON STRICTLY:
         {{
