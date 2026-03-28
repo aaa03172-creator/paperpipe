@@ -7,6 +7,14 @@ from .paper_notes import PaperNoteOpsSummary
 
 
 PaperIssueState = Literal["flagged", "clear", "unavailable"]
+PaperAccessStatusLabel = Literal["open", "institution_required", "user_imported_pdf", "unavailable"]
+
+
+class PaperAccessSummary(BaseModel):
+    status_label: PaperAccessStatusLabel
+    open_access_url: str | None = None
+    institution_access_url: str | None = None
+    local_pdf_url: str | None = None
 
 
 class PaperSummaryResponse(BaseModel):
@@ -25,6 +33,7 @@ class PaperSummaryResponse(BaseModel):
     latest_run_id: str | None = None
     updated_at: str | None = None
     ops_summary: PaperNoteOpsSummary | None = None
+    access_summary: PaperAccessSummary | None = None
 
 
 class PaperDetailResponse(PaperSummaryResponse):
