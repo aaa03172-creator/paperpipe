@@ -61,7 +61,9 @@ class FeatureConfig(BaseModel):
     model: str = "gpt-4o-mini" # Default, can be overridden by specific provider config
 
 class LLMFeatures(BaseModel):
-    trial_extraction: FeatureConfig
+    clinical_extraction: Optional[FeatureConfig] = None
+    specialty_trial_extraction: Optional[FeatureConfig] = None
+    trial_extraction: Optional[FeatureConfig] = None
     slot_classification: FeatureConfig
     one_liner: FeatureConfig
 
