@@ -428,6 +428,14 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
         paper_id = "paper_timeout_001"
         (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        profiles_path = config_dir / "profiles.yaml"
+        profiles_path.write_text(
+            "# local runtime profiles\nprofiles: []\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(profiles_path))
         (vault_dir / "Inbox" / "paper_timeout_001.md").write_text("# Paper\n", encoding="utf-8")
         (vault_dir / "00_Index" / "paper_collection.csv").write_text(
             "Paper_ID,DOI,Title,Note_Path\n"
@@ -512,7 +520,7 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         assert done.error_message == "Reader step timed out after 123s (pages=1, tables=0)"
         assert captured["seconds"] == 123
 
-        artifact_dir = Path("storage/artifacts") / paper_id / done.run_id
+        artifact_dir = job_runner_mod.artifact_run_dir(paper_id, done.run_id)
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         assert meta["reader_timeout_base_sec"] == 120
@@ -527,6 +535,9 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         assert run_meta["reader_timeout_budget_sec"] == 123
         assert run_meta["reader_timeout_triggered"] is True
         assert run_meta["reader_timeout_error_type"] == "ReadTimeout"
+        prompts_snapshot = Path(str(run_meta["prompts_snapshot"]))
+        assert prompts_snapshot.exists()
+        assert prompts_snapshot.read_text(encoding="utf-8") == "# local runtime profiles\nprofiles: []\n"
     finally:
         db_utils.DB_PATH = original_db_path
 

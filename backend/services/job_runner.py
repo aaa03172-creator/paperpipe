@@ -18,7 +18,7 @@ from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
-from src.profiles.profile_store import DEFAULT_PROFILE_PATH, load_profiles
+from src.profiles.profile_store import load_profiles
 from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
@@ -40,6 +40,7 @@ from src.timeout_policy import (
     is_timeout_exception,
     time_limit,
 )
+from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
 from src.verify import resolve_anchor_api_context
 
 logger = logging.getLogger("paperpipe.backend")
@@ -632,7 +633,7 @@ async def run_deepread_job(
         logger.info(f"✅ Found PDF: {pdf_path}")
 
         # Prepare Artifact Storage
-        artifact_dir = Path(f"storage/artifacts/{paper_id}/{run_id}")
+        artifact_dir = artifact_run_dir(paper_id, run_id)
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         snapshots_dir = artifact_dir / "snapshots"
@@ -649,8 +650,8 @@ async def run_deepread_job(
             "pdf_path": str(pdf_path),
             "pdf_sha256": _sha256_file(pdf_path),
             "pdf_mtime": datetime.fromtimestamp(pdf_path.stat().st_mtime, timezone.utc).isoformat(),
-            "config_snapshot": _snapshot_copy(Path("config.yaml"), snapshots_dir / "config.yaml"),
-            "prompts_snapshot": _snapshot_copy(DEFAULT_PROFILE_PATH, snapshots_dir / "profiles.yaml"),
+            "config_snapshot": _snapshot_copy(config_file_path(), snapshots_dir / "config.yaml"),
+            "prompts_snapshot": _snapshot_copy(profiles_config_path(), snapshots_dir / "profiles.yaml"),
             "models_used": {"reader": None, "verifier": None},
             "parser_backend": None,
             "llm_params": _collect_llm_params(config),
