@@ -120,6 +120,7 @@ def test_method_comparisons_api_generate_roundtrip_and_csv_export(tmp_path, monk
     exported = client.get("/method-comparisons/methodcmp_api_demo/export.csv")
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith("text/csv")
+    assert exported.headers["content-disposition"] == 'attachment; filename="methodcmp_api_demo.csv"'
     assert "paper_id,paper_slug,citekey,title" in exported.text
 
 
