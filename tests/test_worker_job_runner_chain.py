@@ -113,6 +113,30 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
                 )
 
         class FakeReaderAgent:
+            def __init__(self):
+                self.last_analysis_metrics = {
+                    "model_name": "fake-reader",
+                    "attempt_count": 1,
+                    "attempts": [
+                        {
+                            "attempt_idx": 1,
+                            "label": "primary",
+                            "context_chars": 10,
+                            "prompt_chars": 20,
+                            "estimated_prompt_tokens": 5,
+                            "response_chars": 30,
+                            "estimated_response_tokens": 7,
+                            "status": "parsed",
+                            "parsed_claim_count": 1,
+                        }
+                    ],
+                    "return_mode": "success",
+                    "selected_attempt": 1,
+                    "selected_attempt_label": "primary",
+                    "final_claim_count": 1,
+                    "used_heuristic_fallback": False,
+                }
+
             def analyze(self, doc):
                 return ClaimSet(
                     doc_id=doc.document_id,
@@ -200,6 +224,8 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert "llm_params" in run_meta
         assert "embed_params" in run_meta
         assert run_meta["tool_policy_version"] == "v1"
+        assert run_meta["reader_analysis"]["return_mode"] == "success"
+        assert run_meta["reader_analysis"]["attempt_count"] == 1
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
         assert meta["run_verify"] is True
@@ -215,6 +241,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_quality_gate_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
+        assert meta["reader_analysis"]["selected_attempt_label"] == "primary"
         assert meta["claimset_readiness"] == "ready"
         assert meta["claimset_ready"] is True
         assert meta["claimset_claim_count"] == 1
