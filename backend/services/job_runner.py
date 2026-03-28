@@ -17,6 +17,7 @@ from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
+from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import DEFAULT_PROFILE_PATH, load_profiles
 from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
@@ -543,6 +544,11 @@ async def run_deepread_job(
     artifact_dir: Optional[Path] = None
     bootstrap_meta: Optional[Dict[str, Any]] = None
     run_meta: Optional[Dict[str, Any]] = None
+    selection = normalize_persona_selection(
+        persona_id=persona_id,
+        reasoning_persona=reasoning_persona,
+        profile_id=profile_id,
+    )
 
     async def is_cancelled() -> bool:
         if not cancel_check:
@@ -635,7 +641,9 @@ async def run_deepread_job(
             "job_id": job_id,
             "run_id": run_id,
             "paper_id": paper_id,
-            "persona_id": persona_id,
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
             "run_verify": bool(run_verify),
             "clean_reindex_requested": bool(clean_reindex),
             "pdf_path": str(pdf_path),
@@ -659,7 +667,9 @@ async def run_deepread_job(
             "job_id": job_id,
             "run_id": run_id,
             "paper_id": paper_id,
-            "persona_id": persona_id,
+            "persona_id": selection.persona_id,
+            "reasoning_persona": selection.reasoning_persona,
+            "profile_id": selection.profile_id,
             "persona_applied": False,
             "similar_feedback_count": 0,
             "similar_feedback_paper_ids": [],
@@ -784,9 +794,16 @@ async def run_deepread_job(
             _mark_run_meta("cancelled")
             return {"status": "cancelled", "run_id": run_id}
         await emit("read", 50, "Reader Agent analyzing...")
-        persona_hint = _resolve_persona_hint(persona_id)
+        hint_sections: list[str] = []
+        reasoning_hint = resolve_reasoning_persona_hint(selection.reasoning_persona)
+        if reasoning_hint:
+            hint_sections.append(reasoning_hint)
+        profile_hint = _resolve_persona_hint(selection.profile_id) if selection.profile_id else None
+        if profile_hint:
+            hint_sections.append(profile_hint)
+        persona_hint = "\n\n".join(section for section in hint_sections if section) or None
 
-        # Dynamic Few-Shot Injection based on persona
+        # Dynamic few-shot injection based on reasoning/profile context.
         feedback_query_text = persona_hint if persona_hint else paper_id
         similar_feedback = _load_similar_feedback_top3(query_text=feedback_query_text, limit=3)
         
@@ -801,7 +818,12 @@ async def run_deepread_job(
             await emit("read", 53, f"Similar feedback injected: {len(similar_feedback)}")
         if persona_hint:
             bootstrap_meta["persona_applied"] = True
-            await emit("read", 52, f"Persona applied: {persona_id}")
+            if selection.reasoning_persona:
+                await emit("read", 51, f"Reasoning persona applied: {selection.reasoning_persona}")
+            if selection.profile_id:
+                await emit("read", 52, f"Profile context applied: {selection.profile_id}")
+            if not selection.reasoning_persona and not selection.profile_id:
+                await emit("read", 52, f"Persona applied: {selection.persona_id}")
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         main_model = _resolve_main_model(config)
         bootstrap_meta["reader_model"] = main_model
