@@ -15,6 +15,148 @@ def _write_artifact_run(path: Path, *, claimset: dict | None = None, stats_repor
         (path / "stats_report.json").write_text(json.dumps(stats_report), encoding="utf-8")
 
 
+def test_papers_endpoints_include_derived_access_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                doi TEXT,
+                link TEXT,
+                pdf_link TEXT,
+                pdf_path TEXT,
+                pdf_status TEXT,
+                feedback_json TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        local_pdf = tmp_path / "manual.pdf"
+        local_pdf.write_text("%PDF", encoding="utf-8")
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_open",
+                "Open Access Paper",
+                "INDEXED",
+                "10.1000/open",
+                "https://publisher.example/open",
+                "https://oa.example/open.pdf",
+                None,
+                None,
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_institution",
+                "Institution Paper",
+                "INDEXED",
+                "10.1000/inst",
+                "https://publisher.example/inst",
+                None,
+                None,
+                "manual_required",
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_local",
+                "Local PDF Paper",
+                "INDEXED",
+                "10.1000/local",
+                "https://publisher.example/local",
+                None,
+                str(local_pdf),
+                "downloaded",
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_unavailable",
+                "Unavailable Paper",
+                "INDEXED",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        by_id = {row["paper_id"]: row for row in listing.json()}
+
+        assert by_id["paper_open"]["access_summary"] == {
+            "status_label": "open",
+            "open_access_url": "https://oa.example/open.pdf",
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/open",
+            "local_pdf_url": None,
+        }
+        assert by_id["paper_institution"]["access_summary"] == {
+            "status_label": "institution_required",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst",
+            "local_pdf_url": None,
+        }
+        assert by_id["paper_local"]["access_summary"] == {
+            "status_label": "user_imported_pdf",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/local",
+            "local_pdf_url": "/papers/paper_local/pdf",
+        }
+        assert by_id["paper_unavailable"]["access_summary"] == {
+            "status_label": "unavailable",
+            "open_access_url": None,
+            "institution_access_url": None,
+            "local_pdf_url": None,
+        }
+
+        detail = client.get("/papers/paper_institution")
+        assert detail.status_code == 200
+        assert detail.json()["access_summary"]["status_label"] == "institution_required"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
