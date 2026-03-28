@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from src.config import load_config
+from src.config import LocalLLMConfig, load_config
 import src.db_utils as db_utils
 
 
@@ -71,6 +71,10 @@ def test_load_config_respects_env_override(tmp_path, monkeypatch):
 
     assert config.paths.obsidian_vault == Path("./override/vault").expanduser()
     assert config.paths.zotero_base_dir == Path("./override/zotero").expanduser()
+
+
+def test_local_llm_defaults_align_judge_model() -> None:
+    assert LocalLLMConfig().models["judge"] == "llama3:latest"
 
 
 def test_db_utils_follows_db_env_override_after_import(tmp_path, monkeypatch):
