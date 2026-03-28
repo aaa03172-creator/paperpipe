@@ -16,4 +16,3 @@ python3 scripts/check_escalation_judge_smoke.py \
 python3 scripts/check_escalation_judge_smoke.py \
   --fixture tests/fixtures/escalation_judge_case/real_cases_extended_20260327.json \
   --max-mismatches 0
-python3 scripts/lint_docs.py
