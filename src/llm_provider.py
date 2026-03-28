@@ -774,7 +774,8 @@ class OpenAIProvider(LLMProvider):
             return None
         try:
             # Use the embedding model specified in config, or a default
-            embedding_model = self.config.cloud.embedding_model if self.config.cloud and self.config.cloud.embedding_model else "text-embedding-3-small"
+            embedding_override = getattr(self.config.cloud, "embedding_model", None) if self.config.cloud else None
+            embedding_model = embedding_override or "text-embedding-3-small"
             resp = self.client.embeddings.create(input=text, model=embedding_model)
             return resp.data[0].embedding
         except Exception as e:
