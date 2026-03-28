@@ -14,7 +14,7 @@ Reviewer: Codex
 - Primary persona: Obsidian vault를 이미 쓰고 있는 연구자/대학원생
 - Current friction: list/detail/workbench의 핵심 흐름, structured search, related reasoning, operational summary 정리, triage `Content Review`와 workbench `issue focus` 연결은 완료됐다. workbench의 `Content Review` clear-state는 paper detail이 준비된 뒤에만 노출되도록 정리됐고, flagged-path도 backend e2e로 검증됐다. 현재 남은 마찰은 density preset이 실제로 필요한지, 그리고 timeline/stepper까지 같은 status grammar를 넓힐 가치가 있는지 아직 사용 근거가 부족하다는 점이다.
 - Decision checkpoint:
-  - `issues_state`는 backend contract로 유지하되, 현재는 `issues_label` 기반 backend derivation이라는 점을 기록한다.
+  - `issues_state`는 backend contract로 유지하되, producer가 직접 저장한 값이 있으면 그것을 1차 source-of-truth로 사용하고 legacy row에서만 heuristic fallback을 사용한다는 점을 기록한다.
   - richer taxonomy(`review_flags[]`)는 source-of-truth가 생기기 전까지 도입하지 않는다.
   - cross-surface viewer/workbench 후속 작업은 repo-wide queue와 이 UX review report의 flow-local trigger backlog에서 추적한다.
 - Success metric: `/papers` 진입 후 2분 내 목표 논문 도달률, 상세 화면에서 related 클릭률, note -> workbench 전환률
