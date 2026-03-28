@@ -832,8 +832,8 @@ def _build_paper_note_context_trace(
     references: list[PaperNoteReferenceLink],
     structured_state: Any,
     related_limit: int,
+    structured_state_rel_path: str,
 ) -> PaperNoteContextTrace:
-    structured_state_rel_path = f".pp/{target.slug}/state.json"
     trace: list[PaperNoteContextTraceEntry] = [
         PaperNoteContextTraceEntry(
             order=1,
@@ -909,7 +909,7 @@ def _find_note_item(items: list[PaperNoteIndexItem], slug: str) -> PaperNoteInde
     for item in items:
         if item.slug == slug:
             return item
-    return None
+    return _find_note_item_for_paper_id(items, slug)
 
 
 @router.get("", response_model=PaperNoteListResponse)
@@ -996,6 +996,12 @@ def get_paper_note(
     references = _build_references(frontmatter, reference_block)
     related = _compute_related(target, index.items, limit=related_limit)
     structured_state = load_structured_state(vault_path, slug, frontmatter)
+    pp = frontmatter.get("pp")
+    structured_state_rel_path = f".pp/{target.slug}/state.json"
+    if isinstance(pp, dict):
+        candidate = str(pp.get("structured_path") or "").strip()
+        if candidate:
+            structured_state_rel_path = candidate
     context_trace = _build_paper_note_context_trace(
         target=target,
         filtered_sections=filtered_sections,
@@ -1003,6 +1009,7 @@ def get_paper_note(
         references=references,
         structured_state=structured_state,
         related_limit=related_limit,
+        structured_state_rel_path=structured_state_rel_path,
     )
 
     return PaperNoteDetailResponse(
