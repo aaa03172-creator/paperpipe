@@ -1,6 +1,6 @@
 import re
 
-from src.schemas.core import BiomedicalClinicalExtraction
+from src.schemas import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 
 
