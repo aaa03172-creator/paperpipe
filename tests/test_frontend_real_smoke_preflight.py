@@ -167,3 +167,11 @@ def test_real_smoke_preflight_fails_without_candidates(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["candidate_count"] == 0
     assert "no_real_smoke_candidates" in payload["errors"]
+
+
+def test_frontend_e2e_backend_launcher_disables_path_masking_for_local_smoke() -> None:
+    script_path = Path("frontend/scripts/run_backend_for_e2e.sh").resolve()
+
+    content = script_path.read_text(encoding="utf-8")
+
+    assert 'export LATTICE_MASK_LOCAL_PATHS="0"' in content
