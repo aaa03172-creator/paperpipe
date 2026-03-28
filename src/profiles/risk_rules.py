@@ -38,7 +38,7 @@ def validate_profile(profile: Profile, anchor_terms: set[str] | None = None) -> 
     if has_broad and not has_anchor and not has_exclusion:
         errors.append(
             "RISK: Broad terms detected without biomedical anchors. "
-            "Add a domain anchor (for example tumor, immune, microglia, organoid, biomaterial) "
+            "Add a domain anchor (for example tumor, immune, organoid, fibrosis, biomaterial) "
             "or specific exclusions."
         )
 
