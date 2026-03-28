@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -30,6 +31,11 @@ def _resolve_vault_path() -> Path:
     if not vault_path.is_dir():
         raise HTTPException(status_code=400, detail=f"Obsidian vault path is not a directory: {vault_path}")
     return vault_path
+
+
+def _csv_download_filename(comparison_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", comparison_id).strip("._-") or "method-comparison"
+    return f"{safe_id}.csv"
 
 
 @router.post("/generate", response_model=MethodComparisonResponse)
@@ -68,7 +74,12 @@ def get_method_comparison_route(comparison_id: str) -> MethodComparisonResponse:
 def get_method_comparison_csv_route(comparison_id: str) -> PlainTextResponse:
     try:
         result = get_method_comparison(comparison_id)
-        return PlainTextResponse(result.csv_text, media_type="text/csv")
+        filename = _csv_download_filename(result.comparison.comparison_id)
+        return PlainTextResponse(
+            result.csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
