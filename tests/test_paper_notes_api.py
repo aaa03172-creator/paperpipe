@@ -223,6 +223,149 @@ def test_paper_notes_search_prefers_query_relevance_before_secondary_sort(tmp_pa
     assert [item["slug"] for item in payload["items"]] == ["title-match", "tag-match"]
 
 
+def test_paper_notes_support_renamed_stateful_note_with_legacy_structured_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    legacy_slug = "zoterocoricTargetingProdromalAlzheimer2015"
+    readable_slug = "Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial"
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{readable_slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:coricTargetingProdromalAlzheimer2015",
+                f"aliases: [\"{readable_slug}\"]",
+                "tags:",
+                "  - Medicine/Neurology",
+                "date_processed: 2026-03-28",
+                "confidence: 0.91",
+                "status: INDEXED",
+                "pp:",
+                f"  structured_path: .pp/{legacy_slug}/state.json",
+                "---",
+                "",
+                f"# {readable_slug}",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / legacy_slug / "state.json",
+        {
+            "paper_slug": legacy_slug,
+            "updated_at": "2026-03-28T00:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [
+                {
+                    "id": "claim-001",
+                    "claim": "Example claim",
+                    "confidence": 0.9,
+                    "tags": ["biomarker"],
+                    "evidence": [],
+                    "evidence_ids": [],
+                }
+            ],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["memory"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+
+    listing = client.get("/paper-notes")
+    assert listing.status_code == 200
+    list_payload = listing.json()
+    assert list_payload["items"][0]["slug"] == readable_slug
+    assert list_payload["items"][0]["structured_state_present"] is True
+
+    resolved = client.get(
+        "/paper-notes/resolve-by-paper-id",
+        params={"paper_id": "zotero:coricTargetingProdromalAlzheimer2015"},
+    )
+    assert resolved.status_code == 200
+    resolved_payload = resolved.json()
+    assert resolved_payload["slug"] == readable_slug
+    assert resolved_payload["structured_state"]["paper_slug"] == legacy_slug
+
+    detail = client.get(f"/paper-notes/{readable_slug}")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["structured_state"]["paper_slug"] == legacy_slug
+    assert ".pp/zoterocoricTargetingProdromalAlzheimer2015/state.json" in detail_payload["context_trace"]["summary"]["source_paths"]
+
+
+def test_paper_notes_detail_accepts_legacy_slug_for_renamed_stateful_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    legacy_slug = "zoterocoricTargetingProdromalAlzheimer2015"
+    readable_slug = "Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial"
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{readable_slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:coricTargetingProdromalAlzheimer2015",
+                f"aliases: [\"{readable_slug}\"]",
+                "tags:",
+                "  - Medicine/Neurology",
+                "date_processed: 2026-03-28",
+                "confidence: 0.91",
+                "status: INDEXED",
+                "pp:",
+                f"  structured_path: .pp/{legacy_slug}/state.json",
+                "---",
+                "",
+                f"# {readable_slug}",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / legacy_slug / "state.json",
+        {
+            "paper_slug": legacy_slug,
+            "updated_at": "2026-03-28T00:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{legacy_slug}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["note"]["slug"] == readable_slug
+    assert payload["structured_state"]["paper_slug"] == legacy_slug
+
+
 def test_paper_notes_list_includes_operational_summary(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
