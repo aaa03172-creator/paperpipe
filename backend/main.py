@@ -9,9 +9,11 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import src.db_utils as db_utils
 from src.db_utils import get_db_connection
+from src.institutional_access import extract_institutional_proxy_link, generate_institutional_proxy_url
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.persona_modes import list_reasoning_personas, normalize_persona_selection
@@ -33,7 +35,7 @@ from src.schemas.ops import (
     UserActionEntry,
     UserActionListResponse,
 )
-from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
+from src.schemas.papers import PaperAccessSummary, PaperDetailResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
     ResearchDNACreateRequest,
@@ -253,6 +255,31 @@ def _public_path(path_value: str | None) -> str | None:
     if not is_path_masking_enabled():
         return path_value
     return mask_local_path(path_value)
+
+
+def _build_paper_access_summary(item: dict[str, Any], *, paper_id: str, pdf_exists: bool) -> PaperAccessSummary:
+    open_access_url = str(item.get("pdf_link") or "").strip() or None
+    institution_access_url = (
+        extract_institutional_proxy_link(item.get("feedback_json"))
+        or generate_institutional_proxy_url(paper=item)
+    )
+    local_pdf_url = f"/papers/{quote(paper_id, safe='')}/pdf" if pdf_exists and paper_id else None
+
+    if pdf_exists:
+        status_label = "user_imported_pdf"
+    elif open_access_url:
+        status_label = "open"
+    elif institution_access_url:
+        status_label = "institution_required"
+    else:
+        status_label = "unavailable"
+
+    return PaperAccessSummary(
+        status_label=status_label,
+        open_access_url=open_access_url,
+        institution_access_url=institution_access_url,
+        local_pdf_url=local_pdf_url,
+    )
 
 
 def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
@@ -1059,6 +1086,7 @@ def list_papers(
         item["latest_run_id"] = (
             getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
         ) or _latest_run_id_for_paper(paper_id)
+        item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
         out.append(item)
     return out
 
@@ -1084,6 +1112,7 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     item["latest_run_id"] = (
         getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
     ) or _latest_run_id_for_paper(paper_id)
+    item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
     return item
 
 
