@@ -18,8 +18,7 @@ def _setup_temp_db(tmp_path, monkeypatch):
     return original_db_path
 
 
-def test_papers_endpoint_masks_absolute_pdf_path_when_enabled(tmp_path, monkeypatch):
-    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "true")
+def test_papers_endpoint_masks_absolute_pdf_path_by_default(tmp_path, monkeypatch):
     original_db_path = _setup_temp_db(tmp_path, monkeypatch)
     try:
         pdf_file = tmp_path / "paper.pdf"
@@ -56,6 +55,46 @@ def test_papers_endpoint_masks_absolute_pdf_path_when_enabled(tmp_path, monkeypa
         assert payload["pdf_exists"] is True
         assert payload["pdf_path"] is not None
         assert not Path(payload["pdf_path"]).is_absolute()
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_endpoint_keeps_absolute_pdf_path_when_explicitly_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "false")
+    original_db_path = _setup_temp_db(tmp_path, monkeypatch)
+    try:
+        pdf_file = tmp_path / "paper.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4\n")
+
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            ("paper_mask_disabled_001", "Unmasked Paper", "INDEXED", str(pdf_file), "summary"),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        detail = client.get("/papers/paper_mask_disabled_001")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["pdf_path"] == str(pdf_file)
     finally:
         db_utils.DB_PATH = original_db_path
 
