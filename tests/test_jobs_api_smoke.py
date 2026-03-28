@@ -8,6 +8,7 @@ import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
 from backend.services.job_runner import _resolve_ingest_parser_backend
 from src.jobs.queue import JobQueue
+from src.services.path_masking import mask_local_path
 from backend import main as api_main
 
 
@@ -247,7 +248,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         detail = client.get(f"/jobs/{job_id}")
         assert detail.status_code == 200
         payload = detail.json()
-        assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert payload["bootstrap_meta_path"] == mask_local_path(str(artifact_dir / "bootstrap_meta.json"))
         assert payload["requested_parser_backend"] is None
         assert payload["parser_backend"] == "fitz_pdfplumber"
         assert payload["similar_feedback_count"] == 2
@@ -592,7 +593,7 @@ def test_jobs_bootstrap_meta_endpoint_handles_malformed_json_boundary(tmp_path, 
         detail = client.get(f"/jobs/{job_id}")
         assert detail.status_code == 200
         payload = detail.json()
-        assert payload["bootstrap_meta_path"] == str(broken_meta)
+        assert payload["bootstrap_meta_path"] == mask_local_path(str(broken_meta))
         assert payload["similar_feedback_count"] is None
         assert payload["persona_applied"] is None
         assert payload["claimset_readiness"] is None
