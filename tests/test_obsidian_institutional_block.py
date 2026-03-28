@@ -1,4 +1,5 @@
 from src.obsidian import get_template_trial
+from src.schemas.core import BiomedicalClinicalExtraction, TrialExtraction
 
 
 def _base_paper() -> dict:
@@ -22,7 +23,8 @@ def test_template_trial_includes_institutional_block_when_pdf_missing():
     md = get_template_trial(paper, extraction=None)
     assert "Institutional Access Available" in md
     assert "Download via KNU Libproxy" in md
-    assert "Specialty Extraction Lane" in md
+    assert "Clinical Workspace Lane" in md
+    assert "Clinical Extraction Pending" in md
 
 
 def test_template_trial_omits_institutional_block_when_local_pdf_exists():
@@ -30,6 +32,63 @@ def test_template_trial_omits_institutional_block_when_local_pdf_exists():
     paper["local_pdf_path"] = "/tmp/already.pdf"
     md = get_template_trial(paper, extraction=None)
     assert "Institutional Access Available" not in md
+
+
+def test_template_trial_uses_specialty_lane_for_trial_extraction():
+    paper = _base_paper()
+    extraction = TrialExtraction(
+        paper_id="paper-1",
+        citation={
+            "title": "Clinical Trial X",
+            "authors_first": "Kim",
+            "year": 2026,
+            "journal_or_server": "Test Journal",
+            "doi": None,
+            "url": None,
+        },
+    )
+
+    md = get_template_trial(paper, extraction=extraction)
+
+    assert "Specialty Extraction Lane" in md
+    assert "Clinical Workspace Lane" not in md
+
+
+def test_template_trial_uses_generic_lane_for_biomedical_clinical_extraction():
+    paper = _base_paper()
+    extraction = BiomedicalClinicalExtraction(
+        paper_id="paper-2",
+        citation={
+            "title": "Clinical Trial X",
+            "authors_first": "Lee",
+            "year": 2026,
+            "journal_or_server": "Test Journal",
+            "doi": None,
+            "url": None,
+        },
+        population={
+            "condition": "Metastatic non-small cell lung cancer",
+            "n_total": 88,
+        },
+        intervention={
+            "category": "small_molecule",
+            "name": "Targeted therapy",
+        },
+        outcomes={
+            "primary": [
+                {
+                    "name": "Progression-free survival",
+                    "domain": "primary",
+                }
+            ]
+        },
+    )
+
+    md = get_template_trial(paper, extraction=extraction)
+
+    assert "Clinical Workspace Lane" in md
+    assert "Clinical Snapshot" in md
+    assert "Metastatic non-small cell lung cancer" in md
 
 
 def test_template_trial_shows_structured_escalation_metadata_for_fast_lane_approval():
