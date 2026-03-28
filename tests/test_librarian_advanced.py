@@ -38,6 +38,8 @@ class TestAdvancedLibrarian(unittest.TestCase):
         
         self.assertIn("Ontology Expansion (Domain Expert)", prompt_sent)
         self.assertIn("AUTOMATICALLY expand it", prompt_sent)
+        self.assertIn("separate from the Deep Read reasoning persona system", prompt_sent)
+        self.assertIn("Operating Rules", prompt_sent)
 
     @patch("src.agents.profile_chat_agent.load_config")
     @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
