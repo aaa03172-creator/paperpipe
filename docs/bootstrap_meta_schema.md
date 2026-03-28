@@ -17,6 +17,14 @@ This file is written per deepread run at:
 - `similar_feedback_paper_ids` (array[string]): Source paper IDs for injected feedback snippets.
 - `run_verify` (bool): Whether stats verification was requested.
 - `reader_model` (string|null): Reader model name selected for this run.
+- `reader_timeout_base_sec` (int): Base timeout seed derived from the configured provider timeout before page/table scaling.
+- `reader_timeout_budget_sec` (int): Effective timeout budget applied to the guarded reader call for this run.
+- `reader_timeout_adaptive` (bool): Whether the effective timeout budget was scaled from page/table counts rather than left fixed.
+- `reader_page_count` (int): Page count used when estimating the reader timeout budget.
+- `reader_table_count` (int): Table count used when estimating the reader timeout budget.
+- `reader_timeout_triggered` (bool): Whether the guarded reader step actually timed out for this run.
+- `reader_timeout_error_type` (string|null): Timeout exception class name when the guarded reader step timed out, otherwise `null`.
+- `reader_provider_timeout_override_applied` (bool): Whether a provider-specific timeout override was applied to the reader lane for this run.
 - `verifier_used` (bool): Whether verifier path is enabled for this run.
 - `verifier_status` (string): `not_run` | `completed` | `failed`.
 - `stats_report_written` (bool): Whether `stats_report.json` was written.
@@ -46,6 +54,14 @@ This file is written per deepread run at:
   "similar_feedback_paper_ids": ["p123", "p456"],
   "run_verify": true,
   "reader_model": "llama3:latest",
+  "reader_timeout_base_sec": 90,
+  "reader_timeout_budget_sec": 123,
+  "reader_timeout_adaptive": true,
+  "reader_page_count": 12,
+  "reader_table_count": 3,
+  "reader_timeout_triggered": false,
+  "reader_timeout_error_type": null,
+  "reader_provider_timeout_override_applied": false,
   "verifier_used": true,
   "verifier_status": "completed",
   "stats_report_written": true,
