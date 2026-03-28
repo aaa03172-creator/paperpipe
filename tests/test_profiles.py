@@ -77,6 +77,8 @@ class TestProfileSystem(unittest.TestCase):
         errors = validate_profile(risky)
         self.assertEqual(len(errors), 1)
         self.assertIn("RISK", errors[0])
+        self.assertIn("fibrosis", errors[0])
+        self.assertNotIn("microglia", errors[0])
 
     def test_risk_rules_accepts_oncology_anchor(self):
         oncology = Profile(
