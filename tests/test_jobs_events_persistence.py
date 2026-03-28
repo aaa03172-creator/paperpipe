@@ -121,7 +121,8 @@ def test_job_queue_state_persists_across_instances(tmp_path, monkeypatch):
         job_id = queue_a.enqueue(
             paper_id="paper_persist_001",
             run_verify=True,
-            persona_id="persist-persona",
+            reasoning_persona="researcher",
+            profile_id="persist-persona",
         )
 
         queue_b = JobQueue()
@@ -130,6 +131,8 @@ def test_job_queue_state_persists_across_instances(tmp_path, monkeypatch):
         assert queued.status == "queued"
         assert queued.paper_id == "paper_persist_001"
         assert queued.persona_id == "persist-persona"
+        assert queued.reasoning_persona == "researcher"
+        assert queued.profile_id == "persist-persona"
         assert queued.run_verify == 1
         assert queued.clean_reindex == 0
 
