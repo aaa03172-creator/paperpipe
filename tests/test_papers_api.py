@@ -640,3 +640,123 @@ def test_paper_pdf_endpoint_serves_existing_file_and_handles_missing(tmp_path, m
         assert missing_paper.json()["detail"] == "Paper not found"
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_hides_fixture_rows_when_real_papers_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
+        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
+        fixture_pdf.write_text("%PDF", encoding="utf-8")
+        real_pdf = tmp_path / "library" / "real.pdf"
+        real_pdf.parent.mkdir(parents=True, exist_ok=True)
+        real_pdf.write_text("%PDF", encoding="utf-8")
+        conn.executemany(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "paper-e2e-001",
+                    "E2E Seed Paper",
+                    "INDEXED",
+                    str(fixture_pdf),
+                    "fixture",
+                    "2026-03-28 00:00:00",
+                    "2026-03-28 00:00:00",
+                ),
+                (
+                    "paper-real-001",
+                    "Real Paper",
+                    "INDEXED",
+                    str(real_pdf),
+                    "real",
+                    "2026-03-27 00:00:00",
+                    "2026-03-27 00:00:00",
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows] == ["paper-real-001"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_keeps_fixture_rows_when_only_fixtures_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
+        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
+        fixture_pdf.write_text("%PDF", encoding="utf-8")
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "paper-e2e-001",
+                "E2E Seed Paper",
+                "INDEXED",
+                str(fixture_pdf),
+                "fixture",
+                "2026-03-28 00:00:00",
+                "2026-03-28 00:00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows] == ["paper-e2e-001"]
+    finally:
+        db_utils.DB_PATH = original_db_path
