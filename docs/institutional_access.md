@@ -23,6 +23,7 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
   - watches `paths.downloads_watch_dir` (default `~/Downloads`)
   - moves matched PDFs to `paths.pdf_storage_dir` (default `storage/pdfs`)
   - updates `papers.pdf_status='downloaded'` and `papers.pdf_path`
+  - persists `feedback_json.intake_override_log` with producer, analysis availability, slot override, and saved `issues_state`
 - Matching strategy:
   - DOI-first exact match (filename DOI -> PDF content/metadata DOI -> papers.doi)
   - title similarity fallback (safe threshold)
@@ -30,6 +31,11 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
   - ambiguous/unmatched creates `review_queue` with `NEEDS_PDF_MATCH`
 - Run command:
   - `python3 -m src.cli watch-downloads`
+
+## What is implemented (bounded intake payloads)
+- Processor-driven local intake now reuses the same `feedback_json.intake_override_log` shape when it overrides slot/tag/status decisions during `process_daily_slots()`.
+- When the bounded biomedical clinical lane is enabled and a paper resolves to the `clinical` slot, processor may also persist `feedback_json.clinical_data`.
+- The same optional `clinical_data` payload is passed into Obsidian note generation as a typed extraction object; this is additive metadata, not a replacement for the current paper/run/artifact canonical model.
 
 ## Legal/Safety
 - No paywall bypass.
