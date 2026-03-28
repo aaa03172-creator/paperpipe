@@ -326,6 +326,44 @@ def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
         db_utils.DB_PATH = original_db_path
 
 
+def test_obsidian_sync_can_find_note_by_frontmatter_id_when_filename_is_cleaned(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    target_note = vault_dir / "Targeting Prodromal Alzheimer Disease With Avagacestat.md"
+    target_note.write_text(
+        "---\n"
+        "id: zotero:coricTargetingProdromalAlzheimer2015\n"
+        "aliases: [\"Targeting Prodromal Alzheimer Disease With Avagacestat\"]\n"
+        "---\n\n"
+        "# Targeting Prodromal Alzheimer Disease With Avagacestat\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        obsidian_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    run_dir = tmp_path / "storage" / "artifacts" / "zotero:coricTargetingProdromalAlzheimer2015" / "run_sync_clean_001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_claimset = _claimset_payload("c-clean", "cleaned filename claim", "cleaned filename evidence")
+    (run_dir / "claimset.resolved.json").write_text(json.dumps(resolved_claimset), encoding="utf-8")
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/obsidian/sync",
+        json={"paper_id": "zotero:coricTargetingProdromalAlzheimer2015", "run_id": "run_sync_clean_001"},
+    )
+    assert response.status_code == 200
+
+    content = target_note.read_text(encoding="utf-8")
+    assert "cleaned filename claim" in content
+
+
 def test_obsidian_sync_replaces_existing_marker_block(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
