@@ -78,6 +78,7 @@ def test_reporting():
         # Check pass/fail logic
         assert "Total Processed**: 4" in content
         assert "System Alert" in content # Retracted paper triggers alert
+        assert "Escalation Fast-Lane Approvals" in content
         
     print("✅ Reporting verification passed!")
 
