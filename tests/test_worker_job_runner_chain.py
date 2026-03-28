@@ -467,3 +467,56 @@ def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
         assert meta["clean_reindex_removed_chunks"] == 3
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_resolve_note_path_for_paper_falls_back_to_db_obsidian_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        vault_dir = tmp_path / "Vault"
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        note_path = vault_dir / "Inbox" / "paper_db_note_001.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text("# Paper\n", encoding="utf-8")
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT DEFAULT 'NEW',
+                obsidian_path TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, obsidian_path)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "paper_db_note_001",
+                "DB-backed note path",
+                "INDEXED",
+                "Inbox/paper_db_note_001.md",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        config = SimpleNamespace(
+            paths=SimpleNamespace(
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            )
+        )
+
+        resolved = job_runner_mod._resolve_note_path_for_paper(config, "paper_db_note_001")
+        assert resolved == note_path
+    finally:
+        db_utils.DB_PATH = original_db_path

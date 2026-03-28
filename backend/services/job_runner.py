@@ -107,6 +107,36 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
                                 return note_path
         except Exception:
             continue
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        aliases = [paper_id]
+        if ":" in paper_id:
+            aliases.append(paper_id.split(":", 1)[1])
+        seen: set[str] = set()
+        for alias in aliases:
+            alias = str(alias or "").strip()
+            if not alias or alias in seen:
+                continue
+            seen.add(alias)
+            row = conn.execute(
+                "SELECT obsidian_path FROM papers WHERE paper_id = ? LIMIT 1",
+                (alias,),
+            ).fetchone()
+            if not row:
+                continue
+            raw = str(row["obsidian_path"] or "").strip()
+            if not raw:
+                continue
+            note_path = vault_path / raw
+            if note_path.exists():
+                return note_path
+    except Exception as exc:
+        logger.debug("DB note_path lookup failed for %s: %s", paper_id, exc)
+    finally:
+        if conn is not None:
+            conn.close()
     return None
 
 
