@@ -243,6 +243,110 @@ def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypa
         db_utils.DB_PATH = original_db_path
 
 
+def test_papers_endpoints_expose_escalation_metadata_from_feedback_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                gate_decision TEXT,
+                gate_reason TEXT,
+                feedback_json TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, gate_decision, gate_reason, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_escalated",
+                "Escalated Guideline Paper",
+                "APPROVED",
+                "APPROVED",
+                "CONFIDENCE_MID,FASTLANE_GUIDANCE",
+                json.dumps(
+                    {
+                        "escalation": {
+                            "approved": True,
+                            "reason": "Authoritative biomedical guidance is explicit; safe to auto-approve.",
+                            "final_route": "FAST_LANE_APPROVE",
+                            "in_biomedical_scope": True,
+                            "reason_codes": ["FASTLANE_GUIDANCE"],
+                        }
+                    }
+                ),
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, gate_decision, gate_reason, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_pending_escalation",
+                "Pending Review Paper",
+                "PENDING_REVIEW",
+                "PENDING_REVIEW",
+                "CONFIDENCE_MID,MODEL_REVIEW_REQUIRED",
+                json.dumps(
+                    {
+                        "escalation": {
+                            "approved": False,
+                            "reason": "Interesting but uncertain from metadata alone.",
+                            "final_route": "QUEUE_HUMAN_REVIEW",
+                            "in_biomedical_scope": True,
+                            "reason_codes": ["MODEL_REVIEW_REQUIRED"],
+                        }
+                    }
+                ),
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        by_id = {row["paper_id"]: row for row in listing.json()}
+
+        assert by_id["paper_escalated"]["is_escalated"] is True
+        assert by_id["paper_escalated"]["escalation_final_route"] == "FAST_LANE_APPROVE"
+        assert by_id["paper_escalated"]["escalation_in_biomedical_scope"] is True
+        assert by_id["paper_escalated"]["escalation_reason_codes"] == ["FASTLANE_GUIDANCE"]
+
+        assert by_id["paper_pending_escalation"]["is_escalated"] is False
+        assert by_id["paper_pending_escalation"]["escalation_final_route"] == "QUEUE_HUMAN_REVIEW"
+        assert by_id["paper_pending_escalation"]["escalation_in_biomedical_scope"] is True
+        assert by_id["paper_pending_escalation"]["escalation_reason_codes"] == ["MODEL_REVIEW_REQUIRED"]
+
+        detail = client.get("/papers/paper_escalated")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["is_escalated"] is True
+        assert payload["escalation_reason"] == "Authoritative biomedical guidance is explicit; safe to auto-approve."
+        assert payload["escalation_final_route"] == "FAST_LANE_APPROVE"
+        assert payload["escalation_reason_codes"] == ["FASTLANE_GUIDANCE"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_papers_list_is_limited_and_sorted_by_updated_at(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))

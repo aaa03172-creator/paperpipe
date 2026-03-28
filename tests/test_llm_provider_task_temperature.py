@@ -93,3 +93,94 @@ def test_ollama_provider_keeps_default_temperature_for_non_gate_tasks() -> None:
     provider._make_request("deep_read", "prompt")
 
     assert provider.ollama_client.calls[-1]["options"]["temperature"] == 0.3
+def test_openai_provider_uses_extractor_feature_model_for_clinical_extraction_task() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="sk-test", model=None),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=SimpleNamespace(model="gpt-4.1-mini"),
+            specialty_trial_extraction=SimpleNamespace(model="gpt-4.1"),
+            trial_extraction=SimpleNamespace(model="gpt-4o-mini"),
+            one_liner=None,
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestOpenAIProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "gpt-4.1-mini"
+
+
+def test_openai_provider_falls_back_to_trial_extraction_model_for_clinical_extraction_task() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="sk-test", model=None),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=None,
+            specialty_trial_extraction=None,
+            trial_extraction=SimpleNamespace(model="gpt-4o-mini"),
+            one_liner=None,
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestOpenAIProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "gpt-4o-mini"
+
+
+def test_openai_provider_supports_missing_legacy_trial_extraction_when_clinical_feature_exists() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="sk-test", model=None),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=SimpleNamespace(model="gpt-4.1-mini"),
+            specialty_trial_extraction=None,
+            trial_extraction=None,
+            one_liner=None,
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestOpenAIProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "gpt-4.1-mini"
+    assert provider._get_model("trial_extraction") == "fallback-model"
+
+
+def test_openai_provider_uses_explicit_specialty_feature_model_for_trial_extraction_task() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="sk-test", model=None),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=None,
+            specialty_trial_extraction=SimpleNamespace(model="gpt-4.1"),
+            trial_extraction=SimpleNamespace(model="gpt-4o-mini"),
+            one_liner=None,
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestOpenAIProvider(config)
+
+    assert provider._get_model("trial_extraction") == "gpt-4.1"
+
+
+def test_ollama_provider_routes_clinical_extraction_to_extractor_model() -> None:
+    config = SimpleNamespace(
+        local=SimpleNamespace(
+            base_url="http://localhost:11434",
+            models={"judge": "llama3:latest", "chat": "phi3", "extractor": "biomistral:latest"},
+        ),
+        timeout_seconds=15,
+        max_retries=0,
+        features=None,
+        default_model=None,
+    )
+    provider = _TestOllamaProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "biomistral:latest"

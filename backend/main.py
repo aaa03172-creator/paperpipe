@@ -281,6 +281,57 @@ def _build_paper_access_summary(item: dict[str, Any], *, paper_id: str, pdf_exis
         local_pdf_url=local_pdf_url,
     )
 
+def _apply_escalation_response_fields(item: dict[str, Any]) -> None:
+    item["is_escalated"] = bool(item.get("is_escalated", False))
+
+    raw_reason_codes = item.get("escalation_reason_codes")
+    if isinstance(raw_reason_codes, list):
+        item["escalation_reason_codes"] = [str(code).strip() for code in raw_reason_codes if str(code).strip()]
+    else:
+        item["escalation_reason_codes"] = []
+
+    if isinstance(item.get("escalation_in_biomedical_scope"), bool):
+        pass
+    else:
+        item["escalation_in_biomedical_scope"] = None
+
+    if item.get("escalation_reason") is not None:
+        item["escalation_reason"] = str(item.get("escalation_reason") or "").strip() or None
+    else:
+        item["escalation_reason"] = None
+    if item.get("escalation_final_route") is not None:
+        item["escalation_final_route"] = str(item.get("escalation_final_route") or "").strip() or None
+    else:
+        item["escalation_final_route"] = None
+
+    feedback_json = item.get("feedback_json")
+    if not feedback_json:
+        return
+
+    try:
+        parsed = json.loads(feedback_json)
+    except Exception:
+        return
+    if not isinstance(parsed, dict):
+        return
+    escalation = parsed.get("escalation")
+    if not isinstance(escalation, dict):
+        return
+
+    item["is_escalated"] = bool(item.get("is_escalated")) or bool(escalation.get("approved", False))
+    if not item.get("escalation_reason"):
+        item["escalation_reason"] = str(escalation.get("reason") or "").strip() or None
+    if not item.get("escalation_final_route"):
+        item["escalation_final_route"] = str(escalation.get("final_route") or "").strip() or None
+    if item.get("escalation_in_biomedical_scope") is None and isinstance(
+        escalation.get("in_biomedical_scope"), bool
+    ):
+        item["escalation_in_biomedical_scope"] = escalation.get("in_biomedical_scope")
+    if not item.get("escalation_reason_codes"):
+        raw_codes = escalation.get("reason_codes")
+        if isinstance(raw_codes, list):
+            item["escalation_reason_codes"] = [str(code).strip() for code in raw_codes if str(code).strip()]
+
 
 def _resolve_bootstrap_meta_path(job: JobStatus) -> str | None:
     artifact_dir = getattr(job, "artifact_dir", None)
@@ -1087,6 +1138,7 @@ def list_papers(
             getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
         ) or _latest_run_id_for_paper(paper_id)
         item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
+        _apply_escalation_response_fields(item)
         out.append(item)
     return out
 
@@ -1113,6 +1165,7 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
         getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
     ) or _latest_run_id_for_paper(paper_id)
     item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
+    _apply_escalation_response_fields(item)
     return item
 
 

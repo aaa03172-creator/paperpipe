@@ -78,6 +78,40 @@ def _merge_feedback_json_payload(feedback_json: str | None, extra_payload: Dict[
     payload.update(extra_payload)
     return json.dumps(payload, ensure_ascii=False)
 
+def _normalized_reason_codes(raw_codes: Any) -> list[str]:
+    if not isinstance(raw_codes, list):
+        return []
+    out: list[str] = []
+    for code in raw_codes:
+        text = str(code or "").strip()
+        if not text:
+            continue
+        out.append(text)
+    return out
+
+
+def _build_escalation_sidecar(result: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "approved": bool(result.get("approved", False)),
+        "reason": str(result.get("reason") or ""),
+        "final_route": str(result.get("final_route") or ""),
+        "in_biomedical_scope": result.get("in_biomedical_scope")
+        if isinstance(result.get("in_biomedical_scope"), bool)
+        else None,
+        "reason_codes": _normalized_reason_codes(result.get("reason_codes")),
+    }
+
+
+def _merge_reason_code_lists(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    for group in groups:
+        for code in group:
+            text = str(code or "").strip()
+            if not text or text in merged:
+                continue
+            merged.append(text)
+    return merged
+
 class PaperProcessor:
     def __init__(self):
         self.config = load_config()
@@ -281,6 +315,7 @@ class PaperProcessor:
                 schema_ok = False
 
         gate_result = self.gate_engine.evaluate(analysis, parse_ok=parse_ok, schema_ok=schema_ok)
+        base_reason_codes = [rc.value for rc in gate_result.reason_codes]
 
         status_map = {
             GateDecision.APPROVED: STATE_APPROVED,
@@ -290,12 +325,51 @@ class PaperProcessor:
         }
         status = status_map[gate_result.decision]
         decision = gate_result.decision.value
-        reason = ",".join([rc.value for rc in gate_result.reason_codes]) or "NONE"
+        merged_reason_codes = list(base_reason_codes)
+        updates: Dict[str, Any] = {}
 
-        update_paper_status(pid, status, {
+        if gate_result.decision == GateDecision.PENDING_REVIEW:
+            llm = self.llm_provider
+            evaluate_escalation = getattr(llm, "evaluate_escalation", None) if llm else None
+            if callable(evaluate_escalation):
+                try:
+                    escalation_result = evaluate_escalation(
+                        {
+                            "paper_id": pid,
+                            "title": row.get("title"),
+                            "summary": row.get("summary"),
+                            "link": row.get("link"),
+                            "doi": row.get("doi") or pid,
+                            "authors": row.get("authors"),
+                            "published": row.get("published"),
+                            "source": row.get("source"),
+                            "slot": row.get("slot"),
+                            "tags": analysis.get("soft_tags", []),
+                        }
+                    )
+                    if isinstance(escalation_result, dict):
+                        escalation_sidecar = _build_escalation_sidecar(escalation_result)
+                        merged_reason_codes = _merge_reason_code_lists(
+                            base_reason_codes,
+                            escalation_sidecar["reason_codes"],
+                        )
+                        updates["feedback_json"] = _merge_feedback_json_payload(
+                            feedback_json,
+                            {"escalation": escalation_sidecar},
+                        )
+                        if escalation_sidecar["approved"]:
+                            status = STATE_APPROVED
+                            decision = GateDecision.APPROVED.value
+                except Exception as exc:
+                    logger.warning("Escalation evaluation failed for %s: %s", pid, exc)
+
+        reason = ",".join(merged_reason_codes) or "NONE"
+
+        updates.update({
             "gate_decision": decision,
             "gate_reason": reason,
         })
+        update_paper_status(pid, status, updates)
         logger.info(f"      -> Gate Decision: {decision} ({reason})")
 
     def _step_finalize(self, row: Dict):
