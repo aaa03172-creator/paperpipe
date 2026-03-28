@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from src.image_evidence import get_image_evidence_bundle as package_get_image_evidence_bundle
+from src.image_evidence import register_image_evidence as package_register_image_evidence
 from src.image_evidence.service import (
     get_image_evidence_bundle,
     image_evidence_list_response,
@@ -90,3 +92,22 @@ def test_register_image_evidence_checksum_mismatch_warns_and_list_sorts_recent_f
     assert [warning.code for warning in newer.image_evidence.warnings] == ["CHECKSUM_MISMATCH"]
     listed = image_evidence_list_response(root=root)
     assert [item.image_evidence_id for item in listed.items] == ["img_newer", "img_older"]
+
+
+def test_image_evidence_package_reexports_service_entrypoints(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+    local_file = tmp_path / "raw-image.tif"
+    local_file.write_bytes(b"RAWIMAGE")
+
+    result = package_register_image_evidence(
+        request=ImageEvidenceRequest(
+            image_evidence_id="img_pkg_export",
+            source_ref={"source_kind": "local_file", "local_path": str(local_file)},
+            content_format="image/tiff",
+        ),
+        root=root,
+        now=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+    )
+
+    loaded = package_get_image_evidence_bundle("img_pkg_export", root=root)
+    assert loaded.image_evidence.image_evidence_id == result.image_evidence.image_evidence_id
