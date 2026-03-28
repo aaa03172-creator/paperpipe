@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import src.db_utils as db_utils
 from backend import main as api_main
 from src.jobs.queue import JobQueue
+from src.services.path_masking import mask_local_path
 
 
 def test_job_status_and_events_survive_backend_reload(tmp_path, monkeypatch):
@@ -39,7 +40,7 @@ def test_job_status_and_events_survive_backend_reload(tmp_path, monkeypatch):
         assert payload["status"] == "completed"
         assert payload["progress"] == 100
         assert payload["stage"] == "completed"
-        assert payload["log_path"] == str(log_path)
+        assert payload["log_path"] == mask_local_path(str(log_path))
 
         events = client.get(f"/jobs/{job_id}/events")
         assert events.status_code == 200
