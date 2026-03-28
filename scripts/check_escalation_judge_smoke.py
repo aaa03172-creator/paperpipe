@@ -17,6 +17,18 @@ from src.llm_provider import get_llm_provider
 DEFAULT_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "escalation_judge_case" / "cases.json"
 
 
+def _is_valid_judge_reason(reason: str) -> bool:
+    text = str(reason or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    if lowered.startswith("judge error"):
+        return False
+    if "ai error" in lowered:
+        return False
+    return True
+
+
 def _load_fixture(path: Path) -> list[dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     cases = payload.get("cases")
@@ -50,7 +62,7 @@ def _evaluate_case(provider: Any, case: dict[str, Any]) -> dict[str, Any]:
     raw = provider.evaluate_escalation(paper)
     approved = raw.get("approved")
     reason = str(raw.get("reason") or "").strip()
-    valid = isinstance(approved, bool) and bool(reason)
+    valid = isinstance(approved, bool) and _is_valid_judge_reason(reason)
     expected = bool(case.get("expected_approved"))
     matched = bool(valid and approved == expected)
     return {

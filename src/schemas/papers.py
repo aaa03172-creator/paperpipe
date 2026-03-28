@@ -24,6 +24,11 @@ class PaperSummaryResponse(BaseModel):
     latest_job_id: str | None = None
     latest_run_id: str | None = None
     updated_at: str | None = None
+    is_escalated: bool = False
+    escalation_reason: str | None = None
+    escalation_final_route: str | None = None
+    escalation_in_biomedical_scope: bool | None = None
+    escalation_reason_codes: list[str] = []
     ops_summary: PaperNoteOpsSummary | None = None
 
 

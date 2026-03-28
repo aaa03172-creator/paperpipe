@@ -6,6 +6,19 @@ from src.schemas import PaperStatus
 
 logger = logging.getLogger(__name__)
 
+
+def _normalized_reason_codes(raw_codes: Any) -> list[str]:
+    if not isinstance(raw_codes, list):
+        return []
+    out: list[str] = []
+    for code in raw_codes:
+        text = str(code or "").strip()
+        if not text:
+            continue
+        out.append(text)
+    return out
+
+
 def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
     """
     Generates a daily SLA report based on the processed results.
@@ -21,6 +34,11 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         "quarantined": 0,
         "escalated_success": 0,
         "retracted": 0,
+        "escalation_routes": {
+            "FAST_LANE_APPROVE": 0,
+            "QUEUE_HUMAN_REVIEW": 0,
+        },
+        "escalation_reason_codes": {},
         "ai_usage": {
             "one_liner": 0,
             "deep_read": 0,
@@ -46,6 +64,13 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         
         if p.get('is_escalated'):
             stats['escalated_success'] += 1
+
+        route = str(p.get("escalation_final_route") or "").strip()
+        if route in stats["escalation_routes"]:
+            stats["escalation_routes"][route] += 1
+
+        for code in _normalized_reason_codes(p.get("escalation_reason_codes")):
+            stats["escalation_reason_codes"][code] = stats["escalation_reason_codes"].get(code, 0) + 1
             
         # AI Mode
         mode = p.get('ai_mode', 'fallback')
@@ -73,6 +98,12 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
          health_icon = "🔴"
          health_msg = "System Alert"
 
+    top_reason_codes = sorted(
+        stats["escalation_reason_codes"].items(),
+        key=lambda item: (-item[1], item[0]),
+    )
+    top_reason_codes_text = ", ".join(f"{code} ({count})" for code, count in top_reason_codes[:5]) or "None"
+
     # 3. Build Markdown Content
     md = [
         f"# 📊 Daily Processing Report: {date_str}",
@@ -93,7 +124,9 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         f"| **Quarantined** | {stats['quarantined']} | {stats['quarantined']/stats['total']:.1%} |" if stats['total'] else "| Quarantined | 0 | 0% |",
         "",
         "## 🛡️ Action Gates",
-        f"- **Escalations (Judge Approved)**: {stats['escalated_success']}",
+        f"- **Escalation Fast-Lane Approvals**: {stats['escalated_success']}",
+        f"- **Escalation Routes**: FAST_LANE_APPROVE={stats['escalation_routes']['FAST_LANE_APPROVE']}, QUEUE_HUMAN_REVIEW={stats['escalation_routes']['QUEUE_HUMAN_REVIEW']}",
+        f"- **Top Escalation Reason Codes**: {top_reason_codes_text}",
         f"- **Retractions Detected**: {stats['retracted']}",
         "",
         "## 🤖 AI Usage",
@@ -102,8 +135,8 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         f"- Data Extractions: {stats['ai_usage']['extraction']}",
         "",
         "## 📋 Paper Log",
-        "| Status | Slot | Title |",
-        "| :--- | :--- | :--- |"
+        "| Status | Slot | Escalation | Title |",
+        "| :--- | :--- | :--- | :--- |"
     ]
     
     for p in results:
@@ -114,7 +147,12 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         elif p.get('is_escalated'): icon = "🚀"
         
         title_link = f"[[{p.get('title')}]]"
-        md.append(f"| {icon} | {p.get('slot')} | {title_link} |")
+        route = str(p.get("escalation_final_route") or "").strip()
+        codes = _normalized_reason_codes(p.get("escalation_reason_codes"))
+        escalation_label = route or "-"
+        if codes:
+            escalation_label = f"{escalation_label} ({', '.join(codes)})" if route else ", ".join(codes)
+        md.append(f"| {icon} | {p.get('slot')} | {escalation_label} | {title_link} |")
         
     md_content = "\n".join(md)
     
