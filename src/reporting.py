@@ -93,7 +93,7 @@ def generate_daily_report(results: List[Dict[str, Any]], config: Any) -> str:
         f"| **Quarantined** | {stats['quarantined']} | {stats['quarantined']/stats['total']:.1%} |" if stats['total'] else "| Quarantined | 0 | 0% |",
         "",
         "## 🛡️ Action Gates",
-        f"- **Escalations (Judge Approved)**: {stats['escalated_success']}",
+        f"- **Escalation Fast-Lane Approvals**: {stats['escalated_success']}",
         f"- **Retractions Detected**: {stats['retracted']}",
         "",
         "## 🤖 AI Usage",
