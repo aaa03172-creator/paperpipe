@@ -59,6 +59,7 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
 
 def get_template_study(paper: Dict[str, Any]) -> str:
     """기전/방법론 연구용 노트 템플릿"""
+    status_callout = _get_status_callout(paper)
     one_liner_section = ""
     if paper.get('ai_one_liner'):
         one_liner_section = f"## 🧠 One-Liner\n> {paper['ai_one_liner']}\n"
@@ -109,6 +110,7 @@ slot: {paper['slot']}
 
 # {paper['title']}
 
+{status_callout}
 {one_liner_section}
 {evidence_block}
 {relevance_block}
@@ -120,6 +122,7 @@ slot: {paper['slot']}
 
 def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtraction] = None) -> str:
     """[수정] 임상 연구용 템플릿 (추출 데이터 반영)"""
+    status_callout = _get_status_callout(paper)
     # Tags as YAML list
     tags_list = str(paper.get('tags', [])).replace("'", '"')
     status_callout = _get_status_callout(paper)

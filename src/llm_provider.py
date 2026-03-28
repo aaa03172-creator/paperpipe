@@ -6,8 +6,12 @@ import time
 import numpy as np
 import ollama
 
-from src.config import LLMConfig
-from src.schemas import TrialExtraction, PaperTagging
+from src.config import (
+    LLMConfig,
+    resolve_clinical_extraction_feature,
+    resolve_specialty_trial_extraction_feature,
+)
+from src.schemas import BiomedicalClinicalExtraction, SpecialtyTrialExtraction, PaperTagging
 from src.json_repair import repair_and_parse_json
 
 # 로거 설정
@@ -17,6 +21,236 @@ logger = logging.getLogger(__name__)
 # Canonical research text should remain English/original by default.
 # Localized display layers can derive from these outputs later.
 CANONICAL_SUMMARY_LANGUAGE = "English"
+SPECIALTY_TRIAL_EXTRACTION_TASK = "specialty_trial_extraction"
+LEGACY_SPECIALTY_TRIAL_EXTRACTION_TASK = "trial_extraction"
+
+ESCALATION_BIOMEDICAL_SCOPE_TERMS = (
+    "biomedical",
+    "disease",
+    "diseases",
+    "patient",
+    "patients",
+    "cohort",
+    "clinical",
+    "trial",
+    "randomized",
+    "translational",
+    "diagnosis",
+    "diagnostic",
+    "biomarker",
+    "blood biomarker",
+    "plasma biomarker",
+    "csf biomarker",
+    "oncology",
+    "cancer",
+    "tumor",
+    "tumour",
+    "immunology",
+    "immune",
+    "autoimmune",
+    "inflammation",
+    "cell",
+    "cellular",
+    "gene",
+    "genetic",
+    "molecular",
+    "therapeutic",
+    "treatment",
+    "bioengineering",
+    "biomaterial",
+    "device",
+    "implant",
+    "hydrogel",
+    "scaffold",
+    "regenerative",
+    "cartilage",
+    "wound healing",
+    "wound",
+    "osteoarthritis",
+    "brain",
+    "neuroscience",
+    "alzheimer",
+    "alzheimers",
+    "mci",
+    "dementia",
+    "microglia",
+    "neuroinflammation",
+)
+
+ESCALATION_CONDITION_TERMS = (
+    "mci",
+    "mild cognitive impairment",
+    "disease",
+    "diseases",
+    "cancer",
+    "tumor",
+    "tumour",
+    "lymphoma",
+    "leukemia",
+    "melanoma",
+    "colitis",
+    "arthritis",
+    "infection",
+    "sepsis",
+    "fibrosis",
+    "diabetes",
+    "obesity",
+    "osteoarthritis",
+    "cartilage",
+    "wound",
+    "dementia",
+    "alzheimer",
+    "alzheimers",
+)
+
+ESCALATION_OUT_OF_SCOPE_TERMS = (
+    "sports performance",
+    "collegiate cyclists",
+    "endurance performance",
+    "athletes",
+    "football",
+    "soccer",
+    "basketball",
+    "macroeconomic",
+    "stock market",
+    "consumer behavior",
+    "supply chain",
+    "semiconductor",
+    "materials engineering",
+    "synthetic polymer",
+    "polymer films",
+    "sustainable materials",
+    "astrophysics",
+    "particle physics",
+    "quantum computing",
+)
+
+ESCALATION_REVIEW_STYLE_TERMS = (
+    "advances in",
+    "review",
+    "narrative review",
+    "critical review",
+    "perspective",
+    "personal view",
+    "hypothesis",
+    "what we know",
+    "remains to be explored",
+)
+
+ESCALATION_METHOD_TERMS = (
+    "assay",
+    "cre-loxp",
+    "cre loxp",
+    "cre-er",
+    "tamoxifen",
+    "recombination",
+    "recombination efficiency",
+    "protocol",
+    "protocol guidance",
+    "workflow",
+    "sample preparation",
+    "validation",
+    "optimized",
+    "optimization",
+)
+
+ESCALATION_GUIDANCE_TERMS = (
+    "recommendation",
+    "recommendations",
+    "guideline",
+    "guidelines",
+    "consensus",
+    "working group",
+    "clinical practice",
+)
+
+ESCALATION_CLINICAL_DATA_TERMS = (
+    "randomized",
+    "trial",
+    "placebo",
+    "patients",
+    "cohort",
+    "clinical study",
+    "pilot",
+    "prospective",
+    "follow-up",
+    "followup",
+    "safety",
+    "functional outcome",
+    "response",
+    "monitoring",
+)
+
+ESCALATION_ORIGINAL_EVIDENCE_TERMS = (
+    "study",
+    "studied",
+    "results",
+    "data",
+    "identified",
+    "reveal",
+    "revealed",
+    "showed",
+    "demonstrated",
+    "predict",
+    "analysis",
+    "improves",
+    "improved",
+    "modulate",
+    "promote",
+    "measured",
+    "mouse",
+    "mice",
+    "model",
+    "models",
+    "cohort",
+    "trial",
+    "randomized",
+    "prospective",
+    "in vitro",
+)
+
+ESCALATION_MECHANISTIC_EVIDENCE_TERMS = (
+    "mechanism",
+    "pathway",
+    "regulator",
+    "regulators",
+    "modulate",
+    "promote",
+    "inhibit",
+    "activation",
+    "signaling",
+    "microglia",
+    "amyloid",
+    "tau",
+    "macrophage",
+    "t cell",
+    "crispr",
+    "organoid",
+    "mouse model",
+    "mice",
+    "in vitro",
+    "fibrosis",
+    "tumor microenvironment",
+)
+
+ESCALATION_RESULT_IN_TITLE_TERMS = (
+    "improves",
+    "improved",
+    "predict",
+    "predicts",
+    "modulate",
+    "modulates",
+    "promote",
+    "promotes",
+    "drives",
+    "reveals",
+    "revealed",
+    "identifies",
+    "identified",
+    "targets",
+    "concord",
+    "associated with",
+)
 
 ESCALATION_FOCUS_TERMS = (
     "alzheimer",
@@ -126,6 +360,12 @@ class LLMProvider:
         return 0.3
 
     @staticmethod
+    def _normalize_task_name(task: str) -> str:
+        if task == LEGACY_SPECIALTY_TRIAL_EXTRACTION_TASK:
+            return SPECIALTY_TRIAL_EXTRACTION_TASK
+        return task
+
+    @staticmethod
     def _paper_text_blob(paper: Dict[str, Any]) -> str:
         tags = paper.get("tags", [])
         if isinstance(tags, list):
@@ -142,14 +382,31 @@ class LLMProvider:
 
     def _escalation_fast_reject_reason(self, paper: Dict[str, Any]) -> Optional[str]:
         text = self._paper_text_blob(paper)
-        if not any(term in text for term in ESCALATION_FOCUS_TERMS):
+        has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
+        has_guidance_lane = any(term in text for term in ESCALATION_GUIDANCE_TERMS)
+        has_clinical_data = any(term in text for term in ESCALATION_CLINICAL_DATA_TERMS)
+        has_original_evidence = any(term in text for term in ESCALATION_ORIGINAL_EVIDENCE_TERMS)
+        is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
+
+        if has_method_lane:
+            return None
+        if any(term in text for term in ESCALATION_OUT_OF_SCOPE_TERMS):
             return (
-                "Out of PaperPipe's current neuroscience lanes; keep pending review unless a human explicitly overrides."
+                "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
+            )
+        if is_review_style and not has_guidance_lane and not has_clinical_data and not has_original_evidence:
+            return (
+                "Broad review-style biomedical paper without authoritative guidance or direct clinical/translational evidence; keep pending review."
+            )
+        if not any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS):
+            return (
+                "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
             )
         return None
 
     def _escalation_fast_approve_reason(self, paper: Dict[str, Any]) -> Optional[str]:
         text = self._paper_text_blob(paper)
+        title = str(paper.get("title") or "").lower()
         negative_scope_signals = (
             "not about",
             "did not involve",
@@ -162,33 +419,47 @@ class LLMProvider:
         )
         if any(signal in text for signal in negative_scope_signals):
             return None
-        has_alz_or_cog = any(
-            term in text
-            for term in (
-                "alzheimer",
-                "alzheimers",
-                "mci",
-                "mild cognitive impairment",
-                "cognitive",
-                "cognition",
-            )
-        )
+        has_biomedical_scope = any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS)
+        has_condition_context = any(term in text for term in ESCALATION_CONDITION_TERMS)
         has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
         has_guidance_lane = any(term in text for term in ESCALATION_GUIDANCE_TERMS)
         has_clinical_data = any(term in text for term in ESCALATION_CLINICAL_DATA_TERMS)
-        has_mechanistic_data = any(term in text for term in ESCALATION_MECHANISTIC_DATA_TERMS)
+        has_original_evidence = any(term in text for term in ESCALATION_ORIGINAL_EVIDENCE_TERMS)
+        has_mechanistic_evidence = any(term in text for term in ESCALATION_MECHANISTIC_EVIDENCE_TERMS)
+        has_title_result_signal = any(term in title for term in ESCALATION_RESULT_IN_TITLE_TERMS)
+        is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
 
-        if has_method_lane:
-            return "Concrete neuroscience methods/protocol optimization is explicit; safe to auto-approve."
+        if has_method_lane and has_biomedical_scope:
+            return "Concrete biomedical methods/protocol optimization is explicit; safe to auto-approve."
 
-        if has_guidance_lane and has_alz_or_cog and ("diagnosis" in text or "biomarker" in text or "clinical" in text):
-            return "Authoritative Alzheimer/neurology guidance is explicit; safe to auto-approve."
+        if has_guidance_lane and has_biomedical_scope and (
+            "diagnosis" in text
+            or "diagnostic" in text
+            or "biomarker" in text
+            or "treatment" in text
+            or "monitoring" in text
+            or "clinical" in text
+        ):
+            return "Authoritative biomedical guidance is explicit; safe to auto-approve."
 
-        if has_alz_or_cog and has_clinical_data:
-            return "Direct Alzheimer/MCI clinical evidence is explicit; safe to auto-approve."
+        if (
+            has_biomedical_scope
+            and has_condition_context
+            and has_clinical_data
+            and has_original_evidence
+            and not is_review_style
+        ):
+            return "Direct biomedical clinical/translational evidence is explicit; safe to auto-approve."
 
-        if has_alz_or_cog and has_mechanistic_data:
-            return "Direct Alzheimer/neuroinflammation mechanism evidence is explicit; safe to auto-approve."
+        if (
+            has_biomedical_scope
+            and has_condition_context
+            and has_mechanistic_evidence
+            and has_original_evidence
+            and has_title_result_signal
+            and not is_review_style
+        ):
+            return "Direct biomedical mechanistic evidence is explicit; safe to auto-approve."
 
         return None
 
@@ -206,18 +477,17 @@ class LLMProvider:
         - Current Tags: {paper.get('tags', [])}
 
         Auto-approve ONLY if all of the following are true:
-        1. Direct fit to a current PaperPipe lane:
-           - clinical cognition / Alzheimer / MCI / ketone / biomarker / diagnosis
-           - mechanistic neuroinflammation / microglia / amyloid / tau / gut-brain / ceramide / ASM / autophagy
-           - concrete neuroscience methods or protocol optimization such as Cre-loxP / tamoxifen / recombination
+        1. Direct fit to PaperPipe's biomedical workspace scope:
+           - human clinical or translational biomedical studies across neuroscience, oncology, immunology, cell biology, translational medicine, or biomaterials-adjacent biomedical work
+           - concrete biomedical methods, assay validation, protocol optimization, or workflow guidance
         2. The abstract suggests one of:
-           - original experimental or clinical data with a specific, strong finding
-           - an authoritative recommendation / consensus / diagnosis guidance that is clearly central to Alzheimer or neurology practice
-        3. The relevance is immediate, not a remote transfer from a general field.
+           - original clinical or translational data with a specific, strong finding in a defined disease, population, intervention, or biomarker context
+           - an authoritative recommendation / consensus / diagnosis / biomarker / treatment / trial-design guidance that is clearly central to biomedical practice
+        3. The relevance is immediate, not a remote transfer from a non-biomedical field.
 
         Reject and keep pending review when any of these apply:
-        - broad review, critical review, narrative review, perspective, or hypothesis piece without a clearly authoritative practice recommendation
-        - generic materials, oncology, drug delivery, polymer, sports, or other cross-domain work whose neuroscience relevance is indirect
+        - broad review, critical review, narrative review, perspective, or hypothesis piece without a clearly authoritative biomedical guidance signal
+        - general materials engineering, sports/performance, macroeconomics, or other non-biomedical work without biological, clinical, or translational context
         - interesting but not clearly must-keep, must-read, or decision-changing from metadata alone
 
         Return JSON STRICTLY:
@@ -230,11 +500,16 @@ class LLMProvider:
 
     def _get_model(self, task: str) -> str:
         """작업에 적합한 모델을 반환 (override 우선)"""
+        task = self._normalize_task_name(task)
         # Default behavior: rely on feature config overrides if enabled, else provider default
         # This will be overridden by subclasses to map to specific model dicts (e.g. Ollama)
         if self.config.features: # Check if features config exists
-            if task == "trial_extraction" and self.config.features.trial_extraction:
-                return self.config.features.trial_extraction.model
+            clinical_feature = resolve_clinical_extraction_feature(self.config.features)
+            if task == "clinical_extraction" and clinical_feature:
+                return clinical_feature.model
+            trial_feature = resolve_specialty_trial_extraction_feature(self.config.features)
+            if task == SPECIALTY_TRIAL_EXTRACTION_TASK and trial_feature:
+                return trial_feature.model
             elif task == "one_liner" and self.config.features.one_liner:
                 return self.config.features.one_liner.model
             elif task == "slot_classification" and self.config.features.slot_classification:
@@ -297,17 +572,103 @@ class LLMProvider:
             logger.warning(f"Failed to extract JSON from content: {response_content[:100]}... ({e})")
         return None
 
-    def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[TrialExtraction]:
-        """임상시험 논문에서 Pydantic 모델을 사용하여 구조화된 데이터를 추출하고 검증합니다."""
-        
-        # [Fix] Pydantic 모델에서 JSON 스키마 추출하여 프롬프트에 주입
+    @staticmethod
+    def _fallback_citation_from_paper(paper: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "title": paper.get("title", ""),
+            "authors_first": str(paper.get("authors", "")).split(",")[0] if paper.get("authors") else "Unknown",
+            "year": int(paper.get("published", "0")[:4]) if paper.get("published") and paper.get("published")[:4].isdigit() else 0,
+            "journal_or_server": paper.get("source", "Unknown"),
+            "doi": paper.get("doi"),
+            "url": paper.get("link"),
+        }
+
+    def extract_biomedical_clinical_data(
+        self,
+        paper: Dict[str, Any],
+        methods_snippet: str = "",
+    ) -> Optional[BiomedicalClinicalExtraction]:
+        """Domain-neutral biomedical clinical extraction for the default workspace lane."""
+
         try:
-            schema_json = json.dumps(TrialExtraction.model_json_schema(), indent=2)
+            schema_json = json.dumps(BiomedicalClinicalExtraction.model_json_schema(), indent=2)
         except Exception:
             schema_json = "Schema definition unavailable."
 
         prompt = f"""
-You are an information extraction engine for clinical trials about MCT/ketone supplementation in Mild Cognitive Impairment (MCI).
+You are an information extraction engine for the default biomedical clinical lane in PaperPipe.
+IMPORTANT SCOPE: {BiomedicalClinicalExtraction.default_scope_note()}
+Extract structured data STRICTLY as valid JSON following the provided schema below. Do not output any Markdown, comments, or extra keys.
+
+Schema:
+{schema_json}
+
+Rules:
+- Keep the extraction domain-neutral across biomedical clinical and translational studies, including neuroscience, oncology, immunology, cell therapy, and biomaterials-adjacent biomedical work when they are actually human or translational studies.
+- Capture the studied condition/population, intervention, comparator, primary outcomes, secondary outcomes, biomarkers, and safety/adherence when reported.
+- If the paper is not a human clinical or translational biomedical study, set eligibility_flags.is_human_clinical_study=false or eligibility_flags.fits_biomedical_scope=false and explain why.
+- If a field is not stated, use null/0/unknown appropriately and list it in extraction_quality.missing_fields.
+- Prefer generic biomedical wording over disease-specific assumptions. Do not assume Alzheimer disease, MCI, ketones, or neuroscience-specific endpoints unless the paper text explicitly supports them.
+
+Now extract from the following text:
+<<<
+Title: {paper.get('title', 'N/A')}
+Abstract: {paper.get('summary', 'N/A')}
+Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
+>>>
+"""
+
+        for i in range(2):
+            response_content = self._make_request(
+                "clinical_extraction",
+                prompt,
+                is_json=True,
+                schema=BiomedicalClinicalExtraction.model_json_schema(),
+            )
+
+            if not response_content or "AI Error" in response_content:
+                logger.error(f"Failed to get valid content from LLM: {response_content}")
+                return None
+
+            try:
+                data = self._extract_json(response_content)
+                if not data:
+                    logger.warning(f"Attempt {i+1}: Failed to extract JSON from response.")
+                    continue
+
+                if not data.get("paper_id"):
+                    data["paper_id"] = paper.get("doi") or paper.get("link") or paper.get("title") or "unknown_id"
+
+                if not data.get("citation"):
+                    data["citation"] = self._fallback_citation_from_paper(paper)
+
+                validated_data = BiomedicalClinicalExtraction(**data)
+                logger.info("Successfully parsed and validated biomedical clinical extraction data.")
+                return validated_data
+            except Exception as e:
+                logger.error(f"Schema validation failed for LLM response: {e}")
+                return None
+
+        logger.error("Failed to get a valid and parseable biomedical clinical extraction JSON response after retries.")
+        return None
+
+    def extract_specialty_trial_data(
+        self,
+        paper: Dict[str, Any],
+        methods_snippet: str = "",
+    ) -> Optional[SpecialtyTrialExtraction]:
+        """Specialty clinical extraction for the legacy MCI/MCT/ketone lane."""
+        
+        # [Fix] Pydantic 모델에서 JSON 스키마 추출하여 프롬프트에 주입
+        try:
+            schema_json = json.dumps(SpecialtyTrialExtraction.model_json_schema(), indent=2)
+        except Exception:
+            schema_json = "Schema definition unavailable."
+
+        prompt = f"""
+You are an information extraction engine for a specialty clinical evidence lane in PaperPipe.
+IMPORTANT SCOPE: {SpecialtyTrialExtraction.specialty_scope_note()}
+This prompt intentionally targets MCT/ketone supplementation in Mild Cognitive Impairment (MCI). Do not reinterpret it as the generic biomedical clinical extraction contract.
 Extract structured data STRICTLY as valid JSON following the provided schema below. Do not output any Markdown, comments, or extra keys.
 
 Schema:
@@ -335,7 +696,12 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
 """
         
         for i in range(2): # 최대 2번 시도 (최초 1회 + 재시도 1회)
-            response_content = self._make_request("trial_extraction", prompt, is_json=True, schema=TrialExtraction.model_json_schema())
+            response_content = self._make_request(
+                SPECIALTY_TRIAL_EXTRACTION_TASK,
+                prompt,
+                is_json=True,
+                schema=SpecialtyTrialExtraction.model_json_schema(),
+            )
             
             if not response_content or "AI Error" in response_content:
                 logger.error(f"Failed to get valid content from LLM: {response_content}")
@@ -354,16 +720,9 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
                 
                 # Citation 정보가 부실하면 원본 메타데이터로 보완
                 if not data.get('citation'):
-                    data['citation'] = {
-                        'title': paper.get('title', ''),
-                        'authors_first': str(paper.get('authors', '')).split(',')[0] if paper.get('authors') else 'Unknown',
-                        'year': int(paper.get('published', '0')[:4]) if paper.get('published') and paper.get('published')[:4].isdigit() else 0,
-                        'journal_or_server': paper.get('source', 'Unknown'),
-                        'doi': paper.get('doi'),
-                        'url': paper.get('link')
-                    }
+                    data['citation'] = self._fallback_citation_from_paper(paper)
 
-                validated_data = TrialExtraction(**data)
+                validated_data = SpecialtyTrialExtraction(**data)
                 logger.info("Successfully parsed and validated trial extraction data.")
                 return validated_data
             except Exception as e:
@@ -374,13 +733,17 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         logger.error("Failed to get a valid and parseable JSON response after retries.")
         return None
 
+    def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[SpecialtyTrialExtraction]:
+        """Backward-compatible wrapper for the specialty clinical extraction lane."""
+        return self.extract_specialty_trial_data(paper, methods_snippet)
+
     def generate_deep_read(self, paper: Dict[str, Any]) -> Optional[str]:
         """논문을 심도 있게 분석하는 'Deep Read' 요약 생성"""
         slot = paper.get('slot', '').lower()
         
         if slot == 'methods':
             prompt = f"""
-            Analyze this METHODOLOGY paper for a neuroscientist.
+            Analyze this METHODOLOGY paper for a biomedical researcher.
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
@@ -394,11 +757,11 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             2. **Key Protocol And Tips**: What critical steps, reagents, or troubleshooting advice are highlighted?
             3. **Advantages And Innovation**: Why is it better than existing methods?
             4. **Limitations And Caveats**: What are the constraints or potential pitfalls?
-            5. **Applications**: How can this be applied in neuroscience?
+            5. **Applications**: How can this be applied in biomedical research or translational work?
             """
         elif slot == 'mechanism':
             prompt = f"""
-            Analyze this MECHANISTIC paper for a neuroscientist.
+            Analyze this MECHANISTIC paper for a biomedical researcher.
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
@@ -415,7 +778,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             """
         else:
             prompt = f"""
-            Analyze this paper for a neuroscientist.
+            Analyze this paper for a biomedical researcher.
             Title: {paper.get('title', 'N/A')}
             Abstract: {paper.get('summary', 'N/A')}
             
@@ -451,7 +814,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         Target Schema (Slots):
         1. **Mechanism**: Basic science, cellular pathways, molecular interactions (e.g., autophagy, sphingolipids).
-        2. **Clinical**: Human trials, patient studies, drug effects on humans (e.g., MCI, keto diet).
+        2. **Clinical**: Human trials, patient studies, biomarker studies, or therapeutic intervention studies.
         3. **Methods**: New protocols, techniques, validation of assays.
 
         Paper Info:
@@ -461,7 +824,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         Current Rule-based Guess: {current_slot}
 
         Reasoning Steps:
-        1. **Domain Check**: Is this Neuroscience / Cell Biology / Medicine?
+        1. **Domain Check**: Is this clearly within biomedical research scope, and if so which area is most central (for example neuroscience, oncology, immunology, cell biology, translational medicine, or biomaterials-adjacent biomedical work)?
         2. **Clinical Verification**: Does it involve human patients/subjects? If yes -> likely Clinical.
         3. **Methodology Verification**: Is the *primary* focus a new method? If yes -> likely Methods.
         4. **Mechanism Check**: Is it exploring a biological pathway in cells/animals? -> likely Mechanism.
@@ -500,7 +863,7 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         5. **Entity Normalization (CRITICAL)**:
            You MUST normalize the following terms to their standard names if encountered:
            {alias_list}
-           - Example: If text says "AD patients", soft tag MUST be "#AlzheimerDisease", NOT "#AD".
+           - Example: If text says "TNBC patients", soft tag MUST be "#TripleNegativeBreastCancer", NOT "#TNBC".
             """
 
         system_prompt = f"""
@@ -511,10 +874,10 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
            - **Format**: `#Category/Subcategory` or `#Concept` (Obsidian style).
            - **STRICT FORMATTING**: 
              - Use **Forward Slash (/)** for hierarchy (e.DO NOT** use `>`.
-             - **NO SPACES**: Use `CamelCase` or `snake_case` (e.g., `#ClinicalTrial`, `#Alzheimers_Disease`).
+             - **NO SPACES**: Use `CamelCase` or `snake_case` (e.g., `#ClinicalTrial`, `#TripleNegativeBreastCancer`).
              - **NO Special Characters**: Remove `&`, `:`.
            - **Authority**: Use standard MeSH terms adapted to this format.
-           - **Hierarchy**: Include at least one broad category tag (e.g., `#Medicine/Neurology`).
+           - **Hierarchy**: Include at least one broad category tag (e.g., `#Medicine/Oncology` or `#Medicine/Immunology`).
            - **No Repeats**: **DO NOT** use words that already appear in the **TITLE**. Add NEW context.
            - **FAIL-SAFE**: Even if hard extraction fails, YOU MUST GENERATE SOFT TAGS.
         {alias_prompt_section}
@@ -543,11 +906,11 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
         
         Example Output (Structure Reference):
         {{
-            "hard_tags": {{"species": null, "sample_size": 1500, "model": "Solar Dynamics Observatory"}},
-            "soft_tags": ["#Astronomy/SolarPhysics", "#SolarFlares", "#MagneticReconnection"],
-            "evidence_span": "We analyzed 1500 solar flares observed by SDO...",
+            "hard_tags": {{"species": "human", "sample_size": 120, "model": null}},
+            "soft_tags": ["#Medicine/Oncology", "#LiquidBiopsy", "#Biomarker"],
+            "evidence_span": "We analyzed plasma circulating tumor DNA in 120 patients with metastatic breast cancer...",
             "confidence": 0.95,
-            "reasoning": "Paper analyzes solar flare data from SDO satellite."
+            "reasoning": "Paper reports a human oncology biomarker study with clear clinical context."
         }}
         
         Rules:
@@ -805,9 +1168,10 @@ class OllamaProvider(LLMProvider):
             self.ollama_client = None
 
     def _get_model(self, task: str) -> str:
+        task = self._normalize_task_name(task)
         # Map task to local models defined in config, with fallbacks
         if self.models:
-            if task == "trial_extraction":
+            if task in {SPECIALTY_TRIAL_EXTRACTION_TASK, "clinical_extraction"}:
                 return self.models.get("extractor", "llama3:8b")
             if task == "slot_classification":
                 return self.models.get("classifier", "llama3:8b")
@@ -958,17 +1322,38 @@ class HybridProvider(LLMProvider):
         logger.error("HybridProvider: No LLM available for one-liner.")
         return None
     
-    def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[TrialExtraction]:
+    def extract_specialty_trial_data(
+        self,
+        paper: Dict[str, Any],
+        methods_snippet: str = "",
+    ) -> Optional[SpecialtyTrialExtraction]:
         # Trials are critical -> Prefer Cloud for accuracy, OR Local if specified
         # Spec says: "Tagging & Linking (Ollama)", "Escalation (Cloud)".
         # Trial extraction is closer to Tagging (Extraction).
         if self.local.is_available():
             logger.debug("HybridProvider: Using local for trial data extraction.")
-            return self.local.extract_trial_data(paper, methods_snippet)
+            return self.local.extract_specialty_trial_data(paper, methods_snippet)
         elif self.cloud.is_available():
             logger.warning("HybridProvider: Local unavailable for trial extraction, falling back to cloud.")
-            return self.cloud.extract_trial_data(paper, methods_snippet)
+            return self.cloud.extract_specialty_trial_data(paper, methods_snippet)
         logger.error("HybridProvider: No LLM available for trial data extraction.")
+        return None
+
+    def extract_trial_data(self, paper: Dict[str, Any], methods_snippet: str = "") -> Optional[SpecialtyTrialExtraction]:
+        return self.extract_specialty_trial_data(paper, methods_snippet)
+
+    def extract_biomedical_clinical_data(
+        self,
+        paper: Dict[str, Any],
+        methods_snippet: str = "",
+    ) -> Optional[BiomedicalClinicalExtraction]:
+        if self.local.is_available():
+            logger.debug("HybridProvider: Using local for biomedical clinical extraction.")
+            return self.local.extract_biomedical_clinical_data(paper, methods_snippet)
+        elif self.cloud.is_available():
+            logger.warning("HybridProvider: Local unavailable for biomedical clinical extraction, falling back to cloud.")
+            return self.cloud.extract_biomedical_clinical_data(paper, methods_snippet)
+        logger.error("HybridProvider: No LLM available for biomedical clinical extraction.")
         return None
 
     def evaluate_escalation(self, paper: Dict[str, Any]) -> Dict[str, Any]:
