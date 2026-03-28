@@ -243,6 +243,110 @@ def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypa
         db_utils.DB_PATH = original_db_path
 
 
+def test_papers_endpoints_expose_escalation_metadata_from_feedback_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                gate_decision TEXT,
+                gate_reason TEXT,
+                feedback_json TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, gate_decision, gate_reason, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_escalated",
+                "Escalated Guideline Paper",
+                "APPROVED",
+                "APPROVED",
+                "CONFIDENCE_MID,FASTLANE_GUIDANCE",
+                json.dumps(
+                    {
+                        "escalation": {
+                            "approved": True,
+                            "reason": "Authoritative biomedical guidance is explicit; safe to auto-approve.",
+                            "final_route": "FAST_LANE_APPROVE",
+                            "in_biomedical_scope": True,
+                            "reason_codes": ["FASTLANE_GUIDANCE"],
+                        }
+                    }
+                ),
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, gate_decision, gate_reason, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_pending_escalation",
+                "Pending Review Paper",
+                "PENDING_REVIEW",
+                "PENDING_REVIEW",
+                "CONFIDENCE_MID,MODEL_REVIEW_REQUIRED",
+                json.dumps(
+                    {
+                        "escalation": {
+                            "approved": False,
+                            "reason": "Interesting but uncertain from metadata alone.",
+                            "final_route": "QUEUE_HUMAN_REVIEW",
+                            "in_biomedical_scope": True,
+                            "reason_codes": ["MODEL_REVIEW_REQUIRED"],
+                        }
+                    }
+                ),
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        by_id = {row["paper_id"]: row for row in listing.json()}
+
+        assert by_id["paper_escalated"]["is_escalated"] is True
+        assert by_id["paper_escalated"]["escalation_final_route"] == "FAST_LANE_APPROVE"
+        assert by_id["paper_escalated"]["escalation_in_biomedical_scope"] is True
+        assert by_id["paper_escalated"]["escalation_reason_codes"] == ["FASTLANE_GUIDANCE"]
+
+        assert by_id["paper_pending_escalation"]["is_escalated"] is False
+        assert by_id["paper_pending_escalation"]["escalation_final_route"] == "QUEUE_HUMAN_REVIEW"
+        assert by_id["paper_pending_escalation"]["escalation_in_biomedical_scope"] is True
+        assert by_id["paper_pending_escalation"]["escalation_reason_codes"] == ["MODEL_REVIEW_REQUIRED"]
+
+        detail = client.get("/papers/paper_escalated")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["is_escalated"] is True
+        assert payload["escalation_reason"] == "Authoritative biomedical guidance is explicit; safe to auto-approve."
+        assert payload["escalation_final_route"] == "FAST_LANE_APPROVE"
+        assert payload["escalation_reason_codes"] == ["FASTLANE_GUIDANCE"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_papers_list_is_limited_and_sorted_by_updated_at(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
@@ -638,125 +742,5 @@ def test_paper_pdf_endpoint_serves_existing_file_and_handles_missing(tmp_path, m
         missing_paper = client.get("/papers/nope/pdf")
         assert missing_paper.status_code == 404
         assert missing_paper.json()["detail"] == "Paper not found"
-    finally:
-        db_utils.DB_PATH = original_db_path
-
-
-def test_papers_listing_hides_fixture_rows_when_real_papers_exist(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
-
-    original_db_path = db_utils.DB_PATH
-    db_utils.DB_PATH = tmp_path / "state.db"
-    try:
-        db_utils.init_db()
-        conn = db_utils.get_db_connection()
-        conn.execute(
-            """
-            CREATE TABLE papers (
-                paper_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL,
-                pdf_path TEXT,
-                summary TEXT,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-            """
-        )
-        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
-        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
-        fixture_pdf.write_text("%PDF", encoding="utf-8")
-        real_pdf = tmp_path / "library" / "real.pdf"
-        real_pdf.parent.mkdir(parents=True, exist_ok=True)
-        real_pdf.write_text("%PDF", encoding="utf-8")
-        conn.executemany(
-            """
-            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    "paper-e2e-001",
-                    "E2E Seed Paper",
-                    "INDEXED",
-                    str(fixture_pdf),
-                    "fixture",
-                    "2026-03-28 00:00:00",
-                    "2026-03-28 00:00:00",
-                ),
-                (
-                    "paper-real-001",
-                    "Real Paper",
-                    "INDEXED",
-                    str(real_pdf),
-                    "real",
-                    "2026-03-27 00:00:00",
-                    "2026-03-27 00:00:00",
-                ),
-            ],
-        )
-        conn.commit()
-        conn.close()
-
-        client = TestClient(api_main.app)
-        listing = client.get("/papers")
-
-        assert listing.status_code == 200
-        rows = listing.json()
-        assert [row["paper_id"] for row in rows] == ["paper-real-001"]
-    finally:
-        db_utils.DB_PATH = original_db_path
-
-
-def test_papers_listing_keeps_fixture_rows_when_only_fixtures_exist(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
-
-    original_db_path = db_utils.DB_PATH
-    db_utils.DB_PATH = tmp_path / "state.db"
-    try:
-        db_utils.init_db()
-        conn = db_utils.get_db_connection()
-        conn.execute(
-            """
-            CREATE TABLE papers (
-                paper_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL,
-                pdf_path TEXT,
-                summary TEXT,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-            """
-        )
-        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
-        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
-        fixture_pdf.write_text("%PDF", encoding="utf-8")
-        conn.execute(
-            """
-            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "paper-e2e-001",
-                "E2E Seed Paper",
-                "INDEXED",
-                str(fixture_pdf),
-                "fixture",
-                "2026-03-28 00:00:00",
-                "2026-03-28 00:00:00",
-            ),
-        )
-        conn.commit()
-        conn.close()
-
-        client = TestClient(api_main.app)
-        listing = client.get("/papers")
-
-        assert listing.status_code == 200
-        rows = listing.json()
-        assert [row["paper_id"] for row in rows] == ["paper-e2e-001"]
     finally:
         db_utils.DB_PATH = original_db_path

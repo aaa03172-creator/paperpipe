@@ -343,7 +343,7 @@ class BiomedicalClinicalExtraction(BaseModel):
             "specialty profile explicitly selects that lane."
         )
 
-class TrialExtraction(BaseModel):
+class SpecialtyTrialExtraction(BaseModel):
     """Specialized clinical extraction schema for the MCI/MCT/ketone review lane."""
     paper_id: str
     citation: Citation
@@ -476,3 +476,7 @@ class TrialExtraction(BaseModel):
 > **Ketone Confirmed**: {ketone_str}
 > **Tag**: #{tag}
 """
+
+
+# Backward-compatible alias for legacy specialty-lane references.
+TrialExtraction = SpecialtyTrialExtraction
