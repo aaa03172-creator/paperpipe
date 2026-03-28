@@ -28,6 +28,12 @@ from src.services.deepread_state_projection import promote_deepread_structured_s
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
+from src.timeout_policy import (
+    default_reader_timeout_base_seconds,
+    estimate_reader_timeout_seconds,
+    is_timeout_exception,
+    time_limit,
+)
 from src.verify import resolve_anchor_api_context
 
 logger = logging.getLogger("paperpipe.backend")
@@ -757,6 +763,37 @@ async def run_deepread_job(
             run_meta["models_used"]["reader"] = main_model
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
+        llm_conf = getattr(config, "llm", None)
+        page_count = len(getattr(doc_artifact, "pages", []) or [])
+        table_count = len(getattr(doc_artifact, "tables", []) or [])
+        llm_timeout_default = max(15, int(getattr(llm_conf, "timeout_seconds", 15) or 15))
+        reader_timeout_base = default_reader_timeout_base_seconds(llm_timeout_default)
+        reader_timeout_budget = estimate_reader_timeout_seconds(
+            reader_timeout_base,
+            page_count=page_count,
+            table_count=table_count,
+            adaptive=True,
+        )
+        bootstrap_meta["reader_timeout_base_sec"] = reader_timeout_base
+        bootstrap_meta["reader_timeout_budget_sec"] = reader_timeout_budget
+        bootstrap_meta["reader_timeout_adaptive"] = True
+        bootstrap_meta["reader_page_count"] = page_count
+        bootstrap_meta["reader_table_count"] = table_count
+        bootstrap_meta["reader_timeout_triggered"] = False
+        bootstrap_meta["reader_timeout_error_type"] = None
+        bootstrap_meta["reader_provider_timeout_override_applied"] = False
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_timeout_base_sec"] = reader_timeout_base
+            run_meta["reader_timeout_budget_sec"] = reader_timeout_budget
+            run_meta["reader_timeout_adaptive"] = True
+            run_meta["reader_page_count"] = page_count
+            run_meta["reader_table_count"] = table_count
+            run_meta["reader_timeout_triggered"] = False
+            run_meta["reader_timeout_error_type"] = None
+            run_meta["reader_provider_timeout_override_applied"] = False
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         try:
             reader_agent = ReaderAgent(
                 model_name=main_model,
@@ -765,7 +802,26 @@ async def run_deepread_job(
         except TypeError:
             # Test doubles may expose a simplified constructor.
             reader_agent = ReaderAgent()
-        claim_set = reader_agent.analyze(doc_artifact)
+        try:
+            with time_limit(int(reader_timeout_budget)):
+                claim_set = reader_agent.analyze(doc_artifact)
+        except Exception as exc:
+            if not is_timeout_exception(exc):
+                raise
+            timeout_message = (
+                f"Reader step timed out after {reader_timeout_budget}s "
+                f"(pages={page_count}, tables={table_count})"
+            )
+            bootstrap_meta["reader_timeout_triggered"] = True
+            bootstrap_meta["reader_timeout_error_type"] = type(exc).__name__
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                run_meta["reader_timeout_triggered"] = True
+                run_meta["reader_timeout_error_type"] = type(exc).__name__
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+            await emit("read", 55, timeout_message, level="ERROR")
+            raise TimeoutError(timeout_message) from exc
         
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
