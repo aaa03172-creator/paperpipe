@@ -150,6 +150,8 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
     assert payload["total"] == 2
     assert len(payload["items"]) == 2
     assert payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+    assert payload["items"][0]["structured_state_present"] is True
+    assert payload["items"][1]["structured_state_present"] is False
     assert (tmp_path / "storage" / "obsidian" / "paper_notes_index.json").exists()
 
     filtered = client.get("/paper-notes", params={"tag": "Alzheimers_Disease", "q": "prodromal"})
@@ -163,6 +165,7 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
     structured_payload = structured.json()
     assert structured_payload["total"] == 1
     assert structured_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+    assert structured_payload["items"][0]["structured_state_present"] is True
 
     multi_token = client.get("/paper-notes", params={"q": "Amyloid Neurology"})
     assert multi_token.status_code == 200

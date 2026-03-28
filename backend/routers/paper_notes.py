@@ -276,6 +276,7 @@ def _build_index_item(
         slug=note_path.stem,
         title=title,
         note_path=relative_path.as_posix(),
+        structured_state_present=structured_state is not None,
         id=(str(frontmatter.get("id")).strip() if frontmatter.get("id") is not None else None),
         aliases=aliases,
         tags=tags,
