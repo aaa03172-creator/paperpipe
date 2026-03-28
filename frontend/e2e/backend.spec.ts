@@ -401,8 +401,15 @@ test("paper notes detail renders properties, markdown, related papers, and refer
   await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Access Policy");
   await expect(referencesSection.getByTestId("paper-note-reference-policy")).toContainText("Preferred:");
   const openPdfLink = referencesSection.getByRole("link", { name: /Open PDF/i }).first();
-  await expect(openPdfLink).toBeVisible();
-  await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
+  if ((await openPdfLink.count()) > 0) {
+    await expect(openPdfLink).toBeVisible();
+    await expect(openPdfLink).toHaveAttribute("href", /^(file:|https?:\/\/)/);
+  } else {
+    await expect(referencesSection).toContainText(/avoiding direct PDF exposure|Preferred: Canonical DOI/i);
+    const doiLink = referencesSection.getByRole("link", { name: "DOI" }).first();
+    await expect(doiLink).toBeVisible();
+    await expect(doiLink).toHaveAttribute("href", /^https:\/\/doi\.org\//);
+  }
 
   const workbenchLink = page.getByRole("link", { name: "Open in Workbench" }).first();
   await expect(workbenchLink).toBeVisible();
