@@ -21,6 +21,7 @@ This directory stores dated evidence outputs and operational records rather than
 - lane-specific packaging and staging notes such as:
   - `Backend_API_PR_Packaging_2026-03-18.md`
   - `Committed_Backend_API_Stack_Summary_2026-03-18.md`
+  - `Deepread_Handoff_Artifacts_Closeout_2026-03-28.md`
   - `Frontend_Core_UI_Refinement_Closeout_2026-03-24.md`
   - `Profiles_Yaml_Research_DNA_Snapshot_Staging_Prep_2026-03-23.md`
   - `Docling_Eval_Artifacts_Staging_Prep_2026-03-27.md`
