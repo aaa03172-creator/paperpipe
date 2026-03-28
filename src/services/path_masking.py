@@ -1,8 +1,8 @@
 from pathlib import Path
 
 
-def _is_falsey(raw: str) -> bool:
-    return raw.strip().lower() in {"0", "false", "no", "off"}
+def _is_truthy(raw: str) -> bool:
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def is_path_masking_enabled() -> bool:
@@ -11,10 +11,9 @@ def is_path_masking_enabled() -> bool:
     raw = (
         os.getenv("LATTICE_MASK_LOCAL_PATHS")
         or os.getenv("PAPERPIPE_MASK_LOCAL_PATHS")
+        or ""
     )
-    if raw is None or not raw.strip():
-        return True
-    return not _is_falsey(raw)
+    return _is_truthy(raw)
 
 
 def mask_local_path(raw_path: str | None) -> str | None:

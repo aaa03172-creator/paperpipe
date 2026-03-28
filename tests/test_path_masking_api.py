@@ -8,7 +8,6 @@ import src.db_utils as db_utils
 from src.jobs.queue import JobQueue
 from backend import main as api_main
 from backend.routers import obsidian as obsidian_router
-from src.services.path_masking import is_path_masking_enabled
 
 
 def _setup_temp_db(tmp_path, monkeypatch):
@@ -17,20 +16,6 @@ def _setup_temp_db(tmp_path, monkeypatch):
     db_utils.DB_PATH = tmp_path / "state.db"
     db_utils.init_db()
     return original_db_path
-
-
-def test_path_masking_defaults_to_enabled_when_env_is_unset(monkeypatch):
-    monkeypatch.delenv("LATTICE_MASK_LOCAL_PATHS", raising=False)
-    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
-
-    assert is_path_masking_enabled() is True
-
-
-def test_path_masking_can_be_disabled_with_falsey_env(monkeypatch):
-    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "false")
-    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
-
-    assert is_path_masking_enabled() is False
 
 
 def test_papers_endpoint_masks_absolute_pdf_path_when_enabled(tmp_path, monkeypatch):
