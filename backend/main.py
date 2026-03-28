@@ -81,6 +81,7 @@ from src.schemas.ops import (
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
 from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
+from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_readiness import collect_runtime_readiness
@@ -1063,9 +1064,10 @@ def list_papers(
     offset: int = Query(default=0, ge=0),
 ) -> list[PaperSummaryResponse]:
     conn = get_db_connection()
+    raw_limit = 5000
     papers = conn.execute(
         "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-        (limit, offset),
+        (raw_limit, 0),
     ).fetchall()
     conn.close()
     artifacts_path = artifacts_root()
@@ -1088,7 +1090,8 @@ def list_papers(
         ) or _latest_run_id_for_paper(paper_id)
         item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
         out.append(item)
-    return out
+    visible = prefer_non_fixture_items(out, is_test_fixture_paper_record)
+    return visible[offset : offset + limit]
 
 
 @app.get("/papers/{paper_id}")
