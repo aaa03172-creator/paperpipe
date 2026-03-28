@@ -10,7 +10,7 @@ from src.contracts.output_bridge import (
     claim_cards_from_claimset_payload,
     normalize_claimset_payload,
 )
-from src.schemas.core import BiomedicalClinicalExtraction
+from src.schemas import BiomedicalClinicalExtraction
 from src.schemas.skills import SkillRunRecord, StructuredPaperState
 from src.skills.storage import (
     atomic_write_text,
