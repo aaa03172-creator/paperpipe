@@ -185,9 +185,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
         assert (artifact_dir / "run_meta.json").exists()
+        assert (artifact_dir / "acceptance_contract.json").exists()
+        assert (artifact_dir / "quality_gate.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+        quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         assert meta["paper_id"] == paper_id
         assert run_meta["paper_id"] == paper_id
         assert run_meta["status"] == "succeeded"
@@ -208,6 +211,8 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_claimset_resolved_written"] is True
         assert meta["artifact_reader_eval_written"] is True
+        assert meta["artifact_acceptance_contract_written"] is True
+        assert meta["artifact_quality_gate_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
         assert meta["claimset_readiness"] == "ready"
@@ -228,6 +233,9 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert span["page"] == 0
         assert span["grounded"] is True
         assert span["resolution"] == "OK"
+        assert quality_gate["overall_status"] == "pass"
+        assert quality_gate["review_ready"] is True
+        assert quality_gate["current_promotion_candidate"] is True
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
@@ -350,6 +358,7 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert done.status == "completed"
         artifact_dir = Path(done.artifact_dir)
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         assert meta["claimset_readiness"] == "not_ready"
         assert meta["claimset_ready"] is False
         assert meta["claimset_claim_count"] == 0
@@ -357,6 +366,11 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert meta["claimset_ops_action"] == "manual_review_queued"
         assert meta["claimset_ops_alert"] is False
         assert meta["claimset_ops_note"] in {"queued", "already_open"}
+        assert meta["artifact_acceptance_contract_written"] is True
+        assert meta["artifact_quality_gate_written"] is True
+        assert quality_gate["overall_status"] == "warn"
+        assert quality_gate["current_promotion_candidate"] is True
+        assert quality_gate["review_ready"] is False
 
         conn = sqlite3.connect(db_utils.DB_PATH)
         row = conn.execute(

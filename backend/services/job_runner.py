@@ -25,6 +25,7 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.services.deepread_state_projection import promote_deepread_structured_state_for_note
+from src.services.deepread_handoff_artifacts import write_deepread_handoff_artifacts
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
@@ -995,6 +996,23 @@ async def run_deepread_job(
 
         # 6. Complete
         _mark_run_meta("succeeded")
+        try:
+            handoff_artifacts = write_deepread_handoff_artifacts(
+                artifact_dir,
+                paper_id=paper_id,
+                run_id=run_id,
+                run_meta=run_meta or {},
+                bootstrap_meta=bootstrap_meta,
+            )
+            bootstrap_meta["artifact_acceptance_contract_written"] = True
+            bootstrap_meta["artifact_quality_gate_written"] = True
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                run_meta["handoff_artifacts"] = handoff_artifacts
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+        except Exception as handoff_err:
+            logger.warning("Failed to write deep-read handoff pilot artifacts: %s", handoff_err)
 
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
