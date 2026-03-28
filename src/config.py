@@ -1,11 +1,15 @@
 import yaml
 import os
 import re
+import warnings
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
 from src.services.runtime_paths import config_file_path, feedback_index_root, logs_root, rag_root
+
+_LEGACY_TRIAL_EXTRACTION_ALIAS_WARNED = False
+LEGACY_TRIAL_EXTRACTION_ALIAS_REMOVAL_DATE = "2026-06-30"
 
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
@@ -17,7 +21,7 @@ class PathsConfig(BaseModel):
     zotero_base_dir: Path
     obsidian_vault: Path
     index_all: Path = Path("00_Index/paper_collection.csv")
-    index_clinical: Path = Path("00_Index/mct_mci_trials.csv")
+    index_clinical: Path = Path("00_Index/clinical_trials.csv")
     upload_dir: Optional[Path] = None
     export_dir: Path = Path("export")
     watch_folder: Optional[Path] = None # [NEW]
@@ -61,9 +65,76 @@ class FeatureConfig(BaseModel):
     model: str = "gpt-4o-mini" # Default, can be overridden by specific provider config
 
 class LLMFeatures(BaseModel):
-    trial_extraction: FeatureConfig
+    clinical_extraction: Optional[FeatureConfig] = None
+    specialty_trial_extraction: Optional[FeatureConfig] = None
+    # Backward-compatible alias for older local configs. Prefer specialty_trial_extraction.
+    trial_extraction: Optional[FeatureConfig] = None
     slot_classification: FeatureConfig
     one_liner: FeatureConfig
+
+
+def _coerce_feature_config(feature: Any) -> Any:
+    if isinstance(feature, dict):
+        return FeatureConfig(**feature)
+    return feature
+
+
+def resolve_clinical_extraction_feature(features: Any) -> Any:
+    if features is None:
+        return None
+    if isinstance(features, dict):
+        clinical_feature = _coerce_feature_config(features.get("clinical_extraction"))
+        if clinical_feature is not None:
+            return clinical_feature
+        specialty_feature = _coerce_feature_config(features.get("specialty_trial_extraction"))
+        if specialty_feature is not None:
+            return specialty_feature
+        return _coerce_feature_config(features.get("trial_extraction"))
+    clinical_feature = _coerce_feature_config(getattr(features, "clinical_extraction", None))
+    if clinical_feature is not None:
+        return clinical_feature
+    specialty_feature = _coerce_feature_config(getattr(features, "specialty_trial_extraction", None))
+    if specialty_feature is not None:
+        return specialty_feature
+    return _coerce_feature_config(getattr(features, "trial_extraction", None))
+
+
+def resolve_specialty_trial_extraction_feature(features: Any) -> Any:
+    if features is None:
+        return None
+    if isinstance(features, dict):
+        specialty_feature = _coerce_feature_config(features.get("specialty_trial_extraction"))
+        if specialty_feature is not None:
+            return specialty_feature
+        return _coerce_feature_config(features.get("trial_extraction"))
+    specialty_feature = _coerce_feature_config(getattr(features, "specialty_trial_extraction", None))
+    if specialty_feature is not None:
+        return specialty_feature
+    return _coerce_feature_config(getattr(features, "trial_extraction", None))
+
+
+def _warn_legacy_trial_extraction_alias_once() -> None:
+    global _LEGACY_TRIAL_EXTRACTION_ALIAS_WARNED
+    if _LEGACY_TRIAL_EXTRACTION_ALIAS_WARNED:
+        return
+    warnings.warn(
+        "`llm.features.trial_extraction` is deprecated; use "
+        "`llm.features.specialty_trial_extraction` for the specialty clinical extraction lane. "
+        f"Scheduled removal date: {LEGACY_TRIAL_EXTRACTION_ALIAS_REMOVAL_DATE}.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _LEGACY_TRIAL_EXTRACTION_ALIAS_WARNED = True
+
+
+def _uses_legacy_trial_extraction_alias(data: Dict[str, Any]) -> bool:
+    llm_data = data.get("llm")
+    if not isinstance(llm_data, dict):
+        return False
+    features_data = llm_data.get("features")
+    if not isinstance(features_data, dict):
+        return False
+    return "trial_extraction" in features_data
 
 class LocalLLMConfig(BaseModel):
     provider: Literal["ollama"] = "ollama"
@@ -160,6 +231,9 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
     
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
+
+    if isinstance(data, dict) and _uses_legacy_trial_extraction_alias(data):
+        _warn_legacy_trial_extraction_alias_once()
 
     # Note: Pydantic V2 validation happens on instantiation
     config = AppConfig(**data)
