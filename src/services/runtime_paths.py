@@ -2,12 +2,46 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 
 from src.services.identity import artifact_paper_segment, legacy_artifact_paper_segment
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _truthy_env(name: str) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _app_name() -> str:
+    value = os.getenv("PAPERPIPE_APP_NAME")
+    if value and value.strip():
+        return value.strip()
+    return "Lattice"
+
+
+def install_layout_enabled() -> bool:
+    return _truthy_env("PAPERPIPE_INSTALL_LAYOUT")
+
+
+def user_config_base_dir() -> Path:
+    app_name = _app_name()
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Application Support" / app_name).resolve()
+    if os.name == "nt":
+        base = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
+        if base:
+            return (Path(base).expanduser() / app_name).resolve()
+        return (Path.home() / "AppData" / "Roaming" / app_name).resolve()
+    xdg = os.getenv("XDG_CONFIG_HOME")
+    if xdg:
+        return (Path(xdg).expanduser() / app_name).resolve()
+    return (Path.home() / ".config" / app_name).resolve()
 
 
 def paperpipe_home() -> Path:
@@ -33,10 +67,92 @@ def state_db_path() -> Path:
     return (storage_root() / "state.db").resolve()
 
 
+def config_root(config_path: str | Path = "config.yaml") -> Path:
+    value = os.getenv("PAPERPIPE_CONFIG_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    explicit_config = os.getenv("PAPERPIPE_CONFIG_PATH")
+    if explicit_config:
+        explicit_path = Path(explicit_config).expanduser().resolve()
+        workspace_candidate = (explicit_path.parent / "config").resolve()
+        if workspace_candidate.exists():
+            return workspace_candidate
+        return explicit_path.parent.resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "config").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "config").resolve()
+    raw = Path(config_path).expanduser()
+    if raw.name != "config.yaml" or raw.parent != Path("."):
+        return raw.resolve().parent
+    cwd_candidate = (Path.cwd() / "config").resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    return (paperpipe_home() / "config").resolve()
+
+
 def config_file_path(config_path: str | Path = "config.yaml") -> Path:
     value = os.getenv("PAPERPIPE_CONFIG_PATH")
-    raw = value if value else config_path
+    if value:
+        return Path(value).expanduser().resolve()
+    config_dir_override = os.getenv("PAPERPIPE_CONFIG_DIR")
+    if config_dir_override:
+        return (config_root(config_path) / "config.yaml").resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        candidates = [
+            (config_root(config_path) / "config.yaml").resolve(),
+            (paperpipe_home() / "config.yaml").resolve(),
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
+    if install_layout_enabled():
+        install_candidate = (config_root(config_path) / "config.yaml").resolve()
+        if install_candidate.exists():
+            return install_candidate
+        return install_candidate
+    raw = config_path
     return Path(raw).expanduser().resolve()
+
+
+def logs_root() -> Path:
+    value = os.getenv("PAPERPIPE_LOGS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "logs").resolve()
+    return Path("logs").resolve()
+
+
+def cache_root() -> Path:
+    value = os.getenv("PAPERPIPE_CACHE_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "cache").resolve()
+    return (storage_root() / "cache").resolve()
+
+
+def rag_root() -> Path:
+    value = os.getenv("PAPERPIPE_RAG_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "rag").resolve()
+
+
+def feedback_index_root() -> Path:
+    value = os.getenv("PAPERPIPE_FEEDBACK_INDEX_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "feedback_index").resolve()
+
+
+def ocr_cache_root() -> Path:
+    value = os.getenv("PAPERPIPE_OCR_CACHE_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (cache_root() / "ocr").resolve()
 
 
 def artifacts_root() -> Path:
@@ -161,13 +277,15 @@ def profiles_config_path() -> Path:
     if os.getenv("PAPERPIPE_CONFIG_PATH"):
         config_path = config_file_path()
         candidates = [
-            (config_path.parent / "config" / "profiles.yaml").resolve(),
+            (config_root() / "profiles.yaml").resolve(),
             config_path.with_name("profiles.yaml").resolve(),
         ]
         for candidate in candidates:
             if candidate.exists():
                 return candidate
         return candidates[0]
+    if os.getenv("PAPERPIPE_CONFIG_DIR") or os.getenv("PAPERPIPE_HOME") or install_layout_enabled():
+        return (config_root() / "profiles.yaml").resolve()
     cwd_candidate = (Path.cwd() / "config" / "profiles.yaml").resolve()
     if cwd_candidate.exists():
         return cwd_candidate

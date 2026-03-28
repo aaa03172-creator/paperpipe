@@ -1,0 +1,173 @@
+{
+  "schema_version": "escalation_judge_real_fixture.v1",
+  "recorded_at": "2026-03-27",
+  "expected_source": "policy_review_2026-03-27",
+  "description": "Bounded real-history escalation judge cases recorded from the local PaperPipe state DB. gate_decision preserves the recorded historic label, while expected_approved tracks the current bounded escalation policy baseline after 2026-03-27 review.",
+  "cases": [
+    {
+      "paper_id": "zotero:kowalskiBrainGutMicrobiotaAxisAlzheimers2019",
+      "case_id": "kowalskiBrainGutMicrobiotaAxisAlzheimers2019",
+      "expected_approved": false,
+      "gate_decision": "PENDING_REVIEW",
+      "confidence": 0.8,
+      "paper": {
+        "title": "Brain-Gut-Microbiota Axis in Alzheimer’s Disease",
+        "summary": "이 논문은 알츠하이머병에서 뇌-복잡-미생물 축에 대한 핵심 기여를 제시하는데, 이를 통해 알츠하이머병의 병태생을 이해하고 새로운 치료 방안을 개발할 수 있을 것이다.",
+        "tags": [
+          "#Neurology/Alzheimers_Disease",
+          "#Gastroenterology/Microbiota",
+          "#Inflammation"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:sochockaGutMicrobiomeAlterations2019",
+      "case_id": "sochockaGutMicrobiomeAlterations2019",
+      "expected_approved": false,
+      "gate_decision": "PENDING_REVIEW",
+      "confidence": 0.8,
+      "paper": {
+        "title": "The Gut Microbiome Alterations and Inflammation-Driven Pathogenesis of Alzheimer’s Disease—a Critical Review",
+        "summary": "이 논문은 알츠하이머병의 병태생물학적 기전에서 소화기 미생물 변동과 염증이 주요 원인임을 강조하는 것.",
+        "tags": [
+          "#Medicine/Neurology",
+          "#Alzheimers_Disease",
+          "#Gut_Microbiome"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:arnstenNeuromodulationThoughtFlexibilities2012",
+      "case_id": "arnstenNeuromodulationThoughtFlexibilities2012",
+      "expected_approved": false,
+      "gate_decision": "APPROVED",
+      "confidence": 0.95,
+      "paper": {
+        "title": "Neuromodulation of Thought: Flexibilities and Vulnerabilities in Prefrontal Cortical Network Synapses",
+        "summary": "이 논문은 프레프론탈 코르텍스 네트워크의 신경모듈레이션을 통해 생각의 유연성과 취약성을 규명하는 주요 기여를 제공합니다.",
+        "tags": [
+          "Review",
+          "#Neuroscience/Neuromodulation",
+          "#CognitivePsychology/WorkingMemory",
+          "#PrefrontalCortex"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "case_id": "parkDiscoveryDualactionSmall2022",
+      "expected_approved": true,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
+        "summary": "Since Alzheimer’s disease (AD) is a multifaceted neurodegenerative disease, multitargeted therapeutic approaches are likely required for effective AD treatment. The importance of acid sphingomyelinase (ASM) activation in the various neuropathological features of AD is well-known.",
+        "tags": [
+          "KARI 201",
+          "In Vitro",
+          "#Neuroscience/Alzheimer's_Disease",
+          "#Sphingomyelinase_Inhibitor",
+          "#Ghrelin_Receptor_Agonist",
+          "#Memory_Impairment",
+          "#Neuropathological_Features"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:colomboMicrobiotaderivedShortChain2021",
+      "case_id": "colomboMicrobiotaderivedShortChain2021",
+      "expected_approved": true,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Microbiota-derived short chain fatty acids modulate microglia and promote Aβ plaque deposition",
+        "summary": "Previous studies have identified a crucial role of the gut microbiome in modifying Alzheimer’s disease (AD) progression. However, the mechanisms of microbiome–brain interaction in AD were so far unknown.",
+        "tags": [
+          "#Medicine/Neurology",
+          "#Alzheimers_Disease",
+          "#Microbiome/Gut_Brain_Axis"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "case_id": "duboisClinicalDiagnosisAlzheimers2021",
+      "expected_approved": true,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Clinical diagnosis of Alzheimer's disease: recommendations of the International Working Group",
+        "summary": "이 논문은 알츠하이머병의 임상진단을 위한 국제 일제 그룹의 권고안을 제시하여, 진단 기준을 정립하고 의사들의 판단을 지원하는 데 기여한 것이다.",
+        "tags": [
+          "#Medicine/Neurology",
+          "#AlzheimersDisease",
+          "#ClinicalDiagnosis"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:hanssonBloodBiomarkersAlzheimers2023",
+      "case_id": "hanssonBloodBiomarkersAlzheimers2023",
+      "expected_approved": true,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Blood biomarkers for Alzheimer’s disease in clinical practice and trials",
+        "summary": "이 논문은 알츠하이머병의 혈액バイ오마커를 임상실무와 실험에 적용하여 새로운 치료방안을 모색하는 데 있어 핵심적 기여를 했다.",
+        "tags": [
+          "#Medicine/Neurology",
+          "#Alzheimers_Disease",
+          "#Biomarkers"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:fentonAdvancesBiomaterialsDrug2018",
+      "case_id": "fentonAdvancesBiomaterialsDrug2018",
+      "expected_approved": false,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Advances in Biomaterials for Drug Delivery",
+        "summary": "Advances in biomaterials for drug delivery are enabling significant progress in biology and medicine. Multidisciplinary collaborations between physical scientists, engineers, biologists, and clinicians generate innovative strategies and materials to treat a range of diseases.",
+        "tags": [
+          "#Biomaterials/DrugDelivery",
+          "#MaterialsScience/Biotechnology",
+          "#Pharmacology/ClinicalTrials"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:huPolyLacticAcidRecent2025",
+      "case_id": "huPolyLacticAcidRecent2025",
+      "expected_approved": false,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Poly(Lactic Acid): Recent Stereochemical Advances and New Materials Engineering",
+        "summary": "Poly(lactic acid) (PLA) is a representative biobased and biodegradable aliphatic polyester and a front‐runner among sustainable materials. As a semicrystalline thermoplastic, PLA exhibits excellent mechanical and physical properties, attracting considerable attention in commodity and medical fields.",
+        "tags": [
+          "#MaterialsScience/Polymers",
+          "#SustainableMaterials",
+          "#Stereochemistry"
+        ]
+      }
+    },
+    {
+      "paper_id": "zotero:xiaEngineeringMacrophagesCancer2020",
+      "case_id": "xiaEngineeringMacrophagesCancer2020",
+      "expected_approved": false,
+      "gate_decision": "APPROVED",
+      "confidence": 0.9,
+      "paper": {
+        "title": "Engineering Macrophages for Cancer Immunotherapy and Drug Delivery",
+        "summary": "Macrophages play an important role in cancer development and metastasis. Proinflammatory M1 macrophages can phagocytose tumor cells, while anti‐inflammatory M2 macrophages such as tumor‐associated macrophages (TAMs) promote tumor growth and invasion.",
+        "tags": [
+          "#Medicine/Oncology",
+          "#Immunotherapy",
+          "#CancerTherapy"
+        ]
+      }
+    }
+  ]
+}
