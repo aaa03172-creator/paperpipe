@@ -1,5 +1,10 @@
 # bootstrap_meta.json Schema
 
+Status: Active reference
+Date: 2026-03-28
+Owner: Lattice runtime maintainers
+Canonical: `docs/bootstrap_meta_schema.md`
+
 This file is written per deepread run at:
 `storage/artifacts/<paper_id>/<run_id>/bootstrap_meta.json`
 
@@ -31,7 +36,11 @@ This file is written per deepread run at:
 - `artifact_document_written` (bool): Whether `document_artifact.json` was written.
 - `artifact_index_written` (bool): Whether `index_artifact.json` was written.
 - `artifact_claimset_written` (bool): Whether `claimset.json` was written.
+- `artifact_claimset_resolved_written` (bool): Whether `claimset.resolved.json` was written for downstream promotion/state projection.
+- `artifact_reader_eval_written` (bool): Whether `reader_eval.json` was written for bounded post-read inspection.
 - `artifact_stats_written` (bool): Whether `stats_report.json` was written.
+- `artifact_acceptance_contract_written` (bool): Whether `acceptance_contract.json` was written for the deepread handoff contract.
+- `artifact_quality_gate_written` (bool): Whether `quality_gate.json` was written for deepread promotion/review gating.
 - `claimset_readiness` (string): `unknown` | `ready` | `not_ready`.
 - `claimset_ready` (bool|null): Convenience boolean for consumers (`null` when unknown/not evaluated).
 - `claimset_claim_count` (int): Number of extracted claims saved in `claimset.json`.
@@ -68,7 +77,11 @@ This file is written per deepread run at:
   "artifact_document_written": true,
   "artifact_index_written": true,
   "artifact_claimset_written": true,
+  "artifact_claimset_resolved_written": true,
+  "artifact_reader_eval_written": true,
   "artifact_stats_written": true,
+  "artifact_acceptance_contract_written": true,
+  "artifact_quality_gate_written": true,
   "claimset_readiness": "ready",
   "claimset_ready": true,
   "claimset_claim_count": 4,
