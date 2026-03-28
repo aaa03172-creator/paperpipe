@@ -737,6 +737,134 @@ def test_paper_notes_list_supports_status_filter_and_sorting(tmp_path, monkeypat
     assert [item["slug"] for item in date_payload["items"][:3]] == ["note-alpha", "note-gamma", "note-beta"]
 
 
+def test_paper_notes_default_sort_prioritizes_saved_state_with_richer_claims(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "fixture-live.md",
+        _note_content(
+            note_id="zotero:fixture-live",
+            alias="Live Validate Citations Fixture",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-09",
+            confidence=0.6,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / "fixture-live" / "state.json",
+        {
+            "paper_slug": "fixture-live",
+            "updated_at": "2026-03-09T00:00:00Z",
+            "runs": [],
+            "signals": {},
+            "claimset": [],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+        },
+    )
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "fixture-structured.md",
+        _note_content(
+            note_id="zotero:fixture-structured",
+            alias="Structured Skills ClaimSet Fixture",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-09",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / "fixture-structured" / "state.json",
+        {
+            "paper_slug": "fixture-structured",
+            "updated_at": "2026-03-09T00:00:00Z",
+            "runs": [],
+            "signals": {},
+            "claimset": [],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+        },
+    )
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "real-dubois.md",
+        _note_content(
+            note_id="zotero:real-dubois",
+            alias="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            tags=["Medicine/Neurology"],
+            date_processed="2026-02-24",
+            confidence=0.8,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / "real-dubois" / "state.json",
+        {
+            "paper_slug": "real-dubois",
+            "updated_at": "2026-03-09T07:53:10Z",
+            "runs": [],
+            "signals": {"claim_count": 2},
+            "claimset": [
+                {"id": "claim-001", "claim": "Claim one", "evidence": [], "evidence_ids": []},
+                {"id": "claim-002", "claim": "Claim two", "evidence": [], "evidence_ids": []},
+            ],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["memory"],
+        },
+    )
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "real-coric.md",
+        _note_content(
+            note_id="zotero:real-coric",
+            alias="Targeting Prodromal Alzheimer Disease With Avagacestat: A Randomized Clinical Trial",
+            tags=["Medicine/Neurology"],
+            date_processed="2026-02-24",
+            confidence=0.8,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / "real-coric" / "state.json",
+        {
+            "paper_slug": "real-coric",
+            "updated_at": "2026-03-24T14:40:55Z",
+            "runs": [],
+            "signals": {"claim_count": 4},
+            "claimset": [
+                {"id": "claim-001", "claim": "Claim one", "evidence": [], "evidence_ids": []},
+                {"id": "claim-002", "claim": "Claim two", "evidence": [], "evidence_ids": []},
+                {"id": "claim-003", "claim": "Claim three", "evidence": [], "evidence_ids": []},
+                {"id": "claim-004", "claim": "Claim four", "evidence": [], "evidence_ids": []},
+            ],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["progression"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+    client = TestClient(api_main.app)
+
+    response = client.get("/paper-notes", params={"page_size": 10})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert [item["slug"] for item in payload["items"][:4]] == [
+        "real-coric",
+        "real-dubois",
+        "fixture-structured",
+        "fixture-live",
+    ]
+
+
 def test_paper_notes_list_supports_multi_tag_filter_and_pagination(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
