@@ -78,6 +78,13 @@ class UserActionEntry(BaseModel):
     payload: Optional[Any] = None
 
 
+class UserActionCreateRequest(BaseModel):
+    paper_id: Optional[str] = None
+    action_type: str
+    source: str = "ui"
+    payload: Optional[Any] = None
+
+
 class UserActionListResponse(BaseModel):
     actions: list[UserActionEntry] = Field(default_factory=list)
 
