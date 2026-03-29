@@ -25,6 +25,7 @@ from src.meeting_packs.store import (
     save_meeting_pack_markdown,
     save_meeting_pack_bundle,
 )
+from src.services.fixture_visibility import is_test_fixture_meeting_pack, prefer_non_fixture_items
 from src.schemas.meeting_pack import (
     MeetingPack,
     MeetingPackConsensus,
@@ -259,10 +260,9 @@ def get_meeting_pack(pack_id: str, *, root: Path | None = None) -> MeetingPackRe
 
 
 def list_meeting_packs(*, root: Path | None = None) -> MeetingPackListResponse:
-    items = [
-        _meeting_pack_list_item(load_meeting_pack(pack_id, root))
-        for pack_id in list_meeting_pack_ids(root)
-    ]
+    packs = [load_meeting_pack(pack_id, root) for pack_id in list_meeting_pack_ids(root)]
+    visible_packs = prefer_non_fixture_items(packs, is_test_fixture_meeting_pack)
+    items = [_meeting_pack_list_item(pack) for pack in visible_packs]
     items.sort(key=lambda item: (item.created_at, item.pack_id), reverse=True)
     return MeetingPackListResponse(
         generated_at=datetime.now(timezone.utc),
