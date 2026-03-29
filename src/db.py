@@ -4,9 +4,10 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-from src.db_utils import DB_PATH as CANONICAL_DB_PATH
+from src.db_utils import DB_PATH as CANONICAL_DB_PATH, get_db_path as get_canonical_db_path
 
 DB_PATH = CANONICAL_DB_PATH
+_IMPORTED_DB_PATH = Path(DB_PATH)
 _DEPRECATION_WARNED = False
 
 
@@ -24,8 +25,16 @@ def _warn_deprecated_once() -> None:
 
 def _connect() -> sqlite3.Connection:
     _warn_deprecated_once()
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_PATH)
+    db_path = _resolved_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(db_path)
+
+
+def _resolved_db_path() -> Path:
+    configured = Path(DB_PATH).expanduser().resolve()
+    if configured != _IMPORTED_DB_PATH:
+        return configured
+    return get_canonical_db_path()
 
 
 def _paper_columns(cursor: sqlite3.Cursor) -> set[str]:
@@ -51,8 +60,9 @@ def init_db():
     original_core_path = init_core_module.DB_PATH
     original_utils_path = db_utils_module.DB_PATH
     try:
-        init_core_module.DB_PATH = DB_PATH
-        db_utils_module.DB_PATH = DB_PATH
+        resolved_path = _resolved_db_path()
+        init_core_module.DB_PATH = resolved_path
+        db_utils_module.DB_PATH = resolved_path
         init_core_module.init_db()
         db_utils_module.init_db()
     finally:
