@@ -32,6 +32,7 @@ from src.schemas.ops import (
     StatsRepairRequest,
     StatsRepairResponse,
     StatsRepairResult,
+    UserActionCreateRequest,
     UserActionEntry,
     UserActionListResponse,
 )
@@ -143,7 +144,7 @@ def _requires_api_key(method: str, path: str) -> bool:
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run"}:
+    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
@@ -1285,6 +1286,34 @@ def get_user_actions(
         limit=limit,
     )
     return UserActionListResponse(actions=[UserActionEntry.model_validate(item) for item in actions])
+
+
+@app.post("/user-actions", response_model=UserActionEntry)
+def create_user_action(req: UserActionCreateRequest):
+    action_id = log_user_action(
+        paper_id=req.paper_id,
+        action_type=req.action_type,
+        source=req.source,
+        payload=req.payload if isinstance(req.payload, dict) else req.payload,
+    )
+    connection = get_db_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT action_id, ts, paper_id, action_type, source, payload_json
+            FROM user_actions
+            WHERE action_id = ?
+            LIMIT 1
+            """,
+            (action_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        raise HTTPException(status_code=500, detail="Failed to persist user action")
+    payload = dict(row)
+    payload["payload"] = json.loads(payload.pop("payload_json")) if payload.get("payload_json") else None
+    return UserActionEntry.model_validate(payload)
 
 
 @app.post("/ops/repair-stats", response_model=StatsRepairResponse)
