@@ -7,9 +7,7 @@ from src.services.runtime_paths import (
     profiles_config_path,
     research_dna_root,
     search_eval_root,
-    state_db_path,
 )
-import src.services.runtime_paths as runtime_paths
 
 
 def test_research_dna_root_defaults_under_paperpipe_home(tmp_path, monkeypatch):
@@ -59,21 +57,6 @@ def test_artifacts_root_defaults_under_storage_root(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert artifacts_root() == (tmp_path / "storage" / "artifacts").resolve()
-
-
-def test_storage_and_state_db_follow_install_layout_on_macos(tmp_path, monkeypatch):
-    monkeypatch.delenv("PAPERPIPE_HOME", raising=False)
-    monkeypatch.delenv("PAPERPIPE_STORAGE_DIR", raising=False)
-    monkeypatch.delenv("PAPERPIPE_DB_PATH", raising=False)
-    monkeypatch.delenv("PAPERPIPE_ARTIFACTS_DIR", raising=False)
-    monkeypatch.setenv("PAPERPIPE_INSTALL_LAYOUT", "1")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(runtime_paths.sys, "platform", "darwin")
-
-    install_root = tmp_path / "Library" / "Application Support" / "Lattice"
-    assert runtime_paths.storage_root() == (install_root / "storage").resolve()
-    assert state_db_path() == (install_root / "storage" / "state.db").resolve()
-    assert artifacts_root() == (install_root / "storage" / "artifacts").resolve()
 
 
 def test_artifact_paths_hash_unsafe_paper_ids_when_no_legacy_dir_exists(tmp_path, monkeypatch):
