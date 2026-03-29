@@ -427,7 +427,7 @@ def test_paper_notes_list_includes_operational_summary(tmp_path, monkeypatch):
     assert items["healthy-note"]["ops_summary"]["latest_run_id"] == "run_healthy_001"
     assert items["healthy-note"]["ops_summary"]["stats_check_count"] == 2
     assert items["repair-note"]["ops_summary"]["state"] == "action_needed"
-    assert items["repair-note"]["ops_summary"]["reason"] == "Stats report is missing or empty."
+    assert items["repair-note"]["ops_summary"]["reason"] == "Saved note checks are missing or empty."
     assert items["repair-note"]["ops_summary"]["recommended_action"] == "repair_stats"
     assert items["repair-note"]["ops_summary"]["latest_run_id"] == "run_repair_001"
 

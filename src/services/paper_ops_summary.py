@@ -83,7 +83,7 @@ def build_ops_summary_from_snapshot(snapshot: ArtifactOperationalSnapshot | None
         return PaperNoteOpsSummary(
             state="healthy",
             label="Healthy",
-            reason=f"ClaimSet and Stats Snapshot are available. {snapshot.stats_check_count} checks ready.",
+            reason=f"Saved claims and note checks are available. {snapshot.stats_check_count} checks are ready.",
             recommended_action="none",
             latest_run_id=snapshot.run_id,
             has_claimset=True,
@@ -95,7 +95,7 @@ def build_ops_summary_from_snapshot(snapshot: ArtifactOperationalSnapshot | None
         return PaperNoteOpsSummary(
             state="action_needed",
             label="Action needed",
-            reason="Stats report is missing or empty.",
+            reason="Saved note checks are missing or empty.",
             recommended_action="repair_stats",
             latest_run_id=snapshot.run_id,
             has_claimset=True,
@@ -107,7 +107,7 @@ def build_ops_summary_from_snapshot(snapshot: ArtifactOperationalSnapshot | None
         return PaperNoteOpsSummary(
             state="action_needed",
             label="Action needed",
-            reason="Stats Snapshot exists but ClaimSet is missing.",
+            reason="Saved note checks exist, but saved claims are missing.",
             recommended_action="open_workbench",
             latest_run_id=snapshot.run_id,
             has_claimset=False,
