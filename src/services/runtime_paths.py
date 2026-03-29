@@ -57,6 +57,8 @@ def storage_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "storage").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "storage").resolve()
     return Path("storage").resolve()
 
 
@@ -122,6 +124,8 @@ def logs_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "logs").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "logs").resolve()
     return Path("logs").resolve()
 
 
@@ -131,6 +135,8 @@ def cache_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "cache").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "cache").resolve()
     return (storage_root() / "cache").resolve()
 
 
