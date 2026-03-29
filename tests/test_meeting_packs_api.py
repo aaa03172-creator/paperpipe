@@ -254,6 +254,79 @@ def test_meeting_packs_api_lists_saved_packs_with_recent_first_order(tmp_path, m
     assert payload["items"][0]["trace_entry_count"] == 2
 
 
+def test_meeting_packs_api_hides_fixture_packs_when_real_packs_exist(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    _write_state(vault_dir, "paper-alpha")
+    _write_state(vault_dir, "paper-beta")
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    fixture_pack = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "E2E Fixture Draft",
+            "source_items": [{"type": "paper_slug", "ref": "paper-alpha"}],
+            "max_slides": 5,
+        },
+    )
+    real_pack = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "Real Draft",
+            "source_items": [{"type": "paper_slug", "ref": "paper-beta"}],
+            "max_slides": 5,
+        },
+    )
+    assert fixture_pack.status_code == 200
+    assert real_pack.status_code == 200
+
+    listed = client.get("/meeting-packs")
+    assert listed.status_code == 200
+    payload = listed.json()
+
+    assert payload["total"] == 1
+    assert [item["pack_id"] for item in payload["items"]] == [real_pack.json()["pack"]["id"]]
+
+
+def test_meeting_packs_api_keeps_fixture_packs_when_only_fixture_packs_exist(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    _write_state(vault_dir, "paper-alpha")
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    fixture_pack = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "E2E Fixture Draft",
+            "source_items": [{"type": "paper_slug", "ref": "paper-alpha"}],
+            "max_slides": 5,
+        },
+    )
+    assert fixture_pack.status_code == 200
+
+    listed = client.get("/meeting-packs")
+    assert listed.status_code == 200
+    payload = listed.json()
+
+    assert payload["total"] == 1
+    assert [item["pack_id"] for item in payload["items"]] == [fixture_pack.json()["pack"]["id"]]
+
+
 def test_meeting_packs_api_regenerates_and_rerenders_from_saved_pack(tmp_path, monkeypatch):
     vault_dir = tmp_path / "vault"
     meeting_root = tmp_path / "meeting_packs"

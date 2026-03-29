@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Callable, TypeVar
 
+from src.schemas.meeting_pack import MeetingPack
+
 T = TypeVar("T")
 
 
@@ -27,4 +29,25 @@ def is_test_fixture_paper_record(record: Mapping[str, object]) -> bool:
         return True
     if title.startswith("e2e ") or " fixture" in title or title.endswith("fixture"):
         return True
+    return False
+
+
+def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
+    title = pack.title.strip().lower()
+    request_title = (pack.generation_request.title if pack.generation_request else "") or ""
+    request_title = request_title.strip().lower()
+
+    if title.startswith("e2e ") or "fixture" in title or title.startswith("backend visual "):
+        return True
+    if request_title.startswith("e2e ") or "fixture" in request_title or request_title.startswith("backend visual "):
+        return True
+
+    for source in pack.source_items:
+        ref = source.ref.strip().lower()
+        source_title = source.title.strip().lower()
+        if "e2e" in ref or "fixture" in ref:
+            return True
+        if source_title.startswith("e2e ") or "fixture" in source_title:
+            return True
+
     return False
