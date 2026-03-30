@@ -9,8 +9,10 @@ from src.meeting_packs.store import (
     list_meeting_pack_ids,
     load_meeting_pack,
     load_meeting_pack_markdown,
+    meeting_pack_artifact_path,
     meeting_pack_json_path,
     meeting_pack_markdown_path,
+    save_meeting_pack_artifact_json,
     save_meeting_pack_bundle,
 )
 from src.schemas.meeting_pack import (
@@ -158,3 +160,21 @@ def test_meeting_pack_store_backfills_output_mode_family_for_legacy_json(tmp_pat
     loaded = load_meeting_pack(pack.id, root)
 
     assert loaded.output_mode_family == "lab_meeting"
+
+
+def test_meeting_pack_store_saves_additive_bundle_artifact_json(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = _sample_pack()
+    save_meeting_pack_bundle(pack, "# Draft", root)
+
+    artifact_path = save_meeting_pack_artifact_json(
+        pack.id,
+        "quality_gate.json",
+        {"overall_status": "pass", "discussion_ready": True},
+        root,
+    )
+
+    assert artifact_path == meeting_pack_artifact_path(pack.id, "quality_gate.json", root)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["overall_status"] == "pass"
+    assert payload["discussion_ready"] is True
