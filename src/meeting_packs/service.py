@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 from hashlib import sha1
+import logging
 from pathlib import Path
 import re
 from typing import Any
 
+from src.meeting_packs.handoff_artifacts import write_meeting_pack_handoff_artifacts
 from src.output_modes import resolve_meeting_pack_output_mode_family
 from src.meeting_packs.evidence import build_meeting_pack_evidence_ledger
 from src.meeting_packs.renderer import render_meeting_pack_markdown
@@ -244,6 +246,7 @@ def generate_meeting_pack(
     )
     markdown = render_meeting_pack_markdown(pack)
     save_meeting_pack_bundle(pack, markdown, root)
+    _write_meeting_pack_handoff_artifacts(pack=pack, root=root, markdown=markdown)
     return _meeting_pack_response(pack, markdown, markdown)
 
 
@@ -334,6 +337,7 @@ def rerender_meeting_pack(pack_id: str, *, root: Path | None = None) -> MeetingP
     pack = load_meeting_pack(pack_id, root)
     markdown = render_meeting_pack_markdown(pack)
     save_meeting_pack_markdown(pack.id, markdown, root)
+    _write_meeting_pack_handoff_artifacts(pack=pack, root=root, markdown=markdown)
     return _meeting_pack_response(pack, markdown, markdown)
 
 
@@ -719,6 +723,25 @@ def _markdown_sync(stored_markdown: str, rendered_markdown: str) -> MeetingPackM
         rendered_markdown_sha1=sha1(rendered_markdown.encode("utf-8")).hexdigest(),
         note=note,
     )
+
+
+def _write_meeting_pack_handoff_artifacts(
+    *,
+    pack: MeetingPack,
+    root: Path | None,
+    markdown: str,
+) -> None:
+    request, strategy, _warnings = _resolved_generation_request(pack)
+    regenerate_strategy = strategy if request is not None else "unavailable"
+    try:
+        write_meeting_pack_handoff_artifacts(
+            pack=pack,
+            root=root,
+            regenerate_strategy=regenerate_strategy,
+            markdown_sync_status=_markdown_sync(markdown, markdown).status,
+        )
+    except Exception as exc:
+        logger.warning("Failed to write Meeting Pack handoff artifacts for %s: %s", pack.id, exc)
 
 
 def _pack_source_items(bundle: ResolvedMeetingPackBundle) -> list[MeetingPackSourceItem]:
