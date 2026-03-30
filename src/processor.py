@@ -78,6 +78,40 @@ def _merge_feedback_json_payload(feedback_json: str | None, extra_payload: Dict[
     payload.update(extra_payload)
     return json.dumps(payload, ensure_ascii=False)
 
+
+def _normalized_reason_codes(raw_codes: Any) -> list[str]:
+    if not isinstance(raw_codes, list):
+        return []
+    out: list[str] = []
+    for code in raw_codes:
+        text = str(code or "").strip()
+        if not text or text in out:
+            continue
+        out.append(text)
+    return out
+
+
+def _build_escalation_sidecar(result: Dict[str, Any]) -> Dict[str, Any]:
+    in_scope = result.get("in_biomedical_scope")
+    return {
+        "approved": bool(result.get("approved", False)),
+        "reason": str(result.get("reason") or "").strip(),
+        "final_route": str(result.get("final_route") or "").strip(),
+        "in_biomedical_scope": in_scope if isinstance(in_scope, bool) else None,
+        "reason_codes": _normalized_reason_codes(result.get("reason_codes")),
+    }
+
+
+def _merge_reason_code_lists(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    for group in groups:
+        for code in group:
+            text = str(code or "").strip()
+            if not text or text in merged:
+                continue
+            merged.append(text)
+    return merged
+
 class PaperProcessor:
     def __init__(self):
         self.config = load_config()
@@ -290,13 +324,51 @@ class PaperProcessor:
         }
         status = status_map[gate_result.decision]
         decision = gate_result.decision.value
-        reason = ",".join([rc.value for rc in gate_result.reason_codes]) or "NONE"
-
-        update_paper_status(pid, status, {
+        base_reason_codes = [rc.value for rc in gate_result.reason_codes]
+        merged_reason_codes = list(base_reason_codes)
+        updates = {
             "gate_decision": decision,
-            "gate_reason": reason,
-        })
-        logger.info(f"      -> Gate Decision: {decision} ({reason})")
+        }
+
+        evaluator = getattr(self.llm_provider, "evaluate_escalation", None)
+        if (
+            gate_result.decision == GateDecision.PENDING_REVIEW
+            and self.llm_provider
+            and self.llm_provider.is_available()
+            and callable(evaluator)
+        ):
+            try:
+                escalation_result = evaluator(
+                    {
+                        "title": row.get("title"),
+                        "summary": row.get("summary"),
+                        "authors": row.get("authors"),
+                        "published": row.get("published"),
+                        "source": row.get("source"),
+                        "slot": row.get("slot"),
+                        "tags": analysis.get("soft_tags", []),
+                    }
+                )
+                if isinstance(escalation_result, dict):
+                    escalation_sidecar = _build_escalation_sidecar(escalation_result)
+                    merged_reason_codes = _merge_reason_code_lists(
+                        base_reason_codes,
+                        escalation_sidecar["reason_codes"],
+                    )
+                    updates["feedback_json"] = _merge_feedback_json_payload(
+                        feedback_json,
+                        {"escalation": escalation_sidecar},
+                    )
+                    if escalation_sidecar["approved"]:
+                        status = STATE_APPROVED
+                        decision = GateDecision.APPROVED.value
+                        updates["gate_decision"] = decision
+            except Exception as exc:
+                logger.warning("Escalation evaluation failed for %s: %s", pid, exc)
+
+        updates["gate_reason"] = ",".join(merged_reason_codes) or "NONE"
+        update_paper_status(pid, status, updates)
+        logger.info(f"      -> Gate Decision: {decision} ({updates['gate_reason']})")
 
     def _step_finalize(self, row: Dict):
         """Step 4: Finalize (APPROVED -> INDEXED)"""
