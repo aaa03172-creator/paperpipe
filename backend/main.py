@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
+from starlette.datastructures import MutableHeaders
 import asyncio
 import json
 import os
@@ -140,10 +141,25 @@ def _is_chat_enabled() -> bool:
 
 
 def _requires_api_key(method: str, path: str) -> bool:
-    if method.upper() != "POST":
+    normalized_method = method.upper()
+    if normalized_method in {"HEAD", "OPTIONS"}:
         return False
 
     normalized = path.rstrip("/") or "/"
+    if normalized_method == "GET":
+        if normalized in {"/jobs", "/artifacts", "/user-actions"}:
+            return True
+        if normalized.startswith("/jobs/"):
+            return True
+        if normalized.startswith("/runs/"):
+            return True
+        if normalized.startswith("/artifacts/"):
+            return True
+        return bool(re.match(r"^/papers/[^/]+/pdf$", normalized))
+
+    if normalized_method != "POST":
+        return False
+
     if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
@@ -159,6 +175,17 @@ def _requires_api_key(method: str, path: str) -> bool:
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
 
+def _rewrite_browser_api_path(path: str) -> str | None:
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/api/chat" or normalized.startswith("/api/chat/"):
+        return None
+    if normalized == "/api":
+        return "/"
+    if normalized.startswith("/api/"):
+        return normalized[4:] or "/"
+    return None
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
 
 app.add_middleware(
@@ -171,10 +198,18 @@ app.add_middleware(
 
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
+    rewritten_path = _rewrite_browser_api_path(str(request.scope.get("path") or request.url.path or "/"))
     expected_key = _resolve_api_key()
+    if rewritten_path is not None:
+        request.scope["path"] = rewritten_path
+        request.scope["raw_path"] = rewritten_path.encode("utf-8")
+        if expected_key:
+            MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
+
     if not expected_key:
         return await call_next(request)
-    if not _requires_api_key(request.method, request.url.path):
+    current_path = str(request.scope.get("path") or request.url.path or "/")
+    if not _requires_api_key(request.method, current_path):
         return await call_next(request)
 
     supplied_key = (request.headers.get("x-api-key") or "").strip()
