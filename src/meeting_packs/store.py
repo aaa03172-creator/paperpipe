@@ -22,6 +22,10 @@ def meeting_pack_markdown_path(pack_id: str, root: Path | None = None) -> Path:
     return meeting_pack_dir(pack_id, root) / "meeting_pack.md"
 
 
+def meeting_pack_artifact_path(pack_id: str, filename: str, root: Path | None = None) -> Path:
+    return meeting_pack_dir(pack_id, root) / filename
+
+
 def save_meeting_pack(pack: MeetingPack, root: Path | None = None) -> Path:
     path = meeting_pack_json_path(pack.id, root)
     payload = json.dumps(pack.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2)
@@ -43,6 +47,17 @@ def load_meeting_pack(pack_id: str, root: Path | None = None) -> MeetingPack:
 def save_meeting_pack_markdown(pack_id: str, markdown: str, root: Path | None = None) -> Path:
     path = meeting_pack_markdown_path(pack_id, root)
     _atomic_write_text(path, markdown)
+    return path
+
+
+def save_meeting_pack_artifact_json(
+    pack_id: str,
+    filename: str,
+    payload: dict[str, object],
+    root: Path | None = None,
+) -> Path:
+    path = meeting_pack_artifact_path(pack_id, filename, root)
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
     return path
 
 
