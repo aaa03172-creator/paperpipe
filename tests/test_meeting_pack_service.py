@@ -481,6 +481,15 @@ def test_regenerate_meeting_pack_uses_saved_generation_request_and_creates_new_p
     assert regenerated.pack.generation_request.model_dump() == created.pack.generation_request.model_dump()
     assert regenerated.markdown_sync is not None
     assert regenerated.markdown_sync.status == "in_sync"
+    regenerated_contract = json.loads(
+        meeting_pack_artifact_path(regenerated.pack.id, "acceptance_contract.json", root).read_text(encoding="utf-8")
+    )
+    regenerated_gate = json.loads(
+        meeting_pack_artifact_path(regenerated.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert regenerated_contract["workflow"] == "meeting_pack"
+    assert regenerated_gate["overall_status"] == "pass"
+    assert regenerated_gate["discussion_ready"] is True
     assert set(list_meeting_pack_ids(root)) == {created.pack.id, regenerated.pack.id}
 
 
@@ -501,7 +510,11 @@ def test_rerender_meeting_pack_rebuilds_markdown_from_saved_json(tmp_path):
     )
 
     markdown_path = meeting_pack_markdown_path(created.pack.id, root)
+    contract_path = meeting_pack_artifact_path(created.pack.id, "acceptance_contract.json", root)
+    quality_gate_path = meeting_pack_artifact_path(created.pack.id, "quality_gate.json", root)
     markdown_path.write_text("# Corrupted\n", encoding="utf-8")
+    contract_path.write_text("{\"stale\": true}\n", encoding="utf-8")
+    quality_gate_path.unlink()
 
     drifted = get_meeting_pack(created.pack.id, root=root)
     assert drifted.markdown_sync is not None
@@ -516,6 +529,13 @@ def test_rerender_meeting_pack_rebuilds_markdown_from_saved_json(tmp_path):
     assert rerendered.markdown == load_meeting_pack_markdown(created.pack.id, root)
     assert rerendered.markdown != "# Corrupted\n"
     assert "## Slide Outline" in (rerendered.markdown or "")
+    assert contract_path.exists()
+    assert quality_gate_path.exists()
+    rerendered_contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    rerendered_gate = json.loads(quality_gate_path.read_text(encoding="utf-8"))
+    assert rerendered_contract["workflow"] == "meeting_pack"
+    assert rerendered_gate["overall_status"] == "pass"
+    assert rerendered_gate["bundle_ready"] is True
 
 
 def test_validate_meeting_pack_reports_drift_and_saved_request_strategy(tmp_path):
