@@ -12,6 +12,24 @@ def _init_temp_db(tmp_path, monkeypatch):
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"
     db_utils.init_db()
+    conn = db_utils.get_db_connection()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'NEW',
+            pdf_path TEXT,
+            summary TEXT,
+            feedback_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
     return original_db_path
 
 
@@ -415,7 +433,7 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         db_utils.DB_PATH = original_db_path
 
 
-def test_read_endpoints_do_not_require_api_key(tmp_path, monkeypatch):
+def test_non_sensitive_endpoints_do_not_require_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
     original_db_path = _init_temp_db(tmp_path, monkeypatch)
     try:
@@ -513,6 +531,167 @@ def test_read_endpoints_do_not_require_api_key(tmp_path, monkeypatch):
 
         meeting_pack_validate = client.get(f"/meeting-packs/{pack_id}/validate")
         assert meeting_pack_validate.status_code == 200
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_sensitive_read_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        existing_pdf = tmp_path / "served.pdf"
+        existing_pdf.write_bytes(b"%PDF-1.4\n%auth-read\n")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_auth_read_001" / "run_auth_read_001"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "document_artifact.json").write_text('{"doc_id":"paper_auth_read_001"}', encoding="utf-8")
+        (artifact_dir / "bootstrap_meta.json").write_text('{"claimset_readiness_badge":"READY"}', encoding="utf-8")
+
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            ("paper_auth_read_001", "Auth Read PDF", "INDEXED", str(existing_pdf), "summary"),
+        )
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_auth_read_001",
+                "run_auth_read_001",
+                "paper_auth_read_001",
+                "completed",
+                100,
+                "completed",
+                "2026-03-28 00:00:00",
+                "2026-03-28 00:00:05",
+                str(artifact_dir),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        responses = [
+            client.get("/papers/paper_auth_read_001/pdf"),
+            client.get("/artifacts", params={"paper_id": "paper_auth_read_001", "run_id": "run_auth_read_001"}),
+            client.get("/artifacts/paper_auth_read_001/latest"),
+            client.get("/jobs"),
+            client.get("/jobs/job_auth_read_001"),
+            client.get("/jobs/job_auth_read_001/bootstrap-meta"),
+            client.get("/jobs/job_auth_read_001/events"),
+            client.get("/runs/run_auth_read_001"),
+            client.get("/runs/run_auth_read_001/timeline"),
+            client.get("/user-actions", params={"paper_id": "paper_auth_read_001", "limit": 10}),
+        ]
+
+        for response in responses:
+            assert response.status_code == 401
+            assert response.json()["error_code"] == "UNAUTHORIZED"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_api_prefixed_routes_bridge_browser_calls_without_exposing_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        existing_pdf = tmp_path / "browser.pdf"
+        existing_pdf.write_bytes(b"%PDF-1.4\n%browser-api\n")
+
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_browser_api_001" / "run_browser_api_001"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "document_artifact.json").write_text('{"doc_id":"paper_browser_api_001"}', encoding="utf-8")
+        (artifact_dir / "bootstrap_meta.json").write_text('{"claimset_readiness_badge":"READY"}', encoding="utf-8")
+
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            ("paper_browser_api_001", "Browser API PDF", "INDEXED", str(existing_pdf), "summary"),
+        )
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_browser_api_001",
+                "run_browser_api_001",
+                "paper_browser_api_001",
+                "completed",
+                100,
+                "completed",
+                "2026-03-28 00:00:00",
+                "2026-03-28 00:00:05",
+                str(artifact_dir),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        health = client.get("/api/health")
+        assert health.status_code == 200
+        assert health.json()["status"] == "ok"
+
+        user_action = client.post(
+            "/api/user-actions",
+            json={"paper_id": "paper_browser_api_001", "action_type": "open_workbench", "source": "ui"},
+        )
+        assert user_action.status_code == 200
+
+        user_actions = client.get(
+            "/api/user-actions",
+            params={"paper_id": "paper_browser_api_001", "limit": 10},
+        )
+        assert user_actions.status_code == 200
+        assert len(user_actions.json()["actions"]) >= 1
+
+        jobs = client.get("/api/jobs")
+        assert jobs.status_code == 200
+        assert any(item["job_id"] == "job_browser_api_001" for item in jobs.json())
+
+        job_status = client.get("/api/jobs/job_browser_api_001")
+        assert job_status.status_code == 200
+        assert job_status.json()["run_id"] == "run_browser_api_001"
+
+        bootstrap_meta = client.get("/api/jobs/job_browser_api_001/bootstrap-meta")
+        assert bootstrap_meta.status_code == 200
+        assert bootstrap_meta.json()["claimset_readiness_badge"] == "READY"
+
+        run_status = client.get("/api/runs/run_browser_api_001")
+        assert run_status.status_code == 200
+        assert run_status.json()["job_id"] == "job_browser_api_001"
+
+        artifact_bundle = client.get(
+            "/api/artifacts",
+            params={"paper_id": "paper_browser_api_001", "run_id": "run_browser_api_001"},
+        )
+        assert artifact_bundle.status_code == 200
+        assert artifact_bundle.json()["files"]["document_artifact"]["exists"] is True
+
+        artifact_latest = client.get("/api/artifacts/paper_browser_api_001/latest")
+        assert artifact_latest.status_code == 200
+        assert artifact_latest.json()["run_id"] == "run_browser_api_001"
+
+        paper_pdf = client.get("/api/papers/paper_browser_api_001/pdf")
+        assert paper_pdf.status_code == 200
+        assert paper_pdf.content.startswith(b"%PDF")
+
+        events = client.get("/api/jobs/job_browser_api_001/events")
+        assert events.status_code == 200
+        assert "event: status" in events.text
     finally:
         db_utils.DB_PATH = original_db_path
 
