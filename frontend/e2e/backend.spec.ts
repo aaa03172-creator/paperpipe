@@ -459,7 +459,7 @@ test("paper notes list surfaces action-needed state using workbench vocabulary",
   const row = page.getByTestId("paper-note-list-row").filter({ hasText: "E2E List Missing Stats Note" }).first();
   await expect(row).toBeVisible();
   await expect(row.getByTestId("paper-note-ops-badge")).toContainText("Action needed");
-  await expect(row).toContainText("Stats report is missing or empty.");
+  await expect(row).toContainText("Saved note checks are missing or empty.");
   await expect(row).toContainText("Open in Workbench to repair the Stats Snapshot.");
 });
 
