@@ -37,6 +37,9 @@ def _write_state(
     claim_text: str = "Intervention changed the inflammatory pathway.",
     tags: list[str] | None = None,
     outcomes: list[str] | None = None,
+    include_direct_evidence: bool = True,
+    grounded: bool | None = None,
+    resolution: str | None = None,
 ) -> None:
     state_path = vault_path / ".pp" / slug / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,19 +60,25 @@ def _write_state(
                 id="claim_abc123",
                 run_id="skill-20260313T000000Z-critical_appraisal",
                 claim=claim_text,
-                evidence=[
-                    SkillClaimEvidence(
-                        id="evidence_def456",
-                        claim_id="claim_abc123",
-                        run_id="skill-20260313T000000Z-critical_appraisal",
-                        text="Evidence text",
-                        locator={
-                            "page": 2,
-                            "section": "Results",
-                            "source": "state.json",
-                        },
-                    )
-                ],
+                evidence=(
+                    [
+                        SkillClaimEvidence(
+                            id="evidence_def456",
+                            claim_id="claim_abc123",
+                            run_id="skill-20260313T000000Z-critical_appraisal",
+                            text="Evidence text",
+                            locator={
+                                "page": 2,
+                                "section": "Results",
+                                "source": "state.json",
+                            },
+                            grounded=grounded,
+                            resolution=resolution,
+                        )
+                    ]
+                    if include_direct_evidence
+                    else []
+                ),
                 tags=tags or [],
                 outcomes=outcomes or [],
             )
@@ -387,6 +396,81 @@ def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
     assert response.items[0].has_generation_request is True
 
 
+def test_list_meeting_packs_hides_fixture_items_when_real_packs_exist(tmp_path):
+    root = tmp_path / "meeting_packs"
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000000Z_journal_club_fixture",
+            mode="journal_club",
+            title="Backend visual meeting pack fixture",
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoteroe2eNoteBackedBBox2026",
+                    title="E2E Note-backed BBox Fixture",
+                    priority=1,
+                )
+            ],
+        ),
+        "# fixture",
+        root=root,
+    )
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000100Z_journal_club_real",
+            mode="journal_club",
+            title="Real Alzheimer journal club draft",
+            created_at=datetime(2026, 3, 28, 0, 1, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoterocoricTargetingProdromalAlzheimer2015",
+                    title="Targeting Prodromal Alzheimer Disease With Avagacestat: A Randomized Clinical Trial",
+                    priority=1,
+                )
+            ],
+        ),
+        "# real",
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 1
+    assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000100Z_journal_club_real"]
+
+
+def test_list_meeting_packs_keeps_fixture_items_when_only_fixtures_exist(tmp_path):
+    root = tmp_path / "meeting_packs"
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000000Z_journal_club_fixture",
+            mode="journal_club",
+            title="Backend visual meeting pack fixture",
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoteroe2eNoteBackedBBox2026",
+                    title="E2E Note-backed BBox Fixture",
+                    priority=1,
+                )
+            ],
+        ),
+        "# fixture",
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 1
+    assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000000Z_journal_club_fixture"]
+
+
 def test_get_meeting_pack_trace_summarizes_selector_load_path(tmp_path):
     vault_path = tmp_path / "vault"
     root = tmp_path / "meeting_packs"
@@ -617,6 +701,65 @@ def test_generate_meeting_pack_marks_empty_pack_as_background_only(tmp_path):
     assert response.pack.readiness == "background_only"
     assert response.markdown is not None
     assert "- Readiness: background_only" in response.markdown
+    gate = json.loads(
+        meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert gate["overall_status"] == "warn"
+    assert gate["bundle_ready"] is True
+    assert gate["discussion_ready"] is False
+    assert "BACKGROUND_ONLY" in gate["reason_codes"]
+
+
+def test_generate_meeting_pack_keeps_claim_without_direct_support_as_background_only(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "claim-without-support"
+    _write_state(vault_path, slug, include_direct_evidence=False)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.readiness == "background_only"
+    assert "Structured evidence refs are missing" in (
+        response.pack.one_page_summary.key_points[0].uncertainty_note or ""
+    )
+    assert any(
+        "lacked explicit evidence refs" in uncertainty
+        for uncertainty in response.pack.one_page_summary.uncertainties
+    )
+
+
+def test_generate_meeting_pack_flags_missing_grounding_metadata_for_direct_support(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "direct-support-without-grounding"
+    _write_state(vault_path, slug, include_direct_evidence=True, grounded=None, resolution=None)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.readiness == "evidence_backed"
+    assert "citation-grounding metadata is missing" in (
+        response.pack.one_page_summary.key_points[0].uncertainty_note or ""
+    )
+    assert any(
+        "missing or unresolved citation-grounding metadata" in uncertainty
+        for uncertainty in response.pack.one_page_summary.uncertainties
+    )
 
 
 def test_generate_meeting_pack_modes_have_visible_contrast(tmp_path):
