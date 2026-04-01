@@ -511,7 +511,7 @@ def run_comparison(
     max_zero_text_docs: int,
     max_low_text_ratio_docs: int,
     manifest: str | None,
-) -> Path:
+) -> tuple[Path, bool]:
     run_root = out_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     ocr_output_root = run_root / "ocr_outputs"
@@ -543,6 +543,7 @@ def run_comparison(
         max_low_text_ratio_docs=max_low_text_ratio_docs,
     )
 
+    passed = bool(comparison["decision"]["passed"])
     metrics = {
         "schema_version": "ocr_backend_eval.v1",
         "generated_at": _utc_now_iso(),
@@ -567,13 +568,13 @@ def run_comparison(
         run_root / "summary.json",
         {
             "run_id": run_id,
-            "status": "ok",
+            "status": "passed" if passed else "failed",
             "metrics_path": str(run_root / "metrics.json"),
             "details_path": str(detailed_results_path),
-            "passed": comparison["decision"]["passed"],
+            "passed": passed,
         },
     )
-    return run_root
+    return run_root, passed
 
 
 def main() -> int:
@@ -601,7 +602,7 @@ def main() -> int:
         parser.error("Provide at least one --pdf or --manifest with documents[].local_path entries.")
 
     run_id = args.run_id or f"ocr_backend_eval_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-    run_root = run_comparison(
+    run_root, passed = run_comparison(
         pdf_paths=pdf_paths,
         baseline_backend=args.baseline_backend,
         candidate_backend=args.candidate_backend,
@@ -620,7 +621,7 @@ def main() -> int:
         manifest=args.manifest,
     )
     print(run_root)
-    return 0
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

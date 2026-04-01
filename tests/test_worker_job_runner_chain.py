@@ -543,6 +543,115 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         db_utils.DB_PATH = original_db_path
 
 
+def test_worker_failure_path_survives_handoff_write_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        library_dir = tmp_path / "Library"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        vault_dir = tmp_path / "Vault"
+        (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+        (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+        paper_id = "paper_handoff_failure_001"
+        (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        (vault_dir / "Inbox" / "paper_handoff_failure_001.md").write_text("# Paper\n", encoding="utf-8")
+        (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+            "Paper_ID,DOI,Title,Note_Path\n"
+            "paper_handoff_failure_001,10.1000/test,Handoff Failure Title,Inbox/paper_handoff_failure_001.md\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            job_runner_mod,
+            "load_config",
+            lambda: SimpleNamespace(
+                paths=SimpleNamespace(
+                    library_dir=library_dir,
+                    obsidian_vault=vault_dir,
+                    index_all=Path("00_Index/paper_collection.csv"),
+                ),
+                llm=SimpleNamespace(timeout_seconds=20),
+            ),
+        )
+
+        class FakeIngestAgent:
+            def process_v2(self, pdf_path: str):
+                return DocumentArtifactV2(
+                    document_id=paper_id,
+                    meta=ArtifactMetaV2(title="Handoff Failure Title", authors=["A"], source_ref=pdf_path),
+                    pages=[
+                        PageV2(
+                            page_index=0,
+                            width=595.0,
+                            height=842.0,
+                            blocks=[BlockV2(block_id="b1", lines=[LineV2(line_id="l1", text="x", spans=[SpanV2(span_id="s1", text="x")])])],
+                        )
+                    ],
+                    tables=[],
+                )
+
+        class FakeIndexerAgent:
+            def process(self, doc):
+                return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+        class ReadTimeout(Exception):
+            pass
+
+        class FakeReaderTimeoutAgent:
+            def __init__(self, *args, **kwargs):
+                self.adapter = SimpleNamespace(provider=None)
+
+            def analyze(self, doc):
+                raise ReadTimeout("timed out")
+
+        @contextmanager
+        def fake_time_limit(_seconds: int):
+            yield
+
+        monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+        monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+        monkeypatch.setattr(job_runner_mod, "ReaderAgent", FakeReaderTimeoutAgent)
+        monkeypatch.setattr(job_runner_mod, "estimate_reader_timeout_seconds", lambda *args, **kwargs: 123)
+        monkeypatch.setattr(job_runner_mod, "time_limit", fake_time_limit)
+        monkeypatch.setattr(
+            job_runner_mod,
+            "write_deepread_handoff_artifacts",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("handoff write failed")),
+        )
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id=paper_id,
+            clean_reindex=False,
+            run_verify=False,
+            persona_id="default",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "failed"
+        assert done.error_message == "Reader step timed out after 123s (pages=1, tables=0)"
+
+        artifact_dir = job_runner_mod.artifact_run_dir(paper_id, done.run_id)
+        run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+        meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        assert run_meta["status"] == "failed"
+        assert run_meta["error_type"] == "TimeoutError"
+        assert meta["claimset_readiness_reason"] == "runtime_error"
+        assert not (artifact_dir / "quality_gate.json").exists()
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

@@ -1191,19 +1191,22 @@ async def run_deepread_job(
             bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             if run_meta is not None:
-                handoff_artifacts = write_deepread_handoff_artifacts(
-                    artifact_dir,
-                    paper_id=paper_id,
-                    run_id=run_id,
-                    run_meta=run_meta,
-                    bootstrap_meta=bootstrap_meta,
-                )
-                bootstrap_meta["artifact_acceptance_contract_written"] = True
-                bootstrap_meta["artifact_quality_gate_written"] = True
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                run_meta["handoff_artifacts"] = handoff_artifacts
-                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-                _write_run_meta(artifact_dir, run_meta)
+                try:
+                    handoff_artifacts = write_deepread_handoff_artifacts(
+                        artifact_dir,
+                        paper_id=paper_id,
+                        run_id=run_id,
+                        run_meta=run_meta,
+                        bootstrap_meta=bootstrap_meta,
+                    )
+                    bootstrap_meta["artifact_acceptance_contract_written"] = True
+                    bootstrap_meta["artifact_quality_gate_written"] = True
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    run_meta["handoff_artifacts"] = handoff_artifacts
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
+                except Exception as handoff_err:
+                    logger.warning("Failed to write deep-read handoff pilot artifacts on failure: %s", handoff_err)
         await emit("error", 0, str(e), level="ERROR")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})

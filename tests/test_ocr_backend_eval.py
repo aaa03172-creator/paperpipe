@@ -222,7 +222,7 @@ def test_evaluate_pdf_with_backend_ocrmypdf_uses_output_pdf_text(tmp_path: Path,
     assert row["page_text_char_counts"][0] > 0
 
 
-def test_compare_ocr_backends_cli_writes_metrics_for_unavailable_candidate(tmp_path: Path) -> None:
+def test_compare_ocr_backends_cli_returns_nonzero_for_failed_gate(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "eval" / "compare_ocr_backends.py"
     pdf_a = tmp_path / "a.pdf"
@@ -242,7 +242,7 @@ def test_compare_ocr_backends_cli_writes_metrics_for_unavailable_candidate(tmp_p
         encoding="utf-8",
     )
 
-    subprocess.run(
+    completed = subprocess.run(
         [
             sys.executable,
             str(script),
@@ -253,8 +253,8 @@ def test_compare_ocr_backends_cli_writes_metrics_for_unavailable_candidate(tmp_p
             "--run-id",
             "ocr_fixture_run",
         ],
-        check=True,
         cwd=repo_root,
+        check=False,
     )
 
     run_root = out_dir / "ocr_fixture_run"
@@ -266,9 +266,11 @@ def test_compare_ocr_backends_cli_writes_metrics_for_unavailable_candidate(tmp_p
         if line.strip()
     ]
 
+    assert completed.returncode == 1
     assert metrics["baseline_backend"] == "ocrmypdf"
     assert metrics["candidate_backend"] == "paddleocr"
-    assert summary["status"] == "ok"
+    assert summary["status"] == "failed"
+    assert summary["passed"] is False
     assert len(rows) == 2
     assert "backend_unavailable_docs" in metrics["comparison"]["decision"]["failed_checks"]
     candidate_row = next(row for row in rows if row["requested_backend"] == "paddleocr")
