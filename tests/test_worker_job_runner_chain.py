@@ -113,6 +113,30 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
                 )
 
         class FakeReaderAgent:
+            def __init__(self):
+                self.last_analysis_metrics = {
+                    "model_name": "fake-reader",
+                    "attempt_count": 1,
+                    "attempts": [
+                        {
+                            "attempt_idx": 1,
+                            "label": "primary",
+                            "context_chars": 10,
+                            "prompt_chars": 20,
+                            "estimated_prompt_tokens": 5,
+                            "response_chars": 30,
+                            "estimated_response_tokens": 7,
+                            "status": "parsed",
+                            "parsed_claim_count": 1,
+                        }
+                    ],
+                    "return_mode": "success",
+                    "selected_attempt": 1,
+                    "selected_attempt_label": "primary",
+                    "final_claim_count": 1,
+                    "used_heuristic_fallback": False,
+                }
+
             def analyze(self, doc):
                 return ClaimSet(
                     doc_id=doc.document_id,
@@ -184,9 +208,14 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
         assert (artifact_dir / "run_meta.json").exists()
+        assert (artifact_dir / "acceptance_contract.json").exists()
+        assert (artifact_dir / "quality_gate.json").exists()
+        assert (artifact_dir / "context_manifest.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+        quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
+        context_manifest = json.loads((artifact_dir / "context_manifest.json").read_text(encoding="utf-8"))
         assert meta["paper_id"] == paper_id
         assert run_meta["paper_id"] == paper_id
         assert run_meta["status"] == "succeeded"
@@ -196,8 +225,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert "llm_params" in run_meta
         assert "embed_params" in run_meta
         assert run_meta["tool_policy_version"] == "v1"
+        assert run_meta["reader_attempt_order"] == "current"
+        assert run_meta["handoff_artifacts"]["context_manifest_path"].endswith("context_manifest.json")
         assert run_meta["reader_timeout_budget_sec"] >= 60
         assert run_meta["reader_timeout_triggered"] is False
+        assert run_meta["reader_analysis"]["return_mode"] == "success"
+        assert run_meta["reader_analysis"]["attempt_count"] == 1
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
         assert meta["run_verify"] is True
@@ -208,15 +241,19 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_index_written"] is True
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_claimset_resolved_written"] is True
+        assert meta["artifact_acceptance_contract_written"] is True
+        assert meta["artifact_quality_gate_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["reader_model"] is not None
         assert meta["reader_timeout_base_sec"] >= 60
+        assert meta["reader_attempt_order"] == "current"
         assert meta["reader_timeout_budget_sec"] >= meta["reader_timeout_base_sec"]
         assert meta["reader_timeout_adaptive"] is True
         assert meta["reader_page_count"] == 1
         assert meta["reader_table_count"] == 0
         assert meta["reader_timeout_triggered"] is False
         assert "reader_provider_timeout_sec" in meta
+        assert meta["reader_analysis"]["selected_attempt_label"] == "primary"
         assert meta["claimset_readiness"] == "ready"
         assert meta["claimset_ready"] is True
         assert meta["claimset_claim_count"] == 1
@@ -232,6 +269,11 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert span["page"] == 0
         assert span["grounded"] is True
         assert span["resolution"] == "OK"
+        assert quality_gate["overall_status"] == "pass"
+        assert quality_gate["review_ready"] is True
+        assert quality_gate["current_promotion_candidate"] is True
+        assert context_manifest["selected_attempt_label"] == "primary"
+        assert context_manifest["attempt_count"] == 1
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
@@ -244,6 +286,9 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert claimed2 is not None
         assert claimed2.job_id == job_id_2
         worker.process_job(claimed2)
+        done2 = queue.get_job(job_id_2)
+        assert done2 is not None
+        assert done2.status == "completed"
 
         note_content = note_path.read_text(encoding="utf-8")
         assert note_content.count("## 🤖 Agent Deep Read") == 1
@@ -253,7 +298,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         structured_state = json.loads(structured_path.read_text(encoding="utf-8"))
         assert structured_state["signals"]["state_source"] == "deep_read_promotion"
         assert structured_state["runs"][0]["action"] == "deep_read"
-        assert structured_state["runs"][0]["id"] == done.run_id
+        assert structured_state["runs"][0]["id"] == done2.run_id
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -354,6 +399,7 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert done.status == "completed"
         artifact_dir = Path(done.artifact_dir)
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         assert meta["claimset_readiness"] == "not_ready"
         assert meta["claimset_ready"] is False
         assert meta["claimset_claim_count"] == 0
@@ -361,6 +407,11 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert meta["claimset_ops_action"] == "manual_review_queued"
         assert meta["claimset_ops_alert"] is False
         assert meta["claimset_ops_note"] in {"queued", "already_open"}
+        assert meta["artifact_acceptance_contract_written"] is True
+        assert meta["artifact_quality_gate_written"] is True
+        assert quality_gate["overall_status"] == "warn"
+        assert quality_gate["current_promotion_candidate"] is True
+        assert quality_gate["review_ready"] is False
 
         conn = sqlite3.connect(db_utils.DB_PATH)
         row = conn.execute(
