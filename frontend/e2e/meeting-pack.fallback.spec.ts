@@ -20,4 +20,9 @@ test("meeting pack create auto-fallback keeps the generated draft reachable when
   await expect(page.getByRole("heading", { name: "Fallback continuity draft", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
   await expect(page.getByText("Continue in note").first()).toBeVisible();
+  await expect(page.getByText("Regenerate unavailable")).toBeVisible();
+  await expect(page.getByText("Strategy: unavailable")).toBeVisible();
+  await expect(page.getByText("Draft actions stay unavailable until the live backend is reachable again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Regenerate draft" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Rerender markdown" })).toBeDisabled();
 });
