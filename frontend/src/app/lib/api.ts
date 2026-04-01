@@ -519,7 +519,7 @@ export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingP
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status === 404) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
     if (!canUseAutoMockFallback()) {
@@ -542,11 +542,24 @@ export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListRe
     };
   }
 
-  return withMockFallback(
-    () => firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
-    () => getMockMeetingPackIndex(),
-    "meeting pack index unavailable, mock drafts loaded",
-  );
+  try {
+    return {
+      data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackIndex(),
+      isMock: true,
+      reason: "meeting pack index unavailable, mock drafts loaded",
+    };
+  }
 }
 
 export async function generateMeetingPack(
@@ -742,7 +755,7 @@ export async function getMeetingPackTrace(packId: string): Promise<ApiResult<Mee
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status === 404) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
     if (!canUseAutoMockFallback()) {
@@ -773,7 +786,7 @@ export async function getMeetingPackValidation(packId: string): Promise<ApiResul
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status === 404) {
+    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
     if (!canUseAutoMockFallback()) {
