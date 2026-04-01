@@ -92,6 +92,33 @@ function runsDirFor(slug: string): string {
   return path.join(e2eVaultPath, ".pp", slug, "runs");
 }
 
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  return !(
+    first.x + first.width <= second.x ||
+    second.x + second.width <= first.x ||
+    first.y + first.height <= second.y ||
+    second.y + second.height <= first.y
+  );
+}
+
+async function expectNoUiOverlap(first: Locator, second: Locator, description: string): Promise<void> {
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+
+  const [firstBox, secondBox] = await Promise.all([first.boundingBox(), second.boundingBox()]);
+  expect(firstBox, `${description}: first box should be measurable`).not.toBeNull();
+  expect(secondBox, `${description}: second box should be measurable`).not.toBeNull();
+
+  if (!firstBox || !secondBox) {
+    return;
+  }
+
+  expect(boxesOverlap(firstBox, secondBox), description).toBe(false);
+}
+
 interface BackendPaperSummary {
   paper_id?: string;
   pdf_exists?: boolean;
@@ -543,6 +570,63 @@ test("backend chart pack viewer loads a generated chart pack and keeps exports o
     "href",
     new RegExp(`/chart-packs/${chartPackId}/charts/chart_01_stats-check-status-counts/spec\\.json$`),
   );
+});
+
+test("backend meeting pack create keeps the continuation card and note handoff on the real route", async ({ page }) => {
+  await page.goto("/meeting-packs");
+
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Saved meeting packs", exact: true })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+
+  await page.getByLabel("Meeting pack paper slug").fill(noteSlug);
+  await page.getByLabel("Meeting pack draft title").fill("Browser generated meeting draft");
+  await page.getByLabel("Meeting pack draft mode").selectOption("journal_club");
+  await page.getByLabel("Meeting pack max slides").selectOption("7");
+  await page.getByRole("button", { name: "Create draft" }).click();
+
+  await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
+  await expect(page.getByRole("heading", { name: "Browser generated meeting draft", exact: true })).toBeVisible();
+  await expect(page.getByTestId("meeting-pack-header-context")).toContainText("When to use");
+  await expect(page.getByTestId("meeting-pack-header-context")).toContainText("Derived from");
+  await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
+  await expect(page.getByText("Continue in note").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Regenerate draft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Rerender markdown" })).toBeVisible();
+  await expectNoUiOverlap(
+    page.getByRole("link", { name: "Home" }),
+    page.getByRole("button", { name: "Regenerate draft" }),
+    "global Home should stay clear of the meeting pack regenerate action",
+  );
+  await expectNoUiOverlap(
+    page.getByRole("link", { name: "Home" }),
+    page.getByRole("button", { name: "Rerender markdown" }),
+    "global Home should stay clear of the meeting pack rerender action",
+  );
+  await expectNoUiOverlap(
+    page.getByRole("link", { name: "Home" }),
+    page.getByRole("link", { name: "Continue in note" }).first(),
+    "global Home should stay clear of the meeting pack note handoff",
+  );
+
+  await page.getByRole("button", { name: "Rerender markdown" }).click();
+  await expect(page.getByText("Saved markdown rerendered from the current meeting pack JSON.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
+  await expect(page.getByText("Continue in note").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Regenerate draft" }).click();
+  await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
+  await expect(page.getByText("Draft regenerated from the saved selector set.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
+  await expect(page.getByText("Continue in note").first()).toBeVisible();
+
+  await page.getByRole("link", { name: "Continue in note" }).first().click();
+
+  await expect(page).toHaveURL(new RegExp(`/papers/${noteSlug}$`));
+  await expect(
+    page.getByRole("banner").getByRole("heading", {
+      name: /Alzheimer Disease as a Clinical-Biological Construct/i,
+    }),
+  ).toBeVisible();
 });
 
 test("backend protocol knowledge inspector loads a saved protocol card and keeps note handoff on the real route", async ({

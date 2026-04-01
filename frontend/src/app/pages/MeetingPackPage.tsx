@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   getApiErrorMessage,
+  generateMeetingPack,
   getMeetingPackIndex,
   getMeetingPack,
   getMeetingPackTrace,
@@ -24,6 +25,7 @@ import {
   MeetingPack,
   MeetingPackListItem,
   MeetingPackListResponse,
+  MeetingPackMode,
   OutputModeFamily,
   MeetingPackResponse,
   MeetingPackTraceResponse,
@@ -34,6 +36,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Separator } from "../components/ui/separator";
+import { ArtifactHeaderContext } from "../components/ArtifactHeaderContext";
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -164,6 +167,64 @@ function collectMockReasons(results: ApiLikeResult[]): string[] {
   );
 }
 
+function buildMeetingPackHeaderWhenToUse(routePackId?: string): string {
+  if (routePackId) {
+    return "Use this draft when you need a meeting-ready narrative you can review for source coverage, trace, and validation before discussion or sharing.";
+  }
+  return "Use this lane when you want to start or reopen a saved meeting draft before carrying it into journal club or lab meeting prep.";
+}
+
+function buildMeetingPackHeaderDerivedFrom(pack: MeetingPack | null): string {
+  if (!pack) {
+    return "Derived from one paper-driven draft request plus its saved source selectors once a meeting pack is created.";
+  }
+  return `Derived from ${pack.source_items.length} source item${pack.source_items.length === 1 ? "" : "s"}, ${pack.evidence_refs.length} evidence ref${pack.evidence_refs.length === 1 ? "" : "s"}, and the saved ${formatModeLabel(pack.mode)} draft bundle.`;
+}
+
+function buildMeetingPackSourceNoteSlugs(pack: MeetingPack | null): string[] {
+  if (!pack) {
+    return [];
+  }
+
+  const slugs = new Set<string>();
+  for (const item of pack.source_items) {
+    if (item.type === "paper_slug" && item.ref) {
+      slugs.add(item.ref);
+    }
+  }
+  for (const ref of pack.evidence_refs) {
+    if (ref.paper_slug) {
+      slugs.add(ref.paper_slug);
+    }
+  }
+  return Array.from(slugs);
+}
+
+const MEETING_PACK_MODE_OPTIONS: Array<{ value: MeetingPackMode; label: string; help: string }> = [
+  {
+    value: "journal_club",
+    label: "Journal club",
+    help: "Paper-first discussion draft for a reading group or lab meeting.",
+  },
+  {
+    value: "literature_update",
+    label: "Literature update",
+    help: "Quick recent-paper recap with evidence-backed highlights.",
+  },
+  {
+    value: "project_progress_update",
+    label: "Project progress update",
+    help: "Tie one paper into the current project narrative and next steps.",
+  },
+  {
+    value: "experiment_proposal",
+    label: "Experiment proposal",
+    help: "Frame a follow-up study or experiment discussion from one source paper.",
+  },
+];
+
+const MEETING_PACK_MAX_SLIDES_OPTIONS = [5, 6, 7, 8] as const;
+
 export function MeetingPackPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -171,6 +232,12 @@ export function MeetingPackPage() {
   const [packIdInput, setPackIdInput] = useState(routePackId ?? "");
   const [indexSearchQuery, setIndexSearchQuery] = useState("");
   const [tracePresenceFilter, setTracePresenceFilter] = useState<TracePresenceFilter>("all");
+  const [draftPaperSlug, setDraftPaperSlug] = useState("");
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftMode, setDraftMode] = useState<MeetingPackMode>("journal_club");
+  const [draftMaxSlides, setDraftMaxSlides] = useState<number>(6);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [indexResponse, setIndexResponse] = useState<MeetingPackListResponse | null>(null);
   const [packResponse, setPackResponse] = useState<MeetingPackResponse | null>(null);
   const [traceResponse, setTraceResponse] = useState<MeetingPackTraceResponse | null>(null);
@@ -302,6 +369,7 @@ export function MeetingPackPage() {
     () => actionSummaryRows(trace?.summary.outcome_counts ?? {}),
     [trace],
   );
+  const sourceNoteSlugs = useMemo(() => buildMeetingPackSourceNoteSlugs(pack), [pack]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -315,6 +383,42 @@ export function MeetingPackPage() {
   function resetIndexFilters() {
     setIndexSearchQuery("");
     setTracePresenceFilter("all");
+  }
+
+  async function handleGenerateDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const paperSlug = draftPaperSlug.trim();
+    const title = draftTitle.trim();
+    if (!paperSlug) {
+      setDraftError("Enter a paper slug to start a meeting draft.");
+      return;
+    }
+
+    setCreatingDraft(true);
+    setDraftError(null);
+    try {
+      const result = await generateMeetingPack({
+        mode: draftMode,
+        title: title || undefined,
+        source_items: [{ type: "paper_slug", ref: paperSlug }],
+        max_slides: draftMaxSlides,
+      });
+      const nextPackId = result.data.pack.id;
+      navigate(`/meeting-packs/${encodeURIComponent(nextPackId)}`, {
+        state: {
+          meetingPackNotice: {
+            tone: "success",
+            message: result.isMock
+              ? "Fallback meeting draft created from the entered paper slug. Reconnect the backend to replace mock content with a live draft."
+              : "Meeting draft created from the entered paper slug.",
+          },
+        },
+      });
+    } catch (actionError) {
+      setDraftError(getApiErrorMessage(actionError));
+    } finally {
+      setCreatingDraft(false);
+    }
   }
 
   async function handleRerenderDraft() {
@@ -398,14 +502,14 @@ export function MeetingPackPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
               <FileSearch className="h-3.5 w-3.5" />
-              Meeting pack review
-              <Badge variant="muted" className="uppercase">Operational</Badge>
+              Meeting pack library
+              <Badge variant="muted" className="uppercase">Saved drafts</Badge>
             </div>
             <h1 className="mt-2 text-lg font-semibold text-[var(--pp-text-primary)]">
               {pack?.title ?? "Saved meeting packs"}
             </h1>
             <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
-              Review saved meeting-pack drafts, validation state, and trace coverage before rerender or downstream reuse.
+              Open saved meeting drafts, check source coverage, and reuse them in journal club or lab meeting prep.
             </p>
           </div>
 
@@ -425,6 +529,13 @@ export function MeetingPackPage() {
             </Link>
           </div>
         </div>
+        <ArtifactHeaderContext
+          testId="meeting-pack-header-context"
+          items={[
+            { label: "When to use", value: buildMeetingPackHeaderWhenToUse(routePackId) },
+            { label: "Derived from", value: buildMeetingPackHeaderDerivedFrom(pack) },
+          ]}
+        />
 
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2 sm:flex-row">
           <Input
@@ -451,7 +562,7 @@ export function MeetingPackPage() {
             <CardHeader>
               <CardTitle>Saved meeting packs</CardTitle>
               <CardDescription>
-                Recent saved drafts from `storage/meeting_packs`. Open one to inspect draft state, validation, and retrieval trace.
+                Open recent drafts to review source coverage, validation, and trace history before you reuse them.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -513,7 +624,7 @@ export function MeetingPackPage() {
                     variant={tracePresenceFilter === "legacy" ? "secondary" : "ghost"}
                     onClick={() => setTracePresenceFilter("legacy")}
                   >
-                    Legacy trace-free
+                    Without trace
                   </Button>
                 </div>
 
@@ -543,7 +654,7 @@ export function MeetingPackPage() {
                       {item.trace_entry_count > 0 ? (
                         <Badge variant="muted">{item.trace_entry_count} trace events</Badge>
                       ) : (
-                        <Badge variant="muted">legacy trace-free</Badge>
+                        <Badge variant="muted">saved without trace</Badge>
                       )}
                     </div>
                     <div className="mt-2 grid gap-2 text-xs text-[var(--pp-text-dim)] sm:grid-cols-2">
@@ -573,28 +684,123 @@ export function MeetingPackPage() {
                 </div>
               ) : (
                 <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
-                  No saved meeting packs found yet.
+                  No saved meeting packs yet. Start one from a paper slug in the right-hand panel, or reopen a shared pack by ID.
                 </div>
               )}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Open by pack ID</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
-              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                This screen is intentionally operational. It is for debugging selector resolution, load paths, markdown drift, and regenerate availability.
-              </div>
-              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                You can still paste a `pack_id` directly if the pack is not in the recent list or if you want to jump to a copied artifact ID.
-              </div>
-              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                Detail view shows selector/load trajectory, matched slugs, source paths, and regenerate/drift status in one place.
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Start a new draft</CardTitle>
+                <CardDescription>
+                  Create a meeting pack from one paper slug, then review slides, trace coverage, and validation in the saved draft view.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
+                <form onSubmit={handleGenerateDraft} className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Paper slug
+                    </span>
+                    <Input
+                      value={draftPaperSlug}
+                      onChange={(event) => setDraftPaperSlug(event.target.value)}
+                      placeholder="zoterocoricTargetingProdromalAlzheimer2015"
+                      aria-label="Meeting pack paper slug"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Draft title
+                    </span>
+                    <Input
+                      value={draftTitle}
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      placeholder="Optional. A mode-based title will be used if left blank."
+                      aria-label="Meeting pack draft title"
+                    />
+                  </label>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                        Draft mode
+                      </span>
+                      <select
+                        value={draftMode}
+                        onChange={(event) => setDraftMode(event.target.value as MeetingPackMode)}
+                        aria-label="Meeting pack draft mode"
+                        className="h-10 w-full rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-3 text-sm text-[var(--pp-text-primary)] outline-none transition focus:border-[var(--pp-border-strong)] focus:ring-2 focus:ring-[var(--pp-accent-soft)]"
+                      >
+                        {MEETING_PACK_MODE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                        Max slides
+                      </span>
+                      <select
+                        value={draftMaxSlides}
+                        onChange={(event) => setDraftMaxSlides(Number(event.target.value))}
+                        aria-label="Meeting pack max slides"
+                        className="h-10 w-full rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-3 text-sm text-[var(--pp-text-primary)] outline-none transition focus:border-[var(--pp-border-strong)] focus:ring-2 focus:ring-[var(--pp-accent-soft)]"
+                      >
+                        {MEETING_PACK_MAX_SLIDES_OPTIONS.map((count) => (
+                          <option key={count} value={count}>
+                            {count}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                    Start with a paper slug from Paper Notes. The draft will open right away, and you can inspect trace coverage before sharing it.
+                  </p>
+
+                  <p className="text-xs text-[var(--pp-text-dim)]">
+                    {MEETING_PACK_MODE_OPTIONS.find((option) => option.value === draftMode)?.help}
+                  </p>
+
+                  {draftError ? (
+                    <p className="rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] p-3 text-sm text-[var(--pp-status-failed-text)]">
+                      {draftError}
+                    </p>
+                  ) : null}
+
+                  <Button type="submit" disabled={creatingDraft || draftPaperSlug.trim().length === 0}>
+                    {creatingDraft ? "Creating draft…" : "Create draft"}
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Open a saved pack by ID</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                  Use a pack ID when a teammate shared a saved draft link or when the draft is not visible in the recent list yet.
+                </div>
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                  Pack IDs are most useful when you copied one from an export, note, or saved artifact handoff.
+                </div>
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                  The detail view shows source coverage, linked notes, and saved output state in one place.
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </main>
       ) : loading ? (
         <main className="surface-card p-6 text-sm text-[var(--pp-text-dim)]">Loading meeting pack…</main>
@@ -809,6 +1015,50 @@ export function MeetingPackPage() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
+                <CardTitle>Continue from this draft</CardTitle>
+                <CardDescription>
+                  Re-open the upstream paper note before rerendering or sharing when you need to challenge the canonical evidence behind this draft.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {sourceNoteSlugs.length > 0 ? (
+                  <>
+                    <div className="space-y-2">
+                      {sourceNoteSlugs.slice(0, 3).map((slug) => (
+                        <Link
+                          key={slug}
+                          to={`/papers/${encodeURIComponent(slug)}`}
+                          className="flex items-center justify-between rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-sm text-[var(--pp-text-secondary)] transition-colors hover:bg-[var(--pp-surface)]"
+                        >
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                              Continue in note
+                            </div>
+                            <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-primary)]">{slug}</div>
+                          </div>
+                          <ArrowRight className="h-3.5 w-3.5 text-[var(--pp-text-dim)]" />
+                        </Link>
+                      ))}
+                    </div>
+                    {sourceNoteSlugs.length > 3 ? (
+                      <p className="text-xs text-[var(--pp-text-dim)]">
+                        Showing 3 of {sourceNoteSlugs.length} linked notes. Use retrieval trace or evidence refs below to inspect the rest.
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                    No linked paper notes were saved with this draft. Use the saved source refs and retrieval trace below to recover upstream review context.
+                  </p>
+                )}
+                <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                  Keep slide edits and regenerate decisions here. Go back to the note when you need to change claims, evidence, or source selection.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4" />
                   Validation
@@ -894,7 +1144,7 @@ export function MeetingPackPage() {
                   Retrieval trace
                 </CardTitle>
                 <CardDescription>
-                  Operational trace only. It shows selector and load trajectory, not scientific judgment.
+                  Saved trace only. It shows selector and load trajectory, not scientific judgment.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
