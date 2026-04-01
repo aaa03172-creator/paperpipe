@@ -96,3 +96,42 @@ def test_meeting_pack_quality_gate_warns_for_background_only_pack():
     assert gate.discussion_ready is False
     assert "BACKGROUND_ONLY" in gate.reason_codes
     assert "TRACE_MISSING" in gate.reason_codes
+
+
+def test_meeting_pack_handoff_contract_uses_legacy_selector_scope_when_generation_request_missing():
+    pack = MeetingPack(
+        id="meetingpack_legacy",
+        mode="journal_club",
+        title="Legacy draft",
+        created_at=datetime(2026, 3, 27, 12, 0, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=None,
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="paper-alpha",
+                title="paper-alpha",
+                priority=1,
+                included=True,
+            ),
+            MeetingPackSourceItem(
+                id="src_02",
+                type="paper_state",
+                ref="paper-alpha",
+                title="paper-alpha",
+                priority=2,
+                included=True,
+            ),
+        ],
+        retrieval_trace=[],
+        one_page_summary=MeetingPackOnePageSummary(overview="Summary"),
+    )
+
+    contract = build_meeting_pack_acceptance_contract(
+        pack=pack,
+        regenerate_strategy="legacy_source_items",
+    )
+
+    assert contract.requested_scope["source_items"] == [{"type": "paper_slug", "ref": "paper-alpha"}]
+    assert contract.requested_scope["max_slides"] == 5

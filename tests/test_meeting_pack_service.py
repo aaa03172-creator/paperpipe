@@ -471,6 +471,53 @@ def test_list_meeting_packs_keeps_fixture_items_when_only_fixtures_exist(tmp_pat
     assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000000Z_journal_club_fixture"]
 
 
+def test_list_meeting_packs_keeps_real_pack_when_title_mentions_fixture_generically(tmp_path):
+    root = tmp_path / "meeting_packs"
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000000Z_journal_club_fixture",
+            mode="journal_club",
+            title="Backend visual meeting pack fixture",
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoteroe2eNoteBackedBBox2026",
+                    title="E2E Note-backed BBox Fixture",
+                    priority=1,
+                )
+            ],
+        ),
+        "# fixture",
+        root=root,
+    )
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000100Z_journal_club_real",
+            mode="journal_club",
+            title="Fixture selection follow-up",
+            created_at=datetime(2026, 3, 28, 0, 1, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoterocoricTargetingProdromalAlzheimer2015",
+                    title="Targeting Prodromal Alzheimer Disease With Avagacestat: A Randomized Clinical Trial",
+                    priority=1,
+                )
+            ],
+        ),
+        "# real",
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 1
+    assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000100Z_journal_club_real"]
+
+
 def test_get_meeting_pack_trace_summarizes_selector_load_path(tmp_path):
     vault_path = tmp_path / "vault"
     root = tmp_path / "meeting_packs"
@@ -760,6 +807,54 @@ def test_generate_meeting_pack_flags_missing_grounding_metadata_for_direct_suppo
         "missing or unresolved citation-grounding metadata" in uncertainty
         for uncertainty in response.pack.one_page_summary.uncertainties
     )
+
+
+def test_generate_meeting_pack_legacy_contract_uses_fallback_selector_scope(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = MeetingPack(
+        id="meetingpack_legacy_contract",
+        mode="journal_club",
+        title="Legacy draft",
+        created_at=datetime(2026, 3, 13, 9, 0, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=None,
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="legacy-paper-slug",
+                title="legacy-paper-slug",
+                priority=1,
+                included=True,
+            ),
+            MeetingPackSourceItem(
+                id="src_02",
+                type="paper_state",
+                ref="legacy-paper-slug",
+                title="legacy-paper-slug",
+                priority=2,
+                included=True,
+            ),
+        ],
+        one_page_summary=MeetingPackOnePageSummary(overview="Legacy summary"),
+        slides=[],
+        speaker_notes=[],
+        discussion_questions=[],
+        expected_questions=[],
+        next_steps=[],
+        evidence_refs=[],
+    )
+    save_meeting_pack_bundle(pack, "# Legacy draft\n", root)
+
+    rerender_meeting_pack(pack.id, root=root)
+
+    contract = json.loads(
+        meeting_pack_artifact_path(pack.id, "acceptance_contract.json", root).read_text(encoding="utf-8")
+    )
+
+    assert contract["operator_contract"]["regenerate_strategy_snapshot"] == "legacy_source_items"
+    assert contract["requested_scope"]["source_items"] == [{"type": "paper_slug", "ref": "legacy-paper-slug"}]
+    assert contract["requested_scope"]["max_slides"] == 5
 
 
 def test_generate_meeting_pack_modes_have_visible_contrast(tmp_path):
