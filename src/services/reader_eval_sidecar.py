@@ -39,6 +39,7 @@ _STOPWORDS = {
 }
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _LOW_OVERLAP_THRESHOLD = 0.5
+_KNOWN_HIGHLIGHT_SOURCES = {"bbox", "text_match", "approx"}
 
 
 def build_reader_eval_sidecar(
@@ -64,6 +65,9 @@ def build_reader_eval_sidecar(
         unknown_claim_count=sum(1 for entry in entries if entry.unknown),
         heuristic_backfill_claim_count=sum(1 for entry in entries if entry.heuristic_backfill),
         evidence_span_count=sum(entry.evidence_span_count for entry in entries),
+        bbox_span_count=sum(entry.bbox_span_count for entry in entries),
+        text_match_span_count=sum(entry.text_match_span_count for entry in entries),
+        approx_span_count=sum(entry.approx_span_count for entry in entries),
         grounded_span_count=sum(entry.grounded_span_count for entry in entries),
         unresolved_span_count=sum(entry.unresolved_span_count for entry in entries),
         ambiguous_span_count=sum(entry.ambiguous_span_count for entry in entries),
@@ -89,6 +93,15 @@ def write_reader_eval_sidecar(sidecar: ReaderEvalSidecar, artifact_dir: Path) ->
 
 
 def _build_claim_entry(*, original_claim: ScientificClaim, resolved_claim: ScientificClaim, chunks: list) -> ReaderEvalClaimEntry:
+    bbox_span_count = sum(
+        1 for span in resolved_claim.evidence_spans if _normalize_highlight_source(span.highlight_source) == "bbox"
+    )
+    text_match_span_count = sum(
+        1 for span in resolved_claim.evidence_spans if _normalize_highlight_source(span.highlight_source) == "text_match"
+    )
+    approx_span_count = sum(
+        1 for span in resolved_claim.evidence_spans if _normalize_highlight_source(span.highlight_source) == "approx"
+    )
     resolutions = [str(span.resolution or "") for span in resolved_claim.evidence_spans if str(span.resolution or "").strip()]
     grounded_span_count = sum(1 for span in resolved_claim.evidence_spans if span.grounded is True)
     unresolved_span_count = sum(1 for span in resolved_claim.evidence_spans if span.grounded is False)
@@ -108,6 +121,9 @@ def _build_claim_entry(*, original_claim: ScientificClaim, resolved_claim: Scien
         unknown_reason=unknown_reason,
         heuristic_backfill=heuristic_backfill,
         evidence_span_count=len(resolved_claim.evidence_spans),
+        bbox_span_count=bbox_span_count,
+        text_match_span_count=text_match_span_count,
+        approx_span_count=approx_span_count,
         grounded_span_count=grounded_span_count,
         unresolved_span_count=unresolved_span_count,
         ambiguous_span_count=ambiguous_span_count,
@@ -118,6 +134,13 @@ def _build_claim_entry(*, original_claim: ScientificClaim, resolved_claim: Scien
         statement_evidence_overlap_ratio=overlap_ratio,
         low_statement_evidence_overlap=overlap_ratio < _LOW_OVERLAP_THRESHOLD,
     )
+
+
+def _normalize_highlight_source(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in _KNOWN_HIGHLIGHT_SOURCES:
+        return normalized
+    return "approx"
 
 
 def _text_matches_any_chunk(text: str, chunks: list) -> bool:

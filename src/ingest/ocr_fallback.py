@@ -59,7 +59,6 @@ def run_ocr(
     cmd = [
         "ocrmypdf",
         "--skip-text",
-        "--force-ocr",
         "--language",
         lang,
     ]

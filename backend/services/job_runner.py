@@ -27,6 +27,7 @@ from src.services.deepread_note_writer import (
     upsert_deepread_section,
 )
 from src.services.deepread_state_projection import promote_deepread_structured_state_for_note
+from src.services.deepread_handoff_artifacts import write_deepread_handoff_artifacts
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
@@ -699,6 +700,17 @@ async def run_deepread_job(
         }
         _write_run_meta(artifact_dir, run_meta)
 
+    def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
+        metrics = getattr(reader_obj, "last_analysis_metrics", None)
+        if not isinstance(metrics, dict) or not metrics:
+            return
+        bootstrap_meta["reader_analysis"] = dict(metrics)
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_analysis"] = dict(metrics)
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+
         bootstrap_meta = {
             "job_id": job_id,
             "run_id": run_id,
@@ -871,6 +883,15 @@ async def run_deepread_job(
         page_count = len(getattr(doc_artifact, "pages", []) or [])
         table_count = len(getattr(doc_artifact, "tables", []) or [])
         llm_conf = getattr(config, "llm", None)
+        reader_attempt_order = str(getattr(llm_conf, "reader_attempt_order", "current") or "current")
+        if reader_attempt_order not in {"current", "focused_first"}:
+            reader_attempt_order = "current"
+        bootstrap_meta["reader_attempt_order"] = reader_attempt_order
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_attempt_order"] = reader_attempt_order
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         llm_timeout_default = max(15, int(getattr(llm_conf, "timeout_seconds", 15) or 15))
         reader_timeout_base = default_reader_timeout_base_seconds(llm_timeout_default)
         reader_timeout_budget = estimate_reader_timeout_seconds(
@@ -902,6 +923,7 @@ async def run_deepread_job(
             reader_agent = ReaderAgent(
                 model_name=main_model,
                 persona_hint=persona_hint,
+                attempt_order=reader_attempt_order,
             )
         except TypeError:
             # Test doubles may expose a simplified constructor.
@@ -925,6 +947,7 @@ async def run_deepread_job(
         except Exception as exc:
             if not is_timeout_exception(exc):
                 raise
+            _persist_reader_analysis_metrics(reader_agent)
             timeout_message = (
                 f"Reader step timed out after {reader_timeout_budget}s "
                 f"(pages={page_count}, tables={table_count})"
@@ -939,6 +962,7 @@ async def run_deepread_job(
                 _write_run_meta(artifact_dir, run_meta)
             await emit("read", 55, timeout_message, level="ERROR")
             raise TimeoutError(timeout_message) from exc
+        _persist_reader_analysis_metrics(reader_agent)
         
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
@@ -983,6 +1007,11 @@ async def run_deepread_job(
             bootstrap_meta["reader_eval_heuristic_backfill_claim_count"] = (
                 reader_eval.metrics.heuristic_backfill_claim_count
             )
+            bootstrap_meta["reader_eval_bbox_span_count"] = reader_eval.metrics.bbox_span_count
+            bootstrap_meta["reader_eval_text_match_span_count"] = reader_eval.metrics.text_match_span_count
+            bootstrap_meta["reader_eval_approx_span_count"] = reader_eval.metrics.approx_span_count
+            bootstrap_meta["reader_eval_unresolved_span_count"] = reader_eval.metrics.unresolved_span_count
+            bootstrap_meta["reader_eval_ambiguous_span_count"] = reader_eval.metrics.ambiguous_span_count
         except Exception as exc:
             logger.warning("Failed to build reader_eval sidecar: %s", exc)
         if claim_count > 0:
@@ -1099,6 +1128,23 @@ async def run_deepread_job(
 
         # 6. Complete
         _mark_run_meta("succeeded")
+        try:
+            handoff_artifacts = write_deepread_handoff_artifacts(
+                artifact_dir,
+                paper_id=paper_id,
+                run_id=run_id,
+                run_meta=run_meta or {},
+                bootstrap_meta=bootstrap_meta,
+            )
+            bootstrap_meta["artifact_acceptance_contract_written"] = True
+            bootstrap_meta["artifact_quality_gate_written"] = True
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                run_meta["handoff_artifacts"] = handoff_artifacts
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+        except Exception as handoff_err:
+            logger.warning("Failed to write deep-read handoff pilot artifacts: %s", handoff_err)
 
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
@@ -1144,6 +1190,20 @@ async def run_deepread_job(
             bootstrap_meta["claimset_ops_alert"] = True
             bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                handoff_artifacts = write_deepread_handoff_artifacts(
+                    artifact_dir,
+                    paper_id=paper_id,
+                    run_id=run_id,
+                    run_meta=run_meta,
+                    bootstrap_meta=bootstrap_meta,
+                )
+                bootstrap_meta["artifact_acceptance_contract_written"] = True
+                bootstrap_meta["artifact_quality_gate_written"] = True
+                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                run_meta["handoff_artifacts"] = handoff_artifacts
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
         await emit("error", 0, str(e), level="ERROR")
         if queue:
             await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
