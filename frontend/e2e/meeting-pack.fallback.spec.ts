@@ -57,3 +57,62 @@ test("meeting pack create surfaces backend 401 instead of silently falling back 
     page.getByRole("heading", { name: "Unauthorized fallback should not succeed", exact: true }),
   ).toHaveCount(0);
 });
+
+test("meeting pack index surfaces backend 400 instead of silently showing the mock library", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Failed to load Meeting Pack from storage/meeting_packs/broken-pack/meeting_pack.json",
+      }),
+    });
+  });
+
+  await page.goto("/meeting-packs");
+
+  await expect(page.getByText("/meeting-packs -> 400")).toBeVisible();
+  await expect(page.getByText("Failed to load Meeting Pack from storage/meeting_packs/broken-pack/meeting_pack.json")).toBeVisible();
+  await expect(page.getByText("meeting pack index unavailable, mock drafts loaded")).toHaveCount(0);
+});
+
+test("meeting pack detail surfaces backend 400 instead of swapping in a mock draft", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs/broken-pack", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Failed to load Meeting Pack from storage/meeting_packs/broken-pack/meeting_pack.json",
+      }),
+    });
+  });
+  await page.route("**/api/meeting-packs/broken-pack/trace", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Corrupt retrieval trace metadata",
+      }),
+    });
+  });
+  await page.route("**/api/meeting-packs/broken-pack/validate", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Cannot validate malformed meeting pack",
+      }),
+    });
+  });
+
+  await page.goto("/meeting-packs/broken-pack");
+
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText("/meeting-packs/broken-pack -> 400")).toBeVisible();
+  await expect(page.getByText("Failed to load Meeting Pack from storage/meeting_packs/broken-pack/meeting_pack.json")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Continue from this draft" })).toHaveCount(0);
+});
