@@ -7,9 +7,12 @@ import {
   EvidenceHighlight,
   JobEnqueueResponse,
   JobStatus,
+  MeetingPackListItem,
   MethodComparisonListResponse,
   MethodComparisonResponse,
   MeetingPackListResponse,
+  MeetingPackMode,
+  MeetingPackRequestSnapshot,
   MeetingPackResponse,
   MeetingPackTraceResponse,
   MeetingPackValidationResponse,
@@ -21,6 +24,7 @@ import {
   PersonaListResponse,
   ProtocolCardListResponse,
   ProtocolCardResponse,
+  OutputModeFamily,
   StructuredPaperState,
   TimelineResponse,
 } from "./types";
@@ -31,6 +35,115 @@ function deepClone<T>(value: T): T {
 }
 
 const SAMPLE_PDF = "/sample.pdf";
+const MOCK_GENERATED_MEETING_PACKS = new Map<string, MeetingPackResponse>();
+const MOCK_GENERATED_MEETING_PACK_ORDER: string[] = [];
+
+function formatMeetingPackModeLabel(value: MeetingPackMode): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function outputModeFamilyForMeetingPackMode(mode: MeetingPackMode): OutputModeFamily {
+  if (mode === "journal_club" || mode === "literature_update") {
+    return "lab_meeting";
+  }
+  if (mode === "project_progress_update") {
+    return "project_update";
+  }
+  return "builder_debug";
+}
+
+function formatMockMeetingPackTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildMockMeetingPackId(mode: MeetingPackMode): string {
+  return `meetingpack_${formatMockMeetingPackTimestamp(new Date())}_${mode}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function buildMeetingPackListItem(response: MeetingPackResponse): MeetingPackListItem {
+  const primarySource = response.pack.source_items.find((item) => item.type === "paper_slug");
+  return {
+    pack_id: response.pack.id,
+    title: response.pack.title,
+    mode: response.pack.mode,
+    output_mode_family: response.pack.output_mode_family,
+    created_at: response.pack.created_at,
+    readiness: response.pack.readiness,
+    source_count: response.pack.source_items.length,
+    slide_count: response.pack.slides.length,
+    trace_entry_count: response.pack.retrieval_trace.length,
+    primary_source_title: primarySource?.ref ?? response.pack.source_items[0]?.title ?? null,
+    has_generation_request: Boolean(response.pack.generation_request),
+    regenerated_from_pack_id: response.pack.regenerated_from_pack_id ?? null,
+  };
+}
+
+function buildMeetingPackTraceSummary(response: MeetingPackResponse): MeetingPackTraceResponse["summary"] {
+  const matchedPaperSlugs = Array.from(
+    new Set(response.pack.retrieval_trace.flatMap((entry) => entry.matched_paper_slugs)),
+  );
+  const sourcePaths = Array.from(
+    new Set(
+      response.pack.retrieval_trace
+        .map((entry) => entry.source_path)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  return {
+    entry_count: response.pack.retrieval_trace.length,
+    selector_count: response.pack.source_items.length,
+    matched_paper_count: matchedPaperSlugs.length,
+    source_path_count: sourcePaths.length,
+    action_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.action] = (counts[entry.action] ?? 0) + 1;
+      return counts;
+    }, {}),
+    outcome_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.outcome] = (counts[entry.outcome] ?? 0) + 1;
+      return counts;
+    }, {}),
+    matched_paper_slugs: matchedPaperSlugs,
+    source_paths: sourcePaths,
+  };
+}
+
+function buildMeetingPackTraceResponse(response: MeetingPackResponse): MeetingPackTraceResponse {
+  return {
+    pack_id: response.pack.id,
+    available: response.pack.retrieval_trace.length > 0,
+    summary: buildMeetingPackTraceSummary(response),
+    trace: deepClone(response.pack.retrieval_trace),
+  };
+}
+
+function buildMeetingPackValidationResponse(response: MeetingPackResponse): MeetingPackValidationResponse {
+  return {
+    validation: {
+      pack_id: response.pack.id,
+      readiness: response.pack.readiness,
+      markdown_sync: deepClone(
+        response.markdown_sync ?? {
+          status: "in_sync",
+          stored_markdown_sha1: "a".repeat(40),
+          rendered_markdown_sha1: "a".repeat(40),
+          note: null,
+        },
+      ),
+      can_regenerate: true,
+      regenerate_strategy: "saved_request",
+      warnings:
+        response.pack.readiness === "background_only"
+          ? ["This draft uses background context only. Recheck canonical evidence before reuse."]
+          : [],
+    },
+  };
+}
 
 const MOCK_PAPERS: PaperDetail[] = [
   {
@@ -2060,25 +2173,193 @@ export function getMockTimeline(runId: string): TimelineResponse {
 }
 
 export function getMockMeetingPack(packId: string): MeetingPackResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return deepClone(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
   response.pack.id = packId || MOCK_MEETING_PACK_ID;
   return response;
 }
 
 export function getMockMeetingPackIndex(): MeetingPackListResponse {
-  return deepClone(MOCK_MEETING_PACK_LIST_RESPONSE);
+  const generatedItems = MOCK_GENERATED_MEETING_PACK_ORDER
+    .map((packId) => MOCK_GENERATED_MEETING_PACKS.get(packId))
+    .filter((response): response is MeetingPackResponse => Boolean(response))
+    .map((response) => buildMeetingPackListItem(response));
+  const base = deepClone(MOCK_MEETING_PACK_LIST_RESPONSE);
+  return {
+    ...base,
+    total: generatedItems.length + base.items.length,
+    items: [...generatedItems, ...base.items],
+  };
 }
 
 export function getMockMeetingPackTrace(packId: string): MeetingPackTraceResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackTraceResponse(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_TRACE_RESPONSE);
   response.pack_id = packId || MOCK_MEETING_PACK_ID;
   return response;
 }
 
 export function getMockMeetingPackValidation(packId: string): MeetingPackValidationResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackValidationResponse(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_VALIDATION_RESPONSE);
   response.validation.pack_id = packId || MOCK_MEETING_PACK_ID;
   return response;
+}
+
+export function createMockMeetingPack(request: MeetingPackRequestSnapshot): MeetingPackResponse {
+  const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
+  const now = new Date();
+  const sourceRef = request.source_items[0]?.ref?.trim() || "paper-slug";
+  const packId = buildMockMeetingPackId(request.mode);
+  const title =
+    request.title?.trim() || `${formatMeetingPackModeLabel(request.mode)} draft for ${sourceRef}`;
+
+  response.pack.id = packId;
+  response.pack.mode = request.mode;
+  response.pack.output_mode_family = outputModeFamilyForMeetingPackMode(request.mode);
+  response.pack.title = title;
+  response.pack.created_at = now.toISOString();
+  response.pack.readiness = "evidence_backed";
+  response.pack.generation_request = deepClone(request);
+  response.pack.regenerated_from_pack_id = null;
+  response.pack.source_items = request.source_items.map((item, index) => ({
+    id: `src_${String(index + 1).padStart(2, "0")}`,
+    type: item.type,
+    ref: item.ref,
+    title: item.ref,
+    priority: index + 1,
+    included: true,
+  }));
+  response.pack.retrieval_trace = request.source_items.flatMap((item, index) => {
+    const sourceItemId = `src_${String(index + 1).padStart(2, "0")}`;
+    return [
+      {
+        order: index * 2 + 1,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: "selector_selected",
+        outcome: "selected",
+        detail: "Selector accepted for draft generation.",
+        source_item_id: sourceItemId,
+        source_path: null,
+        matched_paper_slugs: [],
+        metadata: {},
+      },
+      {
+        order: index * 2 + 2,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: item.type === "paper_slug" ? "paper_state_loaded" : "selector_resolved",
+        outcome: item.type === "paper_slug" ? "loaded" : "resolved",
+        detail:
+          item.type === "paper_slug"
+            ? "Loaded the selected paper slug into the draft."
+            : "Resolved selector context for the draft.",
+        source_item_id: sourceItemId,
+        source_path: item.type === "paper_slug" ? `.pp/${item.ref}/state.json` : item.ref,
+        matched_paper_slugs: item.type === "paper_slug" ? [item.ref] : [],
+        metadata: {},
+      },
+    ];
+  });
+  response.pack.one_page_summary.overview = `This mock meeting draft starts from ${sourceRef} so you can inspect the full pack flow before the live backend is available.`;
+  response.pack.one_page_summary.key_points = [
+    {
+      label: "Starting point",
+      text: `The draft was created from the paper slug ${sourceRef}. Replace this with a live paper slug to generate a real pack.`,
+      evidence_refs: ["evref_01"],
+      uncertainty_note: "Mock generation keeps the workflow shape but not the final scientific content.",
+    },
+  ];
+  response.pack.one_page_summary.uncertainties = [
+    "This is mock-generated draft content for workflow review.",
+  ];
+  response.pack.slides = [
+    {
+      slide_title: "Why this paper is in the meeting",
+      purpose: "Frame the selected paper slug for discussion",
+      bullets: [
+        `Source slug: ${sourceRef}`,
+        `Mode: ${formatMeetingPackModeLabel(request.mode)}`,
+      ],
+      evidence_refs: ["evref_01"],
+      caution_notes: ["Replace mock content with a live draft before reuse."],
+    },
+    {
+      slide_title: "What to review next",
+      purpose: "Check evidence, trace, and discussion prompts",
+      bullets: [
+        "Open the trace panel to confirm which selectors were used.",
+        "Use regenerate after changing selector inputs.",
+      ],
+      evidence_refs: ["evref_01"],
+      caution_notes: [],
+    },
+  ];
+  response.pack.discussion_questions = [
+    {
+      question: `What meeting angle do we want to take for ${sourceRef}?`,
+      rationale: "A starting prompt helps the route feel usable before a live backend is connected.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.expected_questions = [
+    {
+      question: "Is this a live draft or a fallback demo?",
+      suggested_response:
+        "This draft was created in mock mode to demonstrate the creation flow while the backend is unavailable.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.next_steps = [
+    {
+      action: "Reconnect the live backend and regenerate this draft.",
+      why: "That will replace placeholder content with canonical evidence-backed slides.",
+      priority: "medium",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.evidence_refs = [
+    {
+      id: "evref_01",
+      paper_slug: sourceRef,
+      claim_id: null,
+      evidence_id: null,
+      run_id: "mock-meeting-pack-generate",
+      support_type: "direct",
+      note: "Mock source reference created from the draft request.",
+    },
+  ];
+  response.markdown = [
+    `# ${title}`,
+    "",
+    "## One-page Summary",
+    "",
+    response.pack.one_page_summary.overview,
+    "",
+    "## Slide Outline",
+    "",
+    ...response.pack.slides.map((slide, index) => `${index + 1}. ${slide.slide_title}`),
+  ].join("\n");
+  response.markdown_sync = {
+    status: "in_sync",
+    stored_markdown_sha1: "b".repeat(40),
+    rendered_markdown_sha1: "b".repeat(40),
+    note: "Mock-generated markdown mirrors the current draft bundle.",
+  };
+
+  MOCK_GENERATED_MEETING_PACKS.set(packId, response);
+  MOCK_GENERATED_MEETING_PACK_ORDER.unshift(packId);
+  return deepClone(response);
 }
 
 export function getMockMethodComparison(comparisonId: string): MethodComparisonResponse {
