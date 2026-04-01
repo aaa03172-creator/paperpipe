@@ -1,15 +1,15 @@
 Status: Active
-Date: 2026-03-23
+Date: 2026-03-28
 Owner: Lattice runtime maintainers
 Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
 ## Header
 - Screen/Flow: Meeting Pack viewer (`/meeting-packs`, `/meeting-packs/:packId`)
-- Goal action: Inspect a saved meeting-pack draft, decide whether it is in sync and reviewable, and then rerender, regenerate, or hand off with the right caution.
-- Primary persona: Operator reviewing saved draft artifacts and trace/validation state before downstream reuse.
-- Current friction: The route already exposes draft, trace, and validation state, but its header and index language read like an internal inspector shell instead of a bounded review surface.
-- Success metric: Operator can open the route, understand that it is an operational review surface, find a saved pack quickly, and distinguish draft management from canonical evidence review.
-- Constraints: Preserve the current route structure, operational capabilities, trace controls, and warning model; keep the route read-only except for existing rerender/regenerate actions; do not imply that meeting-pack drafts replace canonical evidence review.
+- Goal action: Start a meeting-pack draft from one paper slug or inspect a saved draft, then decide whether it is ready to reuse, rerender, or regenerate.
+- Primary persona: Researcher or operator preparing a meeting-ready draft and checking trace/validation state before downstream reuse.
+- Current friction: The route exposed saved draft inspection well enough, but it still behaved like a saved-artifact browser. First-time users had no direct UI path to create their first pack, so empty states ended in explanation instead of action.
+- Success metric: A user can open `/meeting-packs`, understand the route’s purpose, create a first draft from one paper slug, and land in the saved draft detail view with the right trust boundaries intact.
+- Constraints: Preserve the current route structure, trace controls, and warning model; keep creation bounded to a thin `paper_slug`-driven entry path; do not imply that meeting-pack drafts replace canonical evidence review.
 
 ## Quick Review (5 min)
 - The first read needs to answer three questions quickly: what this route is for, whether it is operational or presentation-facing, and how to open the right saved pack.
@@ -18,39 +18,39 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
 ## Full Review
 ### P0
-- Keep the route operational and read-only except for the existing rerender/regenerate actions. This surface should not drift into a general editor.
+- Add one bounded create path without turning the route into an editor. The safest first move is a single `paper_slug` request that reuses the existing backend generate contract.
 - Avoid `Inspector` and `Ops / Debug` shell language in the first read. The route already has enough operational detail in-body; the header should explain the job to be done.
 
 ### P1
 - Default index headings should say “saved meeting packs” rather than generic inspector language.
-- Opening a pack by id is a useful advanced action, but the label should describe the action directly instead of reading like a developer tool affordance.
+- Opening a pack by id is a useful advanced action, but it should sit behind a clearer “start a new draft” entry rather than being the only action besides list browsing.
 
 ### P2
 - The existing in-body copy still leans operational, which is acceptable for this lane because the route is explicitly draft-management oriented.
 - Backend visual coverage now exists for index/detail shells, so future work can focus on trace readability or action-safety checks rather than more header cleanup.
 
 ### Full Review Coverage
-- 6P storyboard context: Problem is opaque saved draft state; emotion is low trust in draft artifacts without quick operational context; action is open meeting-pack index or direct pack id; struggle is decoding inspector-style framing; attempt is review title, status, trace, and validation before acting; happy ending is a bounded draft review surface whose role is immediately obvious.
-- BMAP: Motivation is high because meeting packs are downstream communication artifacts; ability drops when the route sounds like an internal debugger instead of an operational review tool; prompt should make “review saved draft state” obvious at the top.
-- B.I.A.S: Block comes from inspector jargon; interpret improves when the route is framed as meeting-pack review; act improves with direct “Open pack” language; store improves when this route uses the same restrained product language as adjacent viewers.
-- Peak-End: Peak should be immediate recognition that this is a saved draft review lane; pit is an internal debugger vibe; transition is from saved-pack index to draft detail; end is clear awareness that rerender/regenerate affects only the saved draft.
+- 6P storyboard context: Problem is opaque saved draft state plus no first-draft entry; emotion is low trust and low momentum when the route only offers saved-output browsing; action is create or open a pack; struggle is decoding inspector-style framing and knowing where to start; attempt is create a pack from one paper slug, then review title, trace, and validation before acting; happy ending is a bounded draft workflow whose role is immediately obvious.
+- BMAP: Motivation is high because meeting packs are downstream communication artifacts; ability drops when the route sounds like an internal debugger or requires a pre-existing pack; prompt should make “start a new draft or open a saved one” obvious at the top.
+- B.I.A.S: Block comes from inspector jargon and empty-state dead ends; interpret improves when the route is framed as meeting-pack review plus a first-draft start; act improves with direct “Create draft” and “Open pack” language; store improves when this route uses the same restrained product language as adjacent viewers.
+- Peak-End: Peak should be immediate recognition that this is a meeting-pack lane with both create and review actions; pit is an internal debugger vibe or a dead-end empty state; transition is from draft creation to saved-pack detail; end is clear awareness that rerender/regenerate affects only the saved draft.
 - Ethics: The viewer must not imply that draft sync or trace completeness equals evidence quality. The route should stay explicit that canonical evidence review lives elsewhere.
 
 ## BMAP diagnosis
 - Motivation: High. Meeting packs are reused downstream and need quick operational review.
-- Ability: Medium. The route already has the right controls, but the shell language makes first interpretation more technical than necessary.
-- Prompt: Medium. The current route is powerful, but the header/index language undersells the immediate task.
+- Ability: Medium. The route already has the right review controls, but first-time users need a thin create path before the lane feels usable.
+- Prompt: Medium. The current route is powerful, but the header/index language and old empty state undersold the immediate task.
 
 ## B.I.A.S diagnosis
-- Block: `Inspector` and `Ops / Debug` language make the route feel more internal than necessary.
-- Interpret: Users need to see “saved meeting-pack review” first, then absorb the operational controls.
-- Act: The next action is usually search, open a saved pack, rerender, or regenerate.
+- Block: `Inspector` and `Ops / Debug` language, plus an empty state that offered no direct start path.
+- Interpret: Users need to see “start a draft or open a saved one” first, then absorb the operational controls.
+- Act: The next action is usually create a draft, search, open a saved pack, rerender, or regenerate.
 - Store: Repeated “review” language across viewer routes makes the system easier to scan.
 
 ## Peak-End design notes
 - Peak: The route should immediately read as “review saved meeting packs.”
-- Pit: Inspector language can make the route feel like a dev-only surface.
-- Transition: Keep index search -> open pack -> rerender/regenerate flow intact.
+- Pit: Inspector language and dead-end empty states can make the route feel like a dev-only surface.
+- Transition: Keep create/search -> open pack -> rerender/regenerate flow intact.
 - End: Leave the operator with the right trust boundary around draft state vs canonical evidence.
 
 ## Concrete changes
@@ -59,11 +59,13 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
   - status badge `Operational`
   - default H1 `Saved meeting packs`
   - subtitle `Review saved meeting-pack drafts, validation state, and trace coverage before rerender or downstream reuse.`
+  - new secondary action card `Start a new draft`
+  - new button label `Create draft`
   - button label `Open pack`
   - index title `Saved meeting packs`
-  - secondary card title `Open by pack ID`
-- Layout level: no route, panel, or control structure changes.
-- Runtime contract: rerender/regenerate, trace filters, and validation UI stay unchanged.
+  - secondary card title `Open a saved pack by ID`
+- Layout level: keep the existing route structure and detail view, but let the right rail host a minimal create form above the direct-open helper.
+- Runtime contract: rerender/regenerate, trace filters, and validation UI stay unchanged; the new create form reuses the existing generate endpoint with a single `paper_slug` selector.
 
 ## 7.2) Backend Visual Coverage Checkpoint (2026-03-23)
 - Screen/Flow: `/meeting-packs` index and `/meeting-packs/:packId` detail visual regression coverage
@@ -128,11 +130,78 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "meeting pack detail layout|meeting pack index layout"`
 
 ## Ethics check results
-- Regret: Low. The route is easier to read without hiding its operational nature.
+- Regret: Low. The route is easier to start without hiding its operational nature.
 - Black Mirror: Low if the route continues to say that draft controls do not replace canonical evidence review.
-- In Real-Life: An operator should be able to explain this route as “review and manage saved meeting-pack drafts” without sounding like they are opening a debugger.
+- In Real-Life: A researcher should be able to explain this route as “start or review a meeting-pack draft” without sounding like they are opening a debugger.
 
 ## Next PR-sized actions
-- Add dedicated UX review coverage if the route gets broader user-facing use beyond current operational workflows.
+- Add a cancel/retry pattern if meeting-pack generation becomes asynchronous or long-running.
 - If future changes touch action safety, add a narrow interaction-focused check around rerender/regenerate result notices.
-- Keep future work focused on trace readability or action safety, not on broadening the route into an editor.
+- Keep future work focused on trace readability and first-session guidance, not on broadening the route into a full editor.
+
+## 7.4) Header Context Strip Checkpoint (2026-03-29)
+- Screen/Flow: `/meeting-packs` index and `/meeting-packs/:packId` detail header
+- Goal action: 사용자가 meeting-pack lane를 saved-draft browser가 아니라 `언제 쓰는지 / 무엇에서 파생됐는지`가 보이는 downstream review surface로 이해한다.
+- Primary persona: meeting-ready draft를 source coverage와 trace 기준으로 다시 확인한 뒤 discussion이나 sharing으로 넘기는 연구자/운영자
+- Current friction:
+  - existing header는 route 목적은 말하지만, draft를 언제 열어야 하는지와 어떤 saved source/evidence context에서 왔는지를 header 수준에서 말하지 않았다.
+  - provenance는 detail body에서야 읽혔다.
+- Quick decision:
+  - existing route shell, create form, and trace controls는 유지한다.
+  - header 바로 아래에 reusable context strip을 추가해 `When to use`와 `Derived from`만 먼저 고정한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/meeting-pack.mock.spec.ts`
+
+## 7.5) Continue In Note Checkpoint (2026-03-29)
+- Screen/Flow: `/meeting-packs/:packId` detail sidebar
+- Goal action: 사용자가 saved draft를 읽은 뒤 canonical evidence 확인이 필요하면 바로 source note로 돌아간다.
+- Primary persona: meeting-ready draft를 다듬기 전에 upstream note와 evidence를 다시 확인하려는 연구자
+- Current friction:
+  - pack detail은 downstream artifact review는 강했지만, upstream note review로 돌아가는 다음 행동이 늦게 보였다.
+  - 사용자는 trace나 source refs를 해석해서 직접 note slug를 찾아야 했다.
+- Quick decision:
+  - saved draft shell, validation, trace cards는 유지한다.
+  - detail sidebar에 `Continue from this draft` card를 추가해 linked source note를 먼저 보여준다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/meeting-pack.mock.spec.ts`
+
+## 7.6) Live Continue In Note Coverage Checkpoint (2026-03-29)
+- Screen/Flow: `/meeting-packs` browser create flow and `/meeting-packs/:packId` live backend detail handoff
+- Goal action: 사용자가 live backend에서도 draft를 만든 뒤 `Continue from this draft`에서 실제 paper note로 돌아간다.
+- Primary persona: meeting-ready draft를 브라우저에서 바로 만든 뒤 upstream note evidence를 다시 확인하려는 연구자
+- Current friction:
+  - note-first continuation card는 mock rail에서는 고정됐지만, live backend detail에서 같은 handoff가 계속 유지되는지 아직 직접 보장되지 않았다.
+  - close-user 관점에서는 mock-only confidence보다 browser-create 이후 real note handoff가 더 중요하다.
+- Quick decision:
+  - UI shell은 그대로 둔다.
+  - backend Playwright에 browser-create -> detail -> continue-in-note path 하나만 추가해 live rail을 고정한다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend meeting pack create keeps the continuation card and note handoff on the real route"`
+
+## 7.7) Rerender-Safe Continue In Note Checkpoint (2026-03-29)
+- Screen/Flow: `/meeting-packs/:packId` live backend detail after `Rerender markdown`
+- Goal action: 사용자가 saved markdown을 다시 그린 뒤에도 같은 draft에서 source note review로 안정적으로 돌아간다.
+- Primary persona: draft wording만 다시 렌더한 뒤 upstream note evidence를 바로 재확인하려는 연구자
+- Current friction:
+  - live continuation coverage는 생겼지만, detail action 이후에도 같은 note-first card가 안정적으로 남는지는 아직 직접 보장되지 않았다.
+  - rerender success notice가 뜨는 순간 continuation cue가 밀리거나 사라지면 사용자는 다시 다음 행동을 추론해야 한다.
+- Quick decision:
+  - UI shell과 action contract는 그대로 둔다.
+  - existing live backend browser test 안에서 `Rerender markdown` 후에도 `Continue from this draft`와 `Continue in note`가 유지되는지만 추가로 고정한다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend meeting pack create keeps the continuation card and note handoff on the real route"`
+
+## 7.8) Regenerate-Safe Continue In Note Checkpoint (2026-03-29)
+- Screen/Flow: `/meeting-packs/:packId` live backend detail after `Regenerate draft`
+- Goal action: 사용자가 saved selector set으로 draft를 다시 만든 뒤에도 source note review로 안정적으로 돌아간다.
+- Primary persona: draft wording과 source selection을 다시 만든 뒤 upstream note evidence를 곧바로 재확인하려는 연구자
+- Current friction:
+  - `Rerender markdown` 이후 continuation coverage는 생겼지만, `Regenerate draft`는 saved pack route가 바뀔 수도 있어서 note-first cue가 계속 유지되는지 아직 직접 보장되지 않았다.
+  - regenerate success 뒤 continuation card가 사라지면 새 draft가 isolated artifact처럼 느껴질 수 있다.
+- Quick decision:
+  - UI shell과 regenerate contract는 그대로 둔다.
+  - existing live backend browser test 안에서 `Regenerate draft` 후에도 `Continue from this draft`와 `Continue in note`가 유지되는지만 추가로 고정한다.
+- Verification:
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend meeting pack create keeps the continuation card and note handoff on the real route"`
