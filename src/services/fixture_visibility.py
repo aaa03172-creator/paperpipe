@@ -26,6 +26,29 @@ def prefer_non_fixture_items(items: Iterable[T], is_fixture: Callable[[T], bool]
     return visible or materialized
 
 
+def _looks_like_fixture_title(value: str) -> bool:
+    normalized = value.strip().lower()
+    return (
+        normalized.startswith("e2e ")
+        or normalized.startswith("backend visual ")
+        or normalized.endswith(" fixture")
+        or normalized.endswith("-fixture")
+        or normalized.endswith("_fixture")
+    )
+
+
+def _looks_like_fixture_ref(value: str) -> bool:
+    normalized = value.strip().lower()
+    return (
+        normalized.startswith("paper-e2e-")
+        or normalized.startswith("zoteroe2e")
+        or normalized.startswith("e2e_")
+        or normalized.startswith("e2e-")
+        or normalized.endswith("_fixture")
+        or normalized.endswith("-fixture")
+    )
+
+
 def is_test_fixture_paper_record(record: Mapping[str, object]) -> bool:
     paper_id = str(record.get("paper_id") or "").strip().lower()
     title = str(record.get("title") or "").strip().lower()
@@ -39,7 +62,7 @@ def is_test_fixture_paper_record(record: Mapping[str, object]) -> bool:
         return True
     if "/tests/" in pdf_path:
         return True
-    if title.startswith("e2e ") or " fixture" in title or title.endswith("fixture"):
+    if _looks_like_fixture_title(title):
         return True
     return False
 
@@ -49,17 +72,17 @@ def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
     request_title = (pack.generation_request.title if pack.generation_request else "") or ""
     request_title = request_title.strip().lower()
 
-    if title.startswith("e2e ") or "fixture" in title or title.startswith("backend visual "):
+    if _looks_like_fixture_title(title):
         return True
-    if request_title.startswith("e2e ") or "fixture" in request_title or request_title.startswith("backend visual "):
+    if _looks_like_fixture_title(request_title):
         return True
 
     for source in pack.source_items:
         ref = source.ref.strip().lower()
         source_title = source.title.strip().lower()
-        if "e2e" in ref or "fixture" in ref:
+        if _looks_like_fixture_ref(ref):
             return True
-        if source_title.startswith("e2e ") or "fixture" in source_title:
+        if _looks_like_fixture_title(source_title):
             return True
 
     return False

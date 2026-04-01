@@ -10,6 +10,24 @@ from src.schemas.meeting_pack_handoff import (
 )
 
 
+def _requested_scope_source_items(pack: MeetingPack) -> list[dict[str, object]]:
+    if pack.generation_request is not None:
+        return [
+            {"type": item.type, "ref": item.ref}
+            for item in pack.generation_request.source_items
+        ]
+
+    explicit_selectors = [item for item in pack.source_items if item.type != "paper_state"]
+    selector_items = explicit_selectors or [item for item in pack.source_items if item.type == "paper_state"]
+    return [{"type": item.type, "ref": item.ref} for item in selector_items]
+
+
+def _requested_scope_max_slides(pack: MeetingPack) -> int:
+    if pack.generation_request is not None:
+        return pack.generation_request.max_slides
+    return min(8, max(5, len(pack.slides) or 5))
+
+
 def build_meeting_pack_acceptance_contract(
     *,
     pack: MeetingPack,
@@ -49,11 +67,8 @@ def build_meeting_pack_acceptance_contract(
             "mode": pack.mode,
             "output_mode_family": pack.output_mode_family,
             "title": pack.title,
-            "source_items": [
-                {"type": item.type, "ref": item.ref}
-                for item in (pack.generation_request.source_items if pack.generation_request else [])
-            ],
-            "max_slides": pack.generation_request.max_slides if pack.generation_request else len(pack.slides),
+            "source_items": _requested_scope_source_items(pack),
+            "max_slides": _requested_scope_max_slides(pack),
         },
         expected_outputs=[
             "meeting_pack.json",

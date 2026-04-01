@@ -512,10 +512,24 @@ export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingP
     };
   }
 
-  return {
-    data: await firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
-    isMock: false,
-  };
+  try {
+    return {
+      data: await firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: "meeting pack unavailable, mock draft loaded",
+    };
+  }
 }
 
 export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListResponse>> {
@@ -527,10 +541,11 @@ export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListRe
     };
   }
 
-  return {
-    data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () => firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
+    () => getMockMeetingPackIndex(),
+    "meeting pack index unavailable, mock drafts loaded",
+  );
 }
 
 export async function generateMeetingPack(
@@ -717,10 +732,24 @@ export async function getMeetingPackTrace(packId: string): Promise<ApiResult<Mee
     };
   }
 
-  return {
-    data: await firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
-    isMock: false,
-  };
+  try {
+    return {
+      data: await firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackTrace(packId),
+      isMock: true,
+      reason: "meeting pack trace unavailable, mock trace loaded",
+    };
+  }
 }
 
 export async function getMeetingPackValidation(packId: string): Promise<ApiResult<MeetingPackValidationResponse>> {
@@ -732,12 +761,26 @@ export async function getMeetingPackValidation(packId: string): Promise<ApiResul
     };
   }
 
-  return {
-    data: await firstSuccess<MeetingPackValidationResponse>([
-      `/meeting-packs/${encodeURIComponent(packId)}/validate`,
-    ]),
-    isMock: false,
-  };
+  try {
+    return {
+      data: await firstSuccess<MeetingPackValidationResponse>([
+        `/meeting-packs/${encodeURIComponent(packId)}/validate`,
+      ]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackValidation(packId),
+      isMock: true,
+      reason: "meeting pack validation unavailable, mock validation loaded",
+    };
+  }
 }
 
 export async function regenerateMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
