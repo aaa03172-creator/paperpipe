@@ -634,6 +634,17 @@ async def run_deepread_job(
         run_meta.update(extra)
         _write_run_meta(artifact_dir, run_meta)
 
+    def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
+        metrics = getattr(reader_obj, "last_analysis_metrics", None)
+        if not isinstance(metrics, dict) or not metrics:
+            return
+        bootstrap_meta["reader_analysis"] = dict(metrics)
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_analysis"] = dict(metrics)
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+
     try:
         if await is_cancelled():
             return {"status": "cancelled", "run_id": run_id}
@@ -699,17 +710,6 @@ async def run_deepread_job(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         _write_run_meta(artifact_dir, run_meta)
-
-    def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
-        metrics = getattr(reader_obj, "last_analysis_metrics", None)
-        if not isinstance(metrics, dict) or not metrics:
-            return
-        bootstrap_meta["reader_analysis"] = dict(metrics)
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-        if run_meta is not None:
-            run_meta["reader_analysis"] = dict(metrics)
-            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-            _write_run_meta(artifact_dir, run_meta)
 
         bootstrap_meta = {
             "job_id": job_id,
