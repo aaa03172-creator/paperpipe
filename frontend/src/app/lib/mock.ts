@@ -141,8 +141,24 @@ function buildMeetingPackValidationResponse(response: MeetingPackResponse): Meet
         response.pack.readiness === "background_only"
           ? ["This draft uses background context only. Recheck canonical evidence before reuse."]
           : [],
-    },
+      },
   };
+}
+
+export function getMockMeetingPackReadOnlyFallbackValidation(
+  packId: string,
+): MeetingPackValidationResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  const response = generated
+    ? buildMeetingPackValidationResponse(generated)
+    : getMockMeetingPackValidation(packId);
+  response.validation.can_regenerate = false;
+  response.validation.regenerate_strategy = "unavailable";
+  response.validation.warnings = [
+    "Reconnect the backend before rerendering or regenerating this fallback draft.",
+    ...response.validation.warnings,
+  ];
+  return response;
 }
 
 const MOCK_PAPERS: PaperDetail[] = [

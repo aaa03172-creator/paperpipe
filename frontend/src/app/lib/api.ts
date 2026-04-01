@@ -45,6 +45,7 @@ import {
   getMockMeetingPack,
   getMockMeetingPackTrace,
   getMockMeetingPackValidation,
+  getMockMeetingPackReadOnlyFallbackValidation,
   getMockJob,
   getMockJobs,
   getMockObsidianMirror,
@@ -776,7 +777,7 @@ export async function getMeetingPackValidation(packId: string): Promise<ApiResul
       throw error;
     }
     return {
-      data: getMockMeetingPackValidation(packId),
+      data: getMockMeetingPackReadOnlyFallbackValidation(packId),
       isMock: true,
       reason: "meeting pack validation unavailable, mock validation loaded",
     };

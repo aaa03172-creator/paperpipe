@@ -370,6 +370,12 @@ export function MeetingPackPage() {
     [trace],
   );
   const sourceNoteSlugs = useMemo(() => buildMeetingPackSourceNoteSlugs(pack), [pack]);
+  const draftActionsBlockedByFallback =
+    routePackId !== undefined &&
+    routePackId !== null &&
+    validation !== null &&
+    mockReasons.length > 0 &&
+    validation.regenerate_strategy === "unavailable";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1098,12 +1104,16 @@ export function MeetingPackPage() {
                       size="sm"
                       variant="outline"
                       onClick={handleRerenderDraft}
-                      disabled={runningAction !== null}
+                      disabled={runningAction !== null || draftActionsBlockedByFallback}
                     >
                       {runningAction === "rerender" ? "Rerendering…" : "Rerender markdown"}
                     </Button>
                   </div>
-                  {!validation.can_regenerate ? (
+                  {draftActionsBlockedByFallback ? (
+                    <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
+                      Draft actions stay unavailable until the live backend is reachable again.
+                    </p>
+                  ) : !validation.can_regenerate ? (
                     <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
                       Regenerate stays gated until the saved selector set can be resolved safely in the current vault.
                     </p>
