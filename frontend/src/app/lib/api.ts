@@ -11,6 +11,7 @@ import {
   MethodComparisonListResponse,
   MethodComparisonResponse,
   MeetingPackListResponse,
+  MeetingPackRequestSnapshot,
   MeetingPackResponse,
   MeetingPackTraceResponse,
   MeetingPackValidationResponse,
@@ -30,6 +31,7 @@ import {
   StatsRepairResponse,
 } from "./types";
 import {
+  createMockMeetingPack,
   createMockJob,
   getMockChartPack,
   getMockChartPackIndex,
@@ -529,6 +531,37 @@ export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListRe
     data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
     isMock: false,
   };
+}
+
+export async function generateMeetingPack(
+  payload: MeetingPackRequestSnapshot,
+): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: createMockMeetingPack(payload),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await fetchJson<MeetingPackResponse>("/meeting-packs/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+      isMock: false,
+    };
+  } catch (error) {
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: createMockMeetingPack(payload),
+      isMock: true,
+      reason: "meeting pack generation unavailable, mock draft created",
+    };
+  }
 }
 
 export async function getMethodComparison(comparisonId: string): Promise<ApiResult<MethodComparisonResponse>> {

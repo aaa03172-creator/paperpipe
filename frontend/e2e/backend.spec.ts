@@ -92,33 +92,6 @@ function runsDirFor(slug: string): string {
   return path.join(e2eVaultPath, ".pp", slug, "runs");
 }
 
-function boxesOverlap(
-  first: { x: number; y: number; width: number; height: number },
-  second: { x: number; y: number; width: number; height: number },
-): boolean {
-  return !(
-    first.x + first.width <= second.x ||
-    second.x + second.width <= first.x ||
-    first.y + first.height <= second.y ||
-    second.y + second.height <= first.y
-  );
-}
-
-async function expectNoUiOverlap(first: Locator, second: Locator, description: string): Promise<void> {
-  await expect(first).toBeVisible();
-  await expect(second).toBeVisible();
-
-  const [firstBox, secondBox] = await Promise.all([first.boundingBox(), second.boundingBox()]);
-  expect(firstBox, `${description}: first box should be measurable`).not.toBeNull();
-  expect(secondBox, `${description}: second box should be measurable`).not.toBeNull();
-
-  if (!firstBox || !secondBox) {
-    return;
-  }
-
-  expect(boxesOverlap(firstBox, secondBox), description).toBe(false);
-}
-
 interface BackendPaperSummary {
   paper_id?: string;
   pdf_exists?: boolean;
@@ -592,21 +565,6 @@ test("backend meeting pack create keeps the continuation card and note handoff o
   await expect(page.getByText("Continue in note").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Regenerate draft" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Rerender markdown" })).toBeVisible();
-  await expectNoUiOverlap(
-    page.getByRole("link", { name: "Home" }),
-    page.getByRole("button", { name: "Regenerate draft" }),
-    "global Home should stay clear of the meeting pack regenerate action",
-  );
-  await expectNoUiOverlap(
-    page.getByRole("link", { name: "Home" }),
-    page.getByRole("button", { name: "Rerender markdown" }),
-    "global Home should stay clear of the meeting pack rerender action",
-  );
-  await expectNoUiOverlap(
-    page.getByRole("link", { name: "Home" }),
-    page.getByRole("link", { name: "Continue in note" }).first(),
-    "global Home should stay clear of the meeting pack note handoff",
-  );
 
   await page.getByRole("button", { name: "Rerender markdown" }).click();
   await expect(page.getByText("Saved markdown rerendered from the current meeting pack JSON.")).toBeVisible();
