@@ -22,6 +22,7 @@ import {
   rerenderMeetingPack,
 } from "../lib/api";
 import {
+  ApiResult,
   MeetingPack,
   MeetingPackListItem,
   MeetingPackListResponse,
@@ -106,7 +107,7 @@ function actionSummaryRows(counts: Record<string, number>): Array<[string, numbe
 
 type TracePresenceFilter = "all" | "with_trace" | "legacy";
 type DraftAction = "regenerate" | "rerender";
-type ActionNoticeTone = "success" | "danger";
+type ActionNoticeTone = "success" | "warning" | "danger";
 
 interface ApiLikeResult {
   isMock: boolean;
@@ -165,6 +166,25 @@ function collectMockReasons(results: ApiLikeResult[]): string[] {
         .map((result) => result.reason as string),
     ),
   );
+}
+
+function buildRefreshWarningSuffix(failedParts: string[]): string | null {
+  if (failedParts.length === 0) {
+    return null;
+  }
+  const label =
+    failedParts.length === 1
+      ? failedParts[0]
+      : failedParts.length === 2
+        ? `${failedParts[0]} and ${failedParts[1]}`
+        : `${failedParts.slice(0, -1).join(", ")}, and ${failedParts.at(-1)}`;
+  return `${label.charAt(0).toUpperCase() + label.slice(1)} could not be refreshed. Reload this pack once the backend is reachable again.`;
+}
+
+interface DraftRefreshResult {
+  traceResult?: ApiResult<MeetingPackTraceResponse>;
+  validationResult?: ApiResult<MeetingPackValidationResponse>;
+  warningSuffix: string | null;
 }
 
 function buildMeetingPackHeaderWhenToUse(routePackId?: string): string {
@@ -377,6 +397,35 @@ export function MeetingPackPage() {
     mockReasons.length > 0 &&
     validation.regenerate_strategy === "unavailable";
 
+  async function refreshDraftDiagnostics(packId: string): Promise<DraftRefreshResult> {
+    const [traceSettled, validationSettled] = await Promise.allSettled([
+      getMeetingPackTrace(packId),
+      getMeetingPackValidation(packId),
+    ]);
+
+    const failedParts: string[] = [];
+    let nextTraceResult: ApiResult<MeetingPackTraceResponse> | undefined;
+    let nextValidationResult: ApiResult<MeetingPackValidationResponse> | undefined;
+
+    if (traceSettled.status === "fulfilled") {
+      nextTraceResult = traceSettled.value;
+    } else {
+      failedParts.push("trace");
+    }
+
+    if (validationSettled.status === "fulfilled") {
+      nextValidationResult = validationSettled.value;
+    } else {
+      failedParts.push("validation");
+    }
+
+    return {
+      traceResult: nextTraceResult,
+      validationResult: nextValidationResult,
+      warningSuffix: buildRefreshWarningSuffix(failedParts),
+    };
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextPackId = packIdInput.trim();
@@ -435,18 +484,27 @@ export function MeetingPackPage() {
     setRunningAction("rerender");
     setActionNotice(null);
     try {
-      const [rerenderResult, traceResult, validationResult] = await Promise.all([
-        rerenderMeetingPack(routePackId),
-        getMeetingPackTrace(routePackId),
-        getMeetingPackValidation(routePackId),
-      ]);
+      const rerenderResult = await rerenderMeetingPack(routePackId);
+      const refreshResult = await refreshDraftDiagnostics(routePackId);
       setPackResponse(rerenderResult.data);
-      setTraceResponse(traceResult.data);
-      setValidationResponse(validationResult.data);
-      setMockReasons(collectMockReasons([rerenderResult, traceResult, validationResult]));
+      if (refreshResult.traceResult) {
+        setTraceResponse(refreshResult.traceResult.data);
+      }
+      if (refreshResult.validationResult) {
+        setValidationResponse(refreshResult.validationResult.data);
+      }
+      setMockReasons(
+        collectMockReasons(
+          [rerenderResult, refreshResult.traceResult, refreshResult.validationResult].flatMap((result) =>
+            result ? [result] : [],
+          ),
+        ),
+      );
       setActionNotice({
-        tone: "success",
-        message: "Saved markdown rerendered from the current meeting pack JSON.",
+        tone: refreshResult.warningSuffix ? "warning" : "success",
+        message: refreshResult.warningSuffix
+          ? `Saved markdown rerendered from the current meeting pack JSON. ${refreshResult.warningSuffix}`
+          : "Saved markdown rerendered from the current meeting pack JSON.",
       });
     } catch (actionError) {
       setActionNotice({
@@ -479,17 +537,31 @@ export function MeetingPackPage() {
         return;
       }
 
-      const [traceResult, validationResult] = await Promise.all([
-        getMeetingPackTrace(routePackId),
-        getMeetingPackValidation(routePackId),
-      ]);
+      const refreshResult = await refreshDraftDiagnostics(routePackId);
       setPackResponse(regenerateResult.data);
-      setTraceResponse(traceResult.data);
-      setValidationResponse(validationResult.data);
-      setMockReasons(collectMockReasons([regenerateResult, traceResult, validationResult]));
+      if (refreshResult.traceResult) {
+        setTraceResponse(refreshResult.traceResult.data);
+      }
+      if (refreshResult.validationResult) {
+        setValidationResponse(refreshResult.validationResult.data);
+      }
+      setMockReasons(
+        collectMockReasons(
+          [regenerateResult, refreshResult.traceResult, refreshResult.validationResult].flatMap((result) =>
+            result ? [result] : [],
+          ),
+        ),
+      );
       navigate(`/meeting-packs/${encodeURIComponent(routePackId)}`, {
         replace: true,
-        state: { meetingPackNotice: successNotice },
+        state: {
+          meetingPackNotice: refreshResult.warningSuffix
+            ? {
+                tone: "warning",
+                message: `${successNotice.message} ${refreshResult.warningSuffix}`,
+              }
+            : successNotice,
+        },
       });
     } catch (actionError) {
       setActionNotice({
@@ -1124,7 +1196,9 @@ export function MeetingPackPage() {
                     className={`rounded-md border p-3 text-sm ${
                       actionNotice.tone === "danger"
                         ? "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]"
-                        : "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
+                        : actionNotice.tone === "warning"
+                          ? "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]"
+                          : "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
                     }`}
                   >
                     {actionNotice.message}
