@@ -16,6 +16,11 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Use `docs/reports/Frontend_Core_UI_Refinement_Closeout_2026-03-24.md` as the frontend lane closeout note before reopening any viewer/work-surface UI work.
 - Use `docs/reports/Current_State_Staging_Guide_2026-03-24.md` before staging any current source changes from the mixed dirty tree.
 - Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` for the default action order when work resumes.
+- Use `docs/reports/External_Reference_Action_Order_2026-04-01.md` for any new work that is justified by external-reference review rather than by release-closeout work.
+- Use `docs/reports/External_Reference_Followups_Closeout_2026-04-01.md` as the stop-point note for the concluded 2026-04-01 external-reference lane.
+- Use `docs/reports/External_Reference_Lane_Packaging_2026-04-01.md` if that concluded external-reference lane needs to be reviewed or staged as its own bounded bundle later.
+- Use `docs/reports/External_Reference_Lane_Stage_Set_2026-04-02.md` if that external-reference lane is the next actual `git add` candidate.
+- Use `docs/reports/Release_Verification_Refresh_2026-03-28.md` as the latest bounded release verification proof on the current tree.
 
 ## Current recommended posture
 - Keep the Docling / ingest-eval / teacher-review tail packaged separately under `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`.
@@ -25,10 +30,16 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Use `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md` as the default source-only bundle.
 - Use `docs/reports/Current_State_Staging_Guide_2026-03-24.md` as the current practical staging rule.
 - Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` as the current concrete action checklist.
+- If external references are reopened, keep the scope limited to the five bounded actions in `docs/reports/External_Reference_Action_Order_2026-04-01.md`.
+- Keep `transformers.js v4`, `Bonsai-8B`, unofficial Claude/Claw-style harness adoption, and generalized multi-agent/browser-inference work closed unless a later bounded measurement explicitly reopens them.
+- Treat the 2026-03-28 release verification refresh as confirmation that no new blocker-shaped lane has emerged from the current tree.
 - Keep deferred lanes closed and avoid opening a new bounded feature or packaging lane from the current dirty tree.
+- Treat the bounded institutional-access assist cleanup as applied and closed; do not reopen it as a subsystem or credential-flow lane without a concrete access-routing blocker.
 
 ## Current Holds
 - No bounded pilots are currently open.
+- Treat the bounded PaddleOCR fallback pilot as measured and closed for now; do not reopen OCR backend integration work unless a materially faster bounded configuration appears.
+- Keep default reader attempt-order work closed for now; `focused_first` remains config-gated only and should not be reopened as a broader pilot without a fixed-slice comparison beyond the current opposite-winner cases.
 - `Project Memory` remains a backend-only hold behind `docs/reports/Project_Memory_API_Gate_2026-03-23.md` and should not be treated as a viewer/API pilot.
 
 ## Recent status changes
