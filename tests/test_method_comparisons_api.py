@@ -188,6 +188,49 @@ def test_method_comparisons_api_lists_recent_first(tmp_path, monkeypatch):
     assert payload["items"][0]["field_count"] == 1
 
 
+def test_method_comparisons_csv_export_uses_requested_route_id_for_legacy_bundle(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "method_comparisons"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_note(vault_dir, "paper-alpha", note_id="paper-alpha", title="Alpha Trial")
+    _write_claimset(
+        artifacts_root,
+        "paper-alpha",
+        "run_a1",
+        {"doc_id": "paper-alpha", "claims": [{"statement": "Intervention: A.", "evidence_spans": [{"quote": "Intervention: A.", "page": 1}]}]},
+    )
+
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+    monkeypatch.setenv("PAPERPIPE_METHOD_COMPARISONS_DIR", str(output_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(method_comparisons_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/method-comparisons/generate",
+        json={
+            "comparison_id": "methodcmp_legacy_alias",
+            "paper_ids": ["paper-alpha"],
+            "field_ids": ["intervention"],
+        },
+    )
+    assert created.status_code == 200
+
+    comparison_json_path = output_root / "methodcmp_legacy_alias" / "comparison.json"
+    payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
+    payload["comparison_id"] = "methodcmp_canonical_bundle"
+    comparison_json_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    exported = client.get("/method-comparisons/methodcmp_legacy_alias/export.csv")
+
+    assert exported.status_code == 200
+    assert exported.headers["content-disposition"] == 'attachment; filename="methodcmp_legacy_alias.csv"'
+
+
 def test_method_comparisons_api_returns_404_when_comparison_missing(tmp_path, monkeypatch):
     output_root = tmp_path / "method_comparisons"
     monkeypatch.setenv("PAPERPIPE_METHOD_COMPARISONS_DIR", str(output_root))
