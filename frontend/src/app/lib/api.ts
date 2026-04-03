@@ -46,6 +46,7 @@ import {
   getMockMeetingPackTrace,
   getMockMeetingPackValidation,
   getMockMeetingPackReadOnlyFallbackValidation,
+  hasMockGeneratedMeetingPack,
   getMockJob,
   getMockJobs,
   getMockObsidianMirror,
@@ -522,7 +523,7 @@ export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingP
     if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
       throw error;
     }
     return {
@@ -758,7 +759,7 @@ export async function getMeetingPackTrace(packId: string): Promise<ApiResult<Mee
     if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
       throw error;
     }
     return {
@@ -789,7 +790,7 @@ export async function getMeetingPackValidation(packId: string): Promise<ApiResul
     if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
       throw error;
     }
     return {

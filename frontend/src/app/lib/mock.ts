@@ -2198,6 +2198,10 @@ export function getMockMeetingPack(packId: string): MeetingPackResponse {
   return response;
 }
 
+export function hasMockGeneratedMeetingPack(packId: string): boolean {
+  return MOCK_GENERATED_MEETING_PACKS.has(packId);
+}
+
 export function getMockMeetingPackIndex(): MeetingPackListResponse {
   const generatedItems = MOCK_GENERATED_MEETING_PACK_ORDER
     .map((packId) => MOCK_GENERATED_MEETING_PACKS.get(packId))
