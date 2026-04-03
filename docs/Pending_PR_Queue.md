@@ -20,7 +20,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Use `docs/reports/External_Reference_Followups_Closeout_2026-04-01.md` as the stop-point note for the concluded 2026-04-01 external-reference lane.
 - Use `docs/reports/External_Reference_Lane_Packaging_2026-04-01.md` if that concluded external-reference lane needs to be reviewed or staged as its own bounded bundle later.
 - Use `docs/reports/External_Reference_Lane_Stage_Set_2026-04-02.md` if that external-reference lane is the next actual `git add` candidate.
-- Use `docs/reports/Release_Verification_Refresh_2026-03-28.md` as the latest bounded release verification proof on the current tree.
+- Use `docs/reports/Release_Rehearsal_Run_2026-03-25.md` as the latest bounded release verification proof present on this branch.
 
 ## Current recommended posture
 - Keep the Docling / ingest-eval / teacher-review tail packaged separately under `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`.
@@ -32,7 +32,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` as the current concrete action checklist.
 - If external references are reopened, keep the scope limited to the five bounded actions in `docs/reports/External_Reference_Action_Order_2026-04-01.md`.
 - Keep `transformers.js v4`, `Bonsai-8B`, unofficial Claude/Claw-style harness adoption, and generalized multi-agent/browser-inference work closed unless a later bounded measurement explicitly reopens them.
-- Treat the 2026-03-28 release verification refresh as confirmation that no new blocker-shaped lane has emerged from the current tree.
+- Treat `docs/reports/Release_Rehearsal_Run_2026-03-25.md` together with `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` as confirmation that no new blocker-shaped lane has emerged from the current tree.
 - Keep deferred lanes closed and avoid opening a new bounded feature or packaging lane from the current dirty tree.
 - Treat the bounded institutional-access assist cleanup as applied and closed; do not reopen it as a subsystem or credential-flow lane without a concrete access-routing blocker.
 
