@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  createMockMeetingPack,
+  getMockMeetingPackTrace,
+  getMockMeetingPackValidation,
+} from "../src/app/lib/mock";
 
 test("meeting pack create auto-fallback keeps the generated draft reachable when the backend is unavailable", async ({
   page,
@@ -115,4 +120,92 @@ test("meeting pack detail surfaces backend 400 instead of swapping in a mock dra
   await expect(page.getByText("/meeting-packs/broken-pack -> 400")).toBeVisible();
   await expect(page.getByText("Failed to load Meeting Pack from storage/meeting_packs/broken-pack/meeting_pack.json")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Continue from this draft" })).toHaveCount(0);
+});
+
+test("meeting pack detail surfaces trace availability failure instead of mixing in a mock trace", async ({
+  page,
+}) => {
+  const packResponse = createMockMeetingPack({
+    mode: "journal_club",
+    title: "Saved pack trace outage",
+    source_items: [{ type: "paper_slug", ref: "zoterocoricTargetingProdromalAlzheimer2015" }],
+    max_slides: 6,
+  });
+  const packId = packResponse.pack.id;
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Meeting Pack trace temporarily unavailable",
+      }),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackValidation(packId)),
+    });
+  });
+
+  await page.goto(`/meeting-packs/${packId}`);
+
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText(`/meeting-packs/${packId}/trace -> 503`)).toBeVisible();
+  await expect(page.getByText("Meeting Pack trace temporarily unavailable")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Saved pack trace outage", exact: true })).toHaveCount(0);
+  await expect(page.getByText("meeting pack trace unavailable, mock trace loaded")).toHaveCount(0);
+});
+
+test("meeting pack detail surfaces validation availability failure instead of mixing in mock readiness", async ({
+  page,
+}) => {
+  const packResponse = createMockMeetingPack({
+    mode: "journal_club",
+    title: "Saved pack validation outage",
+    source_items: [{ type: "paper_slug", ref: "zoterocoricTargetingProdromalAlzheimer2015" }],
+    max_slides: 6,
+  });
+  const packId = packResponse.pack.id;
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackTrace(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Meeting Pack validation temporarily unavailable",
+      }),
+    });
+  });
+
+  await page.goto(`/meeting-packs/${packId}`);
+
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText(`/meeting-packs/${packId}/validate -> 503`)).toBeVisible();
+  await expect(page.getByText("Meeting Pack validation temporarily unavailable")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Saved pack validation outage", exact: true })).toHaveCount(0);
+  await expect(page.getByText("meeting pack validation unavailable, mock validation loaded")).toHaveCount(0);
 });
