@@ -74,7 +74,7 @@ def get_method_comparison_route(comparison_id: str) -> MethodComparisonResponse:
 def get_method_comparison_csv_route(comparison_id: str) -> PlainTextResponse:
     try:
         result = get_method_comparison(comparison_id)
-        filename = _csv_download_filename(result.comparison.comparison_id)
+        filename = _csv_download_filename(comparison_id)
         return PlainTextResponse(
             result.csv_text,
             media_type="text/csv",
