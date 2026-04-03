@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   createMockMeetingPack,
+  getMockMeetingPack,
   getMockMeetingPackTrace,
   getMockMeetingPackValidation,
 } from "../src/app/lib/mock";
@@ -208,4 +209,127 @@ test("meeting pack detail surfaces validation availability failure instead of mi
   await expect(page.getByText("Meeting Pack validation temporarily unavailable")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Saved pack validation outage", exact: true })).toHaveCount(0);
   await expect(page.getByText("meeting pack validation unavailable, mock validation loaded")).toHaveCount(0);
+});
+
+test("meeting pack rerender stays successful when trace refresh flaps after the write", async ({
+  page,
+}) => {
+  const packId = "saved-pack-rerender-refresh-warning";
+  const packResponse = getMockMeetingPack(packId);
+  const validationResponse = getMockMeetingPackValidation(packId);
+  let failTraceRefresh = false;
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    if (failTraceRefresh) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: "Meeting Pack trace refresh temporarily unavailable",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackTrace(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(validationResponse),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/rerender`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+
+  await page.goto(`/meeting-packs/${packId}`);
+  await expect(page.getByRole("heading", { name: "SCFA journal club debug draft", exact: true })).toBeVisible();
+
+  failTraceRefresh = true;
+  await page.getByRole("button", { name: "Rerender markdown" }).click();
+
+  await expect(
+    page.getByText(
+      "Saved markdown rerendered from the current meeting pack JSON. Trace could not be refreshed. Reload this pack once the backend is reachable again.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "SCFA journal club debug draft", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toHaveCount(0);
+});
+
+test("meeting pack regenerate stays successful when validation refresh flaps after the write", async ({
+  page,
+}) => {
+  const packId = "saved-pack-regenerate-refresh-warning";
+  const packResponse = getMockMeetingPack(packId);
+  let failValidationRefresh = false;
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackTrace(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    if (failValidationRefresh) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: "Meeting Pack validation refresh temporarily unavailable",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackValidation(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/regenerate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(packResponse),
+    });
+  });
+
+  await page.goto(`/meeting-packs/${packId}`);
+  await expect(page.getByRole("heading", { name: "SCFA journal club debug draft", exact: true })).toBeVisible();
+
+  failValidationRefresh = true;
+  await page.getByRole("button", { name: "Regenerate draft" }).click();
+
+  await expect(
+    page.getByText(
+      "Draft regenerated from the saved selector set. Validation could not be refreshed. Reload this pack once the backend is reachable again.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "SCFA journal club debug draft", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toHaveCount(0);
 });
