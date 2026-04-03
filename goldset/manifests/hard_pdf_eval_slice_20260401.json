@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-01",
+  "manifest_batch_id": "hard_pdf_eval_slice_20260401",
+  "notes": "Bounded hard-PDF evaluation slice for current PaperPipe ingest work. This v0 slice is intentionally limited to repo-grounded layout-heavy and table-heavy biomedical PDFs with saved fallback or section-quality signals. It does not yet include a frozen real scanned/image-based subset.",
+  "documents": [
+    {
+      "document_id": "hard-pdf-001",
+      "paper_id": "doi:10.1038/s43587-023-00403-3",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonBloodBiomarkersAlzheimers2023.pdf",
+      "source_pdf_sha256": "d63b5f55e643a11f325d5517c96eb5f3654e4b8ddc85b36630ad65a56daf2e79",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "docling_r11.table_fallback_used",
+        "docling_r11.table_fallback_pages=[4]"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/metrics.json",
+      "notes": "Known fallback-sensitive biomarker review. Current optional candidate path passes only with explicit page-aware fallback on page 4."
+    },
+    {
+      "document_id": "hard-pdf-002",
+      "paper_id": "doi:10.1016/j.msard.2020.102547",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/benedictCognitiveImpairmentMultiple2020.pdf",
+      "source_pdf_sha256": "b206c86119a80e37d4352b14684164d8110ba7900afec0e195b559bb28129d57",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "docling_r11.same_page_merge_doc",
+        "baseline_meaningful_table_count=2",
+        "candidate_meaningful_table_count=1"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/metrics.json",
+      "notes": "Same-page table merge case. Useful for checking whether a candidate silently compresses multiple meaningful tables into one page-level output."
+    },
+    {
+      "document_id": "hard-pdf-003",
+      "paper_id": "doi:10.1016/S1474-4422(21)00244-8",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/duboisClinicalDiagnosisAlzheimers2021.pdf",
+      "source_pdf_sha256": "6bcfa9cc86b87a1ff4b7e96ddd74ce4bbdcd55208dbb6a07ed396f58c1aa6d72",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "docling_r11.same_page_merge_doc",
+        "baseline_meaningful_table_count=3",
+        "candidate_meaningful_table_count=2"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/metrics.json",
+      "notes": "Guideline-style diagnosis paper with dense page-level table structure. Useful for table preservation and merge-semantics review."
+    },
+    {
+      "document_id": "hard-pdf-004",
+      "paper_id": "doi:10.1038/s43587-022-00204-0",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/therriaultBiomarkerModelingAlzheimers2022.pdf",
+      "source_pdf_sha256": "5ce299d5e353b96b0ddeebdab335865ae291d5cb652b7fd36a664a6e3d72c825",
+      "subset_reason": "table_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "section_audit_r15.low_page_text_ratio",
+        "page=4",
+        "review_bucket=table_heavy_page"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/details.json",
+      "notes": "Page-specific low text-ratio case on a table-heavy page. Useful for checking whether candidate recovery loses page content without triggering full-document failure."
+    },
+    {
+      "document_id": "hard-pdf-005",
+      "paper_id": "doi:10.1212/WNL.0000000000010174",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/craftSafetyEfficacyFeasibility2020.pdf",
+      "source_pdf_sha256": "e8f950eecde8fb254e53ebb2c887f3868d63e1d148acedf38be74ab567d1f0cd",
+      "subset_reason": "layout_broken_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "section_audit_r15.low_page_text_ratio",
+        "page=8",
+        "review_bucket=table_and_figure_heavy_page"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/details.json",
+      "notes": "Mixed table-and-figure page with severe page-level text drop under the optional candidate path."
+    },
+    {
+      "document_id": "hard-pdf-006",
+      "paper_id": "doi:10.1016/S1474-4422(16)00070-3",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/olssonCSFBloodBiomarkers2016.pdf",
+      "source_pdf_sha256": "e4724196a299f5541f4229ef24e31bd231bbc9cdeb2a15642cb6f41947ce3e9e",
+      "subset_reason": "figure_heavy_pdf",
+      "baseline_parser_backend": "fitz_pdfplumber",
+      "ocr_applied": false,
+      "selection_signals": [
+        "section_audit_r15.low_page_text_ratio",
+        "pages=5,6,7,8",
+        "review_bucket=figure_heavy_page"
+      ],
+      "source_eval_anchor": "snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_20260324_r15/details.json",
+      "notes": "Figure-heavy review pages with repeated low text-ratio behavior. Good stress case for page-level extraction fidelity on visual layouts."
+    }
+  ]
+}

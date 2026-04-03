@@ -14,6 +14,9 @@ class ReaderEvalClaimEntry(BaseModel):
     unknown_reason: str | None = None
     heuristic_backfill: bool = False
     evidence_span_count: int = 0
+    bbox_span_count: int = 0
+    text_match_span_count: int = 0
+    approx_span_count: int = 0
     grounded_span_count: int = 0
     unresolved_span_count: int = 0
     ambiguous_span_count: int = 0
@@ -32,6 +35,9 @@ class ReaderEvalMetrics(BaseModel):
     unknown_claim_count: int = 0
     heuristic_backfill_claim_count: int = 0
     evidence_span_count: int = 0
+    bbox_span_count: int = 0
+    text_match_span_count: int = 0
+    approx_span_count: int = 0
     grounded_span_count: int = 0
     unresolved_span_count: int = 0
     ambiguous_span_count: int = 0
