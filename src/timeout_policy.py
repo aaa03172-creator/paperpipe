@@ -149,7 +149,7 @@ def estimate_reader_timeout_seconds(
     if remaining_doc_budget_sec is not None:
         estimated = min(estimated, max(base, int(remaining_doc_budget_sec)))
 
-    return min(360, max(base, estimated))
+    return max(base, min(360, estimated))
 
 
 def estimate_stats_timeout_seconds(
@@ -178,4 +178,4 @@ def estimate_stats_timeout_seconds(
     if remaining_doc_budget_sec is not None:
         estimated = min(estimated, max(base, int(remaining_doc_budget_sec)))
 
-    return min(540, max(base, estimated))
+    return max(base, min(540, estimated))
