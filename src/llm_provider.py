@@ -246,6 +246,37 @@ ESCALATION_RESULT_IN_TITLE_TERMS = (
     "associated with",
 )
 
+ESCALATION_ROUTE_APPROVE = "FAST_LANE_APPROVE"
+ESCALATION_ROUTE_REVIEW = "QUEUE_HUMAN_REVIEW"
+ESCALATION_REASON_CODE_ALIASES = {
+    "OUT_OF_SCOPE": "OUT_OF_BIOMEDICAL_SCOPE",
+    "NON_BIOMEDICAL": "OUT_OF_BIOMEDICAL_SCOPE",
+    "NOT_BIOMEDICAL": "OUT_OF_BIOMEDICAL_SCOPE",
+    "BROAD_REVIEW": "REVIEW_STYLE_LOW_CLARITY",
+    "REVIEW": "REVIEW_STYLE_LOW_CLARITY",
+    "NARRATIVE_REVIEW": "REVIEW_STYLE_LOW_CLARITY",
+    "GUIDELINE": "FASTLANE_GUIDANCE",
+    "CLINICAL_GUIDANCE": "FASTLANE_GUIDANCE",
+    "METHOD": "FASTLANE_METHOD",
+    "METHODS": "FASTLANE_METHOD",
+    "CLINICAL": "FASTLANE_CLINICAL",
+    "TRANSLATIONAL": "FASTLANE_CLINICAL",
+    "MECHANISTIC": "FASTLANE_MECHANISTIC",
+    "NO_AUTHORITY": "MODEL_REVIEW_REQUIRED",
+    "UNCERTAIN": "MODEL_REVIEW_REQUIRED",
+}
+ESCALATION_REASON_CODE_ALLOWLIST = {
+    "OUT_OF_BIOMEDICAL_SCOPE",
+    "REVIEW_STYLE_LOW_CLARITY",
+    "FASTLANE_METHOD",
+    "FASTLANE_GUIDANCE",
+    "FASTLANE_CLINICAL",
+    "FASTLANE_MECHANISTIC",
+    "MODEL_FAST_LANE_APPROVE",
+    "MODEL_REVIEW_REQUIRED",
+    "JUDGE_ERROR",
+}
+
 class LLMProvider:
     """LLM 공급자 인터페이스"""
     def __init__(self, config: LLMConfig, entity_aliases: Dict[str, str] = None):
@@ -286,6 +317,10 @@ class LLMProvider:
         ).lower()
 
     def _escalation_fast_reject_reason(self, paper: Dict[str, Any]) -> Optional[str]:
+        reason, _ = self._escalation_fast_reject(paper)
+        return reason
+
+    def _escalation_fast_reject(self, paper: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
         text = self._paper_text_blob(paper)
         has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
         has_guidance_lane = any(term in text for term in ESCALATION_GUIDANCE_TERMS)
@@ -294,22 +329,26 @@ class LLMProvider:
         is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
 
         if has_method_lane:
-            return None
+            return None, None
         if any(term in text for term in ESCALATION_OUT_OF_SCOPE_TERMS):
             return (
                 "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
-            )
+            ), "OUT_OF_BIOMEDICAL_SCOPE"
         if is_review_style and not has_guidance_lane and not has_clinical_data and not has_original_evidence:
             return (
                 "Broad review-style biomedical paper without authoritative guidance or direct clinical/translational evidence; keep pending review."
-            )
+            ), "REVIEW_STYLE_LOW_CLARITY"
         if not any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS):
             return (
                 "Out of PaperPipe's biomedical research workspace scope; keep pending review unless a human explicitly overrides."
-            )
-        return None
+            ), "OUT_OF_BIOMEDICAL_SCOPE"
+        return None, None
 
     def _escalation_fast_approve_reason(self, paper: Dict[str, Any]) -> Optional[str]:
+        reason, _ = self._escalation_fast_approve(paper)
+        return reason
+
+    def _escalation_fast_approve(self, paper: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
         text = self._paper_text_blob(paper)
         title = str(paper.get("title") or "").lower()
         negative_scope_signals = (
@@ -323,7 +362,7 @@ class LLMProvider:
             "not central",
         )
         if any(signal in text for signal in negative_scope_signals):
-            return None
+            return None, None
         has_biomedical_scope = any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS)
         has_condition_context = any(term in text for term in ESCALATION_CONDITION_TERMS)
         has_method_lane = any(term in text for term in ESCALATION_METHOD_TERMS)
@@ -335,7 +374,7 @@ class LLMProvider:
         is_review_style = any(term in text for term in ESCALATION_REVIEW_STYLE_TERMS)
 
         if has_method_lane and has_biomedical_scope:
-            return "Concrete biomedical methods/protocol optimization is explicit; safe to auto-approve."
+            return "Concrete biomedical methods/protocol optimization is explicit; safe to auto-approve.", "FASTLANE_METHOD"
 
         if has_guidance_lane and has_biomedical_scope and (
             "diagnosis" in text
@@ -345,7 +384,7 @@ class LLMProvider:
             or "monitoring" in text
             or "clinical" in text
         ):
-            return "Authoritative biomedical guidance is explicit; safe to auto-approve."
+            return "Authoritative biomedical guidance is explicit; safe to auto-approve.", "FASTLANE_GUIDANCE"
 
         if (
             has_biomedical_scope
@@ -354,7 +393,7 @@ class LLMProvider:
             and has_original_evidence
             and not is_review_style
         ):
-            return "Direct biomedical clinical/translational evidence is explicit; safe to auto-approve."
+            return "Direct biomedical clinical/translational evidence is explicit; safe to auto-approve.", "FASTLANE_CLINICAL"
 
         if (
             has_biomedical_scope
@@ -364,9 +403,71 @@ class LLMProvider:
             and has_title_result_signal
             and not is_review_style
         ):
-            return "Direct biomedical mechanistic evidence is explicit; safe to auto-approve."
+            return "Direct biomedical mechanistic evidence is explicit; safe to auto-approve.", "FASTLANE_MECHANISTIC"
 
-        return None
+        return None, None
+
+    def _escalation_in_biomedical_scope(self, paper: Dict[str, Any]) -> bool:
+        text = self._paper_text_blob(paper)
+        if any(term in text for term in ESCALATION_OUT_OF_SCOPE_TERMS):
+            return False
+        return any(term in text for term in ESCALATION_BIOMEDICAL_SCOPE_TERMS)
+
+    @staticmethod
+    def _normalize_escalation_reason_codes(raw_codes: Any, *, approved: bool) -> List[str]:
+        if not isinstance(raw_codes, list):
+            return []
+        normalized: List[str] = []
+        for code in raw_codes:
+            text = str(code or "").strip()
+            if not text:
+                continue
+            upper = text.upper()
+            canonical = ESCALATION_REASON_CODE_ALIASES.get(upper, upper)
+            if canonical in ESCALATION_REASON_CODE_ALLOWLIST:
+                normalized.append(canonical)
+            elif approved:
+                normalized.append("MODEL_FAST_LANE_APPROVE")
+            else:
+                normalized.append("MODEL_REVIEW_REQUIRED")
+
+        deduped: List[str] = []
+        for code in normalized:
+            if code not in deduped:
+                deduped.append(code)
+        return deduped
+
+    def _build_escalation_result(
+        self,
+        *,
+        paper: Dict[str, Any],
+        approved: bool,
+        new_confidence: float,
+        reason: str,
+        reason_codes: Optional[List[str]] = None,
+        final_route: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        route = final_route or (ESCALATION_ROUTE_APPROVE if approved else ESCALATION_ROUTE_REVIEW)
+        if route not in {ESCALATION_ROUTE_APPROVE, ESCALATION_ROUTE_REVIEW}:
+            route = ESCALATION_ROUTE_APPROVE if approved else ESCALATION_ROUTE_REVIEW
+
+        codes = [code for code in (reason_codes or []) if code]
+        if not codes:
+            if str(reason or "").lower().startswith("judge error"):
+                codes = ["JUDGE_ERROR"]
+            elif approved:
+                codes = ["MODEL_FAST_LANE_APPROVE"]
+            else:
+                codes = ["MODEL_REVIEW_REQUIRED"]
+
+        return {
+            "approved": bool(approved),
+            "new_confidence": float(new_confidence or 0.0),
+            "reason": str(reason or "No reason provided"),
+            "in_biomedical_scope": self._escalation_in_biomedical_scope(paper),
+            "final_route": route,
+            "reason_codes": codes,
+        }
 
     def _build_escalation_prompt(self, paper: Dict[str, Any]) -> str:
         return f"""
@@ -765,13 +866,27 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
 
     def evaluate_escalation(self, paper: Dict[str, Any]) -> Dict[str, Any]:
         """Escalation Gate: Re-evaluate 'Pending Review' papers with a stricter Judge logic."""
-        fast_reject_reason = self._escalation_fast_reject_reason(paper)
+        fast_reject_reason, fast_reject_code = self._escalation_fast_reject(paper)
         if fast_reject_reason:
-            return {"approved": False, "new_confidence": 0.0, "reason": fast_reject_reason}
+            return self._build_escalation_result(
+                paper=paper,
+                approved=False,
+                new_confidence=0.0,
+                reason=fast_reject_reason,
+                reason_codes=[fast_reject_code] if fast_reject_code else None,
+                final_route=ESCALATION_ROUTE_REVIEW,
+            )
 
-        fast_approve_reason = self._escalation_fast_approve_reason(paper)
+        fast_approve_reason, fast_approve_code = self._escalation_fast_approve(paper)
         if fast_approve_reason:
-            return {"approved": True, "new_confidence": 0.96, "reason": fast_approve_reason}
+            return self._build_escalation_result(
+                paper=paper,
+                approved=True,
+                new_confidence=0.96,
+                reason=fast_approve_reason,
+                reason_codes=[fast_approve_code] if fast_approve_code else None,
+                final_route=ESCALATION_ROUTE_APPROVE,
+            )
 
         prompt = self._build_escalation_prompt(paper)
         
@@ -781,15 +896,30 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
             try:
                 data = self._extract_json(response_content)
                 if data:
-                    return {
-                        "approved": data.get("approved", False),
-                        "new_confidence": data.get("new_confidence", 0.0),
-                        "reason": data.get("reason", "No reason provided")
-                    }
+                    approved = bool(data.get("approved", False))
+                    reason_codes = self._normalize_escalation_reason_codes(
+                        data.get("reason_codes"),
+                        approved=approved,
+                    )
+                    return self._build_escalation_result(
+                        paper=paper,
+                        approved=approved,
+                        new_confidence=float(data.get("new_confidence", 0.0) or 0.0),
+                        reason=str(data.get("reason", "No reason provided")),
+                        reason_codes=reason_codes,
+                        final_route=str(data.get("final_route") or "").strip() or None,
+                    )
             except Exception:
                 logger.warning("Failed to parse Escalation Judge response.")
         
-        return {"approved": False, "reason": "Judge Error"}
+        return self._build_escalation_result(
+            paper=paper,
+            approved=False,
+            new_confidence=0.0,
+            reason="Judge Error",
+            reason_codes=["JUDGE_ERROR"],
+            final_route=ESCALATION_ROUTE_REVIEW,
+        )
 
     def analyze_relevance(self, paper: Dict[str, Any], rq: str) -> Optional[Dict[str, str]]:
         """[NEW] Ticket 7: Context-Aware Summarization Logic"""
