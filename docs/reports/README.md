@@ -17,6 +17,7 @@ This directory stores dated evidence outputs and operational records rather than
   - `Current_State_Packaging_2026-03-24.md`
   - `Current_State_Staging_Guide_2026-03-24.md`
   - `Current_Concrete_Next_Actions_2026-03-24.md`
+  - `Release_Verification_Refresh_2026-04-03.md`
   - `External_Reference_Action_Order_2026-04-01.md`
   - `External_Reference_Followups_Closeout_2026-04-01.md`
   - `Canonical_Docs_Tail_Packaging_2026-03-24.md`
