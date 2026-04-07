@@ -33,7 +33,7 @@ def _write_config(path: Path, vault_path: Path) -> None:
                 "llm:",
                 "  mode: local",
                 "  features:",
-                "    trial_extraction:",
+                "    specialty_trial_extraction:",
                 "      enabled: false",
                 "    slot_classification:",
                 "      enabled: false",
