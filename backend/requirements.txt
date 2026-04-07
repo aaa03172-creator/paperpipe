@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 python-multipart
+docker
+langgraph
 # Existing dependencies will be in the main requirements, but these are specific to backend
