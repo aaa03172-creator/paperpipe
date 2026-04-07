@@ -20,7 +20,7 @@ def mock_config(tmp_path):
             upload_dir=tmp_path / "uploads",
         ),
         search={"slots": {}},
-        llm={"features": {"trial_extraction": {}, "slot_classification": {}, "one_liner": {}}},
+        llm={"features": {"specialty_trial_extraction": {}, "slot_classification": {}, "one_liner": {}}},
     )
 
 
