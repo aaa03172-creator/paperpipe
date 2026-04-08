@@ -205,3 +205,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
   - existing live backend browser test 안에서 `Regenerate draft` 후에도 `Continue from this draft`와 `Continue in note`가 유지되는지만 추가로 고정한다.
 - Verification:
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend meeting pack create keeps the continuation card and note handoff on the real route"`
+
+## 7.9) Fallback Readiness Honesty Checkpoint (2026-04-08)
+- Screen/Flow: `/meeting-packs/:packId` auto-fallback draft detail when backend generate succeeds only via mock fallback
+- Goal action: 사용자가 backend-unavailable fallback draft를 열었을 때 placeholder bundle을 discussion-ready evidence로 오해하지 않는다.
+- Primary persona: live backend outage 중에도 draft shell을 검토하려는 운영자
+- Current friction:
+  - fallback-created draft는 action gating과 warning copy는 정직했지만, main readiness badge는 `evidence_backed`처럼 보여 operator trust boundary를 흐릴 수 있었다.
+  - 이 route에서 readiness badge는 가장 먼저 읽히는 신호 중 하나라, placeholder content라도 optimistic badge면 downstream reuse를 과대 유도한다.
+- Quick decision:
+  - runtime route shell은 유지한다.
+  - fallback-created mock draft의 readiness만 `background_only`로 낮추고, browser fallback rail에서 그 badge를 직접 고정한다.
+- BMAP:
+  - Motivation: 높음. outage 상황일수록 operator는 badge-level shorthand에 더 의존한다.
+  - Ability: 높음. owner는 mock draft factory 하나와 existing fallback browser rail 하나로 좁다.
+  - Prompt: `background_only` badge가 fallback warning copy와 함께 가장 빠른 truth signal이 된다.
+- B.I.A.S:
+  - Block: fallback warning은 읽어야 알 수 있었지만, readiness badge는 더 눈에 띄는 긍정 신호였다.
+  - Interpret: badge를 낮추면 draft가 placeholder shell이라는 해석이 즉시 맞춰진다.
+  - Act: operator는 regenerate/reuse보다 backend 복구와 upstream note 확인을 먼저 떠올리게 된다.
+  - Store: `background_only`는 “fallback shell은 live evidence가 아님”이라는 습관을 강화한다.
+- Peak-End:
+  - Peak는 fallback draft 진입 직후 badge와 disabled actions가 같은 메시지를 내는 순간이다.
+  - Pit는 read-only fallback인데도 discussion-ready처럼 읽히던 이전 optimism이다.
+  - Transition은 create fallback success notice -> detail view trust boundary 정렬이다.
+  - End는 operator가 “이건 shell만 열렸고 evidence는 아직 아니다”를 기억하고 나가는 상태다.
+- Ethics:
+  - Regret: 통과. placeholder content를 과장하지 않는다.
+  - Black Mirror: 통과. outage resilience를 fake confidence로 포장하지 않는다.
+  - In Real-Life: 통과. 실제 운영자도 장애 중엔 “작동하는 모양”보다 “얼마나 믿어도 되는지”가 더 중요하다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback keeps the generated draft reachable when the backend is unavailable"`

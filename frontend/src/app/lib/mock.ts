@@ -2248,7 +2248,7 @@ export function createMockMeetingPack(request: MeetingPackRequestSnapshot): Meet
   response.pack.output_mode_family = outputModeFamilyForMeetingPackMode(request.mode);
   response.pack.title = title;
   response.pack.created_at = now.toISOString();
-  response.pack.readiness = "evidence_backed";
+  response.pack.readiness = "background_only";
   response.pack.generation_request = deepClone(request);
   response.pack.regenerated_from_pack_id = null;
   response.pack.source_items = request.source_items.map((item, index) => ({

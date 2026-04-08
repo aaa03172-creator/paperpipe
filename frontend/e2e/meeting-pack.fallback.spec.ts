@@ -24,6 +24,7 @@ test("meeting pack create auto-fallback keeps the generated draft reachable when
     page.getByText("Fallback meeting draft created from the entered paper slug.", { exact: false }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fallback continuity draft", exact: true })).toBeVisible();
+  await expect(page.getByText("background only", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
   await expect(page.getByText("Continue in note").first()).toBeVisible();
   await expect(page.getByText("Regenerate unavailable")).toBeVisible();
