@@ -237,3 +237,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback keeps the generated draft reachable when the backend is unavailable"`
+
+## 7.10) Index 5xx Honesty Checkpoint (2026-04-08)
+- Screen/Flow: `/meeting-packs` saved-pack index when the backend list route returns a real server error
+- Goal action: 사용자가 saved-pack index가 실제로 깨졌을 때 mock library를 진짜 데이터처럼 오해하지 않는다.
+- Primary persona: 저장된 meeting-pack draft를 다시 열려는 운영자
+- Current friction:
+  - index는 `4xx`는 잘 surface했지만, `500` 같은 server-side failure는 여전히 generic mock library로 덮을 수 있었다.
+  - 이 경우 사용자는 실제 saved-pack storage/runtime가 깨졌다는 사실 대신 plausible mock drafts를 보게 된다.
+- Quick decision:
+  - create fallback resilience는 유지한다.
+  - saved-pack index는 real HTTP error를 mock success로 덮지 않고 그대로 보여준다.
+- BMAP:
+  - Motivation: 높음. saved-pack reopen flow에서 operator는 list truth를 가장 먼저 믿는다.
+  - Ability: 높음. owner는 index fetch path 하나와 existing fallback Playwright rail 하나로 충분하다.
+  - Prompt: explicit `500` error가 mock library보다 훨씬 정확한 next-step signal이다.
+- B.I.A.S:
+  - Block: mock library는 시각적으로 정상처럼 보여 real failure를 가렸다.
+  - Interpret: explicit server error는 “지금은 진짜 saved packs를 못 읽는다”로 즉시 해석된다.
+  - Act: operator는 retry/repair로 움직이고, mock drafts를 진짜 saved state로 오해하지 않는다.
+  - Store: index error는 fallback demo가 아니라 runtime problem이라는 규칙이 강화된다.
+- Peak-End:
+  - Peak는 broken index에서도 진실한 error를 먼저 보게 된 순간이다.
+  - Pit는 server crash가 mock success처럼 읽히던 이전 path다.
+  - Transition은 saved-pack browser 진입 직후 truth boundary correction이다.
+  - End는 operator가 현재 state를 정확히 이해하고 나가는 것이다.
+- Ethics:
+  - Regret: 통과. 장애를 정상처럼 포장하지 않는다.
+  - Black Mirror: 통과. recovery path를 fake confidence 위에 쌓지 않는다.
+  - In Real-Life: 통과. 실제 도구도 저장 목록이 깨지면 데모 데이터보다 오류를 먼저 보여줘야 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack index surfaces backend 400 instead of silently showing the mock library|meeting pack index surfaces backend 500 instead of silently showing the mock library"`

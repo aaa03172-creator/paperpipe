@@ -85,6 +85,26 @@ test("meeting pack index surfaces backend 400 instead of silently showing the mo
   await expect(page.getByText("meeting pack index unavailable, mock drafts loaded")).toHaveCount(0);
 });
 
+test("meeting pack index surfaces backend 500 instead of silently showing the mock library", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Meeting Pack index crashed while loading saved bundles",
+      }),
+    });
+  });
+
+  await page.goto("/meeting-packs");
+
+  await expect(page.getByText("/meeting-packs -> 500")).toBeVisible();
+  await expect(page.getByText("Meeting Pack index crashed while loading saved bundles")).toBeVisible();
+  await expect(page.getByText("meeting pack index unavailable, mock drafts loaded")).toHaveCount(0);
+});
+
 test("meeting pack detail surfaces backend 400 instead of swapping in a mock draft", async ({
   page,
 }) => {
