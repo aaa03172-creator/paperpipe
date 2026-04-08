@@ -211,10 +211,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "run_meta.json").exists()
         assert (artifact_dir / "acceptance_contract.json").exists()
         assert (artifact_dir / "quality_gate.json").exists()
+        assert (artifact_dir / "context_manifest.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
+        context_manifest = json.loads((artifact_dir / "context_manifest.json").read_text(encoding="utf-8"))
         assert meta["paper_id"] == paper_id
         assert run_meta["paper_id"] == paper_id
         assert run_meta["status"] == "succeeded"
@@ -226,6 +228,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert run_meta["tool_policy_version"] == "v1"
         assert run_meta["reader_analysis"]["return_mode"] == "success"
         assert run_meta["reader_analysis"]["attempt_count"] == 1
+        assert run_meta["handoff_artifacts"]["context_manifest_path"].endswith("context_manifest.json")
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
         assert meta["run_verify"] is True
@@ -263,6 +266,8 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert quality_gate["overall_status"] == "pass"
         assert quality_gate["review_ready"] is True
         assert quality_gate["current_promotion_candidate"] is True
+        assert context_manifest["selected_attempt_label"] == "primary"
+        assert context_manifest["selected_attempt_summary"]["label"] == "primary"
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(

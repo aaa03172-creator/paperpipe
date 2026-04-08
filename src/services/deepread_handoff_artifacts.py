@@ -6,6 +6,8 @@ from typing import Any
 from src.schemas.deepread_handoff import (
     DeepReadAcceptanceCheck,
     DeepReadAcceptanceContract,
+    DeepReadContextManifest,
+    DeepReadContextManifestAttempt,
     DeepReadQualityGate,
     DeepReadQualityGateCheck,
 )
@@ -160,6 +162,73 @@ def build_deepread_quality_gate(
     )
 
 
+def build_deepread_context_manifest(
+    *,
+    paper_id: str,
+    run_id: str,
+    run_meta: dict[str, Any],
+    bootstrap_meta: dict[str, Any],
+) -> DeepReadContextManifest | None:
+    raw_analysis = bootstrap_meta.get("reader_analysis")
+    if not isinstance(raw_analysis, dict) or not raw_analysis:
+        raw_analysis = run_meta.get("reader_analysis")
+    if not isinstance(raw_analysis, dict) or not raw_analysis:
+        return None
+
+    raw_attempts = raw_analysis.get("attempts")
+    attempts: list[DeepReadContextManifestAttempt] = []
+    if isinstance(raw_attempts, list):
+        for idx, raw_attempt in enumerate(raw_attempts, start=1):
+            if not isinstance(raw_attempt, dict):
+                continue
+            attempts.append(
+                DeepReadContextManifestAttempt(
+                    attempt_idx=int(raw_attempt.get("attempt_idx") or idx),
+                    label=str(raw_attempt.get("label") or f"attempt_{idx}"),
+                    status=str(raw_attempt.get("status") or "unknown"),
+                    context_mode=_optional_str(raw_attempt.get("context_mode")),
+                    context_chars=_safe_int(raw_attempt.get("context_chars")),
+                    prompt_chars=_safe_int(raw_attempt.get("prompt_chars")),
+                    estimated_prompt_tokens=_safe_int(raw_attempt.get("estimated_prompt_tokens")),
+                    estimated_response_tokens=_safe_int(raw_attempt.get("estimated_response_tokens")),
+                    included_chunk_count=_safe_int(raw_attempt.get("included_chunk_count")),
+                    unique_section_count=_safe_int(raw_attempt.get("unique_section_count")),
+                    unique_page_hint_count=_safe_int(raw_attempt.get("unique_page_hint_count")),
+                    sentence_focus_count=_safe_int(raw_attempt.get("sentence_focus_count")),
+                    truncated_chunk_count=_safe_int(raw_attempt.get("truncated_chunk_count")),
+                )
+            )
+
+    selected_attempt_idx = _safe_int(raw_analysis.get("selected_attempt"))
+    selected_attempt_label = _optional_str(raw_analysis.get("selected_attempt_label"))
+    selected_attempt_summary = _select_context_attempt(
+        attempts=attempts,
+        selected_attempt_idx=selected_attempt_idx,
+        selected_attempt_label=selected_attempt_label,
+    )
+
+    effective_attempt_order = [
+        str(label).strip()
+        for label in raw_analysis.get("effective_attempt_order", [])
+        if str(label).strip()
+    ] if isinstance(raw_analysis.get("effective_attempt_order"), list) else []
+
+    return DeepReadContextManifest(
+        paper_id=paper_id,
+        run_id=run_id,
+        configured_attempt_order=_optional_str(raw_analysis.get("configured_attempt_order")),
+        effective_attempt_order=effective_attempt_order,
+        attempt_count=_safe_int(raw_analysis.get("attempt_count")) or len(attempts),
+        return_mode=_optional_str(raw_analysis.get("return_mode")),
+        selected_attempt=selected_attempt_idx,
+        selected_attempt_label=selected_attempt_label,
+        final_claim_count=_safe_int(raw_analysis.get("final_claim_count")),
+        used_heuristic_fallback=bool(raw_analysis.get("used_heuristic_fallback")),
+        attempts=attempts,
+        selected_attempt_summary=selected_attempt_summary,
+    )
+
+
 def write_deepread_handoff_artifacts(
     artifact_dir: Path,
     *,
@@ -180,12 +249,54 @@ def write_deepread_handoff_artifacts(
         run_meta=run_meta,
         bootstrap_meta=bootstrap_meta,
     )
+    context_manifest = build_deepread_context_manifest(
+        paper_id=paper_id,
+        run_id=run_id,
+        run_meta=run_meta,
+        bootstrap_meta=bootstrap_meta,
+    )
 
     contract_path = artifact_dir / "acceptance_contract.json"
     quality_gate_path = artifact_dir / "quality_gate.json"
     contract_path.write_text(contract.model_dump_json(indent=2), encoding="utf-8")
     quality_gate_path.write_text(quality_gate.model_dump_json(indent=2), encoding="utf-8")
-    return {
+    written_paths = {
         "acceptance_contract_path": str(contract_path),
         "quality_gate_path": str(quality_gate_path),
     }
+    if context_manifest is not None:
+        context_manifest_path = artifact_dir / "context_manifest.json"
+        context_manifest_path.write_text(context_manifest.model_dump_json(indent=2), encoding="utf-8")
+        written_paths["context_manifest_path"] = str(context_manifest_path)
+    return written_paths
+
+
+def _optional_str(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _safe_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _select_context_attempt(
+    *,
+    attempts: list[DeepReadContextManifestAttempt],
+    selected_attempt_idx: int | None,
+    selected_attempt_label: str | None,
+) -> DeepReadContextManifestAttempt | None:
+    if selected_attempt_idx is not None:
+        for attempt in attempts:
+            if attempt.attempt_idx == selected_attempt_idx:
+                return attempt
+    if selected_attempt_label is not None:
+        for attempt in attempts:
+            if attempt.label == selected_attempt_label:
+                return attempt
+    return attempts[-1] if attempts else None
