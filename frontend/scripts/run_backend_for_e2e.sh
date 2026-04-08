@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-PYTHON_BIN="$(command -v python3 || command -v python)"
+if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+else
+  PYTHON_BIN="$(command -v python3 || command -v python)"
+fi
 if [[ -z "${PYTHON_BIN}" ]]; then
   echo "python3/python not found" >&2
   exit 127
@@ -38,6 +42,7 @@ export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_REL}"
 export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_REL}"
 export PAPERPIPE_PROTOCOL_CARDS_DIR="${E2E_PROTOCOL_CARDS_REL}"
 export PAPERPIPE_DB_PATH="${E2E_DB_REL}"
+export PAPERPIPE_INCLUDE_TEST_FIXTURES="1"
 
 cat > "${E2E_CONFIG_PATH}" <<YAML
 system:
@@ -81,7 +86,7 @@ llm:
     api_key: ""
     model: "gpt-4o-mini"
   features:
-    trial_extraction:
+    specialty_trial_extraction:
       enabled: false
       model: "gpt-4o-mini"
     slot_classification:

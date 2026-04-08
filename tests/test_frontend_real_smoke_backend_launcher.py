@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -99,7 +100,7 @@ def _write_claimset(artifacts_dir: Path, paper_id: str) -> None:
     )
 
 
-def test_real_smoke_preflight_finds_candidates(tmp_path):
+def test_real_smoke_backend_launcher_check_only_passes_with_candidates(tmp_path):
     vault = tmp_path / "vault"
     vault.mkdir()
     config_path = tmp_path / "config.yaml"
@@ -114,13 +115,15 @@ def test_real_smoke_preflight_finds_candidates(tmp_path):
     _seed_db(db_path, "zotero:test-paper", pdf_path)
     _write_claimset(artifacts_dir, "zotero:test-paper")
 
-    script_path = Path("scripts/check_frontend_real_smoke_env.py").resolve()
+    script_path = Path("scripts/run_backend_for_real_smoke.py").resolve()
     env = os.environ.copy()
     env["PAPERPIPE_CONFIG_PATH"] = str(config_path)
     env["PAPERPIPE_STORAGE_DIR"] = str(storage_dir)
+    env["PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES"] = "1"
+    env["E2E_BACKEND_PORT"] = "19090"
 
     result = subprocess.run(
-        [sys.executable, str(script_path), "--require-candidates"],
+        [sys.executable, str(script_path), "--check-only"],
         cwd=Path.cwd(),
         env=env,
         capture_output=True,
@@ -130,32 +133,23 @@ def test_real_smoke_preflight_finds_candidates(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     payload = json.loads(result.stdout)
-    assert payload["candidate_count"] == 1
-    assert payload["candidates"][0]["paper_id"] == "zotero:test-paper"
-    assert payload["errors"] == []
+    assert payload["backend_port"] == "19090"
+    assert payload["preflight"]["candidate_count"] == 1
 
 
-def test_real_smoke_preflight_fails_without_candidates(tmp_path):
+def test_real_smoke_backend_launcher_fails_for_missing_storage_override(tmp_path):
     vault = tmp_path / "vault"
     vault.mkdir()
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, vault)
 
-    storage_dir = tmp_path / "storage"
-    artifacts_dir = storage_dir / "artifacts"
-    artifacts_dir.mkdir(parents=True)
-    db_path = storage_dir / "state.db"
-    pdf_path = tmp_path / "sample.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n")
-    _seed_db(db_path, "zotero:test-paper", pdf_path)
-
-    script_path = Path("scripts/check_frontend_real_smoke_env.py").resolve()
+    script_path = Path("scripts/run_backend_for_real_smoke.py").resolve()
     env = os.environ.copy()
     env["PAPERPIPE_CONFIG_PATH"] = str(config_path)
-    env["PAPERPIPE_STORAGE_DIR"] = str(storage_dir)
+    env["PAPERPIPE_STORAGE_DIR"] = str(tmp_path / "missing-storage")
 
     result = subprocess.run(
-        [sys.executable, str(script_path), "--require-candidates"],
+        [sys.executable, str(script_path), "--check-only"],
         cwd=Path.cwd(),
         env=env,
         capture_output=True,
@@ -164,6 +158,14 @@ def test_real_smoke_preflight_fails_without_candidates(tmp_path):
     )
 
     assert result.returncode == 1
-    payload = json.loads(result.stdout)
-    assert payload["candidate_count"] == 0
-    assert "no_real_smoke_candidates" in payload["errors"]
+    assert "PAPERPIPE_STORAGE_DIR not found" in result.stderr
+
+
+def test_frontend_e2e_backend_launcher_template_uses_specialty_trial_extraction() -> None:
+    script_path = Path("frontend/scripts/run_backend_for_e2e.sh").resolve()
+
+    content = script_path.read_text(encoding="utf-8")
+
+    assert "specialty_trial_extraction:" in content
+    legacy_key_pattern = re.compile(r"(?m)^\\s*trial" r"_extraction:")
+    assert legacy_key_pattern.search(content) is None

@@ -1,12 +1,19 @@
+from base64 import b64decode
+from binascii import Error as BinasciiError
+from collections import deque
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
+import math
 import os
 import re
+import secrets
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +30,8 @@ from src.schemas.ops import (
     DownloaderOpsMetricsResponse,
     PersonaListResponse,
     PersonaOption,
+    RuntimeReadinessCheck,
+    RuntimeReadinessResponse,
     RunTimelineEvent,
     RunTimelineResponse,
     StatsRepairRequest,
@@ -63,11 +72,23 @@ from src.profiles.research_dna_projection import sync_research_dna_profile
 from src.profiles.research_dna_store import ResearchDNARevisionConflictError, load_research_dna
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
-from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
+from src.services.event_log import (
+    get_execution_run_params,
+    list_run_events,
+    list_user_actions,
+    log_request_audit,
+    log_user_action,
+)
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
-from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
+from src.services.runtime_readiness import (
+    collect_runtime_readiness,
+    summarize_browser_runtime_readiness,
+)
+from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
+from starlette.datastructures import MutableHeaders
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .routers import (
     chart_packs,
     feedback,
@@ -99,6 +120,33 @@ def _best_effort_log_user_action(
         # User-action logging must never block the primary workflow.
         pass
 
+
+def _best_effort_log_request_audit(
+    *,
+    source: str,
+    client_ip: str | None,
+    host: str | None,
+    method: str,
+    path: str,
+    status_code: int,
+    outcome: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    try:
+        log_request_audit(
+            source=source,
+            client_ip=client_ip,
+            host=host,
+            method=method,
+            path=path,
+            status_code=status_code,
+            outcome=outcome,
+            payload=payload,
+        )
+    except Exception:
+        # Security audit logging must stay best-effort.
+        pass
+
 def _resolve_cors_allow_origins() -> list[str]:
     raw = (
         os.getenv("LATTICE_CORS_ALLOW_ORIGINS")
@@ -119,6 +167,97 @@ def _resolve_api_key() -> str:
     ).strip()
 
 
+def _resolve_beta_username() -> str:
+    return (
+        os.getenv("LATTICE_BETA_USERNAME")
+        or os.getenv("PAPERPIPE_BETA_USERNAME")
+        or "beta"
+    ).strip() or "beta"
+
+
+def _resolve_beta_password() -> str:
+    return (
+        os.getenv("LATTICE_BETA_PASSWORD")
+        or os.getenv("PAPERPIPE_BETA_PASSWORD")
+        or ""
+    ).strip()
+
+
+def _resolve_api_docs_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_ENABLE_API_DOCS")
+        or os.getenv("PAPERPIPE_ENABLE_API_DOCS")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return not bool(_resolve_beta_password())
+
+
+def _resolve_browser_detailed_runtime_readiness_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_BROWSER_DETAILED_RUNTIME_READINESS")
+        or os.getenv("PAPERPIPE_BROWSER_DETAILED_RUNTIME_READINESS")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return not bool(_resolve_beta_password())
+
+
+def _resolve_browser_audit_logging_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_BROWSER_AUDIT_LOGGING")
+        or os.getenv("PAPERPIPE_BROWSER_AUDIT_LOGGING")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return bool(_resolve_beta_password()) or _resolve_browser_write_rate_limit_count() > 0
+
+
+def _resolve_browser_write_rate_limit_count() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_WRITE_RATE_LIMIT_COUNT")
+        or os.getenv("PAPERPIPE_BROWSER_WRITE_RATE_LIMIT_COUNT")
+        or ""
+    ).strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return 0
+        return max(value, 0)
+    return 30 if _resolve_beta_password() else 0
+
+
+def _resolve_browser_write_rate_limit_window_seconds() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_WRITE_RATE_LIMIT_WINDOW_SECONDS")
+        or os.getenv("PAPERPIPE_BROWSER_WRITE_RATE_LIMIT_WINDOW_SECONDS")
+        or ""
+    ).strip()
+    if not raw:
+        return 60
+    try:
+        value = int(raw)
+    except ValueError:
+        return 60
+    return max(value, 1)
+
+
+def _resolve_allowed_hosts() -> list[str]:
+    raw = (
+        os.getenv("LATTICE_ALLOWED_HOSTS")
+        or os.getenv("PAPERPIPE_ALLOWED_HOSTS")
+        or ""
+    ).strip()
+    if not raw:
+        return ["127.0.0.1", "localhost", "testserver"]
+    hosts = [item.strip() for item in raw.split(",") if item.strip()]
+    return hosts or ["127.0.0.1", "localhost", "testserver"]
+
+
 def _is_chat_enabled() -> bool:
     raw = (
         os.getenv("CHAT_ENABLED")
@@ -130,10 +269,25 @@ def _is_chat_enabled() -> bool:
 
 
 def _requires_api_key(method: str, path: str) -> bool:
-    if method.upper() != "POST":
+    normalized_method = method.upper()
+    if normalized_method in {"HEAD", "OPTIONS"}:
         return False
 
     normalized = path.rstrip("/") or "/"
+    if normalized_method == "GET":
+        if normalized in {"/jobs", "/artifacts", "/user-actions"}:
+            return True
+        if normalized.startswith("/jobs/"):
+            return True
+        if normalized.startswith("/runs/"):
+            return True
+        if normalized.startswith("/artifacts/"):
+            return True
+        return bool(re.match(r"^/papers/[^/]+/pdf$", normalized))
+
+    if normalized_method != "POST":
+        return False
+
     if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
@@ -151,7 +305,188 @@ def _requires_api_key(method: str, path: str) -> bool:
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
 
-app = FastAPI(title="Lattice API", version="3.1.0")
+def _rewrite_browser_api_path(path: str) -> str | None:
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/api/chat" or normalized.startswith("/api/chat/"):
+        return None
+    if normalized == "/api":
+        return "/"
+    if normalized.startswith("/api/"):
+        return normalized[4:] or "/"
+    return None
+
+
+def _requires_beta_gate(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    if normalized in {
+        "/api",
+        "/assets",
+        "/favicon.ico",
+        "/health/ready",
+        "/sample.pdf",
+        "/ui",
+        "/ui-assets",
+        "/vite.svg",
+    }:
+        return True
+    if any(
+        normalized.startswith(prefix)
+        for prefix in (
+            "/api/",
+            "/assets/",
+            "/ui/",
+            "/ui-assets/",
+        )
+    ):
+        return True
+    if not API_DOCS_ENABLED:
+        return False
+    if normalized in {"/docs", "/openapi.json", "/redoc"}:
+        return True
+    return any(normalized.startswith(prefix) for prefix in ("/docs/", "/redoc/"))
+
+
+def _is_browser_api_path(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return normalized == "/api" or normalized.startswith("/api/")
+
+
+def _should_throttle_browser_write(method: str, original_path: str, rewritten_path: str | None) -> bool:
+    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+        return False
+    normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
+    if normalized == "/user-actions":
+        return False
+    return _requires_api_key("POST", normalized)
+
+
+def _should_audit_browser_request(method: str, original_path: str, rewritten_path: str | None) -> bool:
+    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+        return False
+    normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
+    return normalized != "/user-actions"
+
+
+def _request_has_valid_beta_auth(request: Request) -> bool:
+    expected_password = _resolve_beta_password()
+    if not expected_password:
+        return True
+    auth_header = (MutableHeaders(scope=request.scope).get("authorization") or "").strip()
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "basic" or not token:
+        return False
+    try:
+        decoded = b64decode(token).decode("utf-8")
+    except (BinasciiError, UnicodeDecodeError):
+        return False
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return False
+    return (
+        secrets.compare_digest(username, _resolve_beta_username())
+        and secrets.compare_digest(password, expected_password)
+    )
+
+
+def _beta_gate_response() -> Response:
+    return Response(
+        status_code=401,
+        content="Authentication required",
+        headers={"WWW-Authenticate": 'Basic realm="Lattice Private Beta", charset="UTF-8"'},
+    )
+
+
+def _request_is_https(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _client_ip_for_request(request: Request) -> str | None:
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded_for:
+        first = forwarded_for.split(",", 1)[0].strip()
+        if first:
+            return first
+    client = getattr(request.client, "host", None)
+    value = str(client or "").strip()
+    return value or None
+
+
+def _host_for_request(request: Request) -> str | None:
+    host = str(request.headers.get("host") or "").strip()
+    if host:
+        return host
+    hostname = getattr(request.url, "hostname", None)
+    value = str(hostname or "").strip()
+    return value or None
+
+
+def _audit_outcome_for_status(status_code: int) -> str:
+    if status_code == 429:
+        return "rate_limited"
+    if status_code in {401, 403}:
+        return "denied"
+    if status_code >= 500:
+        return "server_error"
+    if status_code >= 400:
+        return "client_error"
+    return "allowed"
+
+
+class _SlidingWindowLimiter:
+    def __init__(self) -> None:
+        self._buckets: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, *, window_seconds: int, limit: int) -> tuple[bool, int, int]:
+        if limit <= 0:
+            return True, 0, 0
+        now = time.monotonic()
+        with self._lock:
+            bucket = self._buckets.setdefault(key, deque())
+            cutoff = now - float(window_seconds)
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if len(bucket) >= limit:
+                retry_after = max(1, math.ceil(bucket[0] + float(window_seconds) - now))
+                return False, len(bucket), retry_after
+            bucket.append(now)
+            return True, len(bucket), 0
+
+
+def _apply_security_headers(request: Request, response: Response) -> Response:
+    headers = response.headers
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("Referrer-Policy", "no-referrer")
+    headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if _request_is_https(request):
+        headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type == "text/html":
+        headers.setdefault(
+            "Content-Security-Policy",
+            "base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'",
+        )
+    return response
+
+
+API_DOCS_ENABLED = _resolve_api_docs_enabled()
+_BROWSER_WRITE_LIMITER = _SlidingWindowLimiter()
+
+app = FastAPI(
+    title="Lattice API",
+    version="3.1.0",
+    docs_url="/docs" if API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if API_DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=_resolve_allowed_hosts(),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -163,30 +498,147 @@ app.add_middleware(
 
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
-    expected_key = _resolve_api_key()
-    if not expected_key:
-        return await call_next(request)
-    if not _requires_api_key(request.method, request.url.path):
-        return await call_next(request)
+    original_path = str(request.scope.get("path") or request.url.path or "/")
+    rewritten_path = _rewrite_browser_api_path(original_path)
+    client_ip = _client_ip_for_request(request)
+    host = _host_for_request(request)
+    if request.method.upper() != "OPTIONS" and _requires_beta_gate(original_path):
+        if not _request_has_valid_beta_auth(request):
+            if _resolve_browser_audit_logging_enabled():
+                _best_effort_log_request_audit(
+                    source="browser_security",
+                    client_ip=client_ip,
+                    host=host,
+                    method=request.method,
+                    path=original_path,
+                    status_code=401,
+                    outcome="beta_auth_denied",
+                    payload={"scope": "beta_gate"},
+                )
+            return _apply_security_headers(request, _beta_gate_response())
 
-    supplied_key = (request.headers.get("x-api-key") or "").strip()
+    if _should_throttle_browser_write(request.method, original_path, rewritten_path):
+        rate_limit_count = _resolve_browser_write_rate_limit_count()
+        if rate_limit_count > 0:
+            window_seconds = _resolve_browser_write_rate_limit_window_seconds()
+            limiter_key = f"{client_ip or 'unknown'}:browser_write"
+            allowed, seen_count, retry_after = _BROWSER_WRITE_LIMITER.allow(
+                limiter_key,
+                window_seconds=window_seconds,
+                limit=rate_limit_count,
+            )
+            if not allowed:
+                if _resolve_browser_audit_logging_enabled():
+                    _best_effort_log_request_audit(
+                        source="browser_api",
+                        client_ip=client_ip,
+                        host=host,
+                        method=request.method,
+                        path=original_path,
+                        status_code=429,
+                        outcome="rate_limited",
+                        payload={
+                            "scope": "browser_write",
+                            "window_seconds": window_seconds,
+                            "limit": rate_limit_count,
+                            "seen_count": seen_count,
+                            "retry_after_seconds": retry_after,
+                            "rewritten_path": rewritten_path,
+                        },
+                    )
+                return _apply_security_headers(
+                    request,
+                    JSONResponse(
+                        status_code=429,
+                        headers={"Retry-After": str(retry_after)},
+                        content={
+                            "error_code": "BROWSER_WRITE_RATE_LIMITED",
+                            "message": "Browser write rate limit exceeded",
+                            "retry_after_seconds": retry_after,
+                            "limit": rate_limit_count,
+                            "window_seconds": window_seconds,
+                        },
+                    ),
+                )
+
+    expected_key = _resolve_api_key()
+    if rewritten_path is not None:
+        request.scope["path"] = rewritten_path
+        request.scope["raw_path"] = rewritten_path.encode("utf-8")
+        if expected_key:
+            MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
+
+    if not expected_key:
+        response = await call_next(request)
+        response = _apply_security_headers(request, response)
+        if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+            _best_effort_log_request_audit(
+                source="browser_api",
+                client_ip=client_ip,
+                host=host,
+                method=request.method,
+                path=original_path,
+                status_code=response.status_code,
+                outcome=_audit_outcome_for_status(response.status_code),
+                payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+            )
+        return response
+    current_path = str(request.scope.get("path") or request.url.path or "/")
+    if not _requires_api_key(request.method, current_path):
+        response = await call_next(request)
+        response = _apply_security_headers(request, response)
+        if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+            _best_effort_log_request_audit(
+                source="browser_api",
+                client_ip=client_ip,
+                host=host,
+                method=request.method,
+                path=original_path,
+                status_code=response.status_code,
+                outcome=_audit_outcome_for_status(response.status_code),
+                payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+            )
+        return response
+
+    supplied_key = (MutableHeaders(scope=request.scope).get("x-api-key") or "").strip()
     if supplied_key != expected_key:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error_code": "UNAUTHORIZED",
-                "message": "Missing or invalid X-API-Key",
-            },
+        return _apply_security_headers(
+            request,
+            JSONResponse(
+                status_code=401,
+                content={
+                    "error_code": "UNAUTHORIZED",
+                    "message": "Missing or invalid X-API-Key",
+                },
+            ),
         )
-    return await call_next(request)
+    response = await call_next(request)
+    response = _apply_security_headers(request, response)
+    if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+        _best_effort_log_request_audit(
+            source="browser_api",
+            client_ip=client_ip,
+            host=host,
+            method=request.method,
+            path=original_path,
+            status_code=response.status_code,
+            outcome=_audit_outcome_for_status(response.status_code),
+            payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+        )
+    return response
 
 queue = JobQueue()
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIR = frontend_runtime_dir()
+FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
+FRONTEND_DIST_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
+FRONTEND_DIST_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
 UI_SHELL_PATH = FRONTEND_DIR / "ui-shell.html"
 
 if FRONTEND_DIR.exists():
     app.mount("/ui-assets", StaticFiles(directory=str(FRONTEND_DIR)), name="ui-assets")
+if FRONTEND_DIST_ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_ASSETS_DIR)), name="ui-dist-assets")
 
 ARTIFACT_FILE_MAP: dict[str, str] = {
     "document_artifact": "document_artifact.json",
@@ -743,6 +1195,25 @@ def health_check():
     return {"status": "ok", "version": "3.1.0"}
 
 
+@app.get("/health/ready", response_model=RuntimeReadinessResponse)
+def health_ready():
+    readiness = collect_runtime_readiness()
+    if not _resolve_browser_detailed_runtime_readiness_enabled():
+        readiness = summarize_browser_runtime_readiness(readiness)
+    return RuntimeReadinessResponse(
+        status=readiness.status,
+        checks=[
+            RuntimeReadinessCheck(
+                name=check.name,
+                status=check.status,
+                detail=check.detail,
+                path=_public_path(check.path),
+            )
+            for check in readiness.checks
+        ],
+    )
+
+
 @app.post("/api/chat", response_model=ChatStubResponse)
 def chat_stub(req: ChatRequest):
     output_mode_family = resolve_chat_output_mode_family(req.output_mode_family)
@@ -1004,13 +1475,46 @@ def list_personas(include_disabled: bool = Query(default=False)):
         raise HTTPException(status_code=500, detail=f"Failed to load persona profiles: {exc}")
 
 
-@app.get("/ui", include_in_schema=False)
-def ui_shell():
+def _resolve_ui_shell_response() -> FileResponse:
+    if FRONTEND_DIST_INDEX_PATH.exists():
+        return FileResponse(FRONTEND_DIST_INDEX_PATH)
     if UI_SHELL_PATH.exists():
         return FileResponse(UI_SHELL_PATH)
     if FRONTEND_INDEX_PATH.exists():
         return FileResponse(FRONTEND_INDEX_PATH)
-    raise HTTPException(status_code=404, detail=f"UI shell not found: {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}")
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            "UI shell not found: "
+            f"{FRONTEND_DIST_INDEX_PATH} or {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}"
+        ),
+    )
+
+
+@app.get("/ui", include_in_schema=False)
+def ui_shell():
+    return _resolve_ui_shell_response()
+
+
+@app.get("/ui/{path:path}", include_in_schema=False)
+def ui_shell_deep_link(path: str):
+    return _resolve_ui_shell_response()
+
+
+@app.get("/sample.pdf", include_in_schema=False)
+def sample_pdf_asset():
+    path = FRONTEND_DIST_DIR / "sample.pdf"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
+
+
+@app.get("/vite.svg", include_in_schema=False)
+def vite_svg_asset():
+    path = FRONTEND_DIR / "vite.svg"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
