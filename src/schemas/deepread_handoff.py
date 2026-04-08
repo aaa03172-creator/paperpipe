@@ -42,3 +42,36 @@ class DeepReadQualityGate(BaseModel):
     review_ready: bool = False
     reason_codes: list[str] = Field(default_factory=list)
     checks: list[DeepReadQualityGateCheck] = Field(default_factory=list)
+
+
+class DeepReadContextManifestAttempt(BaseModel):
+    attempt_idx: int
+    label: str
+    status: str = "unknown"
+    context_mode: str | None = None
+    context_chars: int | None = None
+    prompt_chars: int | None = None
+    estimated_prompt_tokens: int | None = None
+    estimated_response_tokens: int | None = None
+    included_chunk_count: int | None = None
+    unique_section_count: int | None = None
+    unique_page_hint_count: int | None = None
+    sentence_focus_count: int | None = None
+    truncated_chunk_count: int | None = None
+
+
+class DeepReadContextManifest(BaseModel):
+    schema_version: str = "2026-04-01.deepread-context-manifest.v1"
+    workflow: Literal["deep_read"] = "deep_read"
+    paper_id: str
+    run_id: str
+    configured_attempt_order: str | None = None
+    effective_attempt_order: list[str] = Field(default_factory=list)
+    attempt_count: int = 0
+    return_mode: str | None = None
+    selected_attempt: int | None = None
+    selected_attempt_label: str | None = None
+    final_claim_count: int | None = None
+    used_heuristic_fallback: bool = False
+    attempts: list[DeepReadContextManifestAttempt] = Field(default_factory=list)
+    selected_attempt_summary: DeepReadContextManifestAttempt | None = None
