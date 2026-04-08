@@ -20,6 +20,10 @@ This directory stores dated evidence outputs and operational records rather than
   - `Release_Verification_Refresh_2026-04-03.md`
   - `External_Reference_Action_Order_2026-04-01.md`
   - `External_Reference_Followups_Closeout_2026-04-01.md`
+  - `Installability_Audit_2026-03-27.md`
+  - `Personal_Runtime_Deployment_Architecture_2026-03-28.md`
+  - `Personal_Runtime_MVP_Checklist_2026-03-28.md`
+  - `Personal_Runtime_Packaging_Decision_2026-03-28.md`
   - `Canonical_Docs_Tail_Packaging_2026-03-24.md`
   - `Remaining_Dirty_Docs_Buckets_2026-03-24.md`
   - `Docs_Only_Cleanup_Closeout_2026-03-25.md`
@@ -27,6 +31,8 @@ This directory stores dated evidence outputs and operational records rather than
   - `Docling_Eval_Lane_Packaging_2026-03-24.md`
   - `External_Reference_Lane_Packaging_2026-04-01.md`
   - `External_Reference_Lane_Stage_Set_2026-04-02.md`
+  - `Runtime_Readiness_Lane_Packaging_2026-04-07.md`
+  - `Runtime_Readiness_Lane_Stage_Set_2026-04-08.md`
   - `Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md`
   - `Frontend_Core_UI_Refinement_Closeout_2026-03-24.md`
 - verification matrix and audit notes such as:
