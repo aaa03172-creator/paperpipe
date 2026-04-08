@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Mapping
 from typing import Callable, TypeVar
 
@@ -8,8 +9,19 @@ from src.schemas.meeting_pack import MeetingPack
 T = TypeVar("T")
 
 
+def _include_test_fixtures_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_INCLUDE_TEST_FIXTURES")
+        or os.getenv("PAPERPIPE_INCLUDE_TEST_FIXTURES")
+        or ""
+    ).strip()
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
 def prefer_non_fixture_items(items: Iterable[T], is_fixture: Callable[[T], bool]) -> list[T]:
     materialized = list(items)
+    if _include_test_fixtures_enabled():
+        return materialized
     visible = [item for item in materialized if not is_fixture(item)]
     return visible or materialized
 
