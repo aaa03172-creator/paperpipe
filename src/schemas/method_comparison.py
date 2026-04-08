@@ -17,6 +17,8 @@ MethodComparisonFieldId = Literal[
 ]
 MethodComparisonValueKind = Literal["text", "numeric", "duration", "categorical"]
 MethodComparisonCellStatus = Literal["explicit", "inferred", "missing", "conflict"]
+MethodComparisonReadiness = Literal["evidence_backed", "background_only", "mixed"]
+MethodComparisonFreshness = Literal["current", "stale", "unknown"]
 
 
 class MethodComparisonFieldSpec(BaseModel):
@@ -158,6 +160,10 @@ class MethodComparison(BaseModel):
     title: str = Field(..., min_length=1)
     created_at: datetime
     generated_at: datetime | None = None
+    layer: Literal["user_facing_artifact"] = "user_facing_artifact"
+    canonical_status: Literal["non_canonical"] = "non_canonical"
+    readiness: MethodComparisonReadiness = "background_only"
+    freshness: MethodComparisonFreshness = "unknown"
     paper_ids: list[str] = Field(default_factory=list, min_length=1)
     columns: list[ComparisonColumn] = Field(default_factory=list, min_length=1)
     rows: list[ComparisonRow] = Field(default_factory=list)

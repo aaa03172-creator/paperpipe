@@ -81,6 +81,10 @@ def test_method_comparison_schema_accepts_paper_slug_distinct_from_paper_id() ->
     assert comparison.rows[0].paper_id == "doi:10.1000/test"
     assert comparison.rows[0].paper_slug == "wenzelShortchainFattyAcids2020"
     assert comparison.rows[0].cells[0].evidence_refs[0].paper_slug == "wenzelShortchainFattyAcids2020"
+    assert comparison.layer == "user_facing_artifact"
+    assert comparison.canonical_status == "non_canonical"
+    assert comparison.readiness == "background_only"
+    assert comparison.freshness == "unknown"
 
 
 def test_method_comparison_cell_requires_value_when_not_missing() -> None:
