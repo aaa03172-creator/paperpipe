@@ -21,15 +21,19 @@ npm run dev
 - 기본 API 대상: `http://localhost:8000`
 - 환경변수 (`.env` 또는 `.env.local`):
 ```bash
-VITE_API_BASE_URL=http://localhost:8000
-# 선택: 백엔드 API 키 보호가 켜진 경우 POST 보호 엔드포인트 호출용
-VITE_API_KEY=your-api-key
+# dev-only: Vite server proxy target (server-side only, not exposed to the browser bundle)
+LATTICE_UI_BACKEND_URL=http://localhost:8000
 # 선택: 자동 mock fallback 비활성화(운영/검증 모드)
 VITE_STRICT_API=1
 ```
+- 브라우저는 항상 same-origin `/api/*`만 호출합니다.
+- dev에서는 Vite proxy가 `/api/*`를 `LATTICE_UI_BACKEND_URL`로 전달합니다.
+- backend-served `/ui` 런타임에서는 FastAPI가 `/api/*`를 내부 backend route로 브리지하고, `LATTICE_API_KEY`가 설정된 경우 서버 환경변수에서만 `X-API-Key`를 주입합니다.
+- hosted beta에서 backend가 `LATTICE_BETA_PASSWORD`를 설정하면 `/ui`와 same-origin `/api/*`는 HTTP Basic gate 뒤에 놓입니다.
+- `VITE_API_KEY`는 제거되었습니다. 브라우저 env에 backend secret을 넣지 마세요.
 - Vite proxy:
   - 프론트 요청 `/api/*`
-  - 개발서버가 `http://localhost:8000/*`로 rewrite 프록시
+  - 개발서버가 `LATTICE_UI_BACKEND_URL/api/*`로 프록시
 
 ## 백엔드가 없을 때
 - 앱은 자동으로 **Mock mode**로 전환됩니다.
@@ -40,7 +44,7 @@ VITE_STRICT_API=1
   - Terminal 로그 스트리밍
   - Timeline 이벤트
   - Artifact(JSON) + Notebook 셀
-  - PDF 패널(`public/sample.pdf`)
+  - PDF 패널(`public/sample.pdf`, source evidence가 아닌 placeholder)
 
 ## 강제 Mock 모드
 - 백엔드 연결 상태와 무관하게 항상 mock 데이터만 사용하려면 아래 환경변수를 추가하세요.
@@ -65,6 +69,12 @@ npm run e2e:mock
 cd frontend
 npm run e2e:backend
 ```
+- backend-served hosted beta gate readiness 시나리오:
+```bash
+cd frontend
+npm run build
+npm run e2e:backend:gated
+```
 - parser worker가 필요한 bounded browser fallback 시나리오:
 ```bash
 cd frontend
@@ -78,7 +88,9 @@ npm run e2e:backend:real-smoke
 - `e2e:backend:real-smoke`는 seeded E2E harness를 쓰지 않고, 현재 `PAPERPIPE_CONFIG_PATH`/`PAPERPIPE_STORAGE_DIR`/`PAPERPIPE_DB_PATH`/`PAPERPIPE_ARTIFACTS_DIR` 환경을 그대로 사용합니다.
 - 기본 동작은 `config.yaml` 기준이며, 후보 paper가 없으면 `skip`이 아니라 실패합니다.
 - 실행 전 `python ../scripts/check_frontend_real_smoke_env.py --require-candidates` preflight가 자동으로 수행됩니다.
+- backend launch는 이제 `python ../scripts/run_backend_for_real_smoke.py` 경로를 사용합니다.
 - `e2e:backend`는 내부적으로 백엔드 서버를 기동하기 전에 `storage/state.db`에 E2E seed paper(`paper-e2e-001`)를 주입합니다.
+- `e2e:backend:gated`는 built frontend bundle을 backend `/ui` 경계로 직접 서빙한 뒤, HTTP Basic gate가 켜진 상태에서 `/ui/ready`가 browser-safe readiness summary를 유지하는지 검증합니다.
 - `e2e:backend:parser-worker`는 같은 seeded harness를 쓰되, parser fallback browser-flow 검증을 위해 opt-in fake worker sidecar를 함께 띄웁니다.
 - GitHub Actions에서 같은 경로를 수동 실행하려면 workflow 파일이 repo default branch에 등록돼 있어야 합니다. 현재 default branch는 `main`입니다.
 - 따라서 `.github/workflows/frontend-real-smoke.yml`는 `main`에 등록돼 있고, 실제 테스트 대상은 `--ref`로 별도 브랜치를 지정합니다. 예: `gh workflow run frontend-real-smoke.yml --ref codex/agents-smoke-ci-check -f config_path=config.yaml`
@@ -98,6 +110,7 @@ npm run lint
 npm run build
 npm run e2e:mock
 npm run e2e:backend
+npm run e2e:backend:gated
 npm run e2e:backend:parser-worker
 ```
 
@@ -131,4 +144,4 @@ npm run e2e:backend:parser-worker
 - `src/app/components/`
 - `src/app/lib/`
 - `src/styles/`
-- `public/sample.pdf`
+- `public/sample.pdf` (mock viewer placeholder, not source evidence)

@@ -19,6 +19,8 @@ from src.db_utils import (
     DB_PATH as DB_UTILS_PATH,
 )
 from src.logger import setup_logging
+from src.services.runtime_paths import logs_root
+from src.services.runtime_readiness import collect_runtime_readiness
 from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
@@ -96,6 +98,42 @@ def _terminate_process(proc: subprocess.Popen) -> None:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             pass
+
+
+def _build_backend_launch_command(host: str, port: int) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [
+            sys.executable,
+            "serve-backend",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ]
+    return [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "backend.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+
+
+def _argv_with_frozen_app_default_command(argv: list[str]) -> list[str]:
+    if not argv:
+        return ["start"]
+    if not getattr(sys, "frozen", False):
+        return list(argv)
+    if sys.platform != "darwin":
+        return list(argv)
+    if Path(argv[0]).stem != "Lattice":
+        return list(argv)
+    if len(argv) == 1 or argv[1].startswith("-"):
+        return [argv[0], "start", *argv[1:]]
+    return list(argv)
 
 
 # 0. Main Entry
@@ -197,13 +235,33 @@ def doctor():
         else:
             console.print("ℹ️ OpenAI API Key not required in local mode.")
 
-    if Path("logs/paperpipe.log").exists():
+    if (logs_root() / "paperpipe.log").exists():
         console.print("✅ Log file accessible.")
     else:
         console.print("⚠️ Log file not found yet (will be created on first log).")
 
     console.print("[bold green]All systems go![/bold green]")
     logger.info("Doctor check completed.")
+
+
+@app.command("self-test")
+def self_test(json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output.")):
+    """Run a narrow installability-focused runtime readiness check."""
+    readiness = collect_runtime_readiness()
+
+    if json_output:
+        _emit_json(readiness.model_dump())
+    else:
+        console.print("[bold blue]🧪 Runtime self-test[/bold blue]")
+        for check in readiness.checks:
+            icon = "✅" if check.status == "ok" else "⚠️" if check.status == "warn" else "❌"
+            console.print(f"{icon} {check.name}: {check.detail}")
+            if check.path:
+                console.print(f"   - Path: {check.path}")
+        console.print(f"Overall: [bold]{readiness.status}[/bold]")
+
+    if readiness.status == "error":
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -233,16 +291,14 @@ def start(
         console.print("   Try another port: --port 8001")
         raise typer.Exit(code=1)
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "backend.main:app",
-        "--host",
-        host,
-        "--port",
-        str(port),
-    ]
+    readiness = collect_runtime_readiness()
+    backend_check = next((check for check in readiness.checks if check.name == "backend_entrypoint"), None)
+    if backend_check and backend_check.status == "error":
+        console.print(f"[bold red]❌ Backend preflight failed: {backend_check.detail}[/bold red]")
+        console.print(f"[yellow]   Suggested fix: {sys.executable} -m pip install -r requirements.txt[/yellow]")
+        raise typer.Exit(code=1)
+
+    cmd = _build_backend_launch_command(host, port)
 
     try:
         proc = subprocess.Popen(cmd)
@@ -285,6 +341,18 @@ def start(
         console.print("\n[bold yellow]🛑 Stopping Lattice runtime...[/bold yellow]")
     finally:
         _terminate_process(proc)
+
+
+@app.command("serve-backend", hidden=True)
+def serve_backend(
+    host: str = typer.Option("127.0.0.1", "--host", help="Backend bind host"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535, help="Backend bind port"),
+):
+    """Internal packaged-runtime backend launcher."""
+    import uvicorn
+    from backend.main import app as backend_app
+
+    uvicorn.run(backend_app, host=host, port=port)
 
 
 # 2. Simple Fetch Test
@@ -445,7 +513,9 @@ def test_filter():
 @app.command()
 def clear_logs():
     """Clear log file"""
-    open("logs/paperpipe.log", "w").close()
+    log_path = logs_root() / "paperpipe.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    open(log_path, "w").close()
     console.print("✅ Logs cleared.")
 
 
@@ -505,7 +575,7 @@ def reset():
             console.print(f"   - Deleted {db_path}")
     
     # 2. Logs
-    log_path = Path("logs/paperpipe.log")
+    log_path = logs_root() / "paperpipe.log"
     if log_path.exists():
         open(log_path, "w").close()
         console.print("   - Cleared logs")
@@ -1397,6 +1467,7 @@ def research_dna_project_profile(
 
 
 def entrypoint():
+    sys.argv = _argv_with_frozen_app_default_command(sys.argv)
     app()
 
 

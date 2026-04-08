@@ -25,6 +25,7 @@ import {
   ProtocolCardListResponse,
   ProtocolCardResponse,
   ReasoningPersonaId,
+  RuntimeReadinessResponse,
   SkillRunResponse,
   TimelineResponse,
   StatsRepairResponse,
@@ -328,6 +329,47 @@ export async function getHealth(): Promise<ApiResult<{ status: string; version?:
     () => getMockHealth(),
     "health endpoint unavailable",
   );
+}
+
+function syntheticRuntimeReadiness(detail: string): RuntimeReadinessResponse {
+  return {
+    status: "error",
+    checks: [
+      {
+        name: "runtime_readiness",
+        status: "error",
+        detail,
+        path: null,
+      },
+    ],
+  };
+}
+
+export async function getRuntimeReadiness(): Promise<ApiResult<RuntimeReadinessResponse>> {
+  if (APP_CONFIG.forceMock) {
+    const detail =
+      "Runtime checks are unavailable while mock mode is forced. Disable mock mode to inspect the live backend runtime.";
+    return {
+      data: syntheticRuntimeReadiness(detail),
+      isMock: true,
+      reason: detail,
+    };
+  }
+
+  try {
+    return {
+      data: await fetchJson<RuntimeReadinessResponse>("/health/ready"),
+      isMock: false,
+    };
+  } catch (error) {
+    return {
+      data: syntheticRuntimeReadiness(
+        `Runtime checks could not be loaded. ${getApiErrorMessage(error)}. Start the backend, then reload this page.`,
+      ),
+      isMock: true,
+      reason: "runtime readiness endpoint unavailable",
+    };
+  }
 }
 
 export async function getPapers(): Promise<ApiResult<PaperSummary[]>> {

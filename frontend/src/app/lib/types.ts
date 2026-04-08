@@ -2,6 +2,18 @@ export type PaperUiStatus = "not_started" | "processing" | "completed" | "failed
 
 export type JobLifecycle = "queued" | "running" | "completed" | "failed" | "cancelled";
 
+export interface RuntimeReadinessCheck {
+  name: string;
+  status: "ok" | "warn" | "error";
+  detail: string;
+  path?: string | null;
+}
+
+export interface RuntimeReadinessResponse {
+  status: "ok" | "degraded" | "error";
+  checks: RuntimeReadinessCheck[];
+}
+
 export type PipelineStage = "ingest" | "index" | "read" | "verify" | "completed";
 
 export type ReasoningPersonaId = "librarian" | "researcher" | "extractor_reviewer";

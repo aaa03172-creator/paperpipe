@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PYTHON_BIN="$(command -v python3 || command -v python)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+else
+  PYTHON_BIN="$(command -v python3 || command -v python)"
+fi
 if [[ -z "${PYTHON_BIN}" ]]; then
   echo "python3/python not found" >&2
   exit 127
@@ -30,12 +37,11 @@ if [[ -n "${PAPERPIPE_ARTIFACTS_DIR:-}" && ! -d "${PAPERPIPE_ARTIFACTS_DIR}" ]];
   exit 1
 fi
 
-PRECHECK_ARGS=()
 if [[ "${PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES:-0}" == "1" ]]; then
-  PRECHECK_ARGS+=("--require-candidates")
+  "${PYTHON_BIN}" ./scripts/check_frontend_real_smoke_env.py --require-candidates
+else
+  "${PYTHON_BIN}" ./scripts/check_frontend_real_smoke_env.py
 fi
-
-"${PYTHON_BIN}" ./scripts/check_frontend_real_smoke_env.py "${PRECHECK_ARGS[@]}"
 
 echo "Starting backend real smoke server"
 echo "  config: ${CONFIG_PATH##*/}"
