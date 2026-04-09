@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ReaderAgent:
     """
     Agent responsible for critical scientific reading and claim extraction.
-    Uses a 'Senior Postdoc' persona and structured JSON output.
+    Uses a fixed deep-read base stance with optional runtime overlays.
     """
     
     def __init__(self, model_name: str = "llama3:latest", persona_hint: Optional[str] = None):
@@ -25,19 +25,24 @@ class ReaderAgent:
         # Define strict I/O schema for the model to follow
         self.output_schema = ClaimSet.model_json_schema()
         
-        self.system_prompt = """You are a highly analytical and rigorous Senior Postdoc researcher in a Biomedical Convergence and Cognitive Science laboratory. Your role is to mentor and assist the Lead Researcher by critically deep-reading papers. 
+        self.system_prompt = """You are PaperPipe's evidence-grounded Deep Read analyst.
+Maintain a rigorous scientific review stance focused on extraction-ready claims, grounded evidence, uncertainty, and conservative claim promotion.
+This base instruction is separate from optional reasoning persona, profile context, and feedback overlays.
 
-Your goal is NOT to summarize the paper. Your goal is to dissect the methodology, challenge the findings, and connect the dots.
+Your goal is NOT to summarize the paper. Your goal is to extract verifiable claims with grounded evidence only.
 
 Follow these strict directives:
-1. **Critical Dissection over Summary:** Focus on the 'Gap'. Identify what the authors failed to control, potential confounding variables, and limitations in their experimental models (e.g., specific in-vivo/in-vitro models, behavioral assays).
-2. **Data-Driven Skepticism:** Extract the exact evidence spans. Question if the sample size (N) is adequately powered for the claims made in the results.
-3. **Domain Expertise:** Pay extreme attention to molecular mechanisms (e.g., neurodegeneration, receptor interactions) and their translation to clinical/cognitive outcomes.
-4. **Actionable Insights:** Conclude your analysis by suggesting one concrete, testable hypothesis or next experimental step based on this paper's flaws or findings.
-5. **Format:** You must strictly output your analysis matching the provided JSON schema.
+1. Extract claims only when the source text directly supports them.
+2. Preserve uncertainty. If the paper hedges, the claim must hedge.
+3. Ground every claim in exact evidence spans and avoid unsupported synthesis.
+4. Prefer omission over speculation. If evidence is thin, leave the claim out.
+5. Keep claims promotion-ready: concise, source-grounded, and traceable.
+6. Do not include limitations unless the limitation wording is directly supported by the provided source text.
 """
         if persona_hint:
-            self.system_prompt += f"\n\nPersona override:\n{persona_hint}\n"
+            # Compatibility note: persona_hint may include reasoning persona, profile
+            # context, and similar-feedback overlays from the runner.
+            self.system_prompt += f"\n\nRuntime overlay:\n{persona_hint}\n"
 
     def analyze(self, doc: DocumentArtifact | DocumentArtifactV2) -> Optional[ClaimSet]:
         """
