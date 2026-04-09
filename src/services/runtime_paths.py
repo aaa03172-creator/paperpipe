@@ -11,6 +11,22 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def bundle_root() -> Path | None:
+    override = os.getenv("PAPERPIPE_APP_BUNDLE_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        return Path(frozen_root).expanduser().resolve()
+
+    return None
+
+
+def app_source_root() -> Path:
+    return bundle_root() or repo_root()
+
+
 def _truthy_env(name: str) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -26,7 +42,11 @@ def _app_name() -> str:
 
 
 def install_layout_enabled() -> bool:
-    return _truthy_env("PAPERPIPE_INSTALL_LAYOUT")
+    return _truthy_env("PAPERPIPE_INSTALL_LAYOUT") or bundle_root() is not None
+
+
+def frontend_runtime_dir() -> Path:
+    return (app_source_root() / "frontend").resolve()
 
 
 def user_config_base_dir() -> Path:
@@ -57,6 +77,8 @@ def storage_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "storage").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "storage").resolve()
     return Path("storage").resolve()
 
 
@@ -122,6 +144,8 @@ def logs_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "logs").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "logs").resolve()
     return Path("logs").resolve()
 
 
@@ -131,7 +155,41 @@ def cache_root() -> Path:
         return Path(value).expanduser().resolve()
     if os.getenv("PAPERPIPE_HOME"):
         return (paperpipe_home() / "cache").resolve()
+    if install_layout_enabled():
+        return (user_config_base_dir() / "cache").resolve()
     return (storage_root() / "cache").resolve()
+
+
+def exports_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "export").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "exports").resolve()
+    return Path("export")
+
+
+def library_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "Library").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "library").resolve()
+    return Path("Library")
+
+
+def pdf_storage_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "storage" / "pdfs").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "pdfs").resolve()
+    return Path("storage/pdfs")
+
+
+def managed_watch_folder_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "watch_folder").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "watch_folder").resolve()
+    return Path("Download/PaperPipe_Watch")
 
 
 def rag_root() -> Path:
@@ -261,6 +319,13 @@ def method_comparisons_root() -> Path:
     if value:
         return Path(value).expanduser().resolve()
     return (storage_root() / "method_comparisons").resolve()
+
+
+def paper_syntheses_root() -> Path:
+    value = os.getenv("PAPERPIPE_PAPER_SYNTHESES_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "paper_syntheses").resolve()
 
 
 def project_memory_root() -> Path:
