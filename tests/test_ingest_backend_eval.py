@@ -134,6 +134,65 @@ def test_compare_backend_rows_ignores_raw_table_fragments_when_meaningful_count_
     assert report["table_fallback_docs"][0]["fallback_pages"] == [4]
 
 
+def test_compare_backend_rows_reclassifies_same_page_merge_as_non_loss() -> None:
+    baseline_rows = [
+        {
+            "pdf_path": "/tmp/c.pdf",
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example3",
+            "table_count": 2,
+            "meaningful_table_count": 2,
+            "table_pages": [7],
+            "table_summaries": [
+                {"source_page": 7, "rows": 6, "cols": 6, "non_empty_cells": 36, "alpha_cells": 36},
+                {"source_page": 7, "rows": 4, "cols": 6, "non_empty_cells": 24, "alpha_cells": 24},
+            ],
+            "text_char_count": 100,
+        }
+    ]
+    candidate_rows = [
+        {
+            "pdf_path": "/tmp/c.pdf",
+            "requested_backend": "docling",
+            "effective_backend": "docling",
+            "backend_available": True,
+            "backend_fallback_note": None,
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example3",
+            "table_count": 1,
+            "meaningful_table_count": 1,
+            "table_pages": [7],
+            "table_fallback_used": False,
+            "table_fallback_pages": [],
+            "table_summaries": [
+                {"source_page": 7, "rows": 13, "cols": 6, "non_empty_cells": 77, "alpha_cells": 77},
+            ],
+            "text_char_count": 105,
+        }
+    ]
+
+    report = compare_backend_rows(
+        baseline_rows=baseline_rows,
+        candidate_rows=candidate_rows,
+        min_candidate_text_ratio=0.5,
+        max_backend_unavailable_docs=0,
+        max_error_increase_docs=0,
+        max_empty_text_increase_docs=0,
+        max_doi_loss_docs=0,
+        max_meaningful_table_loss_docs=0,
+        max_low_text_ratio_docs=0,
+    )
+
+    assert report["meaningful_table_loss_docs"] == []
+    assert report["meaningful_table_page_loss_docs"] == []
+    assert report["same_page_merge_docs"][0]["baseline_meaningful_pages"] == [7]
+    assert report["decision"]["passed"] is True
+
+
 def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "eval" / "compare_ingest_backends.py"
@@ -182,3 +241,4 @@ def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> 
     assert all("table_fallback_used" in row for row in rows)
     assert all("table_fallback_pages" in row for row in rows)
     assert "docs_with_table_fallback_count" in metrics["backend_metrics"]["docling"]
+    assert "same_page_merge_docs" in metrics["comparison"]
