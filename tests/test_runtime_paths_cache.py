@@ -1,4 +1,5 @@
 from src.services.runtime_paths import cache_root, feedback_index_root, ocr_cache_root, paperpipe_home, rag_root
+import src.services.runtime_paths as runtime_paths
 
 
 def test_cache_and_agent_roots_default_under_paperpipe_home(tmp_path, monkeypatch):
@@ -30,3 +31,20 @@ def test_cache_and_agent_roots_respect_env_override(tmp_path, monkeypatch):
     assert rag_root() == custom_rag.resolve()
     assert feedback_index_root() == custom_feedback.resolve()
     assert ocr_cache_root() == custom_ocr.resolve()
+
+
+def test_cache_and_agent_roots_follow_install_layout_on_macos(tmp_path, monkeypatch):
+    monkeypatch.delenv("PAPERPIPE_HOME", raising=False)
+    monkeypatch.delenv("PAPERPIPE_CACHE_DIR", raising=False)
+    monkeypatch.delenv("PAPERPIPE_RAG_DIR", raising=False)
+    monkeypatch.delenv("PAPERPIPE_FEEDBACK_INDEX_DIR", raising=False)
+    monkeypatch.delenv("PAPERPIPE_OCR_CACHE_DIR", raising=False)
+    monkeypatch.setenv("PAPERPIPE_INSTALL_LAYOUT", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(runtime_paths.sys, "platform", "darwin")
+
+    install_root = tmp_path / "Library" / "Application Support" / "Lattice"
+    assert runtime_paths.cache_root() == (install_root / "cache").resolve()
+    assert runtime_paths.rag_root() == (install_root / "storage" / "rag").resolve()
+    assert runtime_paths.feedback_index_root() == (install_root / "storage" / "feedback_index").resolve()
+    assert runtime_paths.ocr_cache_root() == (install_root / "cache" / "ocr").resolve()
