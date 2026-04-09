@@ -1,0 +1,68 @@
+{
+  "schema_version": "deepread_handoff_audit.v1",
+  "generated_at": "2026-04-08T14:51:53.658076+00:00",
+  "run_id": "deepread_handoff_multicase_regression_20260408_backfilled",
+  "inputs": {
+    "manifest_count": 1,
+    "manifests": [
+      "/Users/jangseongjin/paperpipe/goldset/manifests/deepread_handoff_multicase_regression_20260408.json"
+    ],
+    "run_dir_count": 8,
+    "run_dirs": [
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_002659",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_041433",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260402_011635",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_023950",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_024732",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_025249",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_032427",
+      "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_033030"
+    ]
+  },
+  "run_count": 8,
+  "overall_status_counts": {
+    "fail": 1,
+    "pass": 1,
+    "warn": 6
+  },
+  "step_stability_status_counts": {
+    "fail": 1,
+    "pass": 1,
+    "warn": 6
+  },
+  "failure_recovery_status_counts": {
+    "pass": 8
+  },
+  "goal_drift_status_counts": {
+    "pass": 7,
+    "warn": 1
+  },
+  "review_ready_count": 1,
+  "promotion_candidate_count": 7,
+  "context_manifest_missing_count": 0,
+  "runs_with_goal_drift_warn": [
+    "run_20260328_041433"
+  ],
+  "runs_with_step_stability_warn_or_fail": [
+    "run_20260328_041433",
+    "run_20260402_011635",
+    "run_20260404_023950",
+    "run_20260404_024732",
+    "run_20260404_025249",
+    "run_20260407_032427",
+    "run_20260407_033030"
+  ],
+  "runs_with_failure_recovery_warn_or_fail": [],
+  "reason_code_counts": {
+    "CLAIMSET_NOT_READY": 1,
+    "FINAL_CLAIM_COUNT_ZERO": 1,
+    "MISSING_CLAIMSET_RESOLVED": 1,
+    "READER_TIMEOUT_TRIGGERED": 1,
+    "RUN_NOT_SUCCEEDED": 2,
+    "VERIFIER_FAILED": 12
+  },
+  "hard_fail_code_counts": {
+    "MISSING_CLAIMSET_RESOLVED": 1,
+    "RUN_NOT_SUCCEEDED": 1
+  }
+}

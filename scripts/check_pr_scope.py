@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from src.services.pr_scope_guard import (
     classify_scope,
     classify_title_scope,
 )
+from src.services.deepread_handoff_gate_scope import classify_deepread_handoff_gate_scope
 
 
 def _run_git(args: list[str]) -> str:
@@ -36,10 +38,11 @@ def _format_scope(report: ScopeReport) -> str:
         lines.append(f"[PR-SCOPE] docs={', '.join(report.doc_files)}")
     if report.code_files:
         lines.append(f"[PR-SCOPE] code={', '.join(report.code_files)}")
-    if report.allowed_doc_files:
-        lines.append(f"[PR-SCOPE] allowed_docs_with_code={', '.join(report.allowed_doc_files)}")
-    if report.blocked_doc_files:
-        lines.append(f"[PR-SCOPE] blocked_docs_with_code={', '.join(report.blocked_doc_files)}")
+    if report.has_mixed_scope:
+        if report.allowed_doc_files:
+            lines.append(f"[PR-SCOPE] allowed_docs_with_code={', '.join(report.allowed_doc_files)}")
+        if report.blocked_doc_files:
+            lines.append(f"[PR-SCOPE] blocked_docs_with_code={', '.join(report.blocked_doc_files)}")
     return "\n".join(lines)
 
 
@@ -49,6 +52,89 @@ def _format_title_scope(report) -> str:
     if report.violating_files:
         lines.append(f"[PR-TITLE-SCOPE] violating_files={', '.join(report.violating_files)}")
     return "\n".join(lines)
+
+
+def _format_deepread_handoff_gate_scope(files: list[str]) -> str:
+    report = classify_deepread_handoff_gate_scope(files)
+    lines: list[str] = []
+    lines.append(f"[DEEPREAD-HANDOFF-GATE] mode={report.mode}")
+    lines.append(f"[DEEPREAD-HANDOFF-GATE] reason={report.reason}")
+    if report.relevant_files:
+        lines.append(f"[DEEPREAD-HANDOFF-GATE] relevant_files={', '.join(report.relevant_files)}")
+    if report.continuity_files:
+        lines.append(f"[DEEPREAD-HANDOFF-GATE] continuity_files={', '.join(report.continuity_files)}")
+    if report.cross_paper_files:
+        lines.append(f"[DEEPREAD-HANDOFF-GATE] cross_paper_files={', '.join(report.cross_paper_files)}")
+    if report.ignored_doc_files:
+        lines.append(f"[DEEPREAD-HANDOFF-GATE] ignored_doc_files={', '.join(report.ignored_doc_files)}")
+    if report.mode == "continuity":
+        lines.append(
+            "[DEEPREAD-HANDOFF-GATE] next=python3 scripts/eval/run_recommended_deepread_handoff_gate.py --against-ref <ref> --coric-new <audit_dir> --run-id <run_id>"
+        )
+    elif report.mode == "cross-paper":
+        lines.append(
+            "[DEEPREAD-HANDOFF-GATE] next=python3 scripts/eval/run_recommended_deepread_handoff_gate.py --against-ref <ref> --coric-new <coric_audit_dir> --multicase-new <multicase_audit_dir> --run-id <run_id>"
+        )
+    return "\n".join(lines)
+
+
+def _deepread_handoff_gate_next_command(report) -> str | None:
+    if report.mode == "continuity":
+        return (
+            "python3 scripts/eval/run_recommended_deepread_handoff_gate.py "
+            "--against-ref <ref> --coric-new <audit_dir> --run-id <run_id>"
+        )
+    if report.mode == "cross-paper":
+        return (
+            "python3 scripts/eval/run_recommended_deepread_handoff_gate.py "
+            "--against-ref <ref> --coric-new <coric_audit_dir> "
+            "--multicase-new <multicase_audit_dir> --run-id <run_id>"
+        )
+    return None
+
+
+def _deepread_handoff_gate_annotation_line(files: list[str]) -> str | None:
+    report = classify_deepread_handoff_gate_scope(files)
+    if report.mode == "not_applicable":
+        return None
+    next_command = _deepread_handoff_gate_next_command(report)
+    message = f"mode={report.mode}; reason={report.reason}"
+    if next_command:
+        message += f"; next={next_command}"
+    return f"::notice title=DeepRead Handoff Gate::{message}"
+
+
+def _write_deepread_handoff_gate_summary(files: list[str]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
+    if not summary_path:
+        return
+
+    report = classify_deepread_handoff_gate_scope(files)
+    next_command = _deepread_handoff_gate_next_command(report)
+    lines: list[str] = [
+        "## DeepRead Handoff Gate Advisory",
+        "",
+        f"- mode: `{report.mode}`",
+        f"- reason: {report.reason}",
+    ]
+    if report.relevant_files:
+        lines.append(f"- relevant files: `{', '.join(report.relevant_files)}`")
+    if next_command:
+        lines.append(f"- next: `{next_command}`")
+    elif report.mode == "not_applicable":
+        lines.append("- next: no deep-read handoff gate needed for this diff")
+    summary_file = Path(summary_path).expanduser()
+    summary_file.parent.mkdir(parents=True, exist_ok=True)
+    with summary_file.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def _emit_deepread_handoff_gate_annotation(files: list[str]) -> None:
+    if not os.environ.get("GITHUB_ACTIONS", "").strip():
+        return
+    annotation = _deepread_handoff_gate_annotation_line(files)
+    if annotation:
+        print(annotation)
 
 
 def _parse_allowed_docs(raw_values: Iterable[str] | None) -> set[str]:
@@ -111,6 +197,9 @@ def main() -> int:
         return 2
 
     print("[PR-TITLE-SCOPE] PASS")
+    print(_format_deepread_handoff_gate_scope(files))
+    _write_deepread_handoff_gate_summary(files)
+    _emit_deepread_handoff_gate_annotation(files)
     return 0
 
 
