@@ -333,3 +333,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable"`
+
+## 7.13) Fallback Detail 5xx Honesty Checkpoint (2026-04-10)
+- Screen/Flow: `/meeting-packs/:packId` detail for a fallback-created draft when the backend later returns a real HTTP `5xx`
+- Goal action: 사용자가 current-session placeholder draft를 보고 있을 때 server-side failure를 placeholder pack/trace/readiness로 오해하지 않는다.
+- Primary persona: backend outage 직후 placeholder draft를 열어 둔 채 runtime recovery를 기다리는 운영자
+- Current friction:
+  - current-session placeholder draft는 transport failure continuity가 맞지만, real HTTP `5xx`도 같은 placeholder content로 유지되면 live runtime crash를 놓치기 쉽다.
+  - 이 경우 operator는 fallback shell이 여전히 trustworthy한 것처럼 읽을 수 있다.
+- Quick decision:
+  - true transport/unreachable failure에서만 placeholder continuity를 유지한다.
+  - real HTTP `5xx`는 detail/trace/validation 모두 explicit load error로 surface한다.
+- BMAP:
+  - Motivation: 높음. degraded runtime일수록 operator는 placeholder보다 current failure state를 먼저 알아야 한다.
+  - Ability: 높음. owner는 detail read helpers 세 개와 fallback browser rail 하나면 충분하다.
+  - Prompt: explicit `503` detail이 retry/recovery 행동을 가장 잘 유도한다.
+- B.I.A.S:
+  - Block: placeholder detail이 server crash를 가릴 수 있었다.
+  - Interpret: explicit backend `5xx`는 “placeholder shell은 있었지만 live runtime는 여전히 깨져 있다”로 바로 읽힌다.
+  - Act: operator는 draft reuse보다 backend recovery를 먼저 하게 된다.
+  - Store: transport fallback continuity와 server failure honesty를 구분하는 trust boundary가 강화된다.
+- Peak-End:
+  - Peak는 placeholder draft에서도 live `5xx`를 truth-first로 보여주는 순간이다.
+  - Pit는 generated placeholder라는 이유로 server crash를 계속 숨길 수 있던 이전 path다.
+  - Transition은 create fallback success 이후 subsequent load를 honest하게 재분류한 점이다.
+  - End는 operator가 current shell과 runtime 상태를 혼동하지 않고 나가는 것이다.
+- Ethics:
+  - Regret: 통과. continuity convenience가 real failure를 가리지 않는다.
+  - Black Mirror: 통과. degraded runtime를 정상처럼 보이게 만들지 않는다.
+  - In Real-Life: 통과. 장애 중인 도구는 continuity보다 현재 신뢰 가능 범위를 먼저 말해줘야 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable|fallback-created meeting pack surfaces backend 503 instead of silently keeping placeholder detail content"`
