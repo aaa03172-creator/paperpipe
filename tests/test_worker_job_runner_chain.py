@@ -208,11 +208,13 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
         assert (artifact_dir / "run_meta.json").exists()
+        assert (artifact_dir / "evidence_extraction_bundle.json").exists()
         assert (artifact_dir / "acceptance_contract.json").exists()
         assert (artifact_dir / "quality_gate.json").exists()
         assert (artifact_dir / "context_manifest.json").exists()
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
+        evidence_bundle = json.loads((artifact_dir / "evidence_extraction_bundle.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         context_manifest = json.loads((artifact_dir / "context_manifest.json").read_text(encoding="utf-8"))
@@ -241,9 +243,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_index_written"] is True
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_claimset_resolved_written"] is True
+        assert meta["artifact_evidence_extraction_bundle_written"] is True
         assert meta["artifact_acceptance_contract_written"] is True
         assert meta["artifact_quality_gate_written"] is True
         assert meta["artifact_stats_written"] is True
+        assert meta["evidence_extraction_record_count"] >= 1
+        assert meta["evidence_extraction_claim_record_count"] == 1
         assert meta["reader_model"] is not None
         assert meta["reader_timeout_base_sec"] >= 60
         assert meta["reader_attempt_order"] == "current"
@@ -274,6 +279,8 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert quality_gate["current_promotion_candidate"] is True
         assert context_manifest["selected_attempt_label"] == "primary"
         assert context_manifest["attempt_count"] == 1
+        assert evidence_bundle["metrics"]["claim_record_count"] == 1
+        assert evidence_bundle["records"][0]["record_type"] == "claim"
 
         # Re-run on same paper and ensure note keeps a single Deep Read section.
         job_id_2 = queue.enqueue(
