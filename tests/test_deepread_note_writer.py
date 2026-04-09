@@ -6,9 +6,11 @@ from src.schemas.agent_artifacts import (
     StatCheckEntry,
     VerificationStatus,
 )
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.services.deepread_note_writer import (
     DEEPREAD_HEADER,
     _format_evidence_text_for_display,
+    build_clinical_extraction_markdown,
     build_deepread_markdown,
     build_stats_markdown,
     upsert_deepread_section,
@@ -33,6 +35,44 @@ def test_build_deepread_markdown_renders_claims():
     assert "Analyzed via llama3:latest" in md
     assert "Drug A improved outcome." in md
     assert "Result section evidence" in md
+
+
+def test_build_deepread_markdown_can_include_bounded_clinical_extraction_block():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="efficacy",
+                statement="Drug A improved outcome.",
+                confidence=0.91,
+            )
+        ],
+    )
+    extraction = BiomedicalClinicalExtraction(
+        paper_id="doc1",
+        citation={
+            "title": "Clinical note",
+            "authors_first": "Kim",
+            "year": 2026,
+            "journal_or_server": "Clinical Journal",
+            "doi": None,
+            "url": None,
+        },
+        population={"condition": "Ulcerative colitis", "n_total": 48},
+        intervention={"category": "biologic", "name": "Monoclonal antibody"},
+        outcomes={"primary": [{"name": "Clinical remission", "domain": "primary"}]},
+        eligibility_flags={"followup_tag": "therapeutic"},
+    )
+
+    clinical_md = build_clinical_extraction_markdown(extraction)
+    md = build_deepread_markdown("llama3:latest", claimset, clinical_md=clinical_md)
+
+    assert "### 🏥 Clinical Extraction" in md
+    assert "Ulcerative colitis, n=48" in md
+    assert "Monoclonal antibody, Biologic" in md
+    assert "Clinical remission" in md
+    assert "Therapeutic" in md
 
 
 def test_build_stats_markdown_renders_checks():

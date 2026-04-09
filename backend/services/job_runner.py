@@ -10,24 +10,33 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Awaitable, Optional, List
 
-from src.config import load_config
+from src.config import load_config, resolve_clinical_extraction_feature
 from src.db_utils import get_db_connection
 from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
+from src.contracts.artifact_views import get_artifact_header, iter_text_sections
+from src.contracts.document_artifact_v2 import DocumentArtifactV2
+from src.llm_provider import get_llm_provider
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import load_profiles
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.services.event_log import log_job_event
 from src.services.identity import new_run_id
 from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
+    build_clinical_extraction_markdown,
     build_deepread_markdown,
     build_stats_markdown,
     upsert_deepread_section,
 )
 from src.services.deepread_state_projection import promote_deepread_structured_state_for_note
 from src.services.deepread_handoff_artifacts import write_deepread_handoff_artifacts
+from src.services.evidence_extraction_sidecar import (
+    build_evidence_extraction_bundle,
+    write_evidence_extraction_bundle,
+)
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
@@ -43,6 +52,7 @@ from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
 from src.verify import resolve_anchor_api_context
+from src.skills.storage import split_frontmatter
 
 logger = logging.getLogger("paperpipe.backend")
 
@@ -152,6 +162,50 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
         if conn is not None:
             conn.close()
     return None
+
+
+def _is_clinical_note(note_path: Optional[Path]) -> bool:
+    if note_path is None or not note_path.exists():
+        return False
+    try:
+        frontmatter, _body = split_frontmatter(note_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    slot_value = str(frontmatter.get("slot") or "").strip().lower()
+    type_value = str(frontmatter.get("type") or "").strip().lower()
+    return slot_value == "clinical" or type_value in {"clinical_paper", "clinical_trial"}
+
+
+def _build_biomedical_clinical_extraction_inputs(doc, paper_id: str) -> tuple[dict[str, Any], str]:
+    header = get_artifact_header(doc)
+    sections = list(iter_text_sections(doc))
+
+    summary_candidates: list[str] = []
+    methods_candidates: list[str] = []
+    for section in sections:
+        lowered = (section.name or "").strip().lower()
+        text = (section.text or "").strip()
+        if not text:
+            continue
+        if any(token in lowered for token in ("abstract", "summary", "result", "discussion", "conclusion")):
+            summary_candidates.append(text)
+        if any(token in lowered for token in ("method", "design", "materials", "participant", "intervention", "protocol")):
+            methods_candidates.append(text)
+
+    if not summary_candidates:
+        summary_candidates = [section.text for section in sections[:2] if (section.text or "").strip()]
+    summary = "\n\n".join(summary_candidates)[:4000]
+    methods_snippet = "\n\n".join(methods_candidates)[:3000]
+
+    paper_payload = {
+        "title": header.title or paper_id,
+        "summary": summary,
+        "link": header.source_ref,
+        "doi": paper_id if str(paper_id).startswith("10.") or str(paper_id).startswith("doi:") else None,
+        "authors": header.authors,
+        "source": "deepread_job",
+    }
+    return paper_payload, methods_snippet
 
 
 def _resolve_persona_hint(persona_id: str) -> Optional[str]:
@@ -752,6 +806,9 @@ async def run_deepread_job(
             "table_pass2_enabled": False,
             "table_pass3_enabled": False,
             "table_page_budget": 0,
+            "artifact_clinical_extraction_written": False,
+            "clinical_extraction_status": "not_run",
+            "clinical_extraction_note_type": "unknown",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -808,6 +865,67 @@ async def run_deepread_job(
             f.write(doc_artifact.model_dump_json(indent=2))
         bootstrap_meta["artifact_document_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+
+        note_path: Optional[Path] = _resolve_note_path_for_paper(config, paper_id)
+        is_clinical_note = _is_clinical_note(note_path)
+        bootstrap_meta["clinical_extraction_note_type"] = "clinical" if is_clinical_note else "non_clinical"
+        run_meta["clinical_extraction_status"] = "skipped"
+        run_meta["clinical_extraction_artifact"] = None
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        _write_run_meta(artifact_dir, run_meta)
+
+        llm_conf = getattr(config, "llm", None)
+        clinical_extraction_feature = resolve_clinical_extraction_feature(
+            getattr(llm_conf, "features", None)
+        )
+        clinical_extraction_enabled = bool(getattr(clinical_extraction_feature, "enabled", False))
+        clinical_extraction: BiomedicalClinicalExtraction | None = None
+        if is_clinical_note and clinical_extraction_enabled and llm_conf is not None:
+            llm_provider = get_llm_provider(llm_conf, getattr(config, "entity_aliases", None))
+            if llm_provider and llm_provider.is_available():
+                extract_clinical = getattr(llm_provider, "extract_biomedical_clinical_data", None)
+                if callable(extract_clinical):
+                    try:
+                        paper_payload, methods_snippet = _build_biomedical_clinical_extraction_inputs(doc_artifact, paper_id)
+                        extraction_candidate = extract_clinical(paper_payload, methods_snippet)
+                        if isinstance(extraction_candidate, BiomedicalClinicalExtraction):
+                            clinical_extraction = extraction_candidate
+                            clinical_path = artifact_dir / "clinical_extraction.json"
+                            clinical_path.write_text(
+                                clinical_extraction.model_dump_json(indent=2),
+                                encoding="utf-8",
+                            )
+                            bootstrap_meta["artifact_clinical_extraction_written"] = True
+                            bootstrap_meta["clinical_extraction_status"] = "completed"
+                            run_meta["clinical_extraction_status"] = "completed"
+                            run_meta["clinical_extraction_artifact"] = str(clinical_path)
+                            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                            _write_run_meta(artifact_dir, run_meta)
+                            await emit("ingest", 28, "Biomedical clinical extraction artifact written")
+                        else:
+                            bootstrap_meta["clinical_extraction_status"] = "empty"
+                            run_meta["clinical_extraction_status"] = "empty"
+                            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                            _write_run_meta(artifact_dir, run_meta)
+                    except Exception as exc:
+                        bootstrap_meta["clinical_extraction_status"] = f"failed:{type(exc).__name__}"
+                        run_meta["clinical_extraction_status"] = f"failed:{type(exc).__name__}"
+                        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                        _write_run_meta(artifact_dir, run_meta)
+                        await emit("ingest", 28, f"Biomedical clinical extraction skipped: {type(exc).__name__}", level="WARNING")
+            else:
+                bootstrap_meta["clinical_extraction_status"] = "llm_unavailable"
+                run_meta["clinical_extraction_status"] = "llm_unavailable"
+                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                _write_run_meta(artifact_dir, run_meta)
+        else:
+            reason = "feature_disabled"
+            if not is_clinical_note:
+                reason = "not_clinical_note"
+            bootstrap_meta["clinical_extraction_status"] = reason
+            run_meta["clinical_extraction_status"] = reason
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            _write_run_meta(artifact_dir, run_meta)
             
         await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
 
@@ -967,7 +1085,11 @@ async def run_deepread_job(
         if not claim_set:
              raise Exception("Reader Agent failed to produce claims")
         claim_set = enforce_claimset_evidence_policy(claim_set)
-        resolved_claim_set = resolve_claimset_grounding(claim_set, index_artifact)
+        resolved_claim_set = resolve_claimset_grounding(
+            claim_set,
+            index_artifact,
+            document_artifact=doc_artifact if isinstance(doc_artifact, DocumentArtifactV2) else None,
+        )
              
         # Save ClaimSet
         with open(artifact_dir / "claimset.json", "w") as f:
@@ -1038,6 +1160,36 @@ async def run_deepread_job(
                 bootstrap_meta["claimset_ops_action"] = "manual_review_required"
                 bootstrap_meta["claimset_ops_alert"] = True
             bootstrap_meta["claimset_ops_note"] = followup
+
+        bootstrap_meta["artifact_evidence_extraction_bundle_written"] = False
+        try:
+            evidence_extraction_bundle = build_evidence_extraction_bundle(
+                paper_id=paper_id,
+                run_id=run_id,
+                resolved_claimset=resolved_claim_set,
+                clinical_extraction=clinical_extraction,
+            )
+            evidence_extraction_path = write_evidence_extraction_bundle(evidence_extraction_bundle, artifact_dir)
+            bootstrap_meta["artifact_evidence_extraction_bundle_written"] = True
+            bootstrap_meta["evidence_extraction_record_count"] = evidence_extraction_bundle.metrics.record_count
+            bootstrap_meta["evidence_extraction_claim_record_count"] = (
+                evidence_extraction_bundle.metrics.claim_record_count
+            )
+            bootstrap_meta["evidence_extraction_clinical_field_record_count"] = (
+                evidence_extraction_bundle.metrics.clinical_field_record_count
+            )
+            bootstrap_meta["evidence_extraction_evidence_ref_count"] = (
+                evidence_extraction_bundle.metrics.evidence_ref_count
+            )
+            if run_meta is not None:
+                run_meta["evidence_extraction_bundle"] = {
+                    "path": str(evidence_extraction_path),
+                    "record_count": evidence_extraction_bundle.metrics.record_count,
+                    "claim_record_count": evidence_extraction_bundle.metrics.claim_record_count,
+                    "clinical_field_record_count": evidence_extraction_bundle.metrics.clinical_field_record_count,
+                }
+        except Exception as exc:
+            logger.warning("Failed to build evidence_extraction bundle: %s", exc)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
@@ -1160,10 +1312,16 @@ async def run_deepread_job(
                 else:
                     await emit("read", 76, f"Canonical state skipped: {promotion['reason']}")
                 stats_md = build_stats_markdown(stats_report) if run_verify and "stats_report" in locals() else ""
+                clinical_md = (
+                    build_clinical_extraction_markdown(clinical_extraction)
+                    if is_clinical_note and clinical_extraction is not None
+                    else ""
+                )
                 deepread_md = build_deepread_markdown(
                     model_name=getattr(reader_agent, "model_name", "reader"),
                     claims_set=resolved_claim_set,
                     stats_md=stats_md,
+                    clinical_md=clinical_md,
                 )
                 note_content = note_path.read_text(encoding="utf-8")
                 note_updated = upsert_deepread_section(note_content, deepread_md)

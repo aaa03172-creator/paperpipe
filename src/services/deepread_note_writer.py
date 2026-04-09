@@ -1,5 +1,6 @@
 import re
 
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 
 
@@ -33,6 +34,51 @@ def build_stats_markdown(stats_report: StatsReport) -> str:
     return stats_md
 
 
+def build_clinical_extraction_markdown(extraction: BiomedicalClinicalExtraction) -> str:
+    population_parts = []
+    if extraction.population.condition:
+        population_parts.append(extraction.population.condition)
+    if extraction.population.cohort_description:
+        population_parts.append(extraction.population.cohort_description)
+    if extraction.population.n_total > 0:
+        population_parts.append(f"n={extraction.population.n_total}")
+    population_line = ", ".join(population_parts) or "Not detailed"
+
+    intervention_parts = []
+    if extraction.intervention.name:
+        intervention_parts.append(extraction.intervention.name)
+    if extraction.intervention.category != "unknown":
+        intervention_parts.append(extraction.intervention.category.replace("_", " ").title())
+    if extraction.intervention.dose:
+        intervention_parts.append(extraction.intervention.dose)
+    elif extraction.intervention.schedule:
+        intervention_parts.append(extraction.intervention.schedule)
+    if extraction.intervention.duration_weeks > 0:
+        intervention_parts.append(f"{extraction.intervention.duration_weeks} weeks")
+    intervention_line = ", ".join(intervention_parts) or "Not detailed"
+
+    primary_outcomes = ", ".join(
+        endpoint.name for endpoint in extraction.outcomes.primary[:3] if endpoint.name
+    ) or "Not detailed"
+
+    safety_line = "Not detailed"
+    if extraction.safety_adherence.adverse_events_reported:
+        safety_line = extraction.safety_adherence.adverse_events_summary or "Adverse events reported"
+    elif extraction.outcomes.safety:
+        safety_line = ", ".join(endpoint.name for endpoint in extraction.outcomes.safety[:3] if endpoint.name) or "Reported"
+
+    followup_tag = extraction.eligibility_flags.followup_tag.replace("_", " ").title()
+
+    return (
+        "### 🏥 Clinical Extraction\n"
+        f"- **Condition / Population**: {population_line}\n"
+        f"- **Intervention**: {intervention_line}\n"
+        f"- **Primary Outcomes**: {primary_outcomes}\n"
+        f"- **Safety**: {safety_line}\n"
+        f"- **Follow-Up Tag**: {followup_tag}\n\n"
+    )
+
+
 def _format_evidence_text_for_display(text: str) -> str:
     formatted = str(text or "")
     formatted = re.sub(r"([A-Za-z0-9])-\s*\n\s*([A-Za-z0-9])", r"\1\2", formatted)
@@ -47,9 +93,16 @@ def _format_evidence_text_for_display(text: str) -> str:
     return formatted
 
 
-def build_deepread_markdown(model_name: str, claims_set: ClaimSet, stats_md: str = "") -> str:
+def build_deepread_markdown(
+    model_name: str,
+    claims_set: ClaimSet,
+    stats_md: str = "",
+    clinical_md: str = "",
+) -> str:
     md_output = f"{DEEPREAD_HEADER}\n"
     md_output += f"**Analyzed via {model_name}**\n\n"
+    if clinical_md:
+        md_output += clinical_md
 
     for i, claim in enumerate(claims_set.claims, 1):
         icon = "✅" if claim.confidence > 0.8 else "⚠️"
