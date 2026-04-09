@@ -248,6 +248,14 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_quality_gate_written"] is True
         assert meta["artifact_stats_written"] is True
         assert meta["evidence_extraction_record_count"] >= 1
+        assert quality_gate["step_stability_summary"]["status"] == "pass"
+        assert quality_gate["step_stability_summary"]["reason_codes"] == []
+        assert quality_gate["failure_recovery_summary"]["status"] == "pass"
+        assert quality_gate["failure_recovery_summary"]["reason_codes"] == []
+        assert any(check["name"] == "step_stability" for check in quality_gate["checks"])
+        assert any(check["name"] == "failure_recovery" for check in quality_gate["checks"])
+        assert context_manifest["goal_drift_summary"]["status"] == "pass"
+        assert context_manifest["goal_drift_summary"]["reason_codes"] == []
         assert meta["evidence_extraction_claim_record_count"] == 1
         assert meta["reader_model"] is not None
         assert meta["reader_timeout_base_sec"] >= 60
@@ -277,6 +285,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert quality_gate["overall_status"] == "pass"
         assert quality_gate["review_ready"] is True
         assert quality_gate["current_promotion_candidate"] is True
+        assert quality_gate["hard_fail_codes"] == []
         assert context_manifest["selected_attempt_label"] == "primary"
         assert context_manifest["attempt_count"] == 1
         assert evidence_bundle["metrics"]["claim_record_count"] == 1
@@ -419,6 +428,9 @@ def test_worker_not_ready_claimset_queues_manual_review_followup(tmp_path, monke
         assert quality_gate["overall_status"] == "warn"
         assert quality_gate["current_promotion_candidate"] is True
         assert quality_gate["review_ready"] is False
+        assert quality_gate["hard_fail_codes"] == []
+        assert quality_gate["step_stability_summary"]["status"] == "pass"
+        assert quality_gate["failure_recovery_summary"]["status"] == "pass"
 
         conn = sqlite3.connect(db_utils.DB_PATH)
         row = conn.execute(
@@ -546,6 +558,11 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         assert run_meta["reader_timeout_budget_sec"] == 123
         assert run_meta["reader_timeout_triggered"] is True
         assert run_meta["reader_timeout_error_type"] == "ReadTimeout"
+        quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
+        assert quality_gate["overall_status"] == "fail"
+        assert quality_gate["step_stability_summary"]["status"] == "fail"
+        assert quality_gate["failure_recovery_summary"]["status"] == "pass"
+        assert quality_gate["failure_recovery_summary"]["reason_codes"] == []
     finally:
         db_utils.DB_PATH = original_db_path
 

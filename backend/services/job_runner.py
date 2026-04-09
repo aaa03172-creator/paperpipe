@@ -15,7 +15,12 @@ from src.db_utils import get_db_connection
 from src.agents.ingest_agent import IngestAgent
 from src.agents.indexer_agent import IndexerAgent
 from src.agents.reader_agent import ReaderAgent
-from src.agents.stats_agent import StatsVerificationAgent
+try:
+    from src.agents.stats_agent import StatsVerificationAgent
+    _STATS_AGENT_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - exercised in import-smoke regression test
+    StatsVerificationAgent = None  # type: ignore[assignment]
+    _STATS_AGENT_IMPORT_ERROR = exc
 from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.llm_provider import get_llm_provider
@@ -688,6 +693,17 @@ async def run_deepread_job(
         run_meta.update(extra)
         _write_run_meta(artifact_dir, run_meta)
 
+    def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
+        metrics = getattr(reader_obj, "last_analysis_metrics", None)
+        if not isinstance(metrics, dict) or not metrics:
+            return
+        bootstrap_meta["reader_analysis"] = dict(metrics)
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_analysis"] = dict(metrics)
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+
     try:
         if await is_cancelled():
             return {"status": "cancelled", "run_id": run_id}
@@ -753,17 +769,6 @@ async def run_deepread_job(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         _write_run_meta(artifact_dir, run_meta)
-
-    def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
-        metrics = getattr(reader_obj, "last_analysis_metrics", None)
-        if not isinstance(metrics, dict) or not metrics:
-            return
-        bootstrap_meta["reader_analysis"] = dict(metrics)
-        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-        if run_meta is not None:
-            run_meta["reader_analysis"] = dict(metrics)
-            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-            _write_run_meta(artifact_dir, run_meta)
 
         bootstrap_meta = {
             "job_id": job_id,
@@ -1000,7 +1005,7 @@ async def run_deepread_job(
             _write_run_meta(artifact_dir, run_meta)
         page_count = len(getattr(doc_artifact, "pages", []) or [])
         table_count = len(getattr(doc_artifact, "tables", []) or [])
-        llm_conf = getattr(config, "llm", None)
+        llm_timeout_default = max(15, int(getattr(llm_conf, "timeout_seconds", 15) or 15))
         reader_attempt_order = str(getattr(llm_conf, "reader_attempt_order", "current") or "current")
         if reader_attempt_order not in {"current", "focused_first"}:
             reader_attempt_order = "current"
@@ -1010,7 +1015,6 @@ async def run_deepread_job(
             run_meta["reader_attempt_order"] = reader_attempt_order
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
-        llm_timeout_default = max(15, int(getattr(llm_conf, "timeout_seconds", 15) or 15))
         reader_timeout_base = default_reader_timeout_base_seconds(llm_timeout_default)
         reader_timeout_budget = estimate_reader_timeout_seconds(
             reader_timeout_base,
@@ -1201,6 +1205,11 @@ async def run_deepread_job(
                 return {"status": "cancelled", "run_id": run_id}
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
+                if StatsVerificationAgent is None:
+                    raise RuntimeError(
+                        "Stats verification unavailable because optional verifier dependencies are missing: "
+                        f"{_STATS_AGENT_IMPORT_ERROR}"
+                    )
                 stats_agent = StatsVerificationAgent()
                 if run_meta is not None:
                     run_meta["models_used"]["verifier"] = stats_agent.__class__.__name__
@@ -1300,7 +1309,8 @@ async def run_deepread_job(
 
         # Best-effort note upsert (non-fatal): keep runtime fail-safe.
         try:
-            note_path = _resolve_note_path_for_paper(config, paper_id)
+            if note_path is None:
+                note_path = _resolve_note_path_for_paper(config, paper_id)
             if note_path:
                 promotion = promote_deepread_structured_state_for_note(
                     vault_path=Path(config.paths.obsidian_vault).expanduser(),
