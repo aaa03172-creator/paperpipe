@@ -225,6 +225,8 @@ def test_meeting_pack_api_generate_and_fetch_roundtrip(tmp_path: Path, monkeypat
 
     assert generate.status_code == 200
     assert generate.json()["pack"]["readiness"] == "evidence_backed"
+    assert generate.json()["pack"]["layer"] == "user_facing_artifact"
+    assert generate.json()["pack"]["canonical_status"] == "non_canonical"
     assert generate.json()["pack"]["output_mode_family"] == "lab_meeting"
     assert generate.json()["markdown_sync"]["status"] == "in_sync"
     pack_id = generate.json()["pack"]["id"]
@@ -235,8 +237,10 @@ def test_meeting_pack_api_generate_and_fetch_roundtrip(tmp_path: Path, monkeypat
     assert fetched.status_code == 200
     assert markdown.status_code == 200
     assert fetched.json()["pack"]["id"] == pack_id
+    assert fetched.json()["pack"]["layer"] == "user_facing_artifact"
     assert fetched.json()["pack"]["output_mode_family"] == "lab_meeting"
     assert fetched.json()["markdown_sync"]["status"] == "in_sync"
+    assert "## Promotion guardrail" in markdown.text
     assert "## Slide Outline" in markdown.text
 
 
