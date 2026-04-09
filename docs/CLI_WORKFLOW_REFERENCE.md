@@ -58,12 +58,22 @@ Use these when the operator needs to move from paper ingestion and deep read to 
 - `paperpipe research-dna interview`
 - `paperpipe research-dna refine`
 - `paperpipe research-dna pilot`
+- `paperpipe research-dna rerank`
+- `paperpipe research-dna materialize-guidance`
+- `paperpipe research-dna guidance`
+- `paperpipe research-dna recommend`
+- `paperpipe research-dna rerank-gate`
+- `paperpipe research-dna queue`
+- `paperpipe research-dna next`
+- `paperpipe research-dna session`
+- `paperpipe research-dna screen-next`
+- `paperpipe research-dna screen-current`
 - `paperpipe research-dna screening`
 - `paperpipe research-dna lock`
 - `paperpipe research-dna unlock`
 - `paperpipe research-dna project-profile`
 
-Use these when the operator needs to create, review, refine, pilot, screen, lock, or materialize a reproducible search-design asset.
+Use these when the operator needs to create, review, refine, pilot, rerank, materialize a run-local guidance audit snapshot, inspect a combined advisory guidance read without changing the owner queue, inspect an advisory queue recommendation without changing the owner queue, inspect a bounded rerank gate report for `eligible | not_eligible | insufficient_signal`, inspect ordered queues, review an active screening session snapshot together with the current recommendation and gate, pick the next screening item, advance a screening session, screen the current next item with fewer round-trips, receive the refreshed advisory recommendation and gate alongside those screening actions, and read stable reason/summary fields without client-side code mapping, screen manually, lock, or materialize a reproducible search-design asset.
 
 ## 3. Secondary implemented utilities
 
