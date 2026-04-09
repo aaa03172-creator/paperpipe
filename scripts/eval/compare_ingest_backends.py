@@ -104,6 +104,45 @@ def _meaningful_table_count(row: dict[str, Any]) -> int:
     return sum(1 for summary in row.get("table_summaries") or [] if _is_meaningful_table(summary))
 
 
+def _meaningful_table_summaries(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return [summary for summary in row.get("table_summaries") or [] if _is_meaningful_table(summary)]
+
+
+def _meaningful_table_pages(row: dict[str, Any]) -> list[int]:
+    pages = {
+        int(summary.get("source_page") or 0)
+        for summary in _meaningful_table_summaries(row)
+        if int(summary.get("source_page") or 0) > 0
+    }
+    return sorted(pages)
+
+
+def _meaningful_rows_by_page(row: dict[str, Any]) -> dict[int, int]:
+    rows_by_page: dict[int, int] = {}
+    for summary in _meaningful_table_summaries(row):
+        page = int(summary.get("source_page") or 0)
+        if page <= 0:
+            continue
+        rows_by_page[page] = rows_by_page.get(page, 0) + int(summary.get("rows") or 0)
+    return rows_by_page
+
+
+def _looks_like_same_page_merge(baseline: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    baseline_pages = _meaningful_table_pages(baseline)
+    candidate_pages = _meaningful_table_pages(candidate)
+    if not baseline_pages:
+        return False
+    if any(page not in candidate_pages for page in baseline_pages):
+        return False
+
+    baseline_rows = _meaningful_rows_by_page(baseline)
+    candidate_rows = _meaningful_rows_by_page(candidate)
+    for page in baseline_pages:
+        if candidate_rows.get(page, 0) < baseline_rows.get(page, 0):
+            return False
+    return True
+
+
 def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, Any]:
     pdf_path = pdf_path.expanduser().resolve()
     row: dict[str, Any] = {
@@ -234,6 +273,8 @@ def compare_backend_rows(
     doi_loss_docs: list[dict[str, Any]] = []
     meaningful_table_loss_docs: list[dict[str, Any]] = []
     meaningful_table_gain_docs: list[dict[str, Any]] = []
+    same_page_merge_docs: list[dict[str, Any]] = []
+    meaningful_table_page_loss_docs: list[dict[str, Any]] = []
     raw_table_loss_docs: list[dict[str, Any]] = []
     raw_table_gain_docs: list[dict[str, Any]] = []
     table_fallback_docs: list[dict[str, Any]] = []
@@ -319,16 +360,43 @@ def compare_backend_rows(
 
         baseline_meaningful_table_count = _meaningful_table_count(baseline)
         candidate_meaningful_table_count = _meaningful_table_count(candidate)
-        if candidate_meaningful_table_count < baseline_meaningful_table_count:
-            meaningful_table_loss_docs.append(
+        baseline_meaningful_pages = _meaningful_table_pages(baseline)
+        candidate_meaningful_pages = _meaningful_table_pages(candidate)
+        missing_meaningful_pages = [page for page in baseline_meaningful_pages if page not in candidate_meaningful_pages]
+        if missing_meaningful_pages:
+            meaningful_table_page_loss_docs.append(
                 {
                     "pdf_path": pdf_path,
-                    "baseline_meaningful_table_count": baseline_meaningful_table_count,
-                    "candidate_meaningful_table_count": candidate_meaningful_table_count,
-                    "baseline_table_count": baseline_table_count,
-                    "candidate_table_count": candidate_table_count,
+                    "baseline_meaningful_pages": baseline_meaningful_pages,
+                    "candidate_meaningful_pages": candidate_meaningful_pages,
+                    "missing_meaningful_pages": missing_meaningful_pages,
                 }
             )
+        if candidate_meaningful_table_count < baseline_meaningful_table_count:
+            if _looks_like_same_page_merge(baseline, candidate):
+                same_page_merge_docs.append(
+                    {
+                        "pdf_path": pdf_path,
+                        "baseline_meaningful_table_count": baseline_meaningful_table_count,
+                        "candidate_meaningful_table_count": candidate_meaningful_table_count,
+                        "baseline_meaningful_pages": baseline_meaningful_pages,
+                        "candidate_meaningful_pages": candidate_meaningful_pages,
+                        "baseline_rows_by_page": _meaningful_rows_by_page(baseline),
+                        "candidate_rows_by_page": _meaningful_rows_by_page(candidate),
+                    }
+                )
+            else:
+                meaningful_table_loss_docs.append(
+                    {
+                        "pdf_path": pdf_path,
+                        "baseline_meaningful_table_count": baseline_meaningful_table_count,
+                        "candidate_meaningful_table_count": candidate_meaningful_table_count,
+                        "baseline_table_count": baseline_table_count,
+                        "candidate_table_count": candidate_table_count,
+                        "baseline_meaningful_pages": baseline_meaningful_pages,
+                        "candidate_meaningful_pages": candidate_meaningful_pages,
+                    }
+                )
         if candidate_meaningful_table_count > baseline_meaningful_table_count:
             meaningful_table_gain_docs.append(
                 {
@@ -362,6 +430,8 @@ def compare_backend_rows(
         "doi_loss_docs": doi_loss_docs,
         "doi_gain_docs": doi_gain_docs,
         "table_fallback_docs": table_fallback_docs,
+        "same_page_merge_docs": same_page_merge_docs,
+        "meaningful_table_page_loss_docs": meaningful_table_page_loss_docs,
         "meaningful_table_loss_docs": meaningful_table_loss_docs,
         "meaningful_table_gain_docs": meaningful_table_gain_docs,
         "raw_table_loss_docs": raw_table_loss_docs,
