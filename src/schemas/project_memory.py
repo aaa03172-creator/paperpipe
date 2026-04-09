@@ -43,6 +43,8 @@ class ProjectMemoryEntityLink(BaseModel):
 class ProjectMemoryItem(BaseModel):
     item_id: str = Field(..., pattern=r"^pmitem_[A-Za-z0-9._-]+$")
     project_id: str = Field(..., pattern=r"^pmproj_[A-Za-z0-9._-]+$")
+    layer: Literal["raw_memory"] = "raw_memory"
+    canonical_status: Literal["non_canonical"] = "non_canonical"
     item_type: ProjectMemoryItemType
     content: str = Field(..., min_length=1)
     confidence_status: ProjectMemoryConfidenceStatus = "working"
@@ -65,6 +67,8 @@ class ProjectMemoryItem(BaseModel):
 class ProjectMemoryWorkspace(BaseModel):
     project_id: str = Field(..., pattern=r"^pmproj_[A-Za-z0-9._-]+$")
     title: str = Field(..., min_length=1)
+    layer: Literal["raw_memory"] = "raw_memory"
+    canonical_status: Literal["non_canonical"] = "non_canonical"
     objective: str | None = None
     status: ProjectMemoryWorkspaceStatus = "active"
     notes: str | None = None

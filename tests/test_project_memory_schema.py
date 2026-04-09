@@ -51,6 +51,8 @@ def test_project_memory_schema_normalizes_workspace_and_item_state() -> None:
     )
 
     assert workspace.title == "Ketone pathway project"
+    assert workspace.layer == "raw_memory"
+    assert workspace.canonical_status == "non_canonical"
     assert workspace.objective == "Clarify mechanism and next experiments"
     assert workspace.notes == "Working memory only"
     assert workspace.linked_paper_ids == ["paper-001", "paper-002"]
@@ -58,6 +60,8 @@ def test_project_memory_schema_normalizes_workspace_and_item_state() -> None:
     assert workspace.linked_meeting_pack_ids == ["meetingpack_001"]
 
     assert item.content == "What is the strongest mechanistic explanation?"
+    assert item.layer == "raw_memory"
+    assert item.canonical_status == "non_canonical"
     assert len(item.linked_entities) == 1
     assert item.linked_entities[0].entity_id == "paper-001"
     assert item.linked_entities[0].note == "primary source"
