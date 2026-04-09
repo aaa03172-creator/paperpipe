@@ -6,13 +6,16 @@ import {
   getMockMeetingPackValidation,
 } from "../src/app/lib/mock";
 
-test("meeting pack create auto-fallback keeps the generated draft reachable when the backend is unavailable", async ({
+test("meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable", async ({
   page,
 }) => {
+  await page.route("**/api/meeting-packs/generate", async (route) => {
+    await route.abort("failed");
+  });
+
   await page.goto("/meeting-packs");
 
   await expect(page.getByRole("banner").getByRole("heading", { name: "Saved meeting packs" })).toBeVisible();
-  await expect(page.getByText("meeting pack index unavailable, mock drafts loaded")).toBeVisible();
 
   await page.getByLabel("Meeting pack paper slug").fill("zoterocoricTargetingProdromalAlzheimer2015");
   await page.getByLabel("Meeting pack draft title").fill("Fallback continuity draft");
@@ -21,7 +24,10 @@ test("meeting pack create auto-fallback keeps the generated draft reachable when
 
   await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
   await expect(
-    page.getByText("Fallback meeting draft created from the entered paper slug.", { exact: false }),
+    page.getByText(
+      "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session while the backend is unreachable.",
+      { exact: false },
+    ),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fallback continuity draft", exact: true })).toBeVisible();
   await expect(page.getByText("background only", { exact: true }).first()).toBeVisible();
@@ -29,9 +35,19 @@ test("meeting pack create auto-fallback keeps the generated draft reachable when
   await expect(page.getByText("Continue in note").first()).toBeVisible();
   await expect(page.getByText("Regenerate unavailable")).toBeVisible();
   await expect(page.getByText("Strategy: unavailable")).toBeVisible();
-  await expect(page.getByText("Draft actions stay unavailable until the live backend is reachable again.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "This placeholder draft only stays available in the current browser session. Reloading or reopening it later will not recover a live saved draft, so recreate it once the live backend is reachable again.",
+    ),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Regenerate draft" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Rerender markdown" })).toBeDisabled();
+
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText(/\/meeting-packs\/meetingpack_.* -> 500/)).toBeVisible();
+  await expect(page.getByText("Check that the pack exists under `storage/meeting_packs`, then reopen it from the form above.")).toBeVisible();
 });
 
 test("meeting pack create surfaces backend 401 instead of silently falling back to a mock draft", async ({
