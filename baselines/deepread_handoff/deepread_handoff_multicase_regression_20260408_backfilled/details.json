@@ -1,0 +1,179 @@
+{
+  "schema_version": "deepread_handoff_audit_details.v1",
+  "generated_at": "2026-04-08T14:51:53.658210+00:00",
+  "run_id": "deepread_handoff_multicase_regression_20260408_backfilled",
+  "runs": [
+    {
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_id": "run_20260328_002659",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_002659",
+      "overall_status": "pass",
+      "current_promotion_candidate": true,
+      "review_ready": true,
+      "quality_gate_reason_codes": [],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "pass",
+      "step_stability_reason_codes": [],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_id": "run_20260328_041433",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_041433",
+      "overall_status": "fail",
+      "current_promotion_candidate": false,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "RUN_NOT_SUCCEEDED",
+        "MISSING_CLAIMSET_RESOLVED",
+        "CLAIMSET_NOT_READY"
+      ],
+      "quality_gate_hard_fail_codes": [
+        "RUN_NOT_SUCCEEDED",
+        "MISSING_CLAIMSET_RESOLVED"
+      ],
+      "step_stability_status": "fail",
+      "step_stability_reason_codes": [
+        "RUN_NOT_SUCCEEDED",
+        "READER_TIMEOUT_TRIGGERED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "warn",
+      "goal_drift_reason_codes": [
+        "FINAL_CLAIM_COUNT_ZERO"
+      ],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_id": "run_20260402_011635",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260402_011635",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_id": "run_20260404_023950",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_023950",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_id": "run_20260404_024732",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_024732",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_id": "run_20260404_025249",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_025249",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "run_id": "run_20260407_032427",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_032427",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    },
+    {
+      "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "run_id": "run_20260407_033030",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_033030",
+      "overall_status": "warn",
+      "current_promotion_candidate": true,
+      "review_ready": false,
+      "quality_gate_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "quality_gate_hard_fail_codes": [],
+      "step_stability_status": "warn",
+      "step_stability_reason_codes": [
+        "VERIFIER_FAILED"
+      ],
+      "failure_recovery_status": "pass",
+      "failure_recovery_reason_codes": [],
+      "goal_drift_status": "pass",
+      "goal_drift_reason_codes": [],
+      "context_manifest_present": true
+    }
+  ]
+}
