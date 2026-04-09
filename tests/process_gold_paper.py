@@ -28,7 +28,7 @@ def process_gold_paper():
         search=SearchConfig(slots={"clinical": SlotConfig(query="test")}),
         llm=LLMConfig(
             features=LLMFeatures(
-                trial_extraction=FeatureConfig(enabled=True),
+                specialty_trial_extraction=FeatureConfig(enabled=True),
                 slot_classification=FeatureConfig(),
                 one_liner=FeatureConfig(enabled=True)
             )
