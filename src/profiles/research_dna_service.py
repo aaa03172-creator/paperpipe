@@ -19,6 +19,8 @@ from src.profiles.research_dna_schema import (
     ResearchDNANextScreeningCandidate,
     ResearchDNARerankArtifacts,
     ResearchDNAScreeningGuidanceArtifact,
+    ResearchDNAScreeningGuidanceIndexArtifact,
+    ResearchDNAScreeningGuidanceIndexEntry,
     ResearchDNARerankGateReport,
     ResearchDNARerankReport,
     ResearchDNAScreeningRecommendation,
@@ -754,7 +756,12 @@ def materialize_screening_guidance_artifact(
     )
 
     evaluated_at = _now_utc()
-    artifact_path = run_dir / "screening_guidance.json"
+    timestamp_token = evaluated_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    artifact_path = run_dir / f"screening_guidance_{timestamp_token}.json"
+    collision_index = 1
+    while artifact_path.exists():
+        artifact_path = run_dir / f"screening_guidance_{timestamp_token}_{collision_index}.json"
+        collision_index += 1
     guidance_artifact = ResearchDNAScreeningGuidanceArtifact(
         evaluated_at=evaluated_at,
         run_id=run_id,
@@ -768,13 +775,56 @@ def materialize_screening_guidance_artifact(
     )
     _write_json(artifact_path, guidance_artifact.model_dump(mode="json", exclude_none=True))
 
+    index_path = run_dir / "screening_guidance_index.json"
+    existing_index_entries: list[ResearchDNAScreeningGuidanceIndexEntry] = []
+    if index_path.exists():
+        try:
+            existing_index = ResearchDNAScreeningGuidanceIndexArtifact.model_validate(_read_json(index_path))
+            if (
+                existing_index.run_id != run_id
+                or existing_index.dna_id != dna_id
+                or existing_index.query_version != recommendation.query_version
+            ):
+                raise ResearchDNAStateError(
+                    "guidance index does not match current run identity"
+                )
+            existing_index_entries = list(existing_index.entries)
+        except Exception as exc:
+            raise ResearchDNAStateError(f"guidance index is invalid for run_id={run_id}: {exc}")
+
+    new_index_entry = ResearchDNAScreeningGuidanceIndexEntry(
+        evaluated_at=evaluated_at,
+        artifact_path=str(artifact_path),
+        actor_type=actor_type,
+        actor_id=actor_id,
+        recommended_variant=recommendation.recommended_variant,
+        gate_status=gate.gate_status,
+        screening_started=recommendation.screening_started,
+        primary_reason_code=recommendation.primary_reason_code,
+        primary_warning_code=recommendation.primary_warning_code,
+    )
+    guidance_index = ResearchDNAScreeningGuidanceIndexArtifact(
+        run_id=run_id,
+        dna_id=dna_id,
+        query_version=recommendation.query_version,
+        artifact_path=str(index_path),
+        entry_count=len(existing_index_entries) + 1,
+        latest_artifact_path=str(artifact_path),
+        entries=[*existing_index_entries, new_index_entry],
+    )
+    _write_json(index_path, guidance_index.model_dump(mode="json", exclude_none=True))
+
     artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
     artifact_paths["screening_guidance"] = str(artifact_path)
+    artifact_paths["screening_guidance_index"] = str(index_path)
     manifest["artifact_paths"] = artifact_paths
     manifest["screening_guidance"] = {
         "materialized_at": evaluated_at.isoformat(),
         "actor_type": actor_type,
         "actor_id": actor_id,
+        "artifact_path": str(artifact_path),
+        "index_path": str(index_path),
+        "history_count": guidance_index.entry_count,
         "recommended_variant": recommendation.recommended_variant,
         "gate_status": gate.gate_status,
         "screening_started": recommendation.screening_started,
@@ -785,6 +835,9 @@ def materialize_screening_guidance_artifact(
     metrics = _read_json(metrics_path) if metrics_path.exists() else {}
     metrics["research_dna_guidance"] = {
         "materialized_at": evaluated_at.isoformat(),
+        "artifact_path": str(artifact_path),
+        "index_path": str(index_path),
+        "history_count": guidance_index.entry_count,
         "recommended_variant": recommendation.recommended_variant,
         "gate_status": gate.gate_status,
         "screening_started": recommendation.screening_started,

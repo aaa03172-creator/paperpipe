@@ -49,7 +49,9 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - interview logging command under `paperpipe research-dna interview`
   - reranked screening sidecar command under `paperpipe research-dna rerank`
   - screening guidance snapshot command under `paperpipe research-dna materialize-guidance`
-    - writes a run-local `screening_guidance.json` audit snapshot without changing queue ownership
+    - writes a run-local timestamped `screening_guidance_<timestamp>.json` audit snapshot without changing queue ownership
+    - manifest/metrics keep a pointer to the latest snapshot, while older snapshots remain in the run directory
+    - materialization also maintains `screening_guidance_index.json` so the run keeps a simple bounded history list of guidance snapshots
   - screening recommendation command under `paperpipe research-dna recommend`
     - returns an advisory-only `original | reranked` recommendation without changing queue ownership
     - includes stable `primary_reason_code` plus `recommendation_summary` for operator-facing explanation without client-side code mapping
