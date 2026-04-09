@@ -50,9 +50,33 @@ def test_load_fixture_reads_representative_cases() -> None:
 def test_summarize_counts_invalid_and_mismatch_cases() -> None:
     summary = _summarize(
         [
-            {"case_id": "a", "valid_output": True, "matched": True, "approved": True},
-            {"case_id": "b", "valid_output": True, "matched": False, "approved": False},
-            {"case_id": "c", "valid_output": False, "matched": False, "approved": None},
+            {
+                "case_id": "a",
+                "valid_output": True,
+                "matched": True,
+                "approved": True,
+                "final_route": "FAST_LANE_APPROVE",
+                "in_biomedical_scope": True,
+                "reason_codes": ["FASTLANE_GUIDANCE"],
+            },
+            {
+                "case_id": "b",
+                "valid_output": True,
+                "matched": False,
+                "approved": False,
+                "final_route": "QUEUE_HUMAN_REVIEW",
+                "in_biomedical_scope": True,
+                "reason_codes": ["MODEL_REVIEW_REQUIRED"],
+            },
+            {
+                "case_id": "c",
+                "valid_output": False,
+                "matched": False,
+                "approved": None,
+                "final_route": "QUEUE_HUMAN_REVIEW",
+                "in_biomedical_scope": False,
+                "reason_codes": ["JUDGE_ERROR"],
+            },
         ],
         model_name="llama3:latest",
     )
@@ -63,12 +87,21 @@ def test_summarize_counts_invalid_and_mismatch_cases() -> None:
     assert summary["invalid_output_count"] == 1
     assert summary["mismatch_count"] == 1
     assert summary["approved_count"] == 1
+    assert summary["route_counts"] == {"FAST_LANE_APPROVE": 1, "QUEUE_HUMAN_REVIEW": 2}
+    assert summary["biomedical_scope_counts"] == {"in_scope": 2, "out_of_scope": 1}
+    assert summary["top_reason_codes"] == ["FASTLANE_GUIDANCE", "JUDGE_ERROR", "MODEL_REVIEW_REQUIRED"]
 
 
 def test_evaluate_case_marks_judge_error_as_invalid() -> None:
     class _BrokenProvider:
         def evaluate_escalation(self, paper):
-            return {"approved": False, "reason": "Judge Error"}
+            return {
+                "approved": False,
+                "reason": "Judge Error",
+                "final_route": "QUEUE_HUMAN_REVIEW",
+                "in_biomedical_scope": True,
+                "reason_codes": ["JUDGE_ERROR"],
+            }
 
     result = _evaluate_case(
         _BrokenProvider(),
@@ -82,6 +115,9 @@ def test_evaluate_case_marks_judge_error_as_invalid() -> None:
     assert result["approved"] is False
     assert result["valid_output"] is False
     assert result["matched"] is False
+    assert result["final_route"] == "QUEUE_HUMAN_REVIEW"
+    assert result["in_biomedical_scope"] is True
+    assert result["reason_codes"] == ["JUDGE_ERROR"]
 
 
 def test_load_real_fixture_matches_current_policy_baseline() -> None:
