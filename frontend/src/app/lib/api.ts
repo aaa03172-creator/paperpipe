@@ -112,6 +112,13 @@ function isApiHttpError(error: unknown): error is ApiHttpError {
   return error instanceof ApiHttpError;
 }
 
+function isProxyAvailabilityHttpError(error: unknown): error is ApiHttpError {
+  if (!isApiHttpError(error) || error.status < 500) {
+    return false;
+  }
+  return (error.responseBody ?? "").trim().length === 0;
+}
+
 function canUseAutoMockFallback(): boolean {
   return APP_CONFIG.autoMockFallback && !APP_CONFIG.strictApi;
 }
@@ -520,7 +527,7 @@ export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingP
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
       throw error;
     }
     if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
@@ -756,7 +763,7 @@ export async function getMeetingPackTrace(packId: string): Promise<ApiResult<Mee
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
       throw error;
     }
     if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
@@ -787,7 +794,7 @@ export async function getMeetingPackValidation(packId: string): Promise<ApiResul
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
       throw error;
     }
     if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
