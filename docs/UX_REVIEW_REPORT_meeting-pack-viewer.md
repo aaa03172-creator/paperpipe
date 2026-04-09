@@ -301,3 +301,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create surfaces backend 401 instead of silently falling back to a mock draft|meeting pack create surfaces backend 500 instead of silently falling back to a mock draft"`
+
+## 7.12) Fallback Draft Lifetime Honesty Checkpoint (2026-04-10)
+- Screen/Flow: `/meeting-packs` create fallback path and `/meeting-packs/:packId` placeholder detail when the backend is unreachable
+- Goal action: 사용자가 fallback-created draft를 live saved pack으로 오해하지 않고, current browser session 안에서만 임시로 열려 있는 placeholder라는 점을 이해한다.
+- Primary persona: backend outage 중에도 paper slug 하나로 meeting draft shell을 먼저 보고 싶은 운영자/연구자
+- Current friction:
+  - fallback create는 success notice와 URL detail route를 주기 때문에, 사용자가 reconnect나 reload 후에도 같은 draft를 다시 열 수 있다고 기대하기 쉬웠다.
+  - 실제 구현은 browser-memory placeholder라서 reload나 later reopen 뒤에는 다시 복구되지 않는다.
+- Quick decision:
+  - fallback continuity 자체는 유지한다.
+  - 대신 success copy와 detail guidance를 session-only placeholder contract로 정직하게 바꾼다.
+- BMAP:
+  - Motivation: 높음. outage 상황일수록 사용자는 짧은 status copy와 badge를 강하게 믿는다.
+  - Ability: 높음. owner는 create notice copy와 fallback detail guidance 하나면 충분하다.
+  - Prompt: “current browser session only”라는 문구가 다음 행동을 가장 정확하게 유도한다.
+- B.I.A.S:
+  - Block: success notice와 route shape가 reopenable saved draft처럼 읽혔다.
+  - Interpret: 이제 fallback shell은 temporary local placeholder로 바로 읽힌다.
+  - Act: operator는 reconnect 뒤 같은 URL을 다시 믿기보다 live backend에서 draft를 다시 만들게 된다.
+  - Store: outage fallback은 convenience shell이고, reopenable truth는 live saved draft라는 규칙이 강화된다.
+- Peak-End:
+  - Peak는 fallback detail에서 session-only boundary를 바로 이해하게 되는 순간이다.
+  - Pit는 reconnect/reload 후에도 살아 있을 거라는 이전 기대다.
+  - Transition은 create success 직후 user trust boundary를 정직하게 낮춘 점이다.
+  - End는 사용자가 placeholder와 saved draft를 혼동하지 않고 나가는 것이다.
+- Ethics:
+  - Regret: 통과. convenience를 과장하지 않는다.
+  - Black Mirror: 통과. temporary shell을 durable artifact처럼 포장하지 않는다.
+  - In Real-Life: 통과. 로컬 임시 상태라면 저장된 것처럼 보이게 해서는 안 된다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable"`

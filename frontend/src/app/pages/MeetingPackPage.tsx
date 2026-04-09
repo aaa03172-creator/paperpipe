@@ -464,7 +464,7 @@ export function MeetingPackPage() {
           meetingPackNotice: {
             tone: "success",
             message: result.isMock
-              ? "Fallback meeting draft created from the entered paper slug. Reconnect the backend to replace mock content with a live draft."
+              ? "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session while the backend is unreachable. Recreate it after the backend is reachable to get a live saved draft."
               : "Meeting draft created from the entered paper slug.",
           },
         },
@@ -1183,7 +1183,7 @@ export function MeetingPackPage() {
                   </div>
                   {draftActionsBlockedByFallback ? (
                     <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
-                      Draft actions stay unavailable until the live backend is reachable again.
+                      This placeholder draft only stays available in the current browser session. Reloading or reopening it later will not recover a live saved draft, so recreate it once the live backend is reachable again.
                     </p>
                   ) : !validation.can_regenerate ? (
                     <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
