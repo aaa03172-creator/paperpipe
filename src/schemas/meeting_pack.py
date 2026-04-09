@@ -219,6 +219,8 @@ class MeetingPack(BaseModel):
     output_mode_family: OutputModeFamily | None = None
     title: str = Field(..., min_length=1)
     created_at: datetime
+    layer: Literal["user_facing_artifact"] = "user_facing_artifact"
+    canonical_status: Literal["non_canonical"] = "non_canonical"
     status: MeetingPackStatus = "draft"
     readiness: MeetingPackReadiness = "evidence_backed"
     generation_request: MeetingPackRequestSnapshot | None = None
