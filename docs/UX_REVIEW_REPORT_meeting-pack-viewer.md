@@ -269,3 +269,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack index surfaces backend 400 instead of silently showing the mock library|meeting pack index surfaces backend 500 instead of silently showing the mock library"`
+
+## 7.11) Create 5xx Honesty Checkpoint (2026-04-09)
+- Screen/Flow: `/meeting-packs` create form when `/meeting-packs/generate` returns a real backend server error
+- Goal action: 사용자가 create path의 server-side failure를 mock draft success로 오해하지 않는다.
+- Primary persona: paper slug 하나로 첫 meeting-pack draft를 만들려는 연구자/운영자
+- Current friction:
+  - create path는 `401` 같은 `4xx`는 잘 surface했지만, `500` class server error는 여전히 auto-fallback draft success로 바뀔 수 있었다.
+  - 이 경우 사용자는 broken generation runtime을 보지 못하고 placeholder draft를 진짜 saved output처럼 읽을 위험이 있었다.
+- Quick decision:
+  - forced mock과 true availability fallback은 유지한다.
+  - real HTTP server error는 create path에서도 그대로 surface하고, fallback draft는 transport/unreachable failure에서만 만든다.
+- BMAP:
+  - Motivation: 높음. first-draft create는 route의 핵심 행동이라 success/failure honesty가 중요하다.
+  - Ability: 높음. owner는 create API path 하나와 existing fallback browser rail 하나로 충분하다.
+  - Prompt: explicit `500` error가 fake success보다 훨씬 정확한 next-step signal이다.
+- B.I.A.S:
+  - Block: fake draft success는 broken backend를 가렸다.
+  - Interpret: explicit server error는 create runtime이 현재 깨졌다는 사실을 바로 이해하게 한다.
+  - Act: operator는 retry/repair나 backend recovery를 먼저 하게 되고, placeholder draft를 downstream에 넘기지 않는다.
+  - Store: create fallback은 resilience demo이고, server error는 real failure라는 구분이 강화된다.
+- Peak-End:
+  - Peak는 create failure에서도 진실한 state를 먼저 보여주는 순간이다.
+  - Pit는 runtime crash가 draft success처럼 읽히던 이전 path다.
+  - Transition은 create submit 직후 success/failed trust boundary correction이다.
+  - End는 사용자가 지금 무엇이 깨졌는지 정확히 알고 떠나는 것이다.
+- Ethics:
+  - Regret: 통과. 장애를 생성 성공처럼 포장하지 않는다.
+  - Black Mirror: 통과. resilience를 fake confidence로 바꾸지 않는다.
+  - In Real-Life: 통과. draft generator가 crashed라면 operator는 에러를 먼저 봐야 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create surfaces backend 401 instead of silently falling back to a mock draft|meeting pack create surfaces backend 500 instead of silently falling back to a mock draft"`
