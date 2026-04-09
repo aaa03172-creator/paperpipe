@@ -11,6 +11,22 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def bundle_root() -> Path | None:
+    override = os.getenv("PAPERPIPE_APP_BUNDLE_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        return Path(frozen_root).expanduser().resolve()
+
+    return None
+
+
+def app_source_root() -> Path:
+    return bundle_root() or repo_root()
+
+
 def _truthy_env(name: str) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -26,7 +42,11 @@ def _app_name() -> str:
 
 
 def install_layout_enabled() -> bool:
-    return _truthy_env("PAPERPIPE_INSTALL_LAYOUT")
+    return _truthy_env("PAPERPIPE_INSTALL_LAYOUT") or bundle_root() is not None
+
+
+def frontend_runtime_dir() -> Path:
+    return (app_source_root() / "frontend").resolve()
 
 
 def user_config_base_dir() -> Path:
