@@ -67,7 +67,11 @@ def test_project_memory_store_roundtrip_creates_expected_layout(tmp_path) -> Non
     assert result[0] == project_workspace_json_path(workspace.project_id, root)
     assert result[1] == project_memory_jsonl_path(workspace.project_id, root)
     assert loaded_workspace.title == "Ketone pathway project"
+    assert loaded_workspace.layer == "raw_memory"
+    assert loaded_workspace.canonical_status == "non_canonical"
     assert [item.item_id for item in loaded_items] == ["pmitem_alpha_question", "pmitem_alpha_decision"]
+    assert all(item.layer == "raw_memory" for item in loaded_items)
+    assert all(item.canonical_status == "non_canonical" for item in loaded_items)
     assert list_project_memory_ids(root) == [workspace.project_id]
 
 
