@@ -65,6 +65,36 @@ test("meeting pack create surfaces backend 401 instead of silently falling back 
   ).toHaveCount(0);
 });
 
+test("meeting pack create surfaces backend 500 instead of silently falling back to a mock draft", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs/generate", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Meeting Pack generation crashed while building the saved draft",
+      }),
+    });
+  });
+
+  await page.goto("/meeting-packs");
+
+  await page.getByLabel("Meeting pack paper slug").fill("zoterocoricTargetingProdromalAlzheimer2015");
+  await page.getByLabel("Meeting pack draft title").fill("Server error fallback should not succeed");
+  await page.getByRole("button", { name: "Create draft" }).click();
+
+  await expect(page).toHaveURL(/\/meeting-packs$/);
+  await expect(page.getByText("/meeting-packs/generate -> 500")).toBeVisible();
+  await expect(page.getByText("Meeting Pack generation crashed while building the saved draft")).toBeVisible();
+  await expect(
+    page.getByText("Fallback meeting draft created from the entered paper slug.", { exact: false }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Server error fallback should not succeed", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("meeting pack index surfaces backend 400 instead of silently showing the mock library", async ({
   page,
 }) => {

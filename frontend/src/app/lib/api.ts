@@ -583,7 +583,7 @@ export async function generateMeetingPack(
       isMock: false,
     };
   } catch (error) {
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
+    if (isApiHttpError(error)) {
       throw error;
     }
     if (!canUseAutoMockFallback()) {
