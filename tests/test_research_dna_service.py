@@ -625,17 +625,60 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
         search_eval_root=eval_root,
     )
     assert Path(guidance_artifact.artifact_path).exists()
+    assert Path(guidance_artifact.artifact_path).name.startswith("screening_guidance_")
     guidance_payload = json.loads(Path(guidance_artifact.artifact_path).read_text(encoding="utf-8"))
     assert guidance_payload["recommendation"]["recommended_variant"] == "reranked"
     assert guidance_payload["gate"]["gate_status"] == "eligible"
 
+    guidance_artifact_second = materialize_screening_guidance_artifact(
+        dna.id,
+        run_id="pilot_rerank_001",
+        actor_type="human_cli",
+        actor_id="tester",
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert Path(guidance_artifact_second.artifact_path).exists()
+    assert guidance_artifact_second.artifact_path != guidance_artifact.artifact_path
+    assert Path(guidance_artifact.artifact_path).exists()
+
     manifest_after_guidance = json.loads((eval_root / "pilot_rerank_001" / "manifest.json").read_text(encoding="utf-8"))
     assert Path(manifest_after_guidance["artifact_paths"]["screening_guidance"]).exists()
+    assert Path(manifest_after_guidance["artifact_paths"]["screening_guidance_index"]).exists()
+    assert manifest_after_guidance["artifact_paths"]["screening_guidance"] == guidance_artifact_second.artifact_path
+    assert manifest_after_guidance["screening_guidance"]["artifact_path"] == guidance_artifact_second.artifact_path
+    assert manifest_after_guidance["screening_guidance"]["index_path"] == manifest_after_guidance["artifact_paths"]["screening_guidance_index"]
+    assert manifest_after_guidance["screening_guidance"]["history_count"] == 2
     assert manifest_after_guidance["screening_guidance"]["recommended_variant"] == "reranked"
 
+    guidance_index_payload = json.loads(
+        Path(manifest_after_guidance["artifact_paths"]["screening_guidance_index"]).read_text(encoding="utf-8")
+    )
+    assert guidance_index_payload["entry_count"] == 2
+    assert guidance_index_payload["latest_artifact_path"] == guidance_artifact_second.artifact_path
+    assert guidance_index_payload["entries"][0]["artifact_path"] == guidance_artifact.artifact_path
+    assert guidance_index_payload["entries"][1]["artifact_path"] == guidance_artifact_second.artifact_path
+
     metrics_after_guidance = json.loads(Path(rerank.metrics_path).read_text(encoding="utf-8"))
+    assert metrics_after_guidance["research_dna_guidance"]["artifact_path"] == guidance_artifact_second.artifact_path
+    assert metrics_after_guidance["research_dna_guidance"]["index_path"] == manifest_after_guidance["artifact_paths"]["screening_guidance_index"]
+    assert metrics_after_guidance["research_dna_guidance"]["history_count"] == 2
     assert metrics_after_guidance["research_dna_guidance"]["recommended_variant"] == "reranked"
     assert metrics_after_guidance["research_dna_guidance"]["gate_status"] == "eligible"
+
+    guidance_index_path = Path(manifest_after_guidance["artifact_paths"]["screening_guidance_index"])
+    tampered_index = json.loads(guidance_index_path.read_text(encoding="utf-8"))
+    tampered_index["query_version"] = "v999"
+    guidance_index_path.write_text(json.dumps(tampered_index, ensure_ascii=False, indent=2), encoding="utf-8")
+    with pytest.raises(ResearchDNAStateError, match="guidance index is invalid"):
+        materialize_screening_guidance_artifact(
+            dna.id,
+            run_id="pilot_rerank_001",
+            actor_type="human_cli",
+            actor_id="tester",
+            root=root,
+            search_eval_root=eval_root,
+        )
 
     next_before_screening = load_next_screening_candidate(
         dna.id,

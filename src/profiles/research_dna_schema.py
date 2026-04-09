@@ -221,6 +221,29 @@ class ResearchDNAScreeningGuidanceArtifact(BaseModel):
     gate: "ResearchDNARerankGateReport"
 
 
+class ResearchDNAScreeningGuidanceIndexEntry(BaseModel):
+    evaluated_at: datetime
+    artifact_path: str
+    actor_type: ActorType
+    actor_id: str
+    recommended_variant: ScreeningQueueVariant = "original"
+    gate_status: RerankGateStatus = "insufficient_signal"
+    screening_started: bool = False
+    primary_reason_code: Optional[str] = None
+    primary_warning_code: Optional[str] = None
+
+
+class ResearchDNAScreeningGuidanceIndexArtifact(BaseModel):
+    schema_version: Literal["research_dna.screening_guidance_index.v1"] = "research_dna.screening_guidance_index.v1"
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    artifact_path: str
+    entry_count: int = Field(default=0, ge=0)
+    latest_artifact_path: Optional[str] = None
+    entries: List["ResearchDNAScreeningGuidanceIndexEntry"] = Field(default_factory=list)
+
+
 class ResearchDNAScreeningQueueArtifact(BaseModel):
     run_id: str
     dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
