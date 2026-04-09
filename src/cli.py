@@ -1383,6 +1383,266 @@ def research_dna_run_pilot(
     _emit_json(pilot_run.model_dump(mode="json", exclude_none=True))
 
 
+@research_dna_app.command("rerank")
+def research_dna_rerank_screening_queue(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
+):
+    from src.profiles.research_dna_service import materialize_reranked_screening_queue
+
+    rerank = materialize_reranked_screening_queue(
+        dna_id,
+        run_id=run_id,
+        actor_type="human_cli",
+        actor_id=actor_id,
+    )
+    _emit_json(rerank.model_dump(mode="json", exclude_none=True))
+
+
+@research_dna_app.command("materialize-guidance")
+def research_dna_materialize_guidance(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
+):
+    from src.profiles.research_dna_service import materialize_screening_guidance_artifact
+
+    guidance_artifact = materialize_screening_guidance_artifact(
+        dna_id,
+        run_id=run_id,
+        actor_type="human_cli",
+        actor_id=actor_id,
+    )
+    _emit_json(guidance_artifact.model_dump(mode="json", exclude_none=True))
+
+
+@research_dna_app.command("queue")
+def research_dna_show_screening_queue(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+):
+    from src.profiles.research_dna_service import load_screening_queue_artifact
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    screening_queue = load_screening_queue_artifact(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+    )
+    _emit_json(screening_queue.model_dump(mode="json", exclude_none=True))
+
+
+@research_dna_app.command("next")
+def research_dna_next_screening_candidate(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+):
+    from src.profiles.research_dna_service import load_next_screening_candidate
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    next_candidate = load_next_screening_candidate(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+    )
+    _emit_json(next_candidate.model_dump(mode="json"))
+
+
+@research_dna_app.command("session")
+def research_dna_screening_session(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+    recent_limit: int = typer.Option(5, "--recent-limit", min=1, max=20, help="Recent decisions to include"),
+):
+    from src.profiles.research_dna_service import (
+        load_screening_operator_guidance,
+        load_screening_session,
+    )
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    session = load_screening_session(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+        recent_limit=recent_limit,
+    )
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(
+        {
+            "session": session.model_dump(mode="json"),
+            "recommendation": recommendation.model_dump(mode="json", exclude_none=True),
+            "gate": gate.model_dump(mode="json", exclude_none=True),
+        }
+    )
+
+
+@research_dna_app.command("recommend")
+def research_dna_screening_recommendation(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+):
+    from src.profiles.research_dna_service import load_screening_operator_guidance
+
+    recommendation, _ = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(recommendation.model_dump(mode="json", exclude_none=True))
+
+
+@research_dna_app.command("guidance")
+def research_dna_screening_guidance(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+):
+    from src.profiles.research_dna_service import load_screening_operator_guidance
+
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(
+        {
+            "recommendation": recommendation.model_dump(mode="json", exclude_none=True),
+            "gate": gate.model_dump(mode="json", exclude_none=True),
+        }
+    )
+
+
+@research_dna_app.command("rerank-gate")
+def research_dna_rerank_gate(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+):
+    from src.profiles.research_dna_service import load_screening_operator_guidance
+
+    _, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(gate.model_dump(mode="json", exclude_none=True))
+
+
+@research_dna_app.command("screen-next")
+def research_dna_screen_and_advance(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    candidate_id: str = typer.Option(..., "--candidate-id", help="Screening candidate ID"),
+    decision: str = typer.Option(..., "--decision", help="include | exclude | unclear"),
+    reason_code: str = typer.Option(..., "--reason-code", help="Structured reason code"),
+    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+    recent_limit: int = typer.Option(5, "--recent-limit", min=1, max=20, help="Recent decisions to include"),
+    note: str | None = typer.Option(None, "--note", help="Optional screening note"),
+):
+    from src.profiles.research_dna_service import (
+        load_screening_operator_guidance,
+        submit_screening_decision_and_load_session,
+    )
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    dna, next_candidate, session = submit_screening_decision_and_load_session(
+        dna_id,
+        run_id=run_id,
+        candidate_id=candidate_id,
+        decision=decision,  # type: ignore[arg-type]
+        reason_code=reason_code,  # type: ignore[arg-type]
+        actor_type="human_cli",
+        actor_id=actor_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+        recent_limit=recent_limit,
+        note=note,
+    )
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(
+        {
+            "dna": dna.model_dump(mode="json", exclude_none=True),
+            "screened_candidate_id": candidate_id,
+            "decision": decision,
+            "reason_code": reason_code,
+            "variant": normalized_variant,
+            "next_candidate": next_candidate.model_dump(mode="json"),
+            "session": session.model_dump(mode="json"),
+            "recommendation": recommendation.model_dump(mode="json", exclude_none=True),
+            "gate": gate.model_dump(mode="json", exclude_none=True),
+        }
+    )
+
+
+@research_dna_app.command("screen-current")
+def research_dna_screen_current(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    decision: str = typer.Option(..., "--decision", help="include | exclude | unclear"),
+    reason_code: str = typer.Option(..., "--reason-code", help="Structured reason code"),
+    actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+    recent_limit: int = typer.Option(5, "--recent-limit", min=1, max=20, help="Recent decisions to include"),
+    expected_candidate_id: str | None = typer.Option(None, "--expected-candidate-id", help="Optional current next-candidate guard"),
+    note: str | None = typer.Option(None, "--note", help="Optional screening note"),
+):
+    from src.profiles.research_dna_service import (
+        load_screening_operator_guidance,
+        screen_current_candidate_and_load_session,
+    )
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    dna, screened_candidate_id, next_candidate, session = screen_current_candidate_and_load_session(
+        dna_id,
+        run_id=run_id,
+        decision=decision,  # type: ignore[arg-type]
+        reason_code=reason_code,  # type: ignore[arg-type]
+        actor_type="human_cli",
+        actor_id=actor_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+        recent_limit=recent_limit,
+        expected_candidate_id=expected_candidate_id,
+        note=note,
+    )
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(
+        {
+            "dna": dna.model_dump(mode="json", exclude_none=True),
+            "screened_candidate_id": screened_candidate_id,
+            "decision": decision,
+            "reason_code": reason_code,
+            "variant": normalized_variant,
+            "next_candidate": next_candidate.model_dump(mode="json"),
+            "session": session.model_dump(mode="json"),
+            "recommendation": recommendation.model_dump(mode="json", exclude_none=True),
+            "gate": gate.model_dump(mode="json", exclude_none=True),
+        }
+    )
+
+
 @research_dna_app.command("screening")
 def research_dna_submit_screening(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),

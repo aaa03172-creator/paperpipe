@@ -41,7 +41,17 @@ def test_research_dna_cli_roundtrip(tmp_path, monkeypatch):
             summary="A",
             link="https://pubmed.ncbi.nlm.nih.gov/123/",
             doi=None,
-        )
+        ),
+        Paper(
+            id="10.1000/abc",
+            doi="10.1000/abc",
+            title="General nutrition guidance",
+            authors=["Lee H"],
+            published="2023-05-02",
+            source="PubMed",
+            summary="Broad diet commentary without the target condition or intervention.",
+            link="https://example.org/doi/10.1000/abc",
+        ),
     ]
     monkeypatch.setattr(
         "src.profiles.research_dna_service._default_source_fetchers",
@@ -184,6 +194,366 @@ def test_research_dna_cli_roundtrip(tmp_path, monkeypatch):
     pilot_payload = _last_json_block(pilot_result.output)
     assert pilot_payload["run_id"] == "pilot_cli_001"
     assert Path(pilot_payload["screening_queue_path"]).exists()
+
+    rerank_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "rerank",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--actor-id",
+            "tester",
+        ],
+    )
+    assert rerank_result.exit_code == 0
+    rerank_payload = _last_json_block(rerank_result.output)
+    assert rerank_payload["run_id"] == "pilot_cli_001"
+    assert Path(rerank_payload["reranked_screening_queue_path"]).exists()
+
+    guidance_materialize_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "materialize-guidance",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--actor-id",
+            "tester",
+        ],
+    )
+    assert guidance_materialize_result.exit_code == 0
+    guidance_materialize_payload = _last_json_block(guidance_materialize_result.output)
+    assert Path(guidance_materialize_payload["artifact_path"]).exists()
+    assert guidance_materialize_payload["recommendation"]["recommended_variant"] == "original"
+    assert guidance_materialize_payload["gate"]["gate_status"] == "insufficient_signal"
+
+    queue_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "queue",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "reranked",
+        ],
+    )
+    assert queue_result.exit_code == 0
+    queue_payload = _last_json_block(queue_result.output)
+    assert queue_payload["variant"] == "reranked"
+    assert queue_payload["row_count"] == 2
+
+    next_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "next",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "reranked",
+        ],
+    )
+    assert next_result.exit_code == 0
+    next_payload = _last_json_block(next_result.output)
+    assert next_payload["candidate"]["candidate_id"] == "pmid:123"
+    assert next_payload["queue_position"] == 1
+
+    session_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "session",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "reranked",
+            "--recent-limit",
+            "5",
+        ],
+    )
+    assert session_result.exit_code == 0
+    session_payload = _last_json_block(session_result.output)
+    assert session_payload["session"]["available_variants"] == ["original", "reranked"]
+    assert session_payload["session"]["next_candidate"]["candidate_id"] == "pmid:123"
+    assert session_payload["session"]["recent_decisions"] == []
+    assert session_payload["recommendation"]["owner_variant"] == "original"
+    assert session_payload["recommendation"]["recommended_variant"] == "original"
+    assert session_payload["recommendation"]["primary_reason_code"] == "no_position_change"
+    assert session_payload["recommendation"]["recommendation_summary"] == "Keep the original queue because reranking did not change candidate positions."
+    assert session_payload["recommendation"]["changed_position_ratio"] == 0.0
+    assert session_payload["gate"]["gate_status"] == "insufficient_signal"
+    assert session_payload["gate"]["primary_reason_code"] == "no_position_change"
+    assert session_payload["gate"]["gate_summary"] == "Reranked queue is not yet eligible because reranking did not change candidate positions."
+    assert session_payload["gate"]["changed_position_ratio"] == 0.0
+
+    recommendation_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "recommend",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+        ],
+    )
+    assert recommendation_result.exit_code == 0
+    recommendation_payload = _last_json_block(recommendation_result.output)
+    assert recommendation_payload["owner_variant"] == "original"
+    assert recommendation_payload["recommended_variant"] == "original"
+    assert recommendation_payload["primary_reason_code"] == "no_position_change"
+    assert recommendation_payload["reason_codes"] == ["no_position_change"]
+    guidance_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "guidance",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+        ],
+    )
+    assert guidance_result.exit_code == 0
+    guidance_payload = _last_json_block(guidance_result.output)
+    assert guidance_payload["recommendation"]["recommended_variant"] == "original"
+    assert guidance_payload["gate"]["gate_status"] == "insufficient_signal"
+    rerank_gate_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "rerank-gate",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+        ],
+    )
+    assert rerank_gate_result.exit_code == 0
+    rerank_gate_payload = _last_json_block(rerank_gate_result.output)
+    assert rerank_gate_payload["gate_status"] == "insufficient_signal"
+    assert rerank_gate_payload["primary_reason_code"] == "no_position_change"
+    assert rerank_gate_payload["reason_codes"] == ["no_position_change"]
+
+    screen_current_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "screen-current",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--decision",
+            "include",
+            "--reason-code",
+            "other_noise",
+            "--actor-id",
+            "tester",
+            "--variant",
+            "reranked",
+            "--recent-limit",
+            "5",
+            "--expected-candidate-id",
+            "pmid:123",
+        ],
+    )
+    assert screen_current_result.exit_code == 0
+    screen_current_payload = _last_json_block(screen_current_result.output)
+    assert screen_current_payload["screened_candidate_id"] == "pmid:123"
+    assert screen_current_payload["next_candidate"]["candidate"]["candidate_id"] == "doi:10.1000/abc"
+    assert screen_current_payload["next_candidate"]["remaining_count"] == 1
+    assert screen_current_payload["session"]["session_complete"] is False
+    assert screen_current_payload["session"]["next_candidate"]["candidate_id"] == "doi:10.1000/abc"
+    assert screen_current_payload["session"]["include_count"] == 1
+    assert screen_current_payload["recommendation"]["recommended_variant"] == "original"
+    assert screen_current_payload["recommendation"]["recommendation_summary"] == "Keep the original queue because screening is already in progress."
+    assert screen_current_payload["recommendation"]["reason_codes"] == ["screening_in_progress"]
+    assert screen_current_payload["gate"]["gate_status"] == "not_eligible"
+    assert screen_current_payload["gate"]["gate_summary"] == "Reranked queue is not eligible because screening is already in progress."
+    assert len(screen_current_payload["session"]["recent_decisions"]) == 1
+    assert screen_current_payload["session"]["recent_decisions"][0]["candidate_id"] == "pmid:123"
+
+    recommendation_after_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "recommend",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+        ],
+    )
+    assert recommendation_after_result.exit_code == 0
+    recommendation_after_payload = _last_json_block(recommendation_after_result.output)
+    assert recommendation_after_payload["recommended_variant"] == "original"
+    assert recommendation_after_payload["screening_started"] is True
+    assert recommendation_after_payload["reason_codes"] == ["screening_in_progress"]
+    rerank_gate_after_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "rerank-gate",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+        ],
+    )
+    assert rerank_gate_after_result.exit_code == 0
+    rerank_gate_after_payload = _last_json_block(rerank_gate_after_result.output)
+    assert rerank_gate_after_payload["gate_status"] == "not_eligible"
+    assert rerank_gate_after_payload["reason_codes"] == ["screening_in_progress"]
+
+    invalid_screen_current_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "screen-current",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--decision",
+            "include",
+            "--reason-code",
+            "other_noise",
+            "--actor-id",
+            "tester",
+            "--variant",
+            "bad_variant",
+        ],
+    )
+    assert invalid_screen_current_result.exit_code != 0
+    assert "variant must be 'original' or 'reranked'" in invalid_screen_current_result.output
+
+    screen_next_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "screen-next",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--candidate-id",
+            "doi:10.1000/abc",
+            "--decision",
+            "exclude",
+            "--reason-code",
+            "wrong_population",
+            "--actor-id",
+            "tester",
+            "--variant",
+            "reranked",
+            "--recent-limit",
+            "1",
+        ],
+    )
+    assert screen_next_result.exit_code == 0
+    screen_next_payload = _last_json_block(screen_next_result.output)
+    assert screen_next_payload["screened_candidate_id"] == "doi:10.1000/abc"
+    assert screen_next_payload["next_candidate"]["candidate"] is None
+    assert screen_next_payload["next_candidate"]["remaining_count"] == 0
+    assert screen_next_payload["session"]["session_complete"] is True
+    assert screen_next_payload["session"]["next_candidate"] is None
+    assert screen_next_payload["session"]["exclude_count"] == 1
+    assert screen_next_payload["gate"]["gate_status"] == "not_eligible"
+    assert len(screen_next_payload["session"]["recent_decisions"]) == 1
+    assert screen_next_payload["session"]["recent_decisions"][0]["candidate_id"] == "doi:10.1000/abc"
+
+    completed_session_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "session",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "reranked",
+            "--recent-limit",
+            "1",
+        ],
+    )
+    assert completed_session_result.exit_code == 0
+    completed_session_payload = _last_json_block(completed_session_result.output)
+    assert completed_session_payload["session"]["session_complete"] is True
+    assert completed_session_payload["session"]["next_candidate"] is None
+    assert completed_session_payload["session"]["include_count"] == 1
+    assert completed_session_payload["session"]["exclude_count"] == 1
+    assert completed_session_payload["recommendation"]["recommended_variant"] == "original"
+    assert completed_session_payload["gate"]["gate_status"] == "not_eligible"
+    assert len(completed_session_payload["session"]["recent_decisions"]) == 1
+    assert completed_session_payload["session"]["recent_decisions"][0]["candidate_id"] == "doi:10.1000/abc"
+
+    invalid_queue_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "queue",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "bad_variant",
+        ],
+    )
+    assert invalid_queue_result.exit_code != 0
+    assert "variant must be 'original' or 'reranked'" in invalid_queue_result.output
+
+    invalid_next_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "next",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "bad_variant",
+        ],
+    )
+    assert invalid_next_result.exit_code != 0
+    assert "variant must be 'original' or 'reranked'" in invalid_next_result.output
+
+    invalid_session_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "session",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--variant",
+            "bad_variant",
+        ],
+    )
+    assert invalid_session_result.exit_code != 0
+    assert "variant must be 'original' or 'reranked'" in invalid_session_result.output
+
+    invalid_screen_next_result = runner.invoke(
+        cli.app,
+        [
+            "research-dna",
+            "screen-next",
+            dna_id,
+            "--run-id",
+            "pilot_cli_001",
+            "--candidate-id",
+            "pmid:123",
+            "--decision",
+            "include",
+            "--reason-code",
+            "other_noise",
+            "--actor-id",
+            "tester",
+            "--variant",
+            "bad_variant",
+        ],
+    )
+    assert invalid_screen_next_result.exit_code != 0
+    assert "variant must be 'original' or 'reranked'" in invalid_screen_next_result.output
 
     show_result = runner.invoke(cli.app, ["research-dna", "show", dna_id])
     assert show_result.exit_code == 0

@@ -8,10 +8,19 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 ## Purpose
 `Research DNA`는 Search Profile을 일회성 대화 결과가 아니라, 재현 가능한 search-design asset으로 다루기 위한 bounded spec이다.
 
+현재 product exposure note:
+- `Research DNA`는 active core lane이지만, 현 단계에서는 API/CLI operator surface가 canonical entry다.
+- dedicated frontend/web viewer route는 아직 현재 main product surface에 포함되지 않는다.
+- web viewer gate decision: `docs/reports/Research_DNA_Web_Viewer_Gate_2026-03-28.md`
+
 이 문서의 목표는 세 가지다.
 - `ResearchDNA`와 현재 실행용 `Profile`의 canonical boundary를 고정한다.
 - v1 범위를 `DRAFT -> PILOT -> LOCKED` + pilot refine loop로 축소한다.
 - 이후 구현이 들어가더라도 append-only audit와 fixed search evaluation contract를 먼저 지키게 만든다.
+
+현재 이 문서와 연결된 실증 예시는 historical first probe였던 `MCI + medium-chain triglycerides`를 많이 사용한다.
+이 예시는 schema와 refine loop를 검증하기 위한 bounded pilot asset이지, 제품의 기본 domain scope나 권장 query default를 뜻하지 않는다.
+동일한 `Research DNA` contract는 oncology, immunology, cell biology, translational medicine, biomaterials-adjacent biomedical topics에도 그대로 적용된다.
 
 ## Current Status
 2026-03-13 기준 현재 상태는 아래와 같다.
@@ -24,15 +33,43 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - `log_interview_response()`
   - `approve_pilot()`
   - `run_pilot()`
+  - `load_screening_queue_artifact()`
+  - `load_next_screening_candidate()`
+  - `load_screening_session()`
+  - `load_screening_recommendation()`
   - `submit_screening_decision()`
+  - `submit_screening_decision_and_load_next_candidate()`
   - `refine_query_version()`
   - `lock_research_dna()`
   - `unlock_research_dna()`
 - `backend/main.py`
-  - thin FastAPI wrappers for create/get/update/interview/approve-pilot/pilot/screening/refine/lock/unlock/project-profile
+  - thin FastAPI wrappers for create/get/update/interview/approve-pilot/pilot/rerank/guidance materialization/screening-queue/next-screening-candidate/screening-session/screening-guidance/screening-recommendation/rerank-gate/screening/screening-advance/screening-current/refine/lock/unlock/project-profile
 - `src/cli.py`
   - thin CLI wrappers under `paperpipe research-dna ...`
   - interview logging command under `paperpipe research-dna interview`
+  - reranked screening sidecar command under `paperpipe research-dna rerank`
+  - screening guidance snapshot command under `paperpipe research-dna materialize-guidance`
+    - writes a run-local `screening_guidance.json` audit snapshot without changing queue ownership
+  - screening recommendation command under `paperpipe research-dna recommend`
+    - returns an advisory-only `original | reranked` recommendation without changing queue ownership
+    - includes stable `primary_reason_code` plus `recommendation_summary` for operator-facing explanation without client-side code mapping
+    - includes additive quantitative signal fields such as changed-position ratio and top-score margin for bounded read-side inspection
+  - screening guidance command under `paperpipe research-dna guidance`
+    - returns the current recommendation and rerank gate together as one bounded operator read
+  - rerank gate command under `paperpipe research-dna rerank-gate`
+    - returns a bounded `eligible | not_eligible | insufficient_signal` judgment for whether the current rerank result is strong enough to even consider stronger operator-default treatment later
+    - includes stable `primary_reason_code` / `primary_warning_code` plus `gate_summary` for operator-facing explanation without changing default ownership
+    - includes the same additive quantitative signal fields so operators can inspect heuristic strength without changing queue ownership
+  - queue inspection command under `paperpipe research-dna queue`
+  - next-candidate operator command under `paperpipe research-dna next`
+  - screening-session snapshot command under `paperpipe research-dna session`
+    - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
+  - screening-advance operator command under `paperpipe research-dna screen-next`
+    - returns the updated next-candidate payload plus a bounded session snapshot after the write
+    - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
+  - current-next screening shortcut under `paperpipe research-dna screen-current`
+    - screens the current next candidate on the chosen queue variant and returns the refreshed session snapshot
+    - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
   - projection materialization command under `paperpipe research-dna project-profile`
 - `src/services/runtime_paths.py`
   - `research_dna_root()`
@@ -540,6 +577,8 @@ Search eval은 current quality eval의 변형이 아니라 별도 contract를 �
 - `queries.json`
 - `retrieved.jsonl`
 - `screening_queue.jsonl`
+- optional `reranked_screening_queue.jsonl`
+- optional `rerank_report.json`
 - `metrics.json`
 - optional `diff.json`
 - optional `baseline_snapshot.json`
@@ -602,7 +641,9 @@ External benchmark interpretation rule:
   - repeated promotion for the same `run_id`: `<promote_dir>/<dna_id>/history/<run_id>__<timestamp>.metrics.json`
 
 ## Example
-v1 예시는 biomedical domain 기준으로 고정한다.
+아래 v1 예시는 historical bounded probe example이다.
+즉, `Research DNA`의 canonical default topic이 아니라 첫 end-to-end pilot에서 사용한 sample asset이다.
+실제 운용에서는 같은 schema로 다른 biomedical domains를 동일하게 설계할 수 있다.
 
 권장 예시:
 - `mild cognitive impairment + medium-chain triglycerides`

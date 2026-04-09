@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,8 @@ ApprovalAction = Literal[
     "project_profile",
 ]
 BenchmarkDecision = Literal["include", "exclude"]
+ScreeningQueueVariant = Literal["original", "reranked"]
+RerankGateStatus = Literal["eligible", "not_eligible", "insufficient_signal"]
 
 
 class ResearchScope(BaseModel):
@@ -162,6 +164,174 @@ class PilotRunArtifacts(BaseModel):
     dedupe_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     screening_queue_path: str
     metrics_path: str
+
+
+class ResearchDNARerankReport(BaseModel):
+    schema_version: Literal["research_dna.rerank_report.v1"] = "research_dna.rerank_report.v1"
+    evaluated_at: datetime
+    algorithm_version: str = "research_dna.query_overlap.v1"
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    actor_type: ActorType
+    actor_id: str
+    active_sources: List[str] = Field(default_factory=list)
+    screening_queue_path: str
+    reranked_screening_queue_path: str
+    row_count: int = Field(default=0, ge=0)
+    changed_position_count: int = Field(default=0, ge=0)
+    changed_position_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    top_candidate_id: Optional[str] = None
+    query_token_count: int = Field(default=0, ge=0)
+    query_phrase_count: int = Field(default=0, ge=0)
+    min_score: float = 0.0
+    max_score: float = 0.0
+    mean_score: float = 0.0
+    top_score: float = 0.0
+    second_score: Optional[float] = None
+    top_score_margin: Optional[float] = None
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ResearchDNARerankArtifacts(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    run_dir: str
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    screening_queue_path: str
+    reranked_screening_queue_path: str
+    rerank_report_path: str
+    metrics_path: str
+    row_count: int = Field(default=0, ge=0)
+    changed_position_count: int = Field(default=0, ge=0)
+    top_candidate_id: Optional[str] = None
+    algorithm_version: str = "research_dna.query_overlap.v1"
+
+
+class ResearchDNAScreeningGuidanceArtifact(BaseModel):
+    schema_version: Literal["research_dna.screening_guidance.v1"] = "research_dna.screening_guidance.v1"
+    evaluated_at: datetime
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    actor_type: ActorType
+    actor_id: str
+    artifact_path: str
+    recommendation: "ResearchDNAScreeningRecommendation"
+    gate: "ResearchDNARerankGateReport"
+
+
+class ResearchDNAScreeningQueueArtifact(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    run_dir: str
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    variant: ScreeningQueueVariant = "original"
+    artifact_path: str
+    row_count: int = Field(default=0, ge=0)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ResearchDNANextScreeningCandidate(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    variant: ScreeningQueueVariant = "original"
+    artifact_path: str
+    total_count: int = Field(default=0, ge=0)
+    labeled_count: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    queue_position: Optional[int] = Field(default=None, ge=1)
+    candidate: Optional[Dict[str, Any]] = None
+
+
+class ResearchDNAScreeningSession(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    variant: ScreeningQueueVariant = "original"
+    available_variants: List[ScreeningQueueVariant] = Field(default_factory=lambda: ["original"])
+    artifact_path: str
+    total_count: int = Field(default=0, ge=0)
+    labeled_count: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    include_count: int = Field(default=0, ge=0)
+    exclude_count: int = Field(default=0, ge=0)
+    unclear_count: int = Field(default=0, ge=0)
+    session_complete: bool = False
+    next_queue_position: Optional[int] = Field(default=None, ge=1)
+    next_candidate: Optional[Dict[str, Any]] = None
+    recent_limit: int = Field(default=5, ge=1, le=20)
+    recent_decisions: List["ScreeningLogEntry"] = Field(default_factory=list)
+
+
+class ResearchDNAScreeningRecommendation(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    owner_variant: ScreeningQueueVariant = "original"
+    available_variants: List[ScreeningQueueVariant] = Field(default_factory=lambda: ["original"])
+    recommended_variant: ScreeningQueueVariant = "original"
+    advisory_only: bool = True
+    confidence: Literal["low", "medium"] = "low"
+    screening_started: bool = False
+    labeled_count: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    row_count: int = Field(default=0, ge=0)
+    changed_position_count: int = Field(default=0, ge=0)
+    changed_position_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    top_candidate_changed: bool = False
+    original_top_candidate_id: Optional[str] = None
+    reranked_top_candidate_id: Optional[str] = None
+    original_next_candidate_id: Optional[str] = None
+    reranked_next_candidate_id: Optional[str] = None
+    rerank_algorithm_version: Optional[str] = None
+    rerank_score_min: Optional[float] = None
+    rerank_score_max: Optional[float] = None
+    rerank_score_mean: Optional[float] = None
+    rerank_top_score: Optional[float] = None
+    rerank_second_score: Optional[float] = None
+    rerank_top_score_margin: Optional[float] = None
+    rerank_report_path: Optional[str] = None
+    primary_reason_code: Optional[str] = None
+    primary_warning_code: Optional[str] = None
+    recommendation_summary: str = ""
+    reason_codes: List[str] = Field(default_factory=list)
+    warning_codes: List[str] = Field(default_factory=list)
+
+
+class ResearchDNARerankGateReport(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    owner_variant: ScreeningQueueVariant = "original"
+    candidate_variant: ScreeningQueueVariant = "reranked"
+    available_variants: List[ScreeningQueueVariant] = Field(default_factory=lambda: ["original"])
+    recommended_variant: ScreeningQueueVariant = "original"
+    gate_status: RerankGateStatus = "insufficient_signal"
+    advisory_only: bool = True
+    screening_started: bool = False
+    changed_position_count: int = Field(default=0, ge=0)
+    changed_position_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    top_candidate_changed: bool = False
+    row_count: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    original_top_candidate_id: Optional[str] = None
+    reranked_top_candidate_id: Optional[str] = None
+    rerank_algorithm_version: Optional[str] = None
+    rerank_report_path: Optional[str] = None
+    rerank_score_min: Optional[float] = None
+    rerank_score_max: Optional[float] = None
+    rerank_score_mean: Optional[float] = None
+    rerank_score_spread: Optional[float] = None
+    rerank_top_score: Optional[float] = None
+    rerank_second_score: Optional[float] = None
+    rerank_top_score_margin: Optional[float] = None
+    primary_reason_code: Optional[str] = None
+    primary_warning_code: Optional[str] = None
+    gate_summary: str = ""
+    reason_codes: List[str] = Field(default_factory=list)
+    warning_codes: List[str] = Field(default_factory=list)
 
 
 class ScreeningLogEntry(BaseModel):

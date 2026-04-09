@@ -6,7 +6,14 @@ from src.profiles.research_dna_schema import (
     ActorType,
     InterviewLogEntry,
     InterviewRound,
+    ResearchDNAScreeningRecommendation,
+    ResearchDNAScreeningSession,
     PilotRunArtifacts,
+    ResearchDNANextScreeningCandidate,
+    ResearchDNARerankGateReport,
+    ResearchDNARerankArtifacts,
+    ResearchDNAScreeningGuidanceArtifact,
+    ResearchDNAScreeningQueueArtifact,
     QueryVersion,
     ResearchDNA,
     ResearchDNAUpdate,
@@ -39,12 +46,48 @@ class ResearchDNAPilotRunRequest(BaseModel):
     run_id: str | None = None
 
 
+class ResearchDNARerankRequest(BaseModel):
+    actor_type: ActorType = "human_api"
+    actor_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+
+
+class ResearchDNAGuidanceMaterializeRequest(BaseModel):
+    actor_type: ActorType = "human_api"
+    actor_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+
+
 class ResearchDNAScreeningRequest(BaseModel):
     run_id: str = Field(..., min_length=1)
     candidate_id: str = Field(..., min_length=1)
     decision: ScreeningDecision
     reason_code: ReasonCode
     note: str | None = None
+    actor_type: ActorType = "human_api"
+    actor_id: str = Field(..., min_length=1)
+
+
+class ResearchDNAScreeningAdvanceRequest(BaseModel):
+    run_id: str = Field(..., min_length=1)
+    candidate_id: str = Field(..., min_length=1)
+    decision: ScreeningDecision
+    reason_code: ReasonCode
+    note: str | None = None
+    variant: str = Field(default="original", pattern="^(original|reranked)$")
+    recent_limit: int = Field(default=5, ge=1, le=20)
+    actor_type: ActorType = "human_api"
+    actor_id: str = Field(..., min_length=1)
+
+
+class ResearchDNAScreenCurrentRequest(BaseModel):
+    run_id: str = Field(..., min_length=1)
+    decision: ScreeningDecision
+    reason_code: ReasonCode
+    note: str | None = None
+    variant: str = Field(default="original", pattern="^(original|reranked)$")
+    recent_limit: int = Field(default=5, ge=1, le=20)
+    expected_candidate_id: str | None = None
     actor_type: ActorType = "human_api"
     actor_id: str = Field(..., min_length=1)
 
@@ -77,6 +120,53 @@ class ResearchDNAEnvelope(BaseModel):
 
 class ResearchDNAPilotRunEnvelope(BaseModel):
     pilot_run: PilotRunArtifacts
+
+
+class ResearchDNARerankEnvelope(BaseModel):
+    rerank: ResearchDNARerankArtifacts
+
+
+class ResearchDNAScreeningGuidanceArtifactEnvelope(BaseModel):
+    guidance_artifact: ResearchDNAScreeningGuidanceArtifact
+
+
+class ResearchDNAScreeningQueueEnvelope(BaseModel):
+    screening_queue: ResearchDNAScreeningQueueArtifact
+
+
+class ResearchDNANextScreeningCandidateEnvelope(BaseModel):
+    next_candidate: ResearchDNANextScreeningCandidate
+
+
+class ResearchDNAScreeningSessionEnvelope(BaseModel):
+    session: ResearchDNAScreeningSession
+    recommendation: ResearchDNAScreeningRecommendation
+    gate: ResearchDNARerankGateReport
+
+
+class ResearchDNAScreeningRecommendationEnvelope(BaseModel):
+    recommendation: ResearchDNAScreeningRecommendation
+
+
+class ResearchDNARerankGateEnvelope(BaseModel):
+    gate: ResearchDNARerankGateReport
+
+
+class ResearchDNAScreeningGuidanceEnvelope(BaseModel):
+    recommendation: ResearchDNAScreeningRecommendation
+    gate: ResearchDNARerankGateReport
+
+
+class ResearchDNAScreeningAdvanceEnvelope(BaseModel):
+    dna: ResearchDNA
+    next_candidate: ResearchDNANextScreeningCandidate
+    session: ResearchDNAScreeningSession
+    recommendation: ResearchDNAScreeningRecommendation
+    gate: ResearchDNARerankGateReport
+    screened_candidate_id: str
+    decision: ScreeningDecision
+    reason_code: ReasonCode
+    variant: str
 
 
 class ResearchDNAInterviewEnvelope(BaseModel):

@@ -119,18 +119,175 @@ def test_research_dna_api_roundtrip_and_pilot(tmp_path, monkeypatch):
     assert pilot.json()["pilot_run"]["run_id"] == "pilot_api_001"
     assert Path(pilot.json()["pilot_run"]["screening_queue_path"]).exists()
 
+    rerank = client.post(
+        f"/research-dna/{dna_id}/rerank",
+        json={"actor_type": "human_api", "actor_id": "tester", "run_id": "pilot_api_001"},
+    )
+    assert rerank.status_code == 200
+    assert Path(rerank.json()["rerank"]["reranked_screening_queue_path"]).exists()
+
+    guidance_materialized = client.post(
+        f"/research-dna/{dna_id}/guidance/materialize",
+        json={"actor_type": "human_api", "actor_id": "tester", "run_id": "pilot_api_001"},
+    )
+    assert guidance_materialized.status_code == 200
+    assert Path(guidance_materialized.json()["guidance_artifact"]["artifact_path"]).exists()
+    assert guidance_materialized.json()["guidance_artifact"]["recommendation"]["recommended_variant"] == "original"
+    assert guidance_materialized.json()["guidance_artifact"]["gate"]["gate_status"] == "insufficient_signal"
+
+    queue = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-queue",
+        params={"variant": "reranked"},
+    )
+    assert queue.status_code == 200
+    assert queue.json()["screening_queue"]["variant"] == "reranked"
+    assert queue.json()["screening_queue"]["row_count"] == 2
+
+    next_candidate = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/next-screening-candidate",
+        params={"variant": "reranked"},
+    )
+    assert next_candidate.status_code == 200
+    assert next_candidate.json()["next_candidate"]["candidate"]["candidate_id"] == "pmid:123"
+    assert next_candidate.json()["next_candidate"]["queue_position"] == 1
+
+    session_before = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-session",
+        params={"variant": "reranked", "recent_limit": 5},
+    )
+    assert session_before.status_code == 200
+    assert session_before.json()["session"]["available_variants"] == ["original", "reranked"]
+    assert session_before.json()["session"]["next_candidate"]["candidate_id"] == "pmid:123"
+    assert session_before.json()["session"]["recent_decisions"] == []
+    assert session_before.json()["recommendation"]["owner_variant"] == "original"
+    assert session_before.json()["recommendation"]["recommended_variant"] == "original"
+    assert session_before.json()["recommendation"]["primary_reason_code"] == "no_position_change"
+    assert session_before.json()["recommendation"]["recommendation_summary"] == "Keep the original queue because reranking did not change candidate positions."
+    assert session_before.json()["recommendation"]["changed_position_ratio"] == 0.0
+    assert session_before.json()["gate"]["gate_status"] == "insufficient_signal"
+    assert session_before.json()["gate"]["primary_reason_code"] == "no_position_change"
+    assert session_before.json()["gate"]["gate_summary"] == "Reranked queue is not yet eligible because reranking did not change candidate positions."
+    assert session_before.json()["gate"]["changed_position_ratio"] == 0.0
+
+    recommendation_before = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-recommendation",
+    )
+    assert recommendation_before.status_code == 200
+    assert recommendation_before.json()["recommendation"]["owner_variant"] == "original"
+    assert recommendation_before.json()["recommendation"]["recommended_variant"] == "original"
+    assert recommendation_before.json()["recommendation"]["primary_reason_code"] == "no_position_change"
+    assert recommendation_before.json()["recommendation"]["reason_codes"] == ["no_position_change"]
+    guidance_before = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-guidance",
+    )
+    assert guidance_before.status_code == 200
+    assert guidance_before.json()["recommendation"]["recommended_variant"] == "original"
+    assert guidance_before.json()["gate"]["gate_status"] == "insufficient_signal"
+    rerank_gate_before = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/rerank-gate",
+    )
+    assert rerank_gate_before.status_code == 200
+    assert rerank_gate_before.json()["gate"]["gate_status"] == "insufficient_signal"
+    assert rerank_gate_before.json()["gate"]["primary_reason_code"] == "no_position_change"
+    assert rerank_gate_before.json()["gate"]["reason_codes"] == ["no_position_change"]
+
     screening = client.post(
-        f"/research-dna/{dna_id}/screening",
+        f"/research-dna/{dna_id}/screening/current",
         json={
             "run_id": "pilot_api_001",
-            "candidate_id": "pmid:123",
             "decision": "exclude",
             "reason_code": "wrong_population",
+            "variant": "reranked",
+            "expected_candidate_id": "pmid:123",
+            "recent_limit": 5,
             "actor_type": "human_api",
             "actor_id": "tester",
         },
     )
     assert screening.status_code == 200
+    assert screening.json()["screened_candidate_id"] == "pmid:123"
+    assert screening.json()["session"]["exclude_count"] == 1
+    assert screening.json()["session"]["next_candidate"]["candidate_id"] == "doi:10.1000/abc"
+    assert screening.json()["recommendation"]["recommended_variant"] == "original"
+    assert screening.json()["recommendation"]["recommendation_summary"] == "Keep the original queue because screening is already in progress."
+    assert screening.json()["recommendation"]["reason_codes"] == ["screening_in_progress"]
+    assert screening.json()["gate"]["gate_status"] == "not_eligible"
+    assert screening.json()["gate"]["gate_summary"] == "Reranked queue is not eligible because screening is already in progress."
+
+    next_after_screening = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/next-screening-candidate",
+        params={"variant": "reranked"},
+    )
+    assert next_after_screening.status_code == 200
+    assert next_after_screening.json()["next_candidate"]["candidate"]["candidate_id"] == "doi:10.1000/abc"
+    assert next_after_screening.json()["next_candidate"]["labeled_count"] == 1
+
+    session_after = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-session",
+        params={"variant": "reranked", "recent_limit": 5},
+    )
+    assert session_after.status_code == 200
+    assert session_after.json()["session"]["include_count"] == 0
+    assert session_after.json()["session"]["exclude_count"] == 1
+    assert session_after.json()["session"]["next_candidate"]["candidate_id"] == "doi:10.1000/abc"
+    assert session_after.json()["session"]["recent_decisions"][0]["candidate_id"] == "pmid:123"
+    assert session_after.json()["recommendation"]["recommended_variant"] == "original"
+    assert session_after.json()["recommendation"]["reason_codes"] == ["screening_in_progress"]
+    assert session_after.json()["gate"]["gate_status"] == "not_eligible"
+
+    recommendation_after = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-recommendation",
+    )
+    assert recommendation_after.status_code == 200
+    assert recommendation_after.json()["recommendation"]["recommended_variant"] == "original"
+    assert recommendation_after.json()["recommendation"]["screening_started"] is True
+    assert recommendation_after.json()["recommendation"]["reason_codes"] == ["screening_in_progress"]
+    rerank_gate_after = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/rerank-gate",
+    )
+    assert rerank_gate_after.status_code == 200
+    assert rerank_gate_after.json()["gate"]["gate_status"] == "not_eligible"
+    assert rerank_gate_after.json()["gate"]["reason_codes"] == ["screening_in_progress"]
+
+    advance = client.post(
+        f"/research-dna/{dna_id}/screening/advance",
+        json={
+            "run_id": "pilot_api_001",
+            "candidate_id": "doi:10.1000/abc",
+            "decision": "include",
+            "reason_code": "other_noise",
+            "variant": "reranked",
+            "recent_limit": 1,
+            "actor_type": "human_api",
+            "actor_id": "tester",
+        },
+    )
+    assert advance.status_code == 200
+    assert advance.json()["screened_candidate_id"] == "doi:10.1000/abc"
+    assert advance.json()["next_candidate"]["candidate"] is None
+    assert advance.json()["next_candidate"]["remaining_count"] == 0
+    assert advance.json()["session"]["session_complete"] is True
+    assert advance.json()["session"]["next_candidate"] is None
+    assert advance.json()["session"]["include_count"] == 1
+    assert advance.json()["recommendation"]["recommended_variant"] == "original"
+    assert advance.json()["recommendation"]["reason_codes"] == ["screening_in_progress"]
+    assert advance.json()["gate"]["gate_status"] == "not_eligible"
+    assert len(advance.json()["session"]["recent_decisions"]) == 1
+    assert advance.json()["session"]["recent_decisions"][0]["candidate_id"] == "doi:10.1000/abc"
+
+    completed_session = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_api_001/screening-session",
+        params={"variant": "reranked", "recent_limit": 1},
+    )
+    assert completed_session.status_code == 200
+    assert completed_session.json()["session"]["session_complete"] is True
+    assert completed_session.json()["session"]["next_candidate"] is None
+    assert completed_session.json()["session"]["include_count"] == 1
+    assert completed_session.json()["session"]["exclude_count"] == 1
+    assert completed_session.json()["recommendation"]["recommended_variant"] == "original"
+    assert completed_session.json()["gate"]["gate_status"] == "not_eligible"
+    assert len(completed_session.json()["session"]["recent_decisions"]) == 1
+    assert completed_session.json()["session"]["recent_decisions"][0]["candidate_id"] == "doi:10.1000/abc"
 
     locked = client.post(
         f"/research-dna/{dna_id}/lock",
