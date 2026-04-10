@@ -1417,6 +1417,20 @@ def research_dna_materialize_guidance(
     _emit_json(guidance_artifact.model_dump(mode="json", exclude_none=True))
 
 
+@research_dna_app.command("guidance-artifact")
+def research_dna_screening_guidance_artifact(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+):
+    from src.profiles.research_dna_service import load_latest_screening_guidance_artifact
+
+    guidance_artifact = load_latest_screening_guidance_artifact(
+        dna_id,
+        run_id=run_id,
+    )
+    _emit_json(guidance_artifact.model_dump(mode="json", exclude_none=True))
+
+
 @research_dna_app.command("queue")
 def research_dna_show_screening_queue(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),
@@ -1523,6 +1537,22 @@ def research_dna_screening_guidance(
             "gate": gate.model_dump(mode="json", exclude_none=True),
         }
     )
+
+
+@research_dna_app.command("guidance-history")
+def research_dna_screening_guidance_history(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    limit: int = typer.Option(20, "--limit", min=1, max=100, help="Maximum guidance history entries to return"),
+):
+    from src.profiles.research_dna_service import load_screening_guidance_index_artifact
+
+    guidance_index = load_screening_guidance_index_artifact(
+        dna_id,
+        run_id=run_id,
+        limit=limit,
+    )
+    _emit_json(guidance_index.model_dump(mode="json", exclude_none=True))
 
 
 @research_dna_app.command("rerank-gate")
