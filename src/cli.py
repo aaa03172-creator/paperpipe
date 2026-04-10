@@ -1505,6 +1505,54 @@ def research_dna_show(
     _emit_json(dna.model_dump(mode="json", exclude_none=True))
 
 
+@research_dna_app.command("runs")
+def research_dna_runs(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    limit: int = typer.Option(20, "--limit", min=1, max=100, help="Maximum runs to return"),
+):
+    from src.profiles.research_dna_service import load_research_dna_run_index
+
+    run_index = load_research_dna_run_index(
+        dna_id,
+        limit=limit,
+    )
+    _emit_json(
+        run_index.model_dump(
+            mode="json",
+            exclude_none=False,
+            exclude_defaults=False,
+            exclude_unset=False,
+        )
+    )
+
+
+@research_dna_app.command("resume")
+def research_dna_resume(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+    recent_limit: int = typer.Option(5, "--recent-limit", min=1, max=20, help="Recent decisions to include"),
+):
+    from src.profiles.research_dna_service import load_research_dna_resume_snapshot
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    resume = load_research_dna_resume_snapshot(
+        dna_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+        recent_limit=recent_limit,
+    )
+    _emit_json(
+        resume.model_dump(
+            mode="json",
+            exclude_none=False,
+            exclude_defaults=False,
+            exclude_unset=False,
+        )
+    )
+
+
 @research_dna_app.command("approve-pilot")
 def research_dna_approve_pilot(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),
