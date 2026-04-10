@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -106,7 +106,7 @@ from src.services.event_log import get_execution_run_params, list_run_events, li
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.runtime_readiness import collect_runtime_readiness
-from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
+from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
 from .routers import (
     chart_packs,
@@ -227,12 +227,17 @@ async def api_key_guard(request: Request, call_next):
     return await call_next(request)
 
 queue = JobQueue()
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIR = frontend_runtime_dir()
+FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
+FRONTEND_DIST_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
+FRONTEND_DIST_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 FRONTEND_INDEX_PATH = FRONTEND_DIR / "index.html"
 UI_SHELL_PATH = FRONTEND_DIR / "ui-shell.html"
 
 if FRONTEND_DIR.exists():
     app.mount("/ui-assets", StaticFiles(directory=str(FRONTEND_DIR)), name="ui-assets")
+if FRONTEND_DIST_ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_ASSETS_DIR)), name="ui-dist-assets")
 
 ARTIFACT_FILE_MAP: dict[str, str] = {
     "document_artifact": "document_artifact.json",
@@ -1591,13 +1596,54 @@ def list_personas(include_disabled: bool = Query(default=False)):
         raise HTTPException(status_code=500, detail=f"Failed to load persona profiles: {exc}")
 
 
-@app.get("/ui", include_in_schema=False)
-def ui_shell():
+def _resolve_ui_shell_response() -> FileResponse:
+    if FRONTEND_DIST_INDEX_PATH.exists():
+        return FileResponse(FRONTEND_DIST_INDEX_PATH)
     if UI_SHELL_PATH.exists():
         return FileResponse(UI_SHELL_PATH)
     if FRONTEND_INDEX_PATH.exists():
         return FileResponse(FRONTEND_INDEX_PATH)
-    raise HTTPException(status_code=404, detail=f"UI shell not found: {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}")
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            "UI shell not found: "
+            f"{FRONTEND_DIST_INDEX_PATH} or {UI_SHELL_PATH} or {FRONTEND_INDEX_PATH}"
+        ),
+    )
+
+
+@app.get("/ui", include_in_schema=False)
+def ui_shell():
+    return _resolve_ui_shell_response()
+
+
+@app.get("/ui/{path:path}", include_in_schema=False)
+def ui_shell_deep_link(path: str):
+    return _resolve_ui_shell_response()
+
+
+@app.get("/sample.pdf", include_in_schema=False)
+def sample_pdf_asset():
+    path = FRONTEND_DIST_DIR / "sample.pdf"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
+
+
+@app.get("/vite.svg", include_in_schema=False)
+def vite_svg_asset():
+    path = FRONTEND_DIST_DIR / "vite.svg"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail=f"Frontend asset not found: {path}")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon_asset():
+    path = FRONTEND_DIST_DIR / "vite.svg"
+    if path.exists():
+        return FileResponse(path, media_type="image/svg+xml")
+    return Response(status_code=204)
 
 
 @app.get("/ops/downloader-metrics", response_model=DownloaderOpsMetricsResponse)
