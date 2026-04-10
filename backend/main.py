@@ -107,7 +107,7 @@ from src.services.event_log import get_execution_run_params, list_run_events, li
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
-from src.services.runtime_readiness import collect_runtime_readiness
+from src.services.runtime_readiness import collect_runtime_readiness, summarize_browser_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -161,6 +161,25 @@ def _resolve_api_key() -> str:
         or os.getenv("PAPERPIPE_API_KEY")
         or ""
     ).strip()
+
+
+def _resolve_beta_password() -> str:
+    return (
+        os.getenv("LATTICE_BETA_PASSWORD")
+        or os.getenv("PAPERPIPE_BETA_PASSWORD")
+        or ""
+    ).strip()
+
+
+def _resolve_browser_detailed_runtime_readiness_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_BROWSER_DETAILED_RUNTIME_READINESS")
+        or os.getenv("PAPERPIPE_BROWSER_DETAILED_RUNTIME_READINESS")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return not bool(_resolve_beta_password())
 
 
 def _resolve_allowed_hosts() -> list[str]:
@@ -1062,6 +1081,8 @@ def health_check():
 @app.get("/health/ready", response_model=RuntimeReadinessResponse)
 def health_ready():
     readiness = collect_runtime_readiness()
+    if not _resolve_browser_detailed_runtime_readiness_enabled():
+        readiness = summarize_browser_runtime_readiness(readiness)
     return RuntimeReadinessResponse(
         status=readiness.status,
         checks=[
@@ -1074,6 +1095,11 @@ def health_ready():
             for check in readiness.checks
         ],
     )
+
+
+@app.get("/api/health/ready", response_model=RuntimeReadinessResponse)
+def api_health_ready():
+    return health_ready()
 
 
 @app.post("/api/chat", response_model=ChatStubResponse)
