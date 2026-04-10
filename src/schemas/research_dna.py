@@ -13,6 +13,8 @@ from src.profiles.research_dna_schema import (
     ResearchDNARerankGateReport,
     ResearchDNARerankArtifacts,
     ResearchDNAScreeningGuidanceArtifact,
+    ResearchDNAScreeningGuidanceIndexArtifact,
+    ResearchDNAScreeningProgressReport,
     ResearchDNAScreeningQueueArtifact,
     QueryVersion,
     ResearchDNA,
@@ -130,6 +132,10 @@ class ResearchDNAScreeningGuidanceArtifactEnvelope(BaseModel):
     guidance_artifact: ResearchDNAScreeningGuidanceArtifact
 
 
+class ResearchDNAScreeningGuidanceIndexEnvelope(BaseModel):
+    guidance_index: ResearchDNAScreeningGuidanceIndexArtifact
+
+
 class ResearchDNAScreeningQueueEnvelope(BaseModel):
     screening_queue: ResearchDNAScreeningQueueArtifact
 
@@ -142,6 +148,10 @@ class ResearchDNAScreeningSessionEnvelope(BaseModel):
     session: ResearchDNAScreeningSession
     recommendation: ResearchDNAScreeningRecommendation
     gate: ResearchDNARerankGateReport
+
+
+class ResearchDNAScreeningProgressEnvelope(BaseModel):
+    progress: ResearchDNAScreeningProgressReport
 
 
 class ResearchDNAScreeningRecommendationEnvelope(BaseModel):

@@ -1650,6 +1650,34 @@ def research_dna_screening_session(
     )
 
 
+@research_dna_app.command("progress")
+def research_dna_screening_progress(
+    dna_id: str = typer.Argument(..., help="Research DNA ID"),
+    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    variant: str = typer.Option("original", "--variant", help="original | reranked"),
+):
+    from src.profiles.research_dna_service import load_screening_progress_report
+
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in {"original", "reranked"}:
+        raise typer.BadParameter("variant must be 'original' or 'reranked'")
+
+    progress = load_screening_progress_report(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,  # type: ignore[arg-type]
+    )
+    payload = progress.model_dump(
+        mode="json",
+        exclude_none=False,
+        exclude_defaults=False,
+        exclude_unset=False,
+    )
+    # Keep the CLI contract stable for completed sessions where the next candidate is intentionally null.
+    payload.setdefault("next_candidate_id", None)
+    _emit_json(payload)
+
+
 @research_dna_app.command("recommend")
 def research_dna_screening_recommendation(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),

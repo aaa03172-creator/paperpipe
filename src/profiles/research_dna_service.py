@@ -19,8 +19,10 @@ from src.profiles.research_dna_schema import (
     ResearchDNANextScreeningCandidate,
     ResearchDNARerankArtifacts,
     ResearchDNAScreeningGuidanceArtifact,
+    ResearchDNAScreeningGuidanceFollowSummary,
     ResearchDNAScreeningGuidanceIndexArtifact,
     ResearchDNAScreeningGuidanceIndexEntry,
+    ResearchDNAScreeningProgressReport,
     ResearchDNARerankGateReport,
     ResearchDNARerankReport,
     ResearchDNAScreeningRecommendation,
@@ -311,10 +313,17 @@ def submit_screening_decision(
     candidate_id: str,
     decision: ScreeningDecision,
     reason_code: str,
+    variant: ScreeningQueueVariant = "original",
+    owner_variant: ScreeningQueueVariant = "original",
+    recommended_variant: ScreeningQueueVariant | None = None,
+    guidance_gate_status: RerankGateStatus | None = None,
+    guidance_primary_reason_code: str | None = None,
+    followed_guidance: bool | None = None,
     actor_type: ActorType,
     actor_id: str,
     note: str | None = None,
     root: Path | None = None,
+    search_eval_root: Path | None = None,
 ) -> ResearchDNA:
     dna = load_research_dna(dna_id, root)
     if dna.status != "PILOT":
@@ -327,6 +336,12 @@ def submit_screening_decision(
             dna_id=dna_id,
             run_id=run_id,
             candidate_id=candidate_id,
+            variant=variant,
+            owner_variant=owner_variant,
+            recommended_variant=recommended_variant,
+            guidance_gate_status=guidance_gate_status,
+            guidance_primary_reason_code=guidance_primary_reason_code,
+            followed_guidance=followed_guidance,
             decision=decision,
             reason_code=reason_code,
             note=note,
@@ -347,6 +362,13 @@ def submit_screening_decision(
             run_id=run_id,
         ),
         root,
+    )
+    _best_effort_refresh_run_screening_progress_sidecars(
+        dna_id,
+        run_id=run_id,
+        variant=variant,
+        root=root,
+        search_eval_root=search_eval_root,
     )
     return dna
 
@@ -851,6 +873,129 @@ def materialize_screening_guidance_artifact(
     return guidance_artifact
 
 
+def load_screening_guidance_index_artifact(
+    dna_id: str,
+    *,
+    run_id: str,
+    limit: int = 20,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNAScreeningGuidanceIndexArtifact:
+    load_research_dna(dna_id, root)
+    if limit < 1:
+        raise ResearchDNAStateError("guidance history limit must be >= 1")
+
+    eval_root = (search_eval_root or default_search_eval_root()).expanduser().resolve()
+    run_dir = eval_root / run_id
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise ResearchDNAStateError(f"guidance history requires manifest.json for run_id={run_id}")
+
+    manifest = _read_json(manifest_path)
+    if manifest.get("dna_id") != dna_id:
+        raise ResearchDNAStateError(
+            f"guidance history run_id={run_id} belongs to dna_id={manifest.get('dna_id')}, not {dna_id}"
+        )
+
+    artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
+    queries_path = Path(str(artifact_paths.get("queries") or run_dir / "queries.json"))
+    query_version = str(manifest.get("query_version") or "")
+    if queries_path.exists():
+        queries_payload = _read_json(queries_path)
+        query_version = str(queries_payload.get("query_version") or query_version)
+    if not query_version:
+        raise ResearchDNAStateError(f"guidance history requires query_version for run_id={run_id}")
+
+    index_path = Path(str(artifact_paths.get("screening_guidance_index") or run_dir / "screening_guidance_index.json"))
+    if not index_path.exists():
+        raise ResearchDNAStateError(f"guidance history artifact is unavailable for run_id={run_id}")
+
+    try:
+        guidance_index = ResearchDNAScreeningGuidanceIndexArtifact.model_validate(_read_json(index_path))
+    except Exception as exc:
+        raise ResearchDNAStateError(f"guidance history is invalid for run_id={run_id}: {exc}")
+
+    if (
+        guidance_index.run_id != run_id
+        or guidance_index.dna_id != dna_id
+        or guidance_index.query_version != query_version
+    ):
+        raise ResearchDNAStateError("guidance history does not match current run identity")
+
+    entries = list(guidance_index.entries)
+    if len(entries) > limit:
+        entries = entries[-limit:]
+
+    return ResearchDNAScreeningGuidanceIndexArtifact(
+        run_id=guidance_index.run_id,
+        dna_id=guidance_index.dna_id,
+        query_version=guidance_index.query_version,
+        artifact_path=guidance_index.artifact_path,
+        entry_count=guidance_index.entry_count,
+        latest_artifact_path=guidance_index.latest_artifact_path,
+        entries=entries,
+    )
+
+
+def load_latest_screening_guidance_artifact(
+    dna_id: str,
+    *,
+    run_id: str,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNAScreeningGuidanceArtifact:
+    load_research_dna(dna_id, root)
+
+    eval_root = (search_eval_root or default_search_eval_root()).expanduser().resolve()
+    run_dir = eval_root / run_id
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise ResearchDNAStateError(f"screening guidance artifact requires manifest.json for run_id={run_id}")
+
+    manifest = _read_json(manifest_path)
+    if manifest.get("dna_id") != dna_id:
+        raise ResearchDNAStateError(
+            f"screening guidance artifact run_id={run_id} belongs to dna_id={manifest.get('dna_id')}, not {dna_id}"
+        )
+
+    artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
+    queries_path = Path(str(artifact_paths.get("queries") or run_dir / "queries.json"))
+    query_version = str(manifest.get("query_version") or "")
+    if queries_path.exists():
+        queries_payload = _read_json(queries_path)
+        query_version = str(queries_payload.get("query_version") or query_version)
+    if not query_version:
+        raise ResearchDNAStateError(f"screening guidance artifact requires query_version for run_id={run_id}")
+
+    guidance_meta = manifest.get("screening_guidance") if isinstance(manifest.get("screening_guidance"), dict) else {}
+    artifact_path_value = artifact_paths.get("screening_guidance") or guidance_meta.get("artifact_path")
+    artifact_path_text = str(artifact_path_value or "").strip()
+    if not artifact_path_text:
+        raise ResearchDNAStateError(f"screening guidance artifact is unavailable for run_id={run_id}")
+
+    artifact_path = Path(artifact_path_text)
+    if not artifact_path.exists():
+        raise ResearchDNAStateError(f"screening guidance artifact missing for run_id={run_id}: {artifact_path}")
+
+    try:
+        guidance_artifact = ResearchDNAScreeningGuidanceArtifact.model_validate(_read_json(artifact_path))
+    except Exception as exc:
+        raise ResearchDNAStateError(f"screening guidance artifact is invalid for run_id={run_id}: {exc}")
+
+    if (
+        guidance_artifact.run_id != run_id
+        or guidance_artifact.dna_id != dna_id
+        or guidance_artifact.query_version != query_version
+    ):
+        raise ResearchDNAStateError("screening guidance artifact does not match current run identity")
+
+    loaded_artifact_path = str(Path(guidance_artifact.artifact_path))
+    if loaded_artifact_path != str(artifact_path):
+        raise ResearchDNAStateError("screening guidance artifact path does not match the current manifest pointer")
+
+    return guidance_artifact
+
+
 def load_screening_queue_artifact(
     dna_id: str,
     *,
@@ -1018,6 +1163,11 @@ def load_screening_session(
     if (Path(queue_artifact.run_dir) / "reranked_screening_queue.jsonl").exists():
         available_variants.append("reranked")
 
+    guidance_follow_summary = _build_guidance_follow_summary(
+        latest_decisions=list(latest_decisions.values()),
+        queue_candidate_ids=queue_candidate_ids,
+    )
+
     return ResearchDNAScreeningSession(
         run_id=run_id,
         dna_id=dna_id,
@@ -1035,7 +1185,97 @@ def load_screening_session(
         next_queue_position=next_candidate.queue_position,
         next_candidate=next_candidate.candidate,
         recent_limit=recent_limit,
+        guidance_follow_summary=guidance_follow_summary,
         recent_decisions=recent_decisions,
+    )
+
+
+def load_screening_progress_report(
+    dna_id: str,
+    *,
+    run_id: str,
+    variant: ScreeningQueueVariant = "original",
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNAScreeningProgressReport:
+    normalized_variant = _normalize_screening_queue_variant(variant)
+    session = load_screening_session(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=run_id,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    queue_artifact = load_screening_queue_artifact(
+        dna_id,
+        run_id=run_id,
+        variant=normalized_variant,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+
+    run_screening_entries = _load_run_screening_entries(dna_id, run_id=run_id, root=root)
+    latest_decisions = list(_latest_screening_entries_by_candidate(run_screening_entries).values())
+    queue_candidate_ids = {
+        str(row.get("candidate_id") or "").strip().lower()
+        for row in queue_artifact.rows
+        if str(row.get("candidate_id") or "").strip()
+    }
+    top_reason_codes = _top_reason_codes_from_latest_decisions(
+        latest_decisions=latest_decisions,
+        queue_candidate_ids=queue_candidate_ids,
+    )
+    precision_proxy = round(session.include_count / session.labeled_count, 4) if session.labeled_count else 0.0
+
+    eval_root = (search_eval_root or default_search_eval_root()).expanduser().resolve()
+    run_dir = eval_root / run_id
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise ResearchDNAStateError(f"screening progress requires manifest.json for run_id={run_id}")
+    manifest = _read_json(manifest_path)
+    if manifest.get("dna_id") != dna_id:
+        raise ResearchDNAStateError(
+            f"screening progress run_id={run_id} belongs to dna_id={manifest.get('dna_id')}, not {dna_id}"
+        )
+    artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
+    metrics_path = Path(str(artifact_paths.get("metrics") or run_dir / "metrics.json"))
+    guidance_meta = manifest.get("screening_guidance") if isinstance(manifest.get("screening_guidance"), dict) else {}
+    guidance_artifact_path = str(
+        artifact_paths.get("screening_guidance") or guidance_meta.get("artifact_path") or ""
+    ).strip() or None
+
+    return ResearchDNAScreeningProgressReport(
+        run_id=run_id,
+        dna_id=dna_id,
+        query_version=session.query_version,
+        owner_variant=recommendation.owner_variant,
+        variant=session.variant,
+        available_variants=session.available_variants,
+        advisory_only=True,
+        recommended_variant=recommendation.recommended_variant,
+        gate_status=gate.gate_status,
+        primary_reason_code=recommendation.primary_reason_code,
+        primary_warning_code=recommendation.primary_warning_code,
+        artifact_path=session.artifact_path,
+        manifest_path=str(manifest_path),
+        metrics_path=str(metrics_path),
+        guidance_artifact_path=guidance_artifact_path,
+        labeled_count=session.labeled_count,
+        remaining_count=session.remaining_count,
+        include_count=session.include_count,
+        exclude_count=session.exclude_count,
+        unclear_count=session.unclear_count,
+        precision_proxy=precision_proxy,
+        session_complete=session.session_complete,
+        next_candidate_id=_candidate_id_from_candidate_payload(session.next_candidate),
+        top_reason_codes=top_reason_codes,
+        guidance_follow_summary=session.guidance_follow_summary,
     )
 
 
@@ -1289,21 +1529,49 @@ def submit_screening_decision_and_load_next_candidate(
     root: Path | None = None,
     search_eval_root: Path | None = None,
 ) -> tuple[ResearchDNA, ResearchDNANextScreeningCandidate]:
+    normalized_variant = _normalize_screening_queue_variant(variant)
+    owner_variant: ScreeningQueueVariant = "original"
+    recommended_variant: ScreeningQueueVariant | None = None
+    guidance_gate_status: RerankGateStatus | None = None
+    guidance_primary_reason_code: str | None = None
+    followed_guidance: bool | None = None
+    try:
+        recommendation, gate = load_screening_operator_guidance(
+            dna_id,
+            run_id=run_id,
+            root=root,
+            search_eval_root=search_eval_root,
+        )
+        owner_variant = recommendation.owner_variant
+        recommended_variant = recommendation.recommended_variant
+        guidance_gate_status = gate.gate_status
+        guidance_primary_reason_code = recommendation.primary_reason_code
+        followed_guidance = normalized_variant == recommendation.recommended_variant
+    except ResearchDNAStateError:
+        pass
+
     dna = submit_screening_decision(
         dna_id,
         run_id=run_id,
         candidate_id=candidate_id,
         decision=decision,
         reason_code=reason_code,
+        variant=normalized_variant,
+        owner_variant=owner_variant,
+        recommended_variant=recommended_variant,
+        guidance_gate_status=guidance_gate_status,
+        guidance_primary_reason_code=guidance_primary_reason_code,
+        followed_guidance=followed_guidance,
         actor_type=actor_type,
         actor_id=actor_id,
         note=note,
         root=root,
+        search_eval_root=search_eval_root,
     )
     next_candidate = load_next_screening_candidate(
         dna_id,
         run_id=run_id,
-        variant=variant,
+        variant=normalized_variant,
         root=root,
         search_eval_root=search_eval_root,
     )
@@ -1680,6 +1948,147 @@ def _latest_screening_entries_by_candidate(
         if candidate_id:
             latest_by_candidate[candidate_id] = entry
     return latest_by_candidate
+
+
+def _build_guidance_follow_summary(
+    *,
+    latest_decisions: list[ScreeningLogEntry],
+    queue_candidate_ids: set[str],
+) -> ResearchDNAScreeningGuidanceFollowSummary:
+    relevant_entries: list[ScreeningLogEntry] = []
+    for entry in latest_decisions:
+        candidate_id = entry.candidate_id.strip().lower()
+        if queue_candidate_ids and candidate_id not in queue_candidate_ids:
+            continue
+        relevant_entries.append(entry)
+
+    telemetry_entries = [
+        entry
+        for entry in relevant_entries
+        if entry.recommended_variant is not None and entry.followed_guidance is not None
+    ]
+    followed_guidance_count = sum(1 for entry in telemetry_entries if entry.followed_guidance is True)
+    diverged_guidance_count = sum(1 for entry in telemetry_entries if entry.followed_guidance is False)
+    telemetry_count = len(telemetry_entries)
+
+    followed_guidance_ratio: float | None = None
+    if telemetry_count > 0:
+        followed_guidance_ratio = round(followed_guidance_count / telemetry_count, 4)
+
+    return ResearchDNAScreeningGuidanceFollowSummary(
+        evaluated_decision_count=len(relevant_entries),
+        telemetry_count=telemetry_count,
+        followed_guidance_count=followed_guidance_count,
+        diverged_guidance_count=diverged_guidance_count,
+        followed_guidance_ratio=followed_guidance_ratio,
+        recommended_reranked_count=sum(1 for entry in telemetry_entries if entry.recommended_variant == "reranked"),
+        selected_reranked_count=sum(1 for entry in relevant_entries if entry.variant == "reranked"),
+    )
+
+
+def _top_reason_codes_from_latest_decisions(
+    *,
+    latest_decisions: list[ScreeningLogEntry],
+    queue_candidate_ids: set[str],
+    limit: int = 3,
+) -> list[str]:
+    counts: dict[str, int] = {}
+    for entry in latest_decisions:
+        candidate_id = entry.candidate_id.strip().lower()
+        if queue_candidate_ids and candidate_id not in queue_candidate_ids:
+            continue
+        reason_code = str(entry.reason_code or "").strip()
+        if not reason_code:
+            continue
+        counts[reason_code] = counts.get(reason_code, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [reason_code for reason_code, _ in ordered[: max(limit, 0)]]
+
+
+def _best_effort_refresh_run_screening_progress_sidecars(
+    dna_id: str,
+    *,
+    run_id: str,
+    variant: ScreeningQueueVariant = "original",
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> None:
+    try:
+        normalized_variant = _normalize_screening_queue_variant(variant)
+        eval_root = (search_eval_root or default_search_eval_root()).expanduser().resolve()
+        run_dir = eval_root / run_id
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            return
+
+        manifest = _read_json(manifest_path)
+        if manifest.get("dna_id") != dna_id:
+            return
+
+        queue_artifact = load_screening_queue_artifact(
+            dna_id,
+            run_id=run_id,
+            variant=normalized_variant,
+            root=root,
+            search_eval_root=search_eval_root,
+        )
+        session = load_screening_session(
+            dna_id,
+            run_id=run_id,
+            variant=normalized_variant,
+            root=root,
+            search_eval_root=search_eval_root,
+        )
+        run_screening_entries = _load_run_screening_entries(dna_id, run_id=run_id, root=root)
+        latest_decisions = list(_latest_screening_entries_by_candidate(run_screening_entries).values())
+        queue_candidate_ids = {
+            str(row.get("candidate_id") or "").strip().lower()
+            for row in queue_artifact.rows
+            if str(row.get("candidate_id") or "").strip()
+        }
+        top_reason_codes = _top_reason_codes_from_latest_decisions(
+            latest_decisions=latest_decisions,
+            queue_candidate_ids=queue_candidate_ids,
+        )
+        precision_proxy = round(session.include_count / session.labeled_count, 4) if session.labeled_count else 0.0
+
+        artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
+        metrics_path = Path(str(artifact_paths.get("metrics") or run_dir / "metrics.json"))
+        metrics = _read_json(metrics_path) if metrics_path.exists() else {}
+        metrics["labeled_count"] = session.labeled_count
+        metrics["include_count"] = session.include_count
+        metrics["exclude_count"] = session.exclude_count
+        metrics["unclear_count"] = session.unclear_count
+        metrics["precision_proxy"] = precision_proxy
+        metrics["top_reason_codes"] = top_reason_codes
+        metrics["research_dna_screening"] = {
+            "updated_at": _now_utc().isoformat(),
+            "variant": normalized_variant,
+            "labeled_count": session.labeled_count,
+            "remaining_count": session.remaining_count,
+            "include_count": session.include_count,
+            "exclude_count": session.exclude_count,
+            "unclear_count": session.unclear_count,
+            "session_complete": session.session_complete,
+            "next_candidate_id": _candidate_id_from_candidate_payload(session.next_candidate),
+            "top_reason_codes": top_reason_codes,
+            "guidance_follow_summary": session.guidance_follow_summary.model_dump(mode="json", exclude_none=True),
+        }
+        _write_json(metrics_path, metrics)
+
+        manifest["screening_progress"] = {
+            "updated_at": metrics["research_dna_screening"]["updated_at"],
+            "variant": normalized_variant,
+            "labeled_count": session.labeled_count,
+            "remaining_count": session.remaining_count,
+            "session_complete": session.session_complete,
+            "top_reason_codes": top_reason_codes,
+            "guidance_follow_summary": session.guidance_follow_summary.model_dump(mode="json", exclude_none=True),
+        }
+        _write_json(manifest_path, manifest)
+    except Exception:
+        # Screening writes are primary; run-local progress sidecars are additive telemetry only.
+        return
 
 
 def _read_json(path: Path) -> dict[str, Any]:

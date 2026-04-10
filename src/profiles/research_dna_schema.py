@@ -285,7 +285,40 @@ class ResearchDNAScreeningSession(BaseModel):
     next_queue_position: Optional[int] = Field(default=None, ge=1)
     next_candidate: Optional[Dict[str, Any]] = None
     recent_limit: int = Field(default=5, ge=1, le=20)
+    guidance_follow_summary: "ResearchDNAScreeningGuidanceFollowSummary" = Field(
+        default_factory=lambda: ResearchDNAScreeningGuidanceFollowSummary()
+    )
     recent_decisions: List["ScreeningLogEntry"] = Field(default_factory=list)
+
+
+class ResearchDNAScreeningProgressReport(BaseModel):
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    owner_variant: ScreeningQueueVariant = "original"
+    variant: ScreeningQueueVariant = "original"
+    available_variants: List[ScreeningQueueVariant] = Field(default_factory=lambda: ["original"])
+    advisory_only: bool = True
+    recommended_variant: ScreeningQueueVariant = "original"
+    gate_status: RerankGateStatus = "insufficient_signal"
+    primary_reason_code: Optional[str] = None
+    primary_warning_code: Optional[str] = None
+    artifact_path: str
+    manifest_path: str
+    metrics_path: str
+    guidance_artifact_path: Optional[str] = None
+    labeled_count: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    include_count: int = Field(default=0, ge=0)
+    exclude_count: int = Field(default=0, ge=0)
+    unclear_count: int = Field(default=0, ge=0)
+    precision_proxy: float = Field(default=0.0, ge=0.0, le=1.0)
+    session_complete: bool = False
+    next_candidate_id: Optional[str] = None
+    top_reason_codes: List[str] = Field(default_factory=list)
+    guidance_follow_summary: "ResearchDNAScreeningGuidanceFollowSummary" = Field(
+        default_factory=lambda: ResearchDNAScreeningGuidanceFollowSummary()
+    )
 
 
 class ResearchDNAScreeningRecommendation(BaseModel):
@@ -362,11 +395,27 @@ class ScreeningLogEntry(BaseModel):
     dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
     run_id: str
     candidate_id: str
+    variant: ScreeningQueueVariant = "original"
+    owner_variant: ScreeningQueueVariant = "original"
+    recommended_variant: Optional[ScreeningQueueVariant] = None
+    guidance_gate_status: Optional[RerankGateStatus] = None
+    guidance_primary_reason_code: Optional[str] = None
+    followed_guidance: Optional[bool] = None
     decision: ScreeningDecision
     reason_code: ReasonCode
     note: Optional[str] = None
     actor_type: ActorType
     actor_id: str
+
+
+class ResearchDNAScreeningGuidanceFollowSummary(BaseModel):
+    evaluated_decision_count: int = Field(default=0, ge=0)
+    telemetry_count: int = Field(default=0, ge=0)
+    followed_guidance_count: int = Field(default=0, ge=0)
+    diverged_guidance_count: int = Field(default=0, ge=0)
+    followed_guidance_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    recommended_reranked_count: int = Field(default=0, ge=0)
+    selected_reranked_count: int = Field(default=0, ge=0)
 
 
 class ApprovalAuditEntry(BaseModel):
