@@ -1001,6 +1001,64 @@ def repair_stats(
     console.print(f"summary: seeded={seeded}, planned={planned}, skipped={skipped}, total={len(results)}")
 
 
+@app.command(name="paper-synthesis-generate")
+def paper_synthesis_generate(
+    paper_slug: str = typer.Argument(..., help="Paper slug for the canonical structured state."),
+    markdown_only: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print compiled markdown only instead of the JSON bundle payload.",
+    ),
+):
+    """
+    Generate a bounded paper-scoped compiled-knowledge bundle from canonical state and selected run artifacts.
+    """
+    from src.paper_syntheses.service import generate_paper_synthesis, paper_synthesis_response_payload
+    from src.schemas.paper_synthesis import PaperSynthesisGenerateRequest
+
+    config = load_config()
+    vault_path = Path(config.paths.obsidian_vault).expanduser()
+    result = generate_paper_synthesis(
+        request=PaperSynthesisGenerateRequest(paper_slug=paper_slug),
+        vault_path=vault_path,
+    )
+    if markdown_only:
+        typer.echo(result.markdown)
+        return
+    _emit_json(paper_synthesis_response_payload(result).model_dump(mode="json"))
+
+
+@app.command(name="paper-synthesis-show")
+def paper_synthesis_show(
+    synthesis_id: str = typer.Argument(..., help="Paper synthesis bundle id."),
+    markdown_only: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print compiled markdown only instead of the JSON bundle payload.",
+    ),
+):
+    """
+    Load an existing paper-scoped compiled-knowledge bundle.
+    """
+    from src.paper_syntheses.service import get_paper_synthesis, paper_synthesis_response_payload
+
+    result = get_paper_synthesis(synthesis_id)
+    if markdown_only:
+        typer.echo(result.markdown)
+        return
+    _emit_json(paper_synthesis_response_payload(result).model_dump(mode="json"))
+
+
+@app.command(name="paper-synthesis-list")
+def paper_synthesis_list():
+    """
+    List saved paper-scoped compiled-knowledge bundles.
+    """
+    from src.paper_syntheses.service import paper_synthesis_list_response
+
+    _emit_json(paper_synthesis_list_response().model_dump(mode="json"))
+
+
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="Question to ask the RAG agent")
