@@ -1,12 +1,16 @@
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 import asyncio
+import ipaddress
 import json
 import os
 import re
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -110,6 +114,7 @@ from src.services.fixture_visibility import is_test_fixture_paper_record, prefer
 from src.services.runtime_readiness import collect_runtime_readiness, summarize_browser_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .routers import (
     chart_packs,
@@ -123,6 +128,9 @@ from .routers import (
     protocol_cards,
     skills,
 )
+
+
+_IP_NETWORK_TYPES = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 def _best_effort_log_user_action(
@@ -171,6 +179,25 @@ def _resolve_beta_password() -> str:
     ).strip()
 
 
+def _resolve_beta_username() -> str:
+    return (
+        os.getenv("LATTICE_BETA_USERNAME")
+        or os.getenv("PAPERPIPE_BETA_USERNAME")
+        or "beta"
+    ).strip() or "beta"
+
+
+def _resolve_api_docs_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_ENABLE_API_DOCS")
+        or os.getenv("PAPERPIPE_ENABLE_API_DOCS")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return not bool(_resolve_beta_password())
+
+
 def _resolve_browser_detailed_runtime_readiness_enabled() -> bool:
     raw = (
         os.getenv("LATTICE_BROWSER_DETAILED_RUNTIME_READINESS")
@@ -194,6 +221,36 @@ def _resolve_allowed_hosts() -> list[str]:
     return hosts or ["127.0.0.1", "localhost", "testserver"]
 
 
+def _resolve_trusted_proxy_ips() -> set[str]:
+    raw = (
+        os.getenv("LATTICE_TRUSTED_PROXY_IPS")
+        or os.getenv("PAPERPIPE_TRUSTED_PROXY_IPS")
+        or ""
+    ).strip()
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _resolve_beta_allowed_ips() -> tuple[set[str], tuple[_IP_NETWORK_TYPES, ...]]:
+    raw = (
+        os.getenv("LATTICE_BETA_ALLOWED_IPS")
+        or os.getenv("PAPERPIPE_BETA_ALLOWED_IPS")
+        or ""
+    ).strip()
+    if not raw:
+        return set(), ()
+
+    literals: set[str] = set()
+    networks: list[_IP_NETWORK_TYPES] = []
+    for item in (part.strip().lower() for part in raw.split(",") if part.strip()):
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            literals.add(item)
+    return literals, tuple(networks)
+
+
 def _is_chat_enabled() -> bool:
     raw = (
         os.getenv("CHAT_ENABLED")
@@ -204,13 +261,24 @@ def _is_chat_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _path_matches(normalized_path: str, prefix: str) -> bool:
+    return normalized_path == prefix or normalized_path.startswith(f"{prefix}/")
+
+
+_PRIVATE_DATA_ROUTE_PREFIXES: tuple[str, ...] = (
+    "/jobs",
+    "/paper-notes",
+    "/paper-syntheses",
+    "/papers",
+    "/workspace-summary",
+)
+
+
 def _requires_api_key(method: str, path: str) -> bool:
     normalized_method = method.upper()
     normalized = path.rstrip("/") or "/"
-    if normalized_method == "GET" and normalized == "/workspace-summary":
-        return True
-    if normalized_method == "GET" and (normalized == "/paper-syntheses" or normalized.startswith("/paper-syntheses/")):
-        return True
+    if normalized_method == "GET":
+        return any(_path_matches(normalized, prefix) for prefix in _PRIVATE_DATA_ROUTE_PREFIXES)
     if normalized_method != "POST":
         return False
 
@@ -233,9 +301,111 @@ def _requires_api_key(method: str, path: str) -> bool:
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
 
+def _rewrite_browser_api_path(path: str) -> str | None:
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/api/chat" or normalized.startswith("/api/chat/"):
+        return None
+    if normalized == "/api":
+        return "/"
+    if normalized.startswith("/api/"):
+        return normalized[4:] or "/"
+    return None
+
+
+def _requires_beta_gate(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/health/ready":
+        return True
+    if _requires_api_key("GET", normalized) or _requires_api_key("POST", normalized):
+        return True
+    if normalized in {
+        "/api",
+        "/assets",
+        "/favicon.ico",
+        "/sample.pdf",
+        "/ui",
+        "/ui-assets",
+        "/vite.svg",
+    }:
+        return True
+    if any(
+        normalized.startswith(prefix)
+        for prefix in (
+            "/api/",
+            "/assets/",
+            "/ui/",
+            "/ui-assets/",
+        )
+    ):
+        return True
+    if not API_DOCS_ENABLED:
+        return False
+    if normalized in {"/docs", "/openapi.json", "/redoc"}:
+        return True
+    return any(normalized.startswith(prefix) for prefix in ("/docs/", "/redoc/"))
+
+
+def _request_has_valid_beta_auth(request: Request) -> bool:
+    expected_password = _resolve_beta_password()
+    if not expected_password:
+        return True
+    auth_header = (MutableHeaders(scope=request.scope).get("authorization") or "").strip()
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "basic" or not token:
+        return False
+    try:
+        decoded = b64decode(token).decode("utf-8")
+    except (BinasciiError, UnicodeDecodeError):
+        return False
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return False
+    return (
+        secrets.compare_digest(username, _resolve_beta_username())
+        and secrets.compare_digest(password, expected_password)
+    )
+
+
+def _beta_gate_response() -> Response:
+    return Response(
+        status_code=401,
+        content="Authentication required",
+        headers={"WWW-Authenticate": 'Basic realm="Lattice Private Beta", charset="UTF-8"'},
+    )
+
+
 def _request_is_https(request: Request) -> bool:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
     return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _client_ip_for_request(request: Request) -> str | None:
+    client = getattr(request.client, "host", None)
+    value = str(client or "").strip()
+    if value and value in _resolve_trusted_proxy_ips():
+        forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+        if forwarded_for:
+            first = forwarded_for.split(",", 1)[0].strip()
+            if first:
+                return first
+    return value or None
+
+
+def _request_ip_is_allowed(client_ip: str | None) -> bool:
+    literals, networks = _resolve_beta_allowed_ips()
+    if not literals and not networks:
+        return True
+
+    candidate = str(client_ip or "").strip().lower()
+    if not candidate:
+        return False
+    if candidate in literals:
+        return True
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return any(address in network for network in networks)
 
 
 def _apply_security_headers(request: Request, response: Response) -> Response:
@@ -256,7 +426,15 @@ def _apply_security_headers(request: Request, response: Response) -> Response:
     return response
 
 
-app = FastAPI(title="Lattice API", version="3.1.0")
+API_DOCS_ENABLED = _resolve_api_docs_enabled()
+
+app = FastAPI(
+    title="Lattice API",
+    version="3.1.0",
+    docs_url="/docs" if API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if API_DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
+)
 
 app.add_middleware(
     TrustedHostMiddleware,
@@ -273,15 +451,40 @@ app.add_middleware(
 
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
+    original_path = str(request.scope.get("path") or request.url.path or "/")
+    rewritten_path = _rewrite_browser_api_path(original_path)
+    client_ip = _client_ip_for_request(request)
+    if request.method.upper() != "OPTIONS" and _requires_beta_gate(original_path):
+        if not _request_ip_is_allowed(client_ip):
+            return _apply_security_headers(
+                request,
+                JSONResponse(
+                    status_code=403,
+                    content={
+                        "error_code": "IP_NOT_ALLOWED",
+                        "message": "Client IP is not allowed for this deployment.",
+                    },
+                ),
+            )
+        if not _request_has_valid_beta_auth(request):
+            return _apply_security_headers(request, _beta_gate_response())
+
     expected_key = _resolve_api_key()
+    if rewritten_path is not None:
+        request.scope["path"] = rewritten_path
+        request.scope["raw_path"] = rewritten_path.encode("utf-8")
+        if expected_key:
+            MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
+
     if not expected_key:
         response = await call_next(request)
         return _apply_security_headers(request, response)
-    if not _requires_api_key(request.method, request.url.path):
+    current_path = str(request.scope.get("path") or request.url.path or "/")
+    if not _requires_api_key(request.method, current_path):
         response = await call_next(request)
         return _apply_security_headers(request, response)
 
-    supplied_key = (request.headers.get("x-api-key") or "").strip()
+    supplied_key = (MutableHeaders(scope=request.scope).get("x-api-key") or "").strip()
     if supplied_key != expected_key:
         return _apply_security_headers(
             request,
