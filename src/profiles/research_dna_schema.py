@@ -153,6 +153,55 @@ class RunLogEntry(BaseModel):
     top_reason_codes: List[str] = Field(default_factory=list)
 
 
+class ResearchDNARunSummary(BaseModel):
+    ts: datetime
+    run_id: str
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    query_version: str = Field(..., pattern=r"^v[0-9]+$")
+    status: RunStatus
+    actor_type: ActorType
+    actor_id: str
+    sources: List[str] = Field(default_factory=list)
+    retrieved_count: int = Field(default=0, ge=0)
+    deduped_count: int = Field(default=0, ge=0)
+    dedupe_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    pilot_n: int = Field(default=30, ge=20, le=50)
+    labeled_count: int = Field(default=0, ge=0)
+    include_count: int = Field(default=0, ge=0)
+    exclude_count: int = Field(default=0, ge=0)
+    unclear_count: int = Field(default=0, ge=0)
+    precision_proxy: float = Field(default=0.0, ge=0.0, le=1.0)
+    screening_started: bool = False
+    session_complete: bool = False
+    screening_variant: ScreeningQueueVariant = "original"
+    top_reason_codes: List[str] = Field(default_factory=list)
+    run_dir: str
+    manifest_path: str
+    metrics_path: str
+    screening_queue_path: str
+    reranked_screening_queue_path: Optional[str] = None
+    guidance_artifact_path: Optional[str] = None
+
+
+class ResearchDNARunIndex(BaseModel):
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    run_count: int = Field(default=0, ge=0)
+    latest_run_id: Optional[str] = None
+    runs: List["ResearchDNARunSummary"] = Field(default_factory=list)
+
+
+class ResearchDNAResumeSnapshot(BaseModel):
+    dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    run_count: int = Field(default=0, ge=0)
+    has_runs: bool = False
+    latest_run_id: Optional[str] = None
+    latest_run: Optional["ResearchDNARunSummary"] = None
+    session: Optional["ResearchDNAScreeningSession"] = None
+    progress: Optional["ResearchDNAScreeningProgressReport"] = None
+    recommendation: Optional["ResearchDNAScreeningRecommendation"] = None
+    gate: Optional["ResearchDNARerankGateReport"] = None
+
+
 class PilotRunArtifacts(BaseModel):
     run_id: str
     dna_id: str = Field(..., pattern=r"^[a-z0-9_]+$")

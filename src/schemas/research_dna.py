@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.profiles.research_dna_schema import (
     ActorType,
     InterviewLogEntry,
     InterviewRound,
+    ResearchDNAResumeSnapshot,
     ResearchDNAScreeningRecommendation,
     ResearchDNAScreeningSession,
     PilotRunArtifacts,
+    ResearchDNARunIndex,
     ResearchDNANextScreeningCandidate,
     ResearchDNARerankGateReport,
     ResearchDNARerankArtifacts,
@@ -23,7 +25,6 @@ from src.profiles.research_dna_schema import (
     ReasonCode,
     ScreeningDecision,
 )
-from src.profiles.profile_schema import Profile
 from src.profiles.research_dna_projection import ResearchDNAProjectionResult
 
 
@@ -71,7 +72,8 @@ class ResearchDNAScreeningRequest(BaseModel):
 
 
 class ResearchDNAScreeningAdvanceRequest(BaseModel):
-    run_id: str = Field(..., min_length=1)
+    run_id: str | None = Field(default=None, min_length=1)
+    latest_run: bool = False
     candidate_id: str = Field(..., min_length=1)
     decision: ScreeningDecision
     reason_code: ReasonCode
@@ -81,9 +83,18 @@ class ResearchDNAScreeningAdvanceRequest(BaseModel):
     actor_type: ActorType = "human_api"
     actor_id: str = Field(..., min_length=1)
 
+    @model_validator(mode="after")
+    def validate_run_selector(self) -> "ResearchDNAScreeningAdvanceRequest":
+        if self.run_id and self.latest_run:
+            raise ValueError("Provide either run_id or latest_run, not both")
+        if not self.run_id and not self.latest_run:
+            raise ValueError("Provide run_id or set latest_run=true")
+        return self
+
 
 class ResearchDNAScreenCurrentRequest(BaseModel):
-    run_id: str = Field(..., min_length=1)
+    run_id: str | None = Field(default=None, min_length=1)
+    latest_run: bool = False
     decision: ScreeningDecision
     reason_code: ReasonCode
     note: str | None = None
@@ -92,6 +103,14 @@ class ResearchDNAScreenCurrentRequest(BaseModel):
     expected_candidate_id: str | None = None
     actor_type: ActorType = "human_api"
     actor_id: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_run_selector(self) -> "ResearchDNAScreenCurrentRequest":
+        if self.run_id and self.latest_run:
+            raise ValueError("Provide either run_id or latest_run, not both")
+        if not self.run_id and not self.latest_run:
+            raise ValueError("Provide run_id or set latest_run=true")
+        return self
 
 
 class ResearchDNARefineRequest(ResearchDNAActorRequest):
@@ -122,6 +141,14 @@ class ResearchDNAEnvelope(BaseModel):
 
 class ResearchDNAPilotRunEnvelope(BaseModel):
     pilot_run: PilotRunArtifacts
+
+
+class ResearchDNARunIndexEnvelope(BaseModel):
+    run_index: ResearchDNARunIndex
+
+
+class ResearchDNAResumeEnvelope(BaseModel):
+    resume: ResearchDNAResumeSnapshot
 
 
 class ResearchDNARerankEnvelope(BaseModel):

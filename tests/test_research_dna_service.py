@@ -11,9 +11,15 @@ from src.profiles.research_dna_service import (
     ResearchDNAStateError,
     approve_pilot,
     create_research_dna,
+    load_latest_screening_guidance_artifact,
     load_next_screening_candidate,
+    load_research_dna_resume_snapshot,
+    load_research_dna_run_index,
+    resolve_research_dna_run_id,
     load_rerank_gate_report,
+    load_screening_guidance_index_artifact,
     load_screening_operator_guidance,
+    load_screening_progress_report,
     load_screening_recommendation,
     load_screening_queue_artifact,
     load_screening_session,
@@ -25,7 +31,6 @@ from src.profiles.research_dna_service import (
     screen_current_candidate_and_load_session,
     refine_query_version,
     submit_screening_decision_and_load_next_candidate,
-    submit_screening_decision_and_load_session,
     submit_screening_decision,
     unlock_research_dna,
     update_research_dna,
@@ -105,6 +110,12 @@ def test_create_approve_refine_lock_unlock_flow(tmp_path):
         actor_id="tester",
         root=root,
     )
+    screening_rows = _read_jsonl(research_dna_log_path(dna.id, "screening", root))
+    assert screening_rows[0]["variant"] == "original"
+    assert screening_rows[0]["owner_variant"] == "original"
+    assert "recommended_variant" not in screening_rows[0]
+    assert "guidance_gate_status" not in screening_rows[0]
+    assert "followed_guidance" not in screening_rows[0]
 
     locked = lock_research_dna(
         dna.id,
@@ -394,6 +405,66 @@ def test_run_pilot_writes_search_eval_artifacts_and_run_log(tmp_path):
     assert run_rows[0]["actor_id"] == "tester"
     assert run_rows[0]["run_id"] == "pilot_test_001"
     assert run_rows[0]["status"] == "completed"
+    run_index = load_research_dna_run_index(
+        dna.id,
+        limit=20,
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert run_index.run_count == 1
+    assert run_index.latest_run_id == "pilot_test_001"
+    assert len(run_index.runs) == 1
+    assert run_index.runs[0].run_id == "pilot_test_001"
+    assert run_index.runs[0].metrics_path == result.metrics_path
+    assert run_index.runs[0].screening_queue_path == result.screening_queue_path
+    assert run_index.runs[0].screening_started is False
+    assert run_index.runs[0].session_complete is False
+    assert run_index.runs[0].labeled_count == 0
+    assert (
+        resolve_research_dna_run_id(
+            dna.id,
+            latest=True,
+            root=root,
+            search_eval_root=eval_root,
+        )
+        == "pilot_test_001"
+    )
+
+
+def test_load_research_dna_resume_snapshot_reports_no_runs_before_pilot(tmp_path):
+    root = tmp_path / "research_dna"
+
+    dna = create_research_dna(
+        topic="Mild cognitive impairment and medium-chain triglycerides",
+        intent="systematic_review",
+        actor_type="human_cli",
+        actor_id="tester",
+        reason="create draft",
+        root=root,
+        available_databases=["pubmed"],
+        recommended_databases=["pubmed"],
+    )
+
+    resume = load_research_dna_resume_snapshot(
+        dna.id,
+        root=root,
+    )
+
+    assert resume.dna_id == dna.id
+    assert resume.run_count == 0
+    assert resume.has_runs is False
+    assert resume.latest_run_id is None
+    assert resume.latest_run is None
+    assert resume.session is None
+    assert resume.progress is None
+    assert resume.recommendation is None
+    assert resume.gate is None
+    with pytest.raises(ResearchDNAStateError, match="latest run is unavailable"):
+        resolve_research_dna_run_id(
+            dna.id,
+            latest=True,
+            root=root,
+        )
 
 
 def test_run_pilot_records_partial_status_when_source_fetch_fails(tmp_path):
@@ -666,10 +737,51 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
     assert metrics_after_guidance["research_dna_guidance"]["recommended_variant"] == "reranked"
     assert metrics_after_guidance["research_dna_guidance"]["gate_status"] == "eligible"
 
+    loaded_guidance_artifact = load_latest_screening_guidance_artifact(
+        dna.id,
+        run_id="pilot_rerank_001",
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert loaded_guidance_artifact.artifact_path == guidance_artifact_second.artifact_path
+    assert loaded_guidance_artifact.recommendation.recommended_variant == "reranked"
+    assert loaded_guidance_artifact.gate.gate_status == "eligible"
+
+    loaded_guidance_index = load_screening_guidance_index_artifact(
+        dna.id,
+        run_id="pilot_rerank_001",
+        limit=1,
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert loaded_guidance_index.entry_count == 2
+    assert len(loaded_guidance_index.entries) == 1
+    assert loaded_guidance_index.latest_artifact_path == guidance_artifact_second.artifact_path
+    assert loaded_guidance_index.entries[0].artifact_path == guidance_artifact_second.artifact_path
+
     guidance_index_path = Path(manifest_after_guidance["artifact_paths"]["screening_guidance_index"])
     tampered_index = json.loads(guidance_index_path.read_text(encoding="utf-8"))
     tampered_index["query_version"] = "v999"
     guidance_index_path.write_text(json.dumps(tampered_index, ensure_ascii=False, indent=2), encoding="utf-8")
+    with pytest.raises(ResearchDNAStateError, match="guidance history does not match current run identity"):
+        load_screening_guidance_index_artifact(
+            dna.id,
+            run_id="pilot_rerank_001",
+            limit=1,
+            root=root,
+            search_eval_root=eval_root,
+        )
+    latest_guidance_path = Path(guidance_artifact_second.artifact_path)
+    tampered_guidance = json.loads(latest_guidance_path.read_text(encoding="utf-8"))
+    tampered_guidance["query_version"] = "v999"
+    latest_guidance_path.write_text(json.dumps(tampered_guidance, ensure_ascii=False, indent=2), encoding="utf-8")
+    with pytest.raises(ResearchDNAStateError, match="screening guidance artifact does not match current run identity"):
+        load_latest_screening_guidance_artifact(
+            dna.id,
+            run_id="pilot_rerank_001",
+            root=root,
+            search_eval_root=eval_root,
+        )
     with pytest.raises(ResearchDNAStateError, match="guidance index is invalid"):
         materialize_screening_guidance_artifact(
             dna.id,
@@ -719,6 +831,19 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
     assert session_after_first_screen.exclude_count == 0
     assert session_after_first_screen.unclear_count == 0
     assert session_after_first_screen.recent_decisions[0].candidate_id == "pmid:201"
+    assert session_after_first_screen.recent_decisions[0].variant == "reranked"
+    assert session_after_first_screen.recent_decisions[0].owner_variant == "original"
+    assert session_after_first_screen.recent_decisions[0].recommended_variant == "reranked"
+    assert session_after_first_screen.recent_decisions[0].guidance_gate_status == "eligible"
+    assert session_after_first_screen.recent_decisions[0].guidance_primary_reason_code == "top_candidate_changed"
+    assert session_after_first_screen.recent_decisions[0].followed_guidance is True
+    assert session_after_first_screen.guidance_follow_summary.evaluated_decision_count == 1
+    assert session_after_first_screen.guidance_follow_summary.telemetry_count == 1
+    assert session_after_first_screen.guidance_follow_summary.followed_guidance_count == 1
+    assert session_after_first_screen.guidance_follow_summary.diverged_guidance_count == 0
+    assert session_after_first_screen.guidance_follow_summary.followed_guidance_ratio == 1.0
+    assert session_after_first_screen.guidance_follow_summary.recommended_reranked_count == 1
+    assert session_after_first_screen.guidance_follow_summary.selected_reranked_count == 1
 
     recommendation_after_first_screen = load_screening_recommendation(
         dna.id,
@@ -741,6 +866,40 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
     assert gate_after_first_screen.primary_reason_code == "screening_in_progress"
     assert gate_after_first_screen.gate_summary == "Reranked queue is not eligible because screening is already in progress."
     assert gate_after_first_screen.reason_codes == ["screening_in_progress"]
+    metrics_after_first_screen = json.loads(Path(rerank.metrics_path).read_text(encoding="utf-8"))
+    assert metrics_after_first_screen["labeled_count"] == 1
+    assert metrics_after_first_screen["include_count"] == 1
+    assert metrics_after_first_screen["exclude_count"] == 0
+    assert metrics_after_first_screen["precision_proxy"] == 1.0
+    assert metrics_after_first_screen["top_reason_codes"] == ["other_noise"]
+    assert metrics_after_first_screen["research_dna_screening"]["variant"] == "reranked"
+    assert metrics_after_first_screen["research_dna_screening"]["session_complete"] is False
+    assert metrics_after_first_screen["research_dna_screening"]["next_candidate_id"] == "pmid:200"
+    assert metrics_after_first_screen["research_dna_screening"]["guidance_follow_summary"]["followed_guidance_count"] == 1
+    manifest_after_first_screen = json.loads((eval_root / "pilot_rerank_001" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_after_first_screen["screening_progress"]["labeled_count"] == 1
+    assert manifest_after_first_screen["screening_progress"]["session_complete"] is False
+    assert manifest_after_first_screen["screening_progress"]["guidance_follow_summary"]["followed_guidance_ratio"] == 1.0
+    progress_after_first_screen = load_screening_progress_report(
+        dna.id,
+        run_id="pilot_rerank_001",
+        variant="reranked",
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert progress_after_first_screen.variant == "reranked"
+    assert progress_after_first_screen.owner_variant == "original"
+    assert progress_after_first_screen.recommended_variant == "original"
+    assert progress_after_first_screen.gate_status == "not_eligible"
+    assert progress_after_first_screen.primary_reason_code == "screening_in_progress"
+    assert progress_after_first_screen.metrics_path == rerank.metrics_path
+    assert progress_after_first_screen.guidance_artifact_path == guidance_artifact_second.artifact_path
+    assert progress_after_first_screen.labeled_count == 1
+    assert progress_after_first_screen.remaining_count == 1
+    assert progress_after_first_screen.precision_proxy == 1.0
+    assert progress_after_first_screen.next_candidate_id == "pmid:200"
+    assert progress_after_first_screen.top_reason_codes == ["other_noise"]
+    assert progress_after_first_screen.guidance_follow_summary.followed_guidance_count == 1
 
     with pytest.raises(ResearchDNAStateError, match="current next candidate mismatch"):
         screen_current_candidate_and_load_session(
@@ -786,6 +945,86 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
     assert session_after_advance.exclude_count == 1
     assert len(session_after_advance.recent_decisions) == 1
     assert session_after_advance.recent_decisions[0].candidate_id == "pmid:200"
+    assert session_after_advance.recent_decisions[0].variant == "reranked"
+    assert session_after_advance.recent_decisions[0].recommended_variant == "original"
+    assert session_after_advance.recent_decisions[0].guidance_gate_status == "not_eligible"
+    assert session_after_advance.recent_decisions[0].guidance_primary_reason_code == "screening_in_progress"
+    assert session_after_advance.recent_decisions[0].followed_guidance is False
+    assert session_after_advance.guidance_follow_summary.evaluated_decision_count == 2
+    assert session_after_advance.guidance_follow_summary.telemetry_count == 2
+    assert session_after_advance.guidance_follow_summary.followed_guidance_count == 1
+    assert session_after_advance.guidance_follow_summary.diverged_guidance_count == 1
+    assert session_after_advance.guidance_follow_summary.followed_guidance_ratio == 0.5
+    assert session_after_advance.guidance_follow_summary.recommended_reranked_count == 1
+    assert session_after_advance.guidance_follow_summary.selected_reranked_count == 2
+    metrics_after_advance = json.loads(Path(rerank.metrics_path).read_text(encoding="utf-8"))
+    assert metrics_after_advance["labeled_count"] == 2
+    assert metrics_after_advance["include_count"] == 1
+    assert metrics_after_advance["exclude_count"] == 1
+    assert metrics_after_advance["precision_proxy"] == 0.5
+    assert metrics_after_advance["top_reason_codes"] == ["other_noise", "wrong_population"]
+    assert metrics_after_advance["research_dna_screening"]["session_complete"] is True
+    assert metrics_after_advance["research_dna_screening"]["next_candidate_id"] is None
+    assert metrics_after_advance["research_dna_screening"]["guidance_follow_summary"]["diverged_guidance_count"] == 1
+    manifest_after_advance = json.loads((eval_root / "pilot_rerank_001" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest_after_advance["screening_progress"]["labeled_count"] == 2
+    assert manifest_after_advance["screening_progress"]["remaining_count"] == 0
+    assert manifest_after_advance["screening_progress"]["session_complete"] is True
+    assert manifest_after_advance["screening_progress"]["guidance_follow_summary"]["followed_guidance_ratio"] == 0.5
+    progress_after_advance = load_screening_progress_report(
+        dna.id,
+        run_id="pilot_rerank_001",
+        variant="reranked",
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert progress_after_advance.session_complete is True
+    assert progress_after_advance.remaining_count == 0
+    assert progress_after_advance.precision_proxy == 0.5
+    assert progress_after_advance.next_candidate_id is None
+    assert progress_after_advance.top_reason_codes == ["other_noise", "wrong_population"]
+    assert progress_after_advance.guidance_follow_summary.diverged_guidance_count == 1
+    run_index_after_advance = load_research_dna_run_index(
+        dna.id,
+        limit=20,
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert run_index_after_advance.run_count == 1
+    assert run_index_after_advance.latest_run_id == "pilot_rerank_001"
+    assert run_index_after_advance.runs[0].run_id == "pilot_rerank_001"
+    assert run_index_after_advance.runs[0].screening_started is True
+    assert run_index_after_advance.runs[0].session_complete is True
+    assert run_index_after_advance.runs[0].screening_variant == "reranked"
+    assert run_index_after_advance.runs[0].labeled_count == 2
+    assert run_index_after_advance.runs[0].include_count == 1
+    assert run_index_after_advance.runs[0].exclude_count == 1
+    assert run_index_after_advance.runs[0].precision_proxy == 0.5
+    assert run_index_after_advance.runs[0].top_reason_codes == ["other_noise", "wrong_population"]
+    assert run_index_after_advance.runs[0].reranked_screening_queue_path == rerank.reranked_screening_queue_path
+    assert run_index_after_advance.runs[0].guidance_artifact_path == guidance_artifact_second.artifact_path
+    resume_after_advance = load_research_dna_resume_snapshot(
+        dna.id,
+        variant="reranked",
+        recent_limit=1,
+        root=root,
+        search_eval_root=eval_root,
+    )
+    assert resume_after_advance.has_runs is True
+    assert resume_after_advance.latest_run_id == "pilot_rerank_001"
+    assert resume_after_advance.latest_run is not None
+    assert resume_after_advance.latest_run.run_id == "pilot_rerank_001"
+    assert resume_after_advance.latest_run.session_complete is True
+    assert resume_after_advance.session is not None
+    assert resume_after_advance.session.session_complete is True
+    assert resume_after_advance.session.variant == "reranked"
+    assert resume_after_advance.progress is not None
+    assert resume_after_advance.progress.session_complete is True
+    assert resume_after_advance.progress.precision_proxy == 0.5
+    assert resume_after_advance.recommendation is not None
+    assert resume_after_advance.recommendation.recommended_variant == "original"
+    assert resume_after_advance.gate is not None
+    assert resume_after_advance.gate.gate_status == "not_eligible"
 
     completed_session = load_screening_session(
         dna.id,
@@ -802,6 +1041,10 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
     assert completed_session.exclude_count == 1
     assert len(completed_session.recent_decisions) == 1
     assert completed_session.recent_decisions[0].candidate_id == "pmid:200"
+    assert completed_session.guidance_follow_summary.evaluated_decision_count == 2
+    assert completed_session.guidance_follow_summary.telemetry_count == 2
+    assert completed_session.guidance_follow_summary.followed_guidance_count == 1
+    assert completed_session.guidance_follow_summary.diverged_guidance_count == 1
 
     with pytest.raises(ResearchDNAStateError, match="no remaining screening candidates"):
         screen_current_candidate_and_load_session(
@@ -818,6 +1061,14 @@ def test_materialize_reranked_screening_queue_writes_sibling_artifacts(tmp_path)
 
     with pytest.raises(ResearchDNAStateError, match="variant must be 'original' or 'reranked'"):
         load_screening_queue_artifact(
+            dna.id,
+            run_id="pilot_rerank_001",
+            variant="bad_variant",  # type: ignore[arg-type]
+            root=root,
+            search_eval_root=eval_root,
+        )
+    with pytest.raises(ResearchDNAStateError, match="variant must be 'original' or 'reranked'"):
+        load_screening_progress_report(
             dna.id,
             run_id="pilot_rerank_001",
             variant="bad_variant",  # type: ignore[arg-type]
