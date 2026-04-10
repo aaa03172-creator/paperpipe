@@ -57,6 +57,7 @@ from src.schemas.research_dna import (
     ResearchDNAScreeningGuidanceIndexEnvelope,
     ResearchDNAScreeningAdvanceEnvelope,
     ResearchDNAScreeningAdvanceRequest,
+    ResearchDNAScreeningProgressEnvelope,
     ResearchDNAScreeningRecommendationEnvelope,
     ResearchDNAScreeningQueueEnvelope,
     ResearchDNAScreeningSessionEnvelope,
@@ -70,6 +71,7 @@ from src.profiles.research_dna_service import (
     create_research_dna,
     load_latest_screening_guidance_artifact,
     load_next_screening_candidate,
+    load_screening_progress_report,
     load_rerank_gate_report,
     load_screening_guidance_index_artifact,
     load_screening_operator_guidance,
@@ -1170,6 +1172,32 @@ def get_research_dna_screening_session_endpoint(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load screening session: {exc}")
     return ResearchDNAScreeningSessionEnvelope(session=session, recommendation=recommendation, gate=gate)
+
+
+@app.get(
+    "/research-dna/{dna_id}/runs/{run_id}/screening-progress",
+    response_model=ResearchDNAScreeningProgressEnvelope,
+)
+def get_research_dna_screening_progress_endpoint(
+    dna_id: str,
+    run_id: str,
+    variant: str = Query("original", pattern="^(original|reranked)$"),
+):
+    try:
+        progress = load_screening_progress_report(
+            dna_id,
+            run_id=run_id,
+            variant=variant,  # type: ignore[arg-type]
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load screening progress: {exc}")
+    return ResearchDNAScreeningProgressEnvelope(progress=progress)
 
 
 @app.get(
