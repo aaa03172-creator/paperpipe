@@ -7,11 +7,14 @@ import asyncio
 import json
 import os
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote, urlparse
 
 import src.db_utils as db_utils
 from src.db_utils import get_db_connection
+from src.institutional_access import extract_institutional_proxy_link, generate_institutional_proxy_url
 from src.jobs.queue import DuplicateOpenJobError, JobQueue, QueueBackpressureError
 from src.jobs.schemas import JobBootstrapMeta, JobCreate, JobEnqueueResponse, JobStatus
 from src.persona_modes import list_reasoning_personas, normalize_persona_selection
@@ -32,7 +35,7 @@ from src.schemas.ops import (
     UserActionEntry,
     UserActionListResponse,
 )
-from src.schemas.papers import PaperDetailResponse, PaperSummaryResponse
+from src.schemas.papers import PaperAccessSummary, PaperDetailResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
     ResearchDNACreateRequest,
@@ -273,6 +276,122 @@ def _public_path(path_value: str | None) -> str | None:
     if not is_path_masking_enabled():
         return path_value
     return mask_local_path(path_value)
+
+
+def _build_paper_access_summary(item: dict[str, Any], *, paper_id: str, pdf_exists: bool) -> PaperAccessSummary:
+    open_access_url = str(item.get("pdf_link") or "").strip() or None
+    institution_access_url = (
+        extract_institutional_proxy_link(item.get("feedback_json"))
+        or generate_institutional_proxy_url(paper=item)
+    )
+    local_pdf_url = f"/papers/{quote(paper_id, safe='')}/pdf" if pdf_exists and paper_id else None
+
+    if pdf_exists:
+        status_label = "user_imported_pdf"
+    elif open_access_url:
+        status_label = "open"
+    elif institution_access_url:
+        status_label = "institution_required"
+    else:
+        status_label = "unavailable"
+
+    return PaperAccessSummary(
+        status_label=status_label,
+        open_access_url=open_access_url,
+        institution_access_url=institution_access_url,
+        local_pdf_url=local_pdf_url,
+    )
+
+
+def _resolve_note_backed_pdf_path(frontmatter: dict[str, Any]) -> Path | None:
+    candidates: list[Path] = []
+    for key in ("pdf_path", "local_pdf_path"):
+        raw_value = str(frontmatter.get(key) or "").strip()
+        if raw_value:
+            candidates.append(Path(raw_value).expanduser())
+
+    pdf_url = str(frontmatter.get("pdf_url") or "").strip()
+    if pdf_url.lower().startswith("file://"):
+        local_path = unquote(urlparse(pdf_url).path or "")
+        if local_path:
+            candidates.append(Path(local_path).expanduser())
+    elif pdf_url and not re.match(r"^[a-z][a-z0-9+.-]*://", pdf_url, flags=re.IGNORECASE) and not pdf_url.startswith("/papers/"):
+        candidates.append(Path(pdf_url).expanduser())
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _build_note_backed_paper_access_summary(
+    frontmatter: dict[str, Any],
+    *,
+    paper_id: str,
+    pdf_path: Path | None,
+) -> PaperAccessSummary:
+    item: dict[str, Any] = {
+        "doi": frontmatter.get("doi"),
+        "link": frontmatter.get("url"),
+        "pdf_link": None,
+        "feedback_json": None,
+    }
+    pdf_url = str(frontmatter.get("pdf_url") or "").strip()
+    if pdf_url.lower().startswith(("http://", "https://")):
+        item["pdf_link"] = pdf_url
+    return _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_path is not None)
+
+
+def _build_note_backed_paper_item(paper_id: str) -> tuple[dict[str, Any], Path | None] | None:
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        index = paper_notes._build_index(vault_path)
+        target = paper_notes._find_note_item_for_paper_id(index.items, paper_id)
+        if not target:
+            return None
+
+        note_path = vault_path / target.note_path
+        if not note_path.exists():
+            return None
+
+        content = paper_notes._safe_read_text(note_path)
+        frontmatter, _ = paper_notes._parse_frontmatter(content)
+        local_pdf_path = _resolve_note_backed_pdf_path(frontmatter)
+        ops_summary = paper_notes._build_ops_summary(
+            note_path,
+            frontmatter,
+            artifacts_path=artifacts_root(),
+            artifact_cache={},
+        )
+        latest_run_id = (getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None) or None
+        note_status = str(getattr(target, "status", "") or "").strip().upper()
+        status = "completed" if target.structured_state_present or note_status == "INDEXED" else "not_started"
+        item = {
+            "paper_id": paper_id,
+            "title": target.title or target.slug or paper_id,
+            "authors": None,
+            "year": None,
+            "pdf_exists": local_pdf_path is not None,
+            "pdf_path": _public_path(str(local_pdf_path)) if local_pdf_path is not None else None,
+            "pdf_status": None,
+            "status": status,
+            "issues": 0,
+            "issues_label": "No critical issues",
+            "issues_state": "unavailable",
+            "latest_job_id": None,
+            "latest_run_id": latest_run_id,
+            "updated_at": getattr(target, "updated_at", None),
+            "ops_summary": ops_summary,
+            "access_summary": _build_note_backed_paper_access_summary(
+                frontmatter,
+                paper_id=paper_id,
+                pdf_path=local_pdf_path,
+            ),
+            "abstract": None,
+        }
+        return item, local_pdf_path
+    except (FileNotFoundError, HTTPException):
+        return None
 
 
 def _apply_escalation_response_fields(item: dict[str, Any]) -> None:
@@ -1395,6 +1514,7 @@ def list_papers(
         item["latest_run_id"] = (
             getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
         ) or _latest_run_id_for_paper(paper_id)
+        item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
         _apply_escalation_response_fields(item)
         out.append(item)
     return out
@@ -1403,9 +1523,15 @@ def list_papers(
 @app.get("/papers/{paper_id}")
 def get_paper(paper_id: str) -> PaperDetailResponse:
     conn = get_db_connection()
-    row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    try:
+        row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    except sqlite3.OperationalError:
+        row = None
     conn.close()
     if not row:
+        note_backed = _build_note_backed_paper_item(paper_id)
+        if note_backed is not None:
+            return note_backed[0]
         raise HTTPException(status_code=404, detail="Paper not found")
 
     item = dict(row)
@@ -1421,6 +1547,7 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     item["latest_run_id"] = (
         getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
     ) or _latest_run_id_for_paper(paper_id)
+    item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
     _apply_escalation_response_fields(item)
     return item
 
@@ -1428,18 +1555,32 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
 @app.get("/papers/{paper_id}/pdf")
 def get_paper_pdf(paper_id: str):
     conn = get_db_connection()
-    row = conn.execute("SELECT paper_id, pdf_path FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    try:
+        row = conn.execute("SELECT paper_id, pdf_path FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+    except sqlite3.OperationalError:
+        row = None
     conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Paper not found")
+    pdf_path: Path | None = None
 
-    raw_pdf_path = str(row["pdf_path"] or "").strip()
-    if not raw_pdf_path:
-        raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+    if row:
+        raw_pdf_path = str(row["pdf_path"] or "").strip()
+        if raw_pdf_path:
+            candidate_pdf_path = Path(raw_pdf_path).expanduser()
+            if candidate_pdf_path.exists() and candidate_pdf_path.is_file():
+                pdf_path = candidate_pdf_path
+            else:
+                raise HTTPException(status_code=404, detail="PDF file not found")
 
-    pdf_path = Path(raw_pdf_path).expanduser()
-    if not pdf_path.exists() or not pdf_path.is_file():
-        raise HTTPException(status_code=404, detail="PDF file not found")
+    if pdf_path is None:
+        note_backed = _build_note_backed_paper_item(paper_id)
+        if note_backed is None:
+            if row:
+                raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+            raise HTTPException(status_code=404, detail="Paper not found")
+        _, note_pdf_path = note_backed
+        if note_pdf_path is None:
+            raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+        pdf_path = note_pdf_path
 
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
