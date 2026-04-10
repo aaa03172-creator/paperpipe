@@ -24,6 +24,7 @@ from src.schemas.ops import (
     ArtifactBundleResponse,
     ArtifactFileEntry,
     DownloaderOpsMetricsResponse,
+    HomeWorkspaceSummaryResponse,
     RuntimeReadinessCheck,
     RuntimeReadinessResponse,
     PersonaListResponse,
@@ -105,6 +106,7 @@ from src.services.downloader_ops_metrics import Thresholds, collect_metrics, eva
 from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
+from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
 from src.services.runtime_readiness import collect_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
@@ -173,6 +175,8 @@ def _is_chat_enabled() -> bool:
 def _requires_api_key(method: str, path: str) -> bool:
     normalized_method = method.upper()
     normalized = path.rstrip("/") or "/"
+    if normalized_method == "GET" and normalized == "/workspace-summary":
+        return True
     if normalized_method == "GET" and (normalized == "/paper-syntheses" or normalized.startswith("/paper-syntheses/")):
         return True
     if normalized_method != "POST":
@@ -291,12 +295,90 @@ def _derive_paper_issues_state(item: dict[str, Any]) -> str:
     return "clear"
 
 
+def _parse_iso_timestamp_sort_key(value: str | None) -> float:
+    from datetime import datetime, timezone
+
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    normalized = text.replace("Z", "+00:00")
+    if "T" not in normalized and " " in normalized:
+        normalized = normalized.replace(" ", "T")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
 def _public_path(path_value: str | None) -> str | None:
     if path_value is None:
         return None
     if not is_path_masking_enabled():
         return path_value
     return mask_local_path(path_value)
+
+
+def _list_visible_paper_items(*, raw_limit: int = 5000) -> list[dict[str, Any]]:
+    conn = get_db_connection()
+    papers = conn.execute(
+        "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        (raw_limit, 0),
+    ).fetchall()
+    conn.close()
+    artifacts_path = artifacts_root()
+    artifact_cache: ArtifactSnapshotCache = {}
+    out: list[dict[str, Any]] = []
+    for row in papers:
+        item = dict(row)
+        paper_id = str(item.get("paper_id") or "").strip()
+        item["issues_state"] = _derive_paper_issues_state(item)
+        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, paper_id, artifact_cache)
+        out.append(item)
+    return prefer_non_fixture_items(out, is_test_fixture_paper_record)
+
+
+def _build_home_workspace_summary() -> HomeWorkspaceSummaryResponse:
+    visible_papers = _list_visible_paper_items()
+
+    blocked = 0
+    needs_review = 0
+    for item in visible_papers:
+        ops_summary = item.get("ops_summary")
+        if getattr(ops_summary, "state", None) == "action_needed":
+            blocked += 1
+            continue
+        if _derive_paper_issues_state(item) != "clear":
+            needs_review += 1
+
+    saved_notes = 0
+    structured_notes = 0
+    latest_note_updated_at: str | None = None
+    note_context_limited = False
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_index = paper_notes._build_index(vault_path)
+        note_items = note_index.items
+        saved_notes = len(note_items)
+        structured_notes = sum(1 for item in note_items if item.structured_state_present)
+        latest_note_updated_at = max(
+            (item.updated_at for item in note_items if item.updated_at),
+            key=_parse_iso_timestamp_sort_key,
+            default=None,
+        )
+    except Exception:
+        note_context_limited = True
+
+    return HomeWorkspaceSummaryResponse(
+        saved_notes=saved_notes,
+        structured_notes=structured_notes,
+        needs_review=needs_review,
+        blocked=blocked,
+        latest_note_updated_at=latest_note_updated_at,
+        note_context_limited=note_context_limited,
+    )
 
 
 def _build_paper_access_summary(item: dict[str, Any], *, paper_id: str, pdf_exists: bool) -> PaperAccessSummary:
@@ -1697,6 +1779,11 @@ def list_papers(
         _apply_escalation_response_fields(item)
         out.append(item)
     return out
+
+
+@app.get("/workspace-summary", response_model=HomeWorkspaceSummaryResponse)
+def get_workspace_summary() -> HomeWorkspaceSummaryResponse:
+    return _build_home_workspace_summary()
 
 
 @app.get("/papers/{paper_id}")
