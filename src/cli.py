@@ -8,6 +8,7 @@ import sys
 import time
 import webbrowser
 import json
+import importlib.util
 from pathlib import Path
 import requests
 import yaml
@@ -19,7 +20,12 @@ from src.db_utils import (
     DB_PATH as DB_UTILS_PATH,
 )
 from src.logger import setup_logging
-from src.services.runtime_readiness import collect_runtime_readiness
+from src.services.runtime_paths import logs_root
+from src.services.runtime_readiness import (
+    collect_runtime_readiness,
+    collect_structured_state_hygiene_check,
+)
+from src.services.fixture_visibility import quarantine_hidden_fixture_structured_states
 from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
@@ -50,6 +56,20 @@ logger = setup_logging(log_level=log_level)
 
 def _emit_json(payload: dict) -> None:
     typer.echo(json.dumps(payload, ensure_ascii=False))
+
+
+def _optional_dependency_installed(module_name: str) -> bool:
+    return importlib.util.find_spec(module_name) is not None
+
+
+def _ensure_watchdog_available(command_name: str) -> None:
+    if _optional_dependency_installed("watchdog"):
+        return
+    console.print(
+        "[bold red]❌ Watcher dependency missing.[/bold red] "
+        f"Install project dependencies (for example `uv sync`) before using `{command_name}`."
+    )
+    raise typer.Exit(code=1)
 
 
 def bootstrap_database() -> Path:
@@ -154,7 +174,10 @@ def doctor():
     try:
         config = load_config()
         console.print("✅ Config loaded successfully.")
-        console.print(f"   - Zotero Dir: {config.paths.zotero_base_dir}")
+        zotero_status = "✅ Found" if config.paths.zotero_base_dir.exists() else "⚠️ Missing"
+        vault_status = "✅ Found" if config.paths.obsidian_vault.exists() else "⚠️ Missing"
+        console.print(f"   - Zotero Dir: {zotero_status} ({config.paths.zotero_base_dir})")
+        console.print(f"   - Obsidian Vault: {vault_status} ({config.paths.obsidian_vault})")
         console.print(f"   - Log Level: {config.system.log_level}")
         
         # [NEW] Check Watch Folder
@@ -165,6 +188,17 @@ def doctor():
                 console.print(f"   - Watch Folder: ⚠️ Configured but missing ({config.paths.watch_folder})")
         else:
             console.print("   - Watch Folder: ⚪ Not configured")
+
+        if _optional_dependency_installed("watchdog"):
+            console.print("   - Watchdog: ✅ Installed (watch commands available)")
+        else:
+            console.print("   - Watchdog: ❌ Missing (run `uv sync` to enable watch commands)")
+
+        fixture_hygiene = collect_structured_state_hygiene_check(config.paths.obsidian_vault)
+        fixture_icon = "✅" if fixture_hygiene.status == "ok" else "⚠️" if fixture_hygiene.status == "warn" else "❌"
+        console.print(f"   - Structured State Hygiene: {fixture_icon} {fixture_hygiene.detail}")
+        if fixture_hygiene.path:
+            console.print(f"     Path: {fixture_hygiene.path}")
 
         # [NEW] Check Unpaywall
         if config.system.unpaywall_email and "example.com" not in config.system.unpaywall_email:
@@ -234,13 +268,19 @@ def doctor():
         else:
             console.print("ℹ️ OpenAI API Key not required in local mode.")
 
-    if Path("logs/paperpipe.log").exists():
+    if (logs_root() / "paperpipe.log").exists():
         console.print("✅ Log file accessible.")
     else:
         console.print("⚠️ Log file not found yet (will be created on first log).")
 
-    console.print("[bold green]All systems go![/bold green]")
-    logger.info("Doctor check completed.")
+    readiness = collect_runtime_readiness()
+    if readiness.status == "ok":
+        console.print("[bold green]All systems go![/bold green]")
+    elif readiness.status == "degraded":
+        console.print("[bold yellow]Runtime is usable, but there are warnings to clean up.[/bold yellow]")
+    else:
+        console.print("[bold red]Runtime needs fixes before you should trust it.[/bold red]")
+    logger.info("Doctor check completed with status=%s.", readiness.status)
 
 
 @app.command("self-test")
@@ -261,6 +301,52 @@ def self_test(json_output: bool = typer.Option(False, "--json", help="Emit machi
 
     if readiness.status == "error":
         raise typer.Exit(code=1)
+
+
+@app.command("quarantine-fixture-states")
+def quarantine_fixture_states(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Actually move hidden fixture structured states into a quarantine folder.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+):
+    """Quarantine hidden fixture structured states from the configured vault."""
+    config = load_config()
+    moves = quarantine_hidden_fixture_structured_states(
+        config.paths.obsidian_vault,
+        apply=apply,
+    )
+    payload = {
+        "vault_path": str(Path(config.paths.obsidian_vault).expanduser().resolve(strict=False)),
+        "apply": bool(apply),
+        "found": len(moves),
+        "moves": [
+            {
+                "source_path": str(move.source_path),
+                "destination_path": str(move.destination_path),
+            }
+            for move in moves
+        ],
+    }
+
+    if json_output:
+        _emit_json(payload)
+        return
+
+    console.print("[bold blue]🧹 Hidden Fixture State Cleanup[/bold blue]")
+    if not moves:
+        console.print("No hidden fixture structured states found.")
+        return
+
+    console.print(f"Found {len(moves)} hidden fixture structured state(s).")
+    for move in moves:
+        verb = "Moved" if apply else "Would move"
+        console.print(f" - {verb}: {move.source_path} -> {move.destination_path}")
+
+    if not apply:
+        console.print("[yellow]Dry run only. Re-run with `--apply` to quarantine these files.[/yellow]")
 
 
 @app.command()
@@ -512,7 +598,9 @@ def test_filter():
 @app.command()
 def clear_logs():
     """Clear log file"""
-    open("logs/paperpipe.log", "w").close()
+    log_path = logs_root() / "paperpipe.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    open(log_path, "w").close()
     console.print("✅ Logs cleared.")
 
 
@@ -572,7 +660,7 @@ def reset():
             console.print(f"   - Deleted {db_path}")
     
     # 2. Logs
-    log_path = Path("logs/paperpipe.log")
+    log_path = logs_root() / "paperpipe.log"
     if log_path.exists():
         open(log_path, "w").close()
         console.print("   - Cleared logs")
@@ -624,11 +712,8 @@ def test_unpaywall(doi: str = "10.1038/s41586-020-2165-8"):
 @app.command()
 def watch():
     """Start Watch Folder Service for auto-processing local PDFs."""
+    _ensure_watchdog_available("watch")
     from src.watcher import WatcherService
-    from src.processor import Processor # We need a Processor class or module
-    # Actually processor.py is a module with functions. 
-    # The WatcherService expects an object with `process_local_pdf`.
-    # Let's create a simple wrapper or just pass the module if it has the function.
     import src.processor as processor_module
 
     config = load_config()
@@ -649,6 +734,7 @@ def watch():
 @app.command()
 def watch_downloads():
     """Watch Downloads folder and auto-match manual-required PDFs into storage."""
+    _ensure_watchdog_available("watch-downloads")
     from src.downloads_watcher import DownloadsWatcherService
 
     config = load_config()
