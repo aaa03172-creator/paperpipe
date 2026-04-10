@@ -20,12 +20,18 @@ from src.db_utils import (
     DB_PATH as DB_UTILS_PATH,
 )
 from src.logger import setup_logging
-from src.services.runtime_paths import logs_root
+from src.services.runtime_paths import logs_root, meeting_packs_root as default_meeting_packs_root
 from src.services.runtime_readiness import (
+    collect_meeting_pack_storage_hygiene_check,
     collect_runtime_readiness,
     collect_structured_state_hygiene_check,
 )
 from src.services.fixture_visibility import quarantine_hidden_fixture_structured_states
+from src.meeting_packs.hygiene import (
+    apply_archive as apply_meeting_pack_archive,
+    default_archive_root as default_meeting_pack_archive_root,
+    select_archive_candidates as select_meeting_pack_archive_candidates,
+)
 from src.services.cli_workflows import (
     run_deepread_workflow,
     update_reading_status_workflow,
@@ -200,6 +206,14 @@ def doctor():
         if fixture_hygiene.path:
             console.print(f"     Path: {fixture_hygiene.path}")
 
+        meeting_pack_hygiene = collect_meeting_pack_storage_hygiene_check(config.paths.obsidian_vault)
+        meeting_pack_icon = (
+            "✅" if meeting_pack_hygiene.status == "ok" else "⚠️" if meeting_pack_hygiene.status == "warn" else "❌"
+        )
+        console.print(f"   - Meeting Pack Storage Hygiene: {meeting_pack_icon} {meeting_pack_hygiene.detail}")
+        if meeting_pack_hygiene.path:
+            console.print(f"     Path: {meeting_pack_hygiene.path}")
+
         # [NEW] Check Unpaywall
         if config.system.unpaywall_email and "example.com" not in config.system.unpaywall_email:
              console.print(f"   - Unpaywall: ✅ Email configured ({config.system.unpaywall_email})")
@@ -347,6 +361,75 @@ def quarantine_fixture_states(
 
     if not apply:
         console.print("[yellow]Dry run only. Re-run with `--apply` to quarantine these files.[/yellow]")
+
+
+@app.command("archive-meeting-pack-noise")
+def archive_meeting_pack_noise(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Actually move low-value Meeting Pack directories into a quarantine folder.",
+    ),
+    keep_latest: int = typer.Option(
+        3,
+        "--keep-latest",
+        min=1,
+        help="Keep this many newest healthy packs per selector/mode before archiving older duplicates.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+):
+    """Archive low-value Meeting Pack storage noise from the runtime root."""
+    config = load_config()
+    root = default_meeting_packs_root()
+    archive_root = default_meeting_pack_archive_root(root)
+    candidates = select_meeting_pack_archive_candidates(
+        root,
+        vault_path=config.paths.obsidian_vault,
+        keep_latest=keep_latest,
+    )
+    payload = {
+        "root": str(root),
+        "archive_root": str(archive_root),
+        "apply": bool(apply),
+        "keep_latest": int(keep_latest),
+        "candidate_count": len(candidates),
+        "candidates": [
+            {
+                "pack_id": candidate.pack_id,
+                "reason": candidate.reason,
+                "selector_key": candidate.selector_key,
+                "title": candidate.title,
+                "source_dir": str(candidate.source_dir),
+                "destination_dir": str(candidate.destination_dir),
+            }
+            for candidate in candidates
+        ],
+    }
+
+    if apply:
+        archived = apply_meeting_pack_archive(candidates, archive_root=archive_root)
+        payload["archived"] = archived
+
+    if json_output:
+        _emit_json(payload)
+        return
+
+    console.print("[bold blue]🧹 Meeting Pack Noise Cleanup[/bold blue]")
+    console.print(f"Root: {root}")
+    console.print(f"Archive root: {archive_root}")
+    if not candidates:
+        console.print("No Meeting Pack archive candidates found.")
+        return
+
+    console.print(f"Found {len(candidates)} Meeting Pack archive candidate(s).")
+    for candidate in candidates:
+        verb = "Moved" if apply else "Would move"
+        console.print(f" - {verb}: {candidate.pack_id} [{candidate.reason}]")
+
+    if apply:
+        console.print(f"[green]Archived {payload['archived']} Meeting Pack directories.[/green]")
+    else:
+        console.print("[yellow]Dry run only. Re-run with `--apply` to archive these packs.[/yellow]")
 
 
 @app.command()
