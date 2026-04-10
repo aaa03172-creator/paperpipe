@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
 import os
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+import shutil
 from typing import Callable, TypeVar
 
 from src.schemas.meeting_pack import MeetingPack
+from src.schemas.skills import StructuredPaperState
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class StructuredStateQuarantineMove:
+    source_path: Path
+    destination_path: Path
 
 
 def _include_test_fixtures_enabled() -> bool:
@@ -63,3 +75,99 @@ def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
             return True
 
     return False
+
+
+def fixture_structured_state_allowed(vault_path: Path | None = None) -> bool:
+    if _include_test_fixtures_enabled():
+        return True
+    if vault_path is None:
+        return False
+    try:
+        resolved = Path(vault_path).expanduser().resolve()
+    except Exception:
+        resolved = Path(vault_path).expanduser()
+    return ".e2e-backend-runtime" in resolved.parts
+
+
+def is_test_fixture_structured_state(state: StructuredPaperState) -> bool:
+    for run in state.runs:
+        run_id = str(run.id or "").strip().lower()
+        if run_id.startswith("run_e2e_fixture") or run_id.startswith("job-e2e-fixture"):
+            return True
+
+    for claim in state.claimset:
+        claim_id = str(claim.id or "").strip().lower()
+        source_claim_id = str(getattr(claim, "source_claim_id", "") or "").strip().lower()
+        if claim_id.startswith("claim_c0ffee") or source_claim_id.startswith("e2e-claim-"):
+            return True
+        for evidence in claim.evidence:
+            evidence_id = str(evidence.id or "").strip().lower()
+            if evidence_id.startswith("evidence_deadbeef"):
+                return True
+            locator = evidence.locator if isinstance(evidence.locator, dict) else {}
+            chunk_id = str(locator.get("chunk_id") or "").strip().lower()
+            if chunk_id.startswith("chunk-e2e-"):
+                return True
+    return False
+
+
+def visible_structured_state(
+    state: StructuredPaperState | None,
+    *,
+    vault_path: Path | None = None,
+) -> StructuredPaperState | None:
+    if state is None:
+        return None
+    if is_test_fixture_structured_state(state) and not fixture_structured_state_allowed(vault_path):
+        return None
+    return state
+
+
+def hidden_fixture_structured_state_paths(vault_path: Path) -> list[Path]:
+    resolved_vault = Path(vault_path).expanduser().resolve(strict=False)
+    if fixture_structured_state_allowed(resolved_vault):
+        return []
+
+    state_root = resolved_vault / ".pp"
+    if not state_root.exists():
+        return []
+
+    hidden_paths: list[Path] = []
+    for state_path in sorted(state_root.glob("*/state.json")):
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            state = StructuredPaperState.model_validate(payload)
+        except Exception:
+            continue
+        if is_test_fixture_structured_state(state):
+            hidden_paths.append(state_path)
+    return hidden_paths
+
+
+def quarantine_hidden_fixture_structured_states(
+    vault_path: Path,
+    *,
+    apply: bool,
+    now: datetime | None = None,
+) -> list[StructuredStateQuarantineMove]:
+    resolved_vault = Path(vault_path).expanduser().resolve(strict=False)
+    timestamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    quarantine_root = resolved_vault / ".pp" / "_quarantine" / "fixture_states" / timestamp
+
+    moves: list[StructuredStateQuarantineMove] = []
+    for source_path in hidden_fixture_structured_state_paths(resolved_vault):
+        slug = source_path.parent.name
+        destination_path = quarantine_root / slug / source_path.name
+        moves.append(
+            StructuredStateQuarantineMove(
+                source_path=source_path,
+                destination_path=destination_path,
+            )
+        )
+
+    if apply:
+        for move in moves:
+            move.destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(move.source_path), str(move.destination_path))
+
+    return moves

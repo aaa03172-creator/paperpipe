@@ -1,18 +1,25 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from pathlib import Path
 
 from src.config import load_config
 from src.db_utils import get_db_path
+from src.meeting_packs.hygiene import select_archive_candidates as select_meeting_pack_archive_candidates
 from src.schemas.ops import RuntimeReadinessCheck, RuntimeReadinessResponse
+from src.services.fixture_visibility import (
+    fixture_structured_state_allowed,
+    hidden_fixture_structured_state_paths,
+)
 from src.services.runtime_paths import (
     cache_root,
     config_file_path,
     config_root,
     frontend_runtime_dir,
     logs_root,
+    meeting_packs_root,
     storage_root,
 )
 
@@ -182,6 +189,84 @@ def _module_dependency_check(
     return RuntimeReadinessCheck(name=name, status="ok", detail=ok_detail)
 
 
+def collect_structured_state_hygiene_check(vault_path: Path) -> RuntimeReadinessCheck:
+    resolved_vault = vault_path.expanduser().resolve(strict=False)
+
+    if fixture_structured_state_allowed(resolved_vault):
+        return RuntimeReadinessCheck(
+            name="structured_state_hygiene",
+            status="ok",
+            detail="isolated E2E runtime allows fixture structured states",
+            path=str(resolved_vault),
+        )
+
+    hidden_paths = hidden_fixture_structured_state_paths(resolved_vault)
+    sample_relpaths = [path.relative_to(resolved_vault).as_posix() for path in hidden_paths[:3]]
+    hidden_count = len(hidden_paths)
+    state_root = resolved_vault / ".pp"
+
+    if hidden_count:
+        detail = (
+            f"hidden fixture structured states detected ({hidden_count}); "
+            "clean or quarantine them before trusting this vault"
+        )
+        if sample_relpaths:
+            detail = f"{detail}: {', '.join(sample_relpaths)}"
+        first_path = resolved_vault / sample_relpaths[0] if sample_relpaths else state_root
+        return RuntimeReadinessCheck(
+            name="structured_state_hygiene",
+            status="warn",
+            detail=detail,
+            path=str(first_path),
+        )
+
+    return RuntimeReadinessCheck(
+        name="structured_state_hygiene",
+        status="ok",
+        detail="no hidden fixture structured states detected",
+        path=str(state_root),
+    )
+
+
+def collect_meeting_pack_storage_hygiene_check(
+    vault_path: Path,
+    *,
+    root: Path | None = None,
+    keep_latest: int = 3,
+) -> RuntimeReadinessCheck:
+    meeting_pack_root = (root or meeting_packs_root()).expanduser().resolve(strict=False)
+    candidates = select_meeting_pack_archive_candidates(
+        meeting_pack_root,
+        vault_path=vault_path.expanduser().resolve(strict=False),
+        keep_latest=keep_latest,
+    )
+    if not candidates:
+        return RuntimeReadinessCheck(
+            name="meeting_pack_storage_hygiene",
+            status="ok",
+            detail="no low-value Meeting Pack archive candidates detected",
+            path=str(meeting_pack_root),
+        )
+
+    reason_counts: dict[str, int] = {}
+    for candidate in candidates:
+        reason_counts[candidate.reason] = reason_counts.get(candidate.reason, 0) + 1
+    reason_summary = ", ".join(f"{reason}={count}" for reason, count in sorted(reason_counts.items()))
+    sample_ids = ", ".join(candidate.pack_id for candidate in candidates[:3])
+    detail = (
+        f"Meeting Pack archive candidates detected ({len(candidates)}; {reason_summary}); "
+        "archive with `paperpipe archive-meeting-pack-noise` before trusting saved pack listings"
+    )
+    if sample_ids:
+        detail = f"{detail}: {sample_ids}"
+    return RuntimeReadinessCheck(
+        name="meeting_pack_storage_hygiene",
+        status="warn",
+        detail=detail,
+        path=str(meeting_pack_root),
+    )
+
+
 def collect_runtime_readiness() -> RuntimeReadinessResponse:
     checks: list[RuntimeReadinessCheck] = []
     loaded_config = None
@@ -229,6 +314,8 @@ def collect_runtime_readiness() -> RuntimeReadinessResponse:
         checks.append(
             _configured_external_root_check("obsidian_vault", loaded_config.paths.obsidian_vault)
         )
+        checks.append(collect_structured_state_hygiene_check(loaded_config.paths.obsidian_vault))
+        checks.append(collect_meeting_pack_storage_hygiene_check(loaded_config.paths.obsidian_vault))
         checks.append(
             _configured_external_root_check("zotero_base_dir", loaded_config.paths.zotero_base_dir)
         )
@@ -378,6 +465,8 @@ def summarize_browser_runtime_readiness(
             check
             for check in [
                 checks_by_name.get("obsidian_vault"),
+                checks_by_name.get("structured_state_hygiene"),
+                checks_by_name.get("meeting_pack_storage_hygiene"),
                 checks_by_name.get("zotero_base_dir"),
             ]
             if check is not None
