@@ -17,7 +17,11 @@ from src.profiles.research_dna_schema import (
     QueryVersion,
     ResearchDNA,
     ResearchDNANextScreeningCandidate,
+    ResearchDNAResumeSnapshot,
+    ResearchDNARunIndex,
+    ResearchDNARunSummary,
     ResearchDNARerankArtifacts,
+    RerankGateStatus,
     ResearchDNAScreeningGuidanceArtifact,
     ResearchDNAScreeningGuidanceFollowSummary,
     ResearchDNAScreeningGuidanceIndexArtifact,
@@ -996,6 +1000,130 @@ def load_latest_screening_guidance_artifact(
     return guidance_artifact
 
 
+def load_research_dna_run_index(
+    dna_id: str,
+    *,
+    limit: int = 20,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNARunIndex:
+    if limit < 1:
+        raise ResearchDNAStateError("limit must be >= 1")
+
+    load_research_dna(dna_id, root)
+    run_log_path = research_dna_log_path(dna_id, "runs", root)
+    run_rows = _read_jsonl(run_log_path) if run_log_path.exists() else []
+    run_entries = sorted(
+        (
+            RunLogEntry.model_validate(row)
+            for row in run_rows
+            if str(row.get("dna_id") or "").strip() == dna_id
+        ),
+        key=lambda row: row.ts,
+        reverse=True,
+    )
+
+    return ResearchDNARunIndex(
+        dna_id=dna_id,
+        run_count=len(run_entries),
+        latest_run_id=run_entries[0].run_id if run_entries else None,
+        runs=[
+            _build_run_summary_from_entry(
+                entry,
+                root=root,
+                search_eval_root=search_eval_root,
+            )
+            for entry in run_entries[:limit]
+        ],
+    )
+
+
+def load_research_dna_resume_snapshot(
+    dna_id: str,
+    *,
+    variant: ScreeningQueueVariant = "original",
+    recent_limit: int = 5,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNAResumeSnapshot:
+    run_index = load_research_dna_run_index(
+        dna_id,
+        limit=1,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    latest_run = run_index.runs[0] if run_index.runs else None
+    if latest_run is None:
+        return ResearchDNAResumeSnapshot(
+            dna_id=dna_id,
+            run_count=run_index.run_count,
+            has_runs=False,
+            latest_run_id=None,
+        )
+
+    normalized_variant = _normalize_screening_queue_variant(variant)
+    session = load_screening_session(
+        dna_id,
+        run_id=latest_run.run_id,
+        variant=normalized_variant,
+        recent_limit=recent_limit,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    progress = load_screening_progress_report(
+        dna_id,
+        run_id=latest_run.run_id,
+        variant=normalized_variant,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    recommendation, gate = load_screening_operator_guidance(
+        dna_id,
+        run_id=latest_run.run_id,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    return ResearchDNAResumeSnapshot(
+        dna_id=dna_id,
+        run_count=run_index.run_count,
+        has_runs=True,
+        latest_run_id=latest_run.run_id,
+        latest_run=latest_run,
+        session=session,
+        progress=progress,
+        recommendation=recommendation,
+        gate=gate,
+    )
+
+
+def resolve_research_dna_run_id(
+    dna_id: str,
+    *,
+    run_id: str | None = None,
+    latest: bool = False,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> str:
+    normalized_run_id = str(run_id or "").strip() or None
+    if normalized_run_id and latest:
+        raise ResearchDNAStateError("provide either run_id or latest=true, not both")
+    if normalized_run_id:
+        load_research_dna(dna_id, root)
+        return normalized_run_id
+    if not latest:
+        raise ResearchDNAStateError("provide run_id or set latest=true")
+
+    run_index = load_research_dna_run_index(
+        dna_id,
+        limit=1,
+        root=root,
+        search_eval_root=search_eval_root,
+    )
+    if not run_index.latest_run_id:
+        raise ResearchDNAStateError(f"latest run is unavailable for dna_id={dna_id}; pilot a run first")
+    return run_index.latest_run_id
+
+
 def load_screening_queue_artifact(
     dna_id: str,
     *,
@@ -1922,6 +2050,141 @@ def _normalize_screening_queue_variant(value: Any) -> ScreeningQueueVariant:
     if normalized in {"original", "reranked"}:
         return normalized  # type: ignore[return-value]
     raise ResearchDNAStateError("screening queue variant must be 'original' or 'reranked'")
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and value >= 0 else default
+
+
+def _float_or_default(value: Any, default: float) -> float:
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if 0.0 <= numeric <= 1.0:
+            return numeric
+    return default
+
+
+def _list_of_strings_or_default(value: Any, default: list[str]) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return list(default)
+
+
+def _screening_variant_or_default(value: Any, *, default: ScreeningQueueVariant) -> ScreeningQueueVariant:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"original", "reranked"}:
+        return normalized  # type: ignore[return-value]
+    return default
+
+
+def _build_run_summary_from_entry(
+    entry: RunLogEntry,
+    *,
+    root: Path | None = None,
+    search_eval_root: Path | None = None,
+) -> ResearchDNARunSummary:
+    eval_root = (search_eval_root or default_search_eval_root()).expanduser().resolve()
+    run_dir = eval_root / entry.run_id
+    manifest_path = run_dir / "manifest.json"
+    metrics_path = run_dir / "metrics.json"
+    screening_queue_path = run_dir / "screening_queue.jsonl"
+    reranked_screening_queue_path: str | None = None
+    guidance_artifact_path: str | None = None
+
+    query_version = entry.query_version
+    status = entry.status
+    sources = list(entry.sources)
+    pilot_n = entry.pilot_n
+
+    if manifest_path.exists():
+        manifest = _read_json(manifest_path)
+        if (
+            str(manifest.get("dna_id") or "").strip() == entry.dna_id
+            and str(manifest.get("run_id") or "").strip() == entry.run_id
+        ):
+            query_version = str(manifest.get("query_version") or query_version)
+            manifest_status = str(manifest.get("status") or "").strip()
+            if manifest_status in {"started", "completed", "partial", "failed"}:
+                status = manifest_status  # type: ignore[assignment]
+            active_sources = manifest.get("active_sources")
+            if isinstance(active_sources, list):
+                sources = [str(source).strip() for source in active_sources if str(source).strip()]
+            manifest_pilot_n = manifest.get("pilot_n")
+            if isinstance(manifest_pilot_n, int) and 20 <= manifest_pilot_n <= 50:
+                pilot_n = manifest_pilot_n
+
+            artifact_paths = manifest.get("artifact_paths") if isinstance(manifest.get("artifact_paths"), dict) else {}
+            metrics_path = Path(str(artifact_paths.get("metrics") or metrics_path))
+            screening_queue_path = Path(str(artifact_paths.get("screening_queue") or screening_queue_path))
+            reranked_candidate = str(artifact_paths.get("reranked_screening_queue") or "").strip()
+            reranked_screening_queue_path = reranked_candidate or None
+            guidance_candidate = str(artifact_paths.get("screening_guidance") or "").strip()
+            guidance_artifact_path = guidance_candidate or None
+
+    labeled_count = entry.labeled_count
+    include_count = entry.include_count
+    exclude_count = entry.exclude_count
+    unclear_count = entry.unclear_count
+    precision_proxy = entry.precision_proxy
+    top_reason_codes = list(entry.top_reason_codes)
+    screening_variant: ScreeningQueueVariant = "original"
+    session_complete = False
+
+    if metrics_path.exists():
+        metrics = _read_json(metrics_path)
+        labeled_count = _int_or_default(metrics.get("labeled_count"), labeled_count)
+        include_count = _int_or_default(metrics.get("include_count"), include_count)
+        exclude_count = _int_or_default(metrics.get("exclude_count"), exclude_count)
+        unclear_count = _int_or_default(metrics.get("unclear_count"), unclear_count)
+        precision_proxy = _float_or_default(metrics.get("precision_proxy"), precision_proxy)
+        top_reason_codes = _list_of_strings_or_default(metrics.get("top_reason_codes"), top_reason_codes)
+        screening_meta = metrics.get("research_dna_screening")
+        if isinstance(screening_meta, dict):
+            screening_variant = _screening_variant_or_default(
+                screening_meta.get("variant"),
+                default=screening_variant,
+            )
+            session_complete = bool(screening_meta.get("session_complete"))
+
+    if manifest_path.exists():
+        manifest = _read_json(manifest_path)
+        screening_progress = manifest.get("screening_progress")
+        if isinstance(screening_progress, dict):
+            screening_variant = _screening_variant_or_default(
+                screening_progress.get("variant"),
+                default=screening_variant,
+            )
+            session_complete = bool(screening_progress.get("session_complete", session_complete))
+
+    return ResearchDNARunSummary(
+        ts=entry.ts,
+        run_id=entry.run_id,
+        dna_id=entry.dna_id,
+        query_version=query_version,
+        status=status,
+        actor_type=entry.actor_type,
+        actor_id=entry.actor_id,
+        sources=sources,
+        retrieved_count=entry.retrieved_count,
+        deduped_count=entry.deduped_count,
+        dedupe_rate=entry.dedupe_rate,
+        pilot_n=pilot_n,
+        labeled_count=labeled_count,
+        include_count=include_count,
+        exclude_count=exclude_count,
+        unclear_count=unclear_count,
+        precision_proxy=precision_proxy,
+        screening_started=labeled_count > 0,
+        session_complete=session_complete,
+        screening_variant=screening_variant,
+        top_reason_codes=top_reason_codes,
+        run_dir=str(run_dir),
+        manifest_path=str(manifest_path),
+        metrics_path=str(metrics_path),
+        screening_queue_path=str(screening_queue_path),
+        reranked_screening_queue_path=reranked_screening_queue_path,
+        guidance_artifact_path=guidance_artifact_path,
+    )
 
 
 def _load_run_screening_entries(

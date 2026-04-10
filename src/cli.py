@@ -64,6 +64,27 @@ def _emit_json(payload: dict) -> None:
     typer.echo(json.dumps(payload, ensure_ascii=False))
 
 
+def _resolve_research_dna_run_id_for_cli(
+    dna_id: str,
+    *,
+    run_id: str | None,
+    latest: bool,
+) -> str:
+    from src.profiles.research_dna_service import (
+        ResearchDNAStateError,
+        resolve_research_dna_run_id,
+    )
+
+    try:
+        return resolve_research_dna_run_id(
+            dna_id,
+            run_id=run_id,
+            latest=latest,
+        )
+    except ResearchDNAStateError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 def _optional_dependency_installed(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
 
@@ -1918,7 +1939,8 @@ def research_dna_rerank_gate(
 @research_dna_app.command("screen-next")
 def research_dna_screen_and_advance(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Pilot run ID"),
+    latest: bool = typer.Option(False, "--latest", help="Use the latest pilot run for this DNA"),
     candidate_id: str = typer.Option(..., "--candidate-id", help="Screening candidate ID"),
     decision: str = typer.Option(..., "--decision", help="include | exclude | unclear"),
     reason_code: str = typer.Option(..., "--reason-code", help="Structured reason code"),
@@ -1935,10 +1957,15 @@ def research_dna_screen_and_advance(
     normalized_variant = variant.strip().lower()
     if normalized_variant not in {"original", "reranked"}:
         raise typer.BadParameter("variant must be 'original' or 'reranked'")
+    resolved_run_id = _resolve_research_dna_run_id_for_cli(
+        dna_id,
+        run_id=run_id,
+        latest=latest,
+    )
 
     dna, next_candidate, session = submit_screening_decision_and_load_session(
         dna_id,
-        run_id=run_id,
+        run_id=resolved_run_id,
         candidate_id=candidate_id,
         decision=decision,  # type: ignore[arg-type]
         reason_code=reason_code,  # type: ignore[arg-type]
@@ -1950,7 +1977,7 @@ def research_dna_screen_and_advance(
     )
     recommendation, gate = load_screening_operator_guidance(
         dna_id,
-        run_id=run_id,
+        run_id=resolved_run_id,
     )
     _emit_json(
         {
@@ -1970,7 +1997,8 @@ def research_dna_screen_and_advance(
 @research_dna_app.command("screen-current")
 def research_dna_screen_current(
     dna_id: str = typer.Argument(..., help="Research DNA ID"),
-    run_id: str = typer.Option(..., "--run-id", help="Pilot run ID"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Pilot run ID"),
+    latest: bool = typer.Option(False, "--latest", help="Use the latest pilot run for this DNA"),
     decision: str = typer.Option(..., "--decision", help="include | exclude | unclear"),
     reason_code: str = typer.Option(..., "--reason-code", help="Structured reason code"),
     actor_id: str = typer.Option(..., "--actor-id", help="Actor ID for audit"),
@@ -1987,10 +2015,15 @@ def research_dna_screen_current(
     normalized_variant = variant.strip().lower()
     if normalized_variant not in {"original", "reranked"}:
         raise typer.BadParameter("variant must be 'original' or 'reranked'")
+    resolved_run_id = _resolve_research_dna_run_id_for_cli(
+        dna_id,
+        run_id=run_id,
+        latest=latest,
+    )
 
     dna, screened_candidate_id, next_candidate, session = screen_current_candidate_and_load_session(
         dna_id,
-        run_id=run_id,
+        run_id=resolved_run_id,
         decision=decision,  # type: ignore[arg-type]
         reason_code=reason_code,  # type: ignore[arg-type]
         actor_type="human_cli",
@@ -2002,7 +2035,7 @@ def research_dna_screen_current(
     )
     recommendation, gate = load_screening_operator_guidance(
         dna_id,
-        run_id=run_id,
+        run_id=resolved_run_id,
     )
     _emit_json(
         {

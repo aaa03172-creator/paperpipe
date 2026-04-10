@@ -43,6 +43,8 @@ from src.schemas.research_dna import (
     ResearchDNAGuidanceMaterializeRequest,
     ResearchDNAInterviewEnvelope,
     ResearchDNAInterviewRequest,
+    ResearchDNAResumeEnvelope,
+    ResearchDNARunIndexEnvelope,
     ResearchDNAScreenCurrentRequest,
     ResearchDNANextScreeningCandidateEnvelope,
     ResearchDNARerankGateEnvelope,
@@ -71,6 +73,9 @@ from src.profiles.research_dna_service import (
     create_research_dna,
     load_latest_screening_guidance_artifact,
     load_next_screening_candidate,
+    load_research_dna_resume_snapshot,
+    load_research_dna_run_index,
+    resolve_research_dna_run_id,
     load_screening_progress_report,
     load_rerank_gate_report,
     load_screening_guidance_index_artifact,
@@ -1075,6 +1080,50 @@ def materialize_research_dna_guidance_endpoint(dna_id: str, req: ResearchDNAGuid
     return ResearchDNAScreeningGuidanceArtifactEnvelope(guidance_artifact=guidance_artifact)
 
 
+@app.get("/research-dna/{dna_id}/runs", response_model=ResearchDNARunIndexEnvelope)
+def get_research_dna_run_index_endpoint(
+    dna_id: str,
+    limit: int = Query(20, ge=1, le=100),
+):
+    try:
+        run_index = load_research_dna_run_index(
+            dna_id,
+            limit=limit,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load run index: {exc}")
+    return ResearchDNARunIndexEnvelope(run_index=run_index)
+
+
+@app.get("/research-dna/{dna_id}/resume", response_model=ResearchDNAResumeEnvelope)
+def get_research_dna_resume_endpoint(
+    dna_id: str,
+    variant: str = Query("original", pattern="^(original|reranked)$"),
+    recent_limit: int = Query(5, ge=1, le=20),
+):
+    try:
+        resume = load_research_dna_resume_snapshot(
+            dna_id,
+            variant=variant,  # type: ignore[arg-type]
+            recent_limit=recent_limit,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Research DNA not found")
+    except ResearchDNARevisionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ResearchDNAStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load resume snapshot: {exc}")
+    return ResearchDNAResumeEnvelope(resume=resume)
+
+
 @app.get(
     "/research-dna/{dna_id}/runs/{run_id}/screening-guidance-artifact",
     response_model=ResearchDNAScreeningGuidanceArtifactEnvelope,
@@ -1316,9 +1365,14 @@ def submit_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreenin
 @app.post("/research-dna/{dna_id}/screening/advance", response_model=ResearchDNAScreeningAdvanceEnvelope)
 def advance_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreeningAdvanceRequest):
     try:
-        dna, next_candidate, session = submit_screening_decision_and_load_session(
+        resolved_run_id = resolve_research_dna_run_id(
             dna_id,
             run_id=req.run_id,
+            latest=req.latest_run,
+        )
+        dna, next_candidate, session = submit_screening_decision_and_load_session(
+            dna_id,
+            run_id=resolved_run_id,
             candidate_id=req.candidate_id,
             decision=req.decision,
             reason_code=req.reason_code,
@@ -1330,7 +1384,7 @@ def advance_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreeni
         )
         recommendation, gate = load_screening_operator_guidance(
             dna_id,
-            run_id=req.run_id,
+            run_id=resolved_run_id,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Research DNA not found")
@@ -1356,9 +1410,14 @@ def advance_research_dna_screening_endpoint(dna_id: str, req: ResearchDNAScreeni
 @app.post("/research-dna/{dna_id}/screening/current", response_model=ResearchDNAScreeningAdvanceEnvelope)
 def screen_current_research_dna_candidate_endpoint(dna_id: str, req: ResearchDNAScreenCurrentRequest):
     try:
-        dna, screened_candidate_id, next_candidate, session = screen_current_candidate_and_load_session(
+        resolved_run_id = resolve_research_dna_run_id(
             dna_id,
             run_id=req.run_id,
+            latest=req.latest_run,
+        )
+        dna, screened_candidate_id, next_candidate, session = screen_current_candidate_and_load_session(
+            dna_id,
+            run_id=resolved_run_id,
             decision=req.decision,
             reason_code=req.reason_code,
             note=req.note,
@@ -1370,7 +1429,7 @@ def screen_current_research_dna_candidate_endpoint(dna_id: str, req: ResearchDNA
         )
         recommendation, gate = load_screening_operator_guidance(
             dna_id,
-            run_id=req.run_id,
+            run_id=resolved_run_id,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Research DNA not found")
