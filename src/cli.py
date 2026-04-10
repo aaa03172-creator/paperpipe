@@ -147,6 +147,19 @@ def _build_backend_launch_command(host: str, port: int) -> list[str]:
     ]
 
 
+def _build_worker_launch_command() -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [
+            sys.executable,
+            "serve-worker",
+        ]
+    return [
+        sys.executable,
+        "-m",
+        "src.jobs.worker",
+    ]
+
+
 def _argv_with_frozen_app_default_command(argv: list[str]) -> list[str]:
     if not argv:
         return ["start"]
@@ -439,9 +452,10 @@ def start(
     ui_url: str = typer.Option("", "--ui-url", help="UI URL to open. Empty means /ui."),
     health_timeout: int = typer.Option(15, "--health-timeout", min=3, max=120, help="Healthcheck timeout in seconds."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not auto-open browser."),
+    worker: bool = typer.Option(True, "--worker/--no-worker", help="Start the background job worker."),
 ):
     """
-    Start local backend runtime and open Lattice UI/docs.
+    Start local runtime services and open Lattice UI/docs.
     """
     console.print("[bold green]🚀 Starting Lattice runtime...[/bold green]")
 
@@ -467,6 +481,7 @@ def start(
         raise typer.Exit(code=1)
 
     cmd = _build_backend_launch_command(host, port)
+    worker_proc = None
 
     try:
         proc = subprocess.Popen(cmd)
@@ -486,6 +501,18 @@ def start(
     console.print(f"   - Backend: ✅ {base_url}")
     console.print(f"   - Entry: {entry_url}")
 
+    if worker:
+        worker_cmd = _build_worker_launch_command()
+        try:
+            worker_proc = subprocess.Popen(worker_cmd)
+        except Exception as exc:
+            _terminate_process(proc)
+            console.print(f"[bold red]❌ Failed to start worker: {exc}[/bold red]")
+            raise typer.Exit(code=1)
+        console.print("   - Worker: ✅ started")
+    else:
+        console.print("   - Worker: ⚪ disabled (--no-worker)")
+
     if not no_open:
         try:
             webbrowser.open(entry_url, new=2)
@@ -496,19 +523,26 @@ def start(
 
     try:
         while True:
-            return_code = proc.poll()
-            if return_code is None:
+            backend_code = proc.poll()
+            worker_code = worker_proc.poll() if worker_proc is not None else None
+            if backend_code is None and worker_code is None:
                 time.sleep(0.5)
                 continue
-            if return_code == 0:
-                console.print("[yellow]⚠️ Backend exited.[/yellow]")
-                raise typer.Exit(code=0)
-            console.print(f"[bold red]❌ Backend exited with code {return_code}[/bold red]")
-            raise typer.Exit(code=return_code)
+            if backend_code is not None:
+                if backend_code == 0:
+                    console.print("[yellow]⚠️ Backend exited.[/yellow]")
+                    raise typer.Exit(code=0)
+                console.print(f"[bold red]❌ Backend exited with code {backend_code}[/bold red]")
+                raise typer.Exit(code=backend_code)
+            if worker_code is not None:
+                console.print(f"[bold red]❌ Worker exited with code {worker_code}[/bold red]")
+                raise typer.Exit(code=worker_code or 1)
     except KeyboardInterrupt:
         console.print("\n[bold yellow]🛑 Stopping Lattice runtime...[/bold yellow]")
     finally:
         _terminate_process(proc)
+        if worker_proc is not None:
+            _terminate_process(worker_proc)
 
 
 @app.command("serve-backend", hidden=True)
@@ -521,6 +555,14 @@ def serve_backend(
     from backend.main import app as backend_app
 
     uvicorn.run(backend_app, host=host, port=port)
+
+
+@app.command("serve-worker", hidden=True)
+def serve_worker():
+    """Internal packaged-runtime worker launcher."""
+    from src.jobs.worker import Worker
+
+    Worker().start()
 
 
 # 2. Simple Fetch Test
