@@ -1,5 +1,6 @@
 from base64 import b64decode
 from binascii import Error as BinasciiError
+from collections import deque
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -8,10 +9,13 @@ from sse_starlette.sse import EventSourceResponse
 import asyncio
 import ipaddress
 import json
+import math
 import os
 import re
 import secrets
 import sqlite3
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
@@ -107,7 +111,13 @@ from src.profiles.research_dna_projection import sync_research_dna_profile
 from src.profiles.research_dna_store import ResearchDNARevisionConflictError, load_research_dna
 from src.profiles.profile_store import load_profiles
 from src.services.downloader_ops_metrics import Thresholds, collect_metrics, evaluate_alerts
-from src.services.event_log import get_execution_run_params, list_run_events, list_user_actions, log_user_action
+from src.services.event_log import (
+    get_execution_run_params,
+    list_run_events,
+    list_user_actions,
+    log_request_audit,
+    log_user_action,
+)
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
 from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
@@ -149,6 +159,33 @@ def _best_effort_log_user_action(
         )
     except Exception:
         # User-action logging must never block the primary workflow.
+        pass
+
+
+def _best_effort_log_request_audit(
+    *,
+    source: str,
+    client_ip: str | None,
+    host: str | None,
+    method: str,
+    path: str,
+    status_code: int,
+    outcome: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    try:
+        log_request_audit(
+            source=source,
+            client_ip=client_ip,
+            host=host,
+            method=method,
+            path=path,
+            status_code=status_code,
+            outcome=outcome,
+            payload=payload,
+        )
+    except Exception:
+        # Security audit logging must stay best-effort.
         pass
 
 def _resolve_cors_allow_origins() -> list[str]:
@@ -207,6 +244,81 @@ def _resolve_browser_detailed_runtime_readiness_enabled() -> bool:
     if raw:
         return raw in {"1", "true", "yes", "on"}
     return not bool(_resolve_beta_password())
+
+
+def _resolve_browser_audit_logging_enabled() -> bool:
+    raw = (
+        os.getenv("LATTICE_BROWSER_AUDIT_LOGGING")
+        or os.getenv("PAPERPIPE_BROWSER_AUDIT_LOGGING")
+        or ""
+    ).strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return (
+        bool(_resolve_beta_password())
+        or _resolve_browser_write_rate_limit_count() > 0
+        or _resolve_browser_read_rate_limit_count() > 0
+    )
+
+
+def _resolve_browser_write_rate_limit_count() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_WRITE_RATE_LIMIT_COUNT")
+        or os.getenv("PAPERPIPE_BROWSER_WRITE_RATE_LIMIT_COUNT")
+        or ""
+    ).strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return 0
+        return max(value, 0)
+    return 30 if _resolve_beta_password() else 0
+
+
+def _resolve_browser_write_rate_limit_window_seconds() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_WRITE_RATE_LIMIT_WINDOW_SECONDS")
+        or os.getenv("PAPERPIPE_BROWSER_WRITE_RATE_LIMIT_WINDOW_SECONDS")
+        or ""
+    ).strip()
+    if not raw:
+        return 60
+    try:
+        value = int(raw)
+    except ValueError:
+        return 60
+    return max(value, 1)
+
+
+def _resolve_browser_read_rate_limit_count() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_READ_RATE_LIMIT_COUNT")
+        or os.getenv("PAPERPIPE_BROWSER_READ_RATE_LIMIT_COUNT")
+        or ""
+    ).strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return 0
+        return max(value, 0)
+    return 300 if _resolve_beta_password() else 0
+
+
+def _resolve_browser_read_rate_limit_window_seconds() -> int:
+    raw = (
+        os.getenv("LATTICE_BROWSER_READ_RATE_LIMIT_WINDOW_SECONDS")
+        or os.getenv("PAPERPIPE_BROWSER_READ_RATE_LIMIT_WINDOW_SECONDS")
+        or ""
+    ).strip()
+    if not raw:
+        return 60
+    try:
+        value = int(raw)
+    except ValueError:
+        return 60
+    return max(value, 1)
 
 
 def _resolve_allowed_hosts() -> list[str]:
@@ -345,6 +457,50 @@ def _requires_beta_gate(path: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in ("/docs/", "/redoc/"))
 
 
+def _is_browser_api_path(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return normalized == "/api" or normalized.startswith("/api/")
+
+
+def _should_throttle_browser_write(method: str, original_path: str, rewritten_path: str | None) -> bool:
+    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+        return False
+    normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
+    if normalized == "/user-actions":
+        return False
+    return _requires_api_key("POST", normalized)
+
+
+def _should_throttle_browser_read(method: str, original_path: str, rewritten_path: str | None) -> bool:
+    if method.upper() != "GET" or not _is_browser_api_path(original_path):
+        return False
+    normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
+    return _requires_api_key("GET", normalized)
+
+
+def _should_throttle_direct_protected_read(method: str, original_path: str) -> bool:
+    if method.upper() != "GET" or _is_browser_api_path(original_path):
+        return False
+    normalized = (original_path.rstrip("/") or "/").rstrip("/") or "/"
+    return _requires_api_key("GET", normalized)
+
+
+def _should_throttle_direct_protected_write(method: str, original_path: str) -> bool:
+    if method.upper() != "POST" or _is_browser_api_path(original_path):
+        return False
+    normalized = (original_path.rstrip("/") or "/").rstrip("/") or "/"
+    if normalized == "/user-actions":
+        return False
+    return _requires_api_key("POST", normalized)
+
+
+def _should_audit_browser_request(method: str, original_path: str, rewritten_path: str | None) -> bool:
+    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+        return False
+    normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
+    return normalized != "/user-actions"
+
+
 def _request_has_valid_beta_auth(request: Request) -> bool:
     expected_password = _resolve_beta_password()
     if not expected_password:
@@ -364,6 +520,68 @@ def _request_has_valid_beta_auth(request: Request) -> bool:
         secrets.compare_digest(username, _resolve_beta_username())
         and secrets.compare_digest(password, expected_password)
     )
+
+
+def _normalize_origin(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc.lower()}"
+
+
+def _hostname_from_host_value(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(f"//{raw}")
+    hostname = str(parsed.hostname or "").strip().lower()
+    return hostname or None
+
+
+def _is_loopback_host(value: str | None) -> bool:
+    hostname = _hostname_from_host_value(value)
+    if not hostname:
+        return False
+    if hostname in {"localhost", "testserver"}:
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _origin_host(origin: str | None) -> str | None:
+    normalized = _normalize_origin(origin)
+    if not normalized:
+        return None
+    return _hostname_from_host_value(urlparse(normalized).netloc)
+
+
+def _allowed_browser_origins_for_request(request: Request) -> set[str]:
+    allowed = {
+        normalized
+        for normalized in (_normalize_origin(item) for item in _resolve_cors_allow_origins())
+        if normalized
+    }
+    host = _host_for_request(request)
+    if host:
+        scheme = "https" if _request_is_https(request) else "http"
+        allowed.add(f"{scheme}://{host.lower()}")
+    return allowed
+
+
+def _request_has_valid_browser_origin(request: Request, original_path: str) -> bool:
+    if request.method.upper() != "POST" or not _is_browser_api_path(original_path):
+        return True
+    origin = _normalize_origin(request.headers.get("origin"))
+    if not origin:
+        return False
+    if origin in _allowed_browser_origins_for_request(request):
+        return True
+    return _is_loopback_host(_host_for_request(request)) and _is_loopback_host(_origin_host(origin))
 
 
 def _beta_gate_response() -> Response:
@@ -408,6 +626,55 @@ def _request_ip_is_allowed(client_ip: str | None) -> bool:
     return any(address in network for network in networks)
 
 
+def _request_has_valid_api_key_header(request: Request, expected_key: str) -> bool:
+    if not expected_key:
+        return True
+    provided = str(request.headers.get("x-api-key") or "").strip()
+    return bool(provided) and secrets.compare_digest(provided, expected_key)
+
+
+def _host_for_request(request: Request) -> str | None:
+    host = str(request.headers.get("host") or "").strip()
+    if host:
+        return host
+    hostname = getattr(request.url, "hostname", None)
+    value = str(hostname or "").strip()
+    return value or None
+
+
+def _audit_outcome_for_status(status_code: int) -> str:
+    if status_code == 429:
+        return "rate_limited"
+    if status_code in {401, 403}:
+        return "denied"
+    if status_code >= 500:
+        return "server_error"
+    if status_code >= 400:
+        return "client_error"
+    return "allowed"
+
+
+class _SlidingWindowLimiter:
+    def __init__(self) -> None:
+        self._buckets: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, *, window_seconds: int, limit: int) -> tuple[bool, int, int]:
+        if limit <= 0:
+            return True, 0, 0
+        now = time.monotonic()
+        with self._lock:
+            bucket = self._buckets.setdefault(key, deque())
+            cutoff = now - float(window_seconds)
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if len(bucket) >= limit:
+                retry_after = max(1, math.ceil(bucket[0] + float(window_seconds) - now))
+                return False, len(bucket), retry_after
+            bucket.append(now)
+            return True, len(bucket), 0
+
+
 def _apply_security_headers(request: Request, response: Response) -> Response:
     headers = response.headers
     headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -427,6 +694,8 @@ def _apply_security_headers(request: Request, response: Response) -> Response:
 
 
 API_DOCS_ENABLED = _resolve_api_docs_enabled()
+_BROWSER_READ_LIMITER = _SlidingWindowLimiter()
+_BROWSER_WRITE_LIMITER = _SlidingWindowLimiter()
 
 app = FastAPI(
     title="Lattice API",
@@ -454,8 +723,20 @@ async def api_key_guard(request: Request, call_next):
     original_path = str(request.scope.get("path") or request.url.path or "/")
     rewritten_path = _rewrite_browser_api_path(original_path)
     client_ip = _client_ip_for_request(request)
+    host = _host_for_request(request)
     if request.method.upper() != "OPTIONS" and _requires_beta_gate(original_path):
         if not _request_ip_is_allowed(client_ip):
+            if _resolve_browser_audit_logging_enabled():
+                _best_effort_log_request_audit(
+                    source="access_policy",
+                    client_ip=client_ip,
+                    host=host,
+                    method=request.method,
+                    path=original_path,
+                    status_code=403,
+                    outcome="ip_denied",
+                    payload={"scope": "ip_allowlist"},
+                )
             return _apply_security_headers(
                 request,
                 JSONResponse(
@@ -467,9 +748,217 @@ async def api_key_guard(request: Request, call_next):
                 ),
             )
         if not _request_has_valid_beta_auth(request):
+            if _resolve_browser_audit_logging_enabled():
+                _best_effort_log_request_audit(
+                    source="browser_security",
+                    client_ip=client_ip,
+                    host=host,
+                    method=request.method,
+                    path=original_path,
+                    status_code=401,
+                    outcome="beta_auth_denied",
+                    payload={"scope": "beta_gate"},
+                )
             return _apply_security_headers(request, _beta_gate_response())
 
+    if not _request_has_valid_browser_origin(request, original_path):
+        if _resolve_browser_audit_logging_enabled():
+            _best_effort_log_request_audit(
+                source="browser_security",
+                client_ip=client_ip,
+                host=host,
+                method=request.method,
+                path=original_path,
+                status_code=403,
+                outcome="origin_denied",
+                payload={"scope": "browser_origin"},
+            )
+        return _apply_security_headers(
+            request,
+            JSONResponse(
+                status_code=403,
+                content={
+                    "error_code": "FORBIDDEN",
+                    "message": "Cross-origin browser writes are not allowed.",
+                },
+            ),
+        )
+
+    if _should_throttle_browser_read(request.method, original_path, rewritten_path):
+        rate_limit_count = _resolve_browser_read_rate_limit_count()
+        if rate_limit_count > 0:
+            window_seconds = _resolve_browser_read_rate_limit_window_seconds()
+            limiter_key = f"{client_ip or 'unknown'}:browser_read"
+            allowed, seen_count, retry_after = _BROWSER_READ_LIMITER.allow(
+                limiter_key,
+                window_seconds=window_seconds,
+                limit=rate_limit_count,
+            )
+            if not allowed:
+                if _resolve_browser_audit_logging_enabled():
+                    _best_effort_log_request_audit(
+                        source="browser_api",
+                        client_ip=client_ip,
+                        host=host,
+                        method=request.method,
+                        path=original_path,
+                        status_code=429,
+                        outcome="rate_limited",
+                        payload={
+                            "scope": "browser_read",
+                            "window_seconds": window_seconds,
+                            "limit": rate_limit_count,
+                            "seen_count": seen_count,
+                            "retry_after_seconds": retry_after,
+                            "rewritten_path": rewritten_path,
+                        },
+                    )
+                return _apply_security_headers(
+                    request,
+                    JSONResponse(
+                        status_code=429,
+                        headers={"Retry-After": str(retry_after)},
+                        content={
+                            "error_code": "BROWSER_READ_RATE_LIMITED",
+                            "message": "Browser read rate limit exceeded",
+                            "retry_after_seconds": retry_after,
+                            "limit": rate_limit_count,
+                            "window_seconds": window_seconds,
+                        },
+                    ),
+                )
+
+    if _should_throttle_browser_write(request.method, original_path, rewritten_path):
+        rate_limit_count = _resolve_browser_write_rate_limit_count()
+        if rate_limit_count > 0:
+            window_seconds = _resolve_browser_write_rate_limit_window_seconds()
+            limiter_key = f"{client_ip or 'unknown'}:browser_write"
+            allowed, seen_count, retry_after = _BROWSER_WRITE_LIMITER.allow(
+                limiter_key,
+                window_seconds=window_seconds,
+                limit=rate_limit_count,
+            )
+            if not allowed:
+                if _resolve_browser_audit_logging_enabled():
+                    _best_effort_log_request_audit(
+                        source="browser_api",
+                        client_ip=client_ip,
+                        host=host,
+                        method=request.method,
+                        path=original_path,
+                        status_code=429,
+                        outcome="rate_limited",
+                        payload={
+                            "scope": "browser_write",
+                            "window_seconds": window_seconds,
+                            "limit": rate_limit_count,
+                            "seen_count": seen_count,
+                            "retry_after_seconds": retry_after,
+                            "rewritten_path": rewritten_path,
+                        },
+                    )
+                return _apply_security_headers(
+                    request,
+                    JSONResponse(
+                        status_code=429,
+                        headers={"Retry-After": str(retry_after)},
+                        content={
+                            "error_code": "BROWSER_WRITE_RATE_LIMITED",
+                            "message": "Browser write rate limit exceeded",
+                            "retry_after_seconds": retry_after,
+                            "limit": rate_limit_count,
+                            "window_seconds": window_seconds,
+                        },
+                    ),
+                )
+
     expected_key = _resolve_api_key()
+    if _should_throttle_direct_protected_read(request.method, original_path):
+        if _request_has_valid_api_key_header(request, expected_key):
+            rate_limit_count = _resolve_browser_read_rate_limit_count()
+            if rate_limit_count > 0:
+                window_seconds = _resolve_browser_read_rate_limit_window_seconds()
+                limiter_key = f"{client_ip or 'unknown'}:protected_read"
+                allowed, seen_count, retry_after = _BROWSER_READ_LIMITER.allow(
+                    limiter_key,
+                    window_seconds=window_seconds,
+                    limit=rate_limit_count,
+                )
+                if not allowed:
+                    if _resolve_browser_audit_logging_enabled():
+                        _best_effort_log_request_audit(
+                            source="protected_api",
+                            client_ip=client_ip,
+                            host=host,
+                            method=request.method,
+                            path=original_path,
+                            status_code=429,
+                            outcome="rate_limited",
+                            payload={
+                                "scope": "protected_read",
+                                "window_seconds": window_seconds,
+                                "limit": rate_limit_count,
+                                "seen_count": seen_count,
+                                "retry_after_seconds": retry_after,
+                            },
+                        )
+                    return _apply_security_headers(
+                        request,
+                        JSONResponse(
+                            status_code=429,
+                            headers={"Retry-After": str(retry_after)},
+                            content={
+                                "error_code": "PROTECTED_READ_RATE_LIMITED",
+                                "message": "Protected read rate limit exceeded",
+                                "retry_after_seconds": retry_after,
+                                "limit": rate_limit_count,
+                                "window_seconds": window_seconds,
+                            },
+                        ),
+                    )
+    if _should_throttle_direct_protected_write(request.method, original_path):
+        if _request_has_valid_api_key_header(request, expected_key):
+            rate_limit_count = _resolve_browser_write_rate_limit_count()
+            if rate_limit_count > 0:
+                window_seconds = _resolve_browser_write_rate_limit_window_seconds()
+                limiter_key = f"{client_ip or 'unknown'}:protected_write"
+                allowed, seen_count, retry_after = _BROWSER_WRITE_LIMITER.allow(
+                    limiter_key,
+                    window_seconds=window_seconds,
+                    limit=rate_limit_count,
+                )
+                if not allowed:
+                    if _resolve_browser_audit_logging_enabled():
+                        _best_effort_log_request_audit(
+                            source="protected_api",
+                            client_ip=client_ip,
+                            host=host,
+                            method=request.method,
+                            path=original_path,
+                            status_code=429,
+                            outcome="rate_limited",
+                            payload={
+                                "scope": "protected_write",
+                                "window_seconds": window_seconds,
+                                "limit": rate_limit_count,
+                                "seen_count": seen_count,
+                                "retry_after_seconds": retry_after,
+                            },
+                        )
+                    return _apply_security_headers(
+                        request,
+                        JSONResponse(
+                            status_code=429,
+                            headers={"Retry-After": str(retry_after)},
+                            content={
+                                "error_code": "PROTECTED_WRITE_RATE_LIMITED",
+                                "message": "Protected write rate limit exceeded",
+                                "retry_after_seconds": retry_after,
+                                "limit": rate_limit_count,
+                                "window_seconds": window_seconds,
+                            },
+                        ),
+                    )
     if rewritten_path is not None:
         request.scope["path"] = rewritten_path
         request.scope["raw_path"] = rewritten_path.encode("utf-8")
@@ -478,11 +967,35 @@ async def api_key_guard(request: Request, call_next):
 
     if not expected_key:
         response = await call_next(request)
-        return _apply_security_headers(request, response)
+        response = _apply_security_headers(request, response)
+        if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+            _best_effort_log_request_audit(
+                source="browser_api",
+                client_ip=client_ip,
+                host=host,
+                method=request.method,
+                path=original_path,
+                status_code=response.status_code,
+                outcome=_audit_outcome_for_status(response.status_code),
+                payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+            )
+        return response
     current_path = str(request.scope.get("path") or request.url.path or "/")
     if not _requires_api_key(request.method, current_path):
         response = await call_next(request)
-        return _apply_security_headers(request, response)
+        response = _apply_security_headers(request, response)
+        if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+            _best_effort_log_request_audit(
+                source="browser_api",
+                client_ip=client_ip,
+                host=host,
+                method=request.method,
+                path=original_path,
+                status_code=response.status_code,
+                outcome=_audit_outcome_for_status(response.status_code),
+                payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+            )
+        return response
 
     supplied_key = (MutableHeaders(scope=request.scope).get("x-api-key") or "").strip()
     if supplied_key != expected_key:
@@ -497,7 +1010,19 @@ async def api_key_guard(request: Request, call_next):
             ),
         )
     response = await call_next(request)
-    return _apply_security_headers(request, response)
+    response = _apply_security_headers(request, response)
+    if _resolve_browser_audit_logging_enabled() and _should_audit_browser_request(request.method, original_path, rewritten_path):
+        _best_effort_log_request_audit(
+            source="browser_api",
+            client_ip=client_ip,
+            host=host,
+            method=request.method,
+            path=original_path,
+            status_code=response.status_code,
+            outcome=_audit_outcome_for_status(response.status_code),
+            payload={"scope": "browser_write", "rewritten_path": rewritten_path},
+        )
+    return response
 
 queue = JobQueue()
 FRONTEND_DIR = frontend_runtime_dir()

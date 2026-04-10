@@ -178,6 +178,50 @@ def log_user_action(
             connection.close()
 
 
+def log_request_audit(
+    *,
+    source: str,
+    client_ip: str | None,
+    host: str | None,
+    method: str,
+    path: str,
+    status_code: int,
+    outcome: str,
+    payload: dict[str, Any] | None = None,
+    ts: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    audit_id = new_job_id()
+    owns_conn = conn is None
+    connection = conn or get_db_connection()
+    try:
+        connection.execute(
+            """
+            INSERT INTO request_audits (
+                audit_id, ts, source, client_ip, host, method, path, status_code, outcome, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                audit_id,
+                ts or _utc_now(),
+                source,
+                client_ip,
+                host,
+                method.upper(),
+                path,
+                int(status_code),
+                outcome,
+                _dump_json(payload),
+            ),
+        )
+        if owns_conn:
+            connection.commit()
+        return audit_id
+    finally:
+        if owns_conn:
+            connection.close()
+
+
 def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
     normalized = str(run_id or "").strip()
     if not normalized:
@@ -276,5 +320,46 @@ def list_user_actions(
             item["payload"] = _load_json(item.pop("payload_json", None))
             output.append(item)
         return output
+    finally:
+        connection.close()
+
+
+def list_request_audits(
+    *,
+    path: str | None = None,
+    outcome: str | None = None,
+    source: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    connection = get_db_connection()
+    try:
+        where: list[str] = []
+        params: list[Any] = []
+        if path:
+            where.append("path = ?")
+            params.append(str(path))
+        if outcome:
+            where.append("outcome = ?")
+            params.append(str(outcome))
+        if source:
+            where.append("source = ?")
+            params.append(str(source))
+
+        sql = """
+            SELECT audit_id, ts, source, client_ip, host, method, path, status_code, outcome, payload_json
+            FROM request_audits
+        """
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY ts DESC, rowid DESC LIMIT ?"
+        params.append(limit)
+        rows = connection.execute(sql, params).fetchall()
+
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = _load_json(item.pop("payload_json", None))
+            items.append(item)
+        return items
     finally:
         connection.close()
