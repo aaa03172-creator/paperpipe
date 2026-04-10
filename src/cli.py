@@ -634,15 +634,16 @@ def _print_results(results):
         return
 
     for p in results:
-        icon = "🏥" if p.get('trial_data') else "📝"
+        icon = "🏥" if p.get('trial_data') or p.get('clinical_data') or str(p.get('slot', '')).lower() == 'clinical' else "📝"
         console.print(f"\n{icon} [{p['slot']}] {p['title']}")
         
         one_liner = p.get('ai_one_liner') or "⚠️ No AI Summary (Fallback)"
         console.print(f"   💡 One-Liner: {one_liner}")
 
-        if p.get('trial_data'):
+        clinical_payload = p.get('trial_data') or p.get('clinical_data')
+        if clinical_payload:
             console.print("   💊 [bold cyan]Clinical Data Extracted:[/bold cyan]")
-            for key, val in p['trial_data'].items():
+            for key, val in clinical_payload.items():
                 console.print(f"      - {key}: {val}")
 
 
@@ -1033,7 +1034,7 @@ def repair_stats(
     paper_id: list[str] = typer.Option(
         [],
         "--paper-id",
-        help="Target paper id (repeatable). Default uses curated 3-paper set.",
+        help="Target paper id (repeatable). Default uses a curated historical 3-paper repair seed set.",
     ),
     run_id: str = typer.Option("", "--run-id", help="Optional run id override."),
     artifacts_root: str = typer.Option(
