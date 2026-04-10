@@ -112,6 +112,7 @@ from .routers import (
     meeting_packs,
     method_comparisons,
     obsidian,
+    paper_syntheses,
     paper_notes,
     protocol_cards,
     skills,
@@ -167,10 +168,13 @@ def _is_chat_enabled() -> bool:
 
 
 def _requires_api_key(method: str, path: str) -> bool:
-    if method.upper() != "POST":
+    normalized_method = method.upper()
+    normalized = path.rstrip("/") or "/"
+    if normalized_method == "GET" and (normalized == "/paper-syntheses" or normalized.startswith("/paper-syntheses/")):
+        return True
+    if normalized_method != "POST":
         return False
 
-    normalized = path.rstrip("/") or "/"
     if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
@@ -182,6 +186,8 @@ def _requires_api_key(method: str, path: str) -> bool:
     if normalized.startswith("/chart-packs/"):
         return True
     if normalized.startswith("/method-comparisons/"):
+        return True
+    if normalized.startswith("/paper-syntheses/"):
         return True
     if normalized.startswith("/protocol-cards/") or normalized == "/protocol-cards":
         return True
@@ -1987,4 +1993,5 @@ app.include_router(meeting_packs.router)
 app.include_router(image_evidence.router)
 app.include_router(chart_packs.router)
 app.include_router(method_comparisons.router)
+app.include_router(paper_syntheses.router)
 app.include_router(protocol_cards.router)
