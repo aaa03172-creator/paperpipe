@@ -80,14 +80,20 @@ def test_start_fails_when_healthcheck_times_out(monkeypatch, tmp_path: Path):
 
 def test_start_returns_zero_when_backend_exits_cleanly(monkeypatch, tmp_path: Path):
     runner = CliRunner()
-    fake_proc = _FakeProc([None, 0])
+    fake_backend = _FakeProc([None, 0])
+    fake_worker = _FakeProc([None, None, None])
     terminate_calls = {"count": 0}
+    popen_calls = {"count": 0}
+
+    def _popen(_cmd):
+        popen_calls["count"] += 1
+        return fake_backend if popen_calls["count"] == 1 else fake_worker
 
     monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(cli, "bootstrap_database", lambda: tmp_path / "state.db")
     monkeypatch.setattr(cli, "_is_port_available", lambda _host, _port: True)
     monkeypatch.setattr(cli, "collect_runtime_readiness", _ready_runtime)
-    monkeypatch.setattr(cli.subprocess, "Popen", lambda _cmd: fake_proc)
+    monkeypatch.setattr(cli.subprocess, "Popen", _popen)
     monkeypatch.setattr(cli, "_wait_for_health", lambda _base_url, _timeout: True)
     monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(
@@ -100,8 +106,9 @@ def test_start_returns_zero_when_backend_exits_cleanly(monkeypatch, tmp_path: Pa
 
     assert result.exit_code == 0
     assert "Backend:" in result.output
+    assert "Worker: ✅ started" in result.output
     assert "/ui" in result.output
-    assert terminate_calls["count"] == 1
+    assert terminate_calls["count"] == 2
 
 
 def test_backend_launch_command_uses_frozen_self_exec(monkeypatch):
@@ -128,6 +135,28 @@ def test_backend_launch_command_uses_uvicorn_in_dev(monkeypatch):
         "127.0.0.1",
         "--port",
         "8123",
+    ]
+
+
+def test_worker_launch_command_uses_frozen_self_exec(monkeypatch):
+    monkeypatch.setattr(cli.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(cli.sys, "executable", "/tmp/lattice")
+
+    cmd = cli._build_worker_launch_command()
+
+    assert cmd == ["/tmp/lattice", "serve-worker"]
+
+
+def test_worker_launch_command_uses_module_in_dev(monkeypatch):
+    monkeypatch.delattr(cli.sys, "frozen", raising=False)
+    monkeypatch.setattr(cli.sys, "executable", "/usr/bin/python3")
+
+    cmd = cli._build_worker_launch_command()
+
+    assert cmd == [
+        "/usr/bin/python3",
+        "-m",
+        "src.jobs.worker",
     ]
 
 
