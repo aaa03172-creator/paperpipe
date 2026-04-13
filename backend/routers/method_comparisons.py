@@ -34,7 +34,9 @@ def _resolve_vault_path() -> Path:
 
 
 def _csv_download_filename(comparison_id: str) -> str:
-    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", comparison_id).strip("._-") or "method-comparison"
+    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", comparison_id).strip("._")
+    if not safe_id:
+        safe_id = "method-comparison"
     return f"{safe_id}.csv"
 
 
