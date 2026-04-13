@@ -1,0 +1,56 @@
+{
+  "schema_version": "deepread_handoff_manifest.v1",
+  "generated_at": "2026-04-08",
+  "manifest_batch_id": "deepread_handoff_multicase_regression_20260408",
+  "notes": "Repo-grounded multicase deep-read handoff regression slice for reducing single-paper bias in the saved-run quality loop. This fixed batch mixes a pass/fail/warn claimset path, repeated verifier-failed warns, and different biomedical paper types while staying inside the current local-first paper/job/artifact boundary.",
+  "runs": [
+    {
+      "run_key": "multicase-park-001",
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_002659",
+      "notes": "Successful review-ready run retained as the positive control for this mixed batch."
+    },
+    {
+      "run_key": "multicase-park-002",
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260328_041433",
+      "notes": "Failure case with missing resolved claimset and claimset-not-ready behavior."
+    },
+    {
+      "run_key": "multicase-park-003",
+      "paper_id": "zotero:parkDiscoveryDualactionSmall2022",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:parkDiscoveryDualactionSmall2022/run_20260402_011635",
+      "notes": "Warn path with verifier failure after successful deep-read generation."
+    },
+    {
+      "run_key": "multicase-decarli-001",
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_023950",
+      "notes": "Saved warn run for an MCI-focused paper; contributes repeated verifier-failed behavior."
+    },
+    {
+      "run_key": "multicase-decarli-002",
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_024732",
+      "notes": "Near-neighbor repeat run used to keep rerun consistency visible."
+    },
+    {
+      "run_key": "multicase-decarli-003",
+      "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260404_025249",
+      "notes": "Third saved run in the same bounded paper lane for repeatability checks."
+    },
+    {
+      "run_key": "multicase-dubois-001",
+      "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_032427",
+      "notes": "Guideline-style warn run with verifier-failed status."
+    },
+    {
+      "run_key": "multicase-dubois-002",
+      "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260407_033030",
+      "notes": "Second guideline-style warn run retained for consistency and evidence-quality variation."
+    }
+  ]
+}
