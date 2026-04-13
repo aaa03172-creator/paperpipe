@@ -39,6 +39,15 @@ class RuntimeReadinessResponse(BaseModel):
     checks: list[RuntimeReadinessCheck] = Field(default_factory=list)
 
 
+class HomeWorkspaceSummaryResponse(BaseModel):
+    saved_notes: int = 0
+    structured_notes: int = 0
+    needs_review: int = 0
+    blocked: int = 0
+    latest_note_updated_at: Optional[str] = None
+    note_context_limited: bool = False
+
+
 class ArtifactFileEntry(BaseModel):
     exists: bool = False
     path: Optional[str] = None
