@@ -295,19 +295,25 @@ class JobQueue:
         finally:
             conn.close()
             
-    def cancel_job(self, job_id: str):
+    def cancel_job(self, job_id: str) -> Literal["cancelled", "not_found", "already_terminal"]:
         conn = get_db_connection()
         try:
-            conn.execute("""
+            cursor = conn.execute("""
                 UPDATE jobs 
                 SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP
                 WHERE job_id = ? AND status IN ('queued', 'running')
             """, (job_id,))
             row = conn.execute(
-                "SELECT run_id, paper_id FROM jobs WHERE job_id = ?",
+                "SELECT status, run_id, paper_id FROM jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
-            if row and row["run_id"]:
+            if row is None:
+                conn.commit()
+                return "not_found"
+            if cursor.rowcount == 0:
+                conn.commit()
+                return "already_terminal"
+            if row["run_id"]:
                 ts = datetime.now(timezone.utc).isoformat()
                 update_execution_run(
                     run_id=str(row["run_id"]),
@@ -326,5 +332,6 @@ class JobQueue:
                     conn=conn,
                 )
             conn.commit()
+            return "cancelled"
         finally:
             conn.close()
