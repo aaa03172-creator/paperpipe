@@ -185,3 +185,30 @@ def test_run_audit_records_manifest_inputs_and_loads_run_dirs(tmp_path: Path) ->
     assert summary["inputs"]["manifest_count"] == 1
     assert summary["inputs"]["manifests"] == [str(manifest_path.resolve())]
     assert summary["inputs"]["run_dir_count"] == 1
+
+
+def test_load_manifest_run_dirs_remaps_repo_root_for_absolute_paths(tmp_path: Path) -> None:
+    current_repo_root = tmp_path / "checkout" / "paperpipe"
+    manifest_path = current_repo_root / "goldset" / "manifests" / "deepread_manifest.json"
+    run_dir = current_repo_root / "storage" / "artifacts" / "paper-a" / "run_001"
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        manifest_path,
+        {
+            "schema_version": "deepread_handoff_manifest.v1",
+            "manifest_batch_id": "deepread_manifest_remap_test",
+            "runs": [
+                {
+                    "run_id": "run-001",
+                    "paper_id": "paper-a",
+                    "run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/paper-a/run_001",
+                    "notes": "Absolute path should remap onto the current checkout root.",
+                }
+            ],
+        },
+    )
+
+    loaded_run_dirs = load_manifest_run_dirs(manifest_path, repo_root=current_repo_root)
+
+    assert loaded_run_dirs == [run_dir.resolve()]
