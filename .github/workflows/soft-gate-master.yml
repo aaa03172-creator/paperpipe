@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -321,10 +322,103 @@ jobs:
               handle.write("\n".join(lines) + "\n")
           PY
 
-  run_deepread_gate:
-    name: deepread-soft-gate-run
+  check_deepread_runner:
+    name: deepread-soft-gate-runner-check
     if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' }}
     needs: recommend_deepread
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.detect.outputs.available }}
+      runner_names: ${{ steps.detect.outputs.runner_names }}
+      lookup_status: ${{ steps.detect.outputs.lookup_status }}
+    steps:
+      - name: Detect paperpipe real-smoke runner
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+          matched = []
+          lookup_status = "ok"
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/actions/runners",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+              for runner in payload.get("runners", []):
+                  labels = {label["name"] for label in runner.get("labels", [])}
+                  if (
+                      runner.get("status") == "online"
+                      and "self-hosted" in labels
+                      and "paperpipe-real-smoke" in labels
+                  ):
+                      matched.append(runner["name"])
+          except urllib.error.HTTPError as exc:
+              lookup_status = f"http_{exc.code}"
+          except Exception:
+              lookup_status = "error"
+
+          available = "1" if matched else "0"
+          with output_path.open("a", encoding="utf-8") as handle:
+              handle.write(f"available={available}\n")
+              handle.write(f"runner_names={','.join(matched)}\n")
+              handle.write(f"lookup_status={lookup_status}\n")
+
+          lines = [
+              "## DeepRead Soft Gate Runner Availability",
+              "",
+              f"- available: `{available}`",
+              f"- lookup status: `{lookup_status}`",
+              f"- matching runners: `{', '.join(matched) if matched else '-'}`",
+          ]
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+  report_deepread_runner_unavailable:
+    name: deepread-soft-gate-runner-unavailable
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' && needs.check_deepread_runner.outputs.available != '1' }}
+    needs:
+      - recommend_deepread
+      - check_deepread_runner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skipped deep-read soft gate
+        run: |
+          {
+            echo "## DeepRead Soft Gate Skipped"
+            echo ""
+            echo "- mode: \`${{ needs.recommend_deepread.outputs.mode }}\`"
+            echo "- reason: no online \`paperpipe-real-smoke\` self-hosted runner is currently registered for this repository"
+            echo "- runner lookup status: \`${{ needs.check_deepread_runner.outputs.lookup_status }}\`"
+            echo "- matching runners: \`${{ needs.check_deepread_runner.outputs.runner_names || '-' }}\`"
+            echo "- note: the deep-read soft gate was skipped instead of waiting indefinitely in queue"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  run_deepread_gate:
+    name: deepread-soft-gate-run
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' && needs.check_deepread_runner.outputs.available == '1' }}
+    needs:
+      - recommend_deepread
+      - check_deepread_runner
     runs-on:
       - self-hosted
       - paperpipe-real-smoke
