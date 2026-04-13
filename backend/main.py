@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from starlette.datastructures import MutableHeaders
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 import asyncio
 import json
 import os
@@ -130,6 +131,18 @@ def _resolve_api_key() -> str:
     ).strip()
 
 
+def _resolve_allowed_hosts() -> list[str]:
+    raw = (
+        os.getenv("LATTICE_ALLOWED_HOSTS")
+        or os.getenv("PAPERPIPE_ALLOWED_HOSTS")
+        or ""
+    ).strip()
+    if not raw:
+        return ["127.0.0.1", "localhost", "testserver"]
+    hosts = [item.strip() for item in raw.split(",") if item.strip()]
+    return hosts or ["127.0.0.1", "localhost", "testserver"]
+
+
 def _is_chat_enabled() -> bool:
     raw = (
         os.getenv("CHAT_ENABLED")
@@ -186,7 +199,35 @@ def _rewrite_browser_api_path(path: str) -> str | None:
     return None
 
 
+def _request_is_https(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _apply_security_headers(request: Request, response: JSONResponse | FileResponse | Response) -> Response:
+    headers = response.headers
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("Referrer-Policy", "no-referrer")
+    headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if _request_is_https(request):
+        headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type == "text/html":
+        headers.setdefault(
+            "Content-Security-Policy",
+            "base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'",
+        )
+    return response
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=_resolve_allowed_hosts(),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -207,21 +248,27 @@ async def api_key_guard(request: Request, call_next):
             MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
 
     if not expected_key:
-        return await call_next(request)
+        response = await call_next(request)
+        return _apply_security_headers(request, response)
     current_path = str(request.scope.get("path") or request.url.path or "/")
     if not _requires_api_key(request.method, current_path):
-        return await call_next(request)
+        response = await call_next(request)
+        return _apply_security_headers(request, response)
 
     supplied_key = (request.headers.get("x-api-key") or "").strip()
     if supplied_key != expected_key:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error_code": "UNAUTHORIZED",
-                "message": "Missing or invalid X-API-Key",
-            },
+        return _apply_security_headers(
+            request,
+            JSONResponse(
+                status_code=401,
+                content={
+                    "error_code": "UNAUTHORIZED",
+                    "message": "Missing or invalid X-API-Key",
+                },
+            ),
         )
-    return await call_next(request)
+    response = await call_next(request)
+    return _apply_security_headers(request, response)
 
 queue = JobQueue()
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
