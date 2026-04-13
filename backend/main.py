@@ -46,6 +46,7 @@ from src.schemas.ops import (
     UserActionEntry,
     UserActionListResponse,
 )
+from src.schemas.paper_notes import PaperNoteIndexItem
 from src.schemas.papers import PaperAccessSummary, PaperDetailResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
@@ -119,7 +120,10 @@ from src.services.event_log import (
     log_user_action,
 )
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
-from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summary_for_paper_id
+from src.services.paper_ops_summary import (
+    ArtifactSnapshotCache,
+    build_ops_summary_for_candidate_ids,
+)
 from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
 from src.services.runtime_readiness import collect_runtime_readiness, summarize_browser_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
@@ -198,6 +202,18 @@ def _resolve_cors_allow_origins() -> list[str]:
         return ["http://127.0.0.1:8000", "http://localhost:8000"]
     origins = [item.strip() for item in raw.split(",") if item.strip()]
     return origins or ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
+def _ops_summary_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for candidate in (text, text.split(":", 1)[1].strip() if ":" in text else ""):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def _resolve_api_key() -> str:
@@ -1125,12 +1141,51 @@ def _list_visible_paper_items(*, raw_limit: int = 5000) -> list[dict[str, Any]]:
     artifacts_path = artifacts_root()
     artifact_cache: ArtifactSnapshotCache = {}
     out: list[dict[str, Any]] = []
-    for row in papers:
-        item = dict(row)
+    visible_raw_ids: set[str] = set()
+    visible_normalized_ids: set[str] = set()
+    vault_path: Path | None = None
+    note_index = None
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_index = paper_notes._build_index(vault_path)
+    except Exception:
+        note_index = None
+        vault_path = None
+
+    for p in papers:
+        item = _build_db_backed_paper_item_from_row(
+            p,
+            artifact_cache=artifact_cache,
+            vault_path=vault_path,
+            note_items=note_index.items if note_index is not None else None,
+            artifacts_path=artifacts_path,
+        )
         paper_id = str(item.get("paper_id") or "").strip()
-        item["issues_state"] = _derive_paper_issues_state(item)
-        item["ops_summary"] = build_ops_summary_for_paper_id(artifacts_path, paper_id, artifact_cache)
         out.append(item)
+        raw_variants, normalized_variants = _paper_id_identity_sets(paper_id)
+        visible_raw_ids.update(raw_variants)
+        visible_normalized_ids.update(normalized_variants)
+
+    if note_index is not None:
+        for note_item in note_index.items:
+            note_paper_id = str(note_item.id or note_item.slug or "").strip()
+            if not note_paper_id:
+                continue
+            raw_variants, normalized_variants = _paper_note_identity_sets(note_item)
+            if raw_variants & visible_raw_ids or normalized_variants & visible_normalized_ids:
+                continue
+            note_backed = _build_note_backed_paper_item_from_index_item(
+                vault_path,
+                note_item,
+                paper_id=note_paper_id,
+            )
+            if note_backed is None:
+                continue
+            out.append(note_backed[0])
+            visible_raw_ids.update(raw_variants)
+            visible_normalized_ids.update(normalized_variants)
+
+    out.sort(key=lambda item: _parse_iso_timestamp_sort_key(item.get("updated_at")), reverse=True)
     return prefer_non_fixture_items(out, is_test_fixture_paper_record)
 
 
@@ -1239,56 +1294,143 @@ def _build_note_backed_paper_access_summary(
     return _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_path is not None)
 
 
-def _build_note_backed_paper_item(paper_id: str) -> tuple[dict[str, Any], Path | None] | None:
-    try:
-        vault_path = paper_notes._resolve_vault_path()
-        index = paper_notes._build_index(vault_path)
-        target = paper_notes._find_note_item_for_paper_id(index.items, paper_id)
-        if not target:
-            return None
+def _paper_id_identity_sets(paper_id: str) -> tuple[set[str], set[str]]:
+    raw_variants = {value for value in paper_notes._paper_id_variants(paper_id) if value}
+    normalized_variants = {
+        normalized
+        for value in raw_variants
+        if (normalized := paper_notes._normalize_paper_note_id(value))
+    }
+    return raw_variants, normalized_variants
 
-        note_path = vault_path / target.note_path
-        if not note_path.exists():
-            return None
 
-        content = paper_notes._safe_read_text(note_path)
-        frontmatter, _ = paper_notes._parse_frontmatter(content)
-        local_pdf_path = _resolve_note_backed_pdf_path(frontmatter)
+def _paper_note_identity_sets(target: PaperNoteIndexItem) -> tuple[set[str], set[str]]:
+    raw_variants: set[str] = set()
+    for candidate in (target.id, target.slug):
+        if not candidate:
+            continue
+        candidate_variants, _ = _paper_id_identity_sets(candidate)
+        raw_variants.update(candidate_variants)
+    normalized_variants = {
+        normalized
+        for value in raw_variants
+        if (normalized := paper_notes._normalize_paper_note_id(value))
+    }
+    return raw_variants, normalized_variants
+
+
+def _build_note_backed_paper_item_from_index_item(
+    vault_path: Path,
+    target: PaperNoteIndexItem,
+    *,
+    paper_id: str,
+) -> tuple[dict[str, Any], Path | None] | None:
+    note_path = vault_path / target.note_path
+    if not note_path.exists():
+        return None
+
+    content = paper_notes._safe_read_text(note_path)
+    frontmatter, _ = paper_notes._parse_frontmatter(content)
+    local_pdf_path = _resolve_note_backed_pdf_path(frontmatter)
+    ops_summary = target.ops_summary
+    if ops_summary is None:
         ops_summary = paper_notes._build_ops_summary(
             note_path,
             frontmatter,
             artifacts_path=artifacts_root(),
             artifact_cache={},
         )
-        latest_run_id = (getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None) or None
-        note_status = str(getattr(target, "status", "") or "").strip().upper()
-        status = "completed" if target.structured_state_present or note_status == "INDEXED" else "not_started"
-        item = {
-            "paper_id": paper_id,
-            "title": target.title or target.slug or paper_id,
-            "authors": None,
-            "year": None,
-            "pdf_exists": local_pdf_path is not None,
-            "pdf_path": _public_path(str(local_pdf_path)) if local_pdf_path is not None else None,
-            "pdf_status": None,
-            "status": status,
-            "issues": 0,
-            "issues_label": "No critical issues",
-            "issues_state": "unavailable",
-            "latest_job_id": None,
-            "latest_run_id": latest_run_id,
-            "updated_at": getattr(target, "updated_at", None),
-            "ops_summary": ops_summary,
-            "access_summary": _build_note_backed_paper_access_summary(
-                frontmatter,
-                paper_id=paper_id,
-                pdf_path=local_pdf_path,
-            ),
-            "abstract": None,
-        }
-        return item, local_pdf_path
+    latest_run_id = (getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None) or None
+    note_status = str(getattr(target, "status", "") or "").strip().upper()
+    status = "completed" if target.structured_state_present or note_status == "INDEXED" else "not_started"
+    item = {
+        "paper_id": paper_id,
+        "title": target.title or target.slug or paper_id,
+        "authors": None,
+        "year": None,
+        "pdf_exists": local_pdf_path is not None,
+        "pdf_path": _public_path(str(local_pdf_path)) if local_pdf_path is not None else None,
+        "pdf_status": None,
+        "status": status,
+        "issues": 0,
+        "issues_label": "No critical issues",
+        "issues_state": "unavailable",
+        "latest_job_id": None,
+        "latest_run_id": latest_run_id,
+        "updated_at": getattr(target, "updated_at", None),
+        "ops_summary": ops_summary,
+        "access_summary": _build_note_backed_paper_access_summary(
+            frontmatter,
+            paper_id=paper_id,
+            pdf_path=local_pdf_path,
+        ),
+        "abstract": None,
+    }
+    return item, local_pdf_path
+
+
+def _build_note_backed_paper_item(paper_id: str) -> tuple[dict[str, Any], Path | None] | None:
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        index = paper_notes._build_index(vault_path)
+        return _resolve_note_backed_paper_item(vault_path, index.items, paper_id)
     except (FileNotFoundError, HTTPException):
         return None
+
+
+def _resolve_note_backed_paper_item(
+    vault_path: Path,
+    note_items: list[PaperNoteIndexItem],
+    paper_id: str,
+) -> tuple[dict[str, Any], Path | None] | None:
+    target = paper_notes._find_note_item_for_paper_id(note_items, paper_id)
+    if not target:
+        return None
+    return _build_note_backed_paper_item_from_index_item(vault_path, target, paper_id=paper_id)
+
+
+def _build_db_backed_paper_item_from_row(
+    row: Any,
+    *,
+    artifact_cache: ArtifactSnapshotCache,
+    artifacts_path: Path,
+    vault_path: Path | None = None,
+    note_items: list[PaperNoteIndexItem] | None = None,
+) -> dict[str, Any]:
+    item = dict(row)
+    paper_id = str(item.get("paper_id") or "").strip()
+    raw_pdf_path = str(item.get("pdf_path") or "").strip() or None
+    effective_pdf_path = raw_pdf_path
+    pdf_exists = bool(raw_pdf_path and os.path.exists(raw_pdf_path))
+    if not pdf_exists and paper_id:
+        note_backed: tuple[dict[str, Any], Path | None] | None = None
+        if vault_path is not None and note_items is not None:
+            note_backed = _resolve_note_backed_paper_item(vault_path, note_items, paper_id)
+        else:
+            note_backed = _build_note_backed_paper_item(paper_id)
+        if note_backed is not None and note_backed[1] is not None:
+            effective_pdf_path = str(note_backed[1])
+            pdf_exists = True
+
+    item["pdf_exists"] = pdf_exists
+    item["pdf_path"] = _public_path(effective_pdf_path)
+    if not pdf_exists and raw_pdf_path:
+        item["pdf_status"] = "missing"
+    else:
+        item["pdf_status"] = None
+    item["issues_state"] = _derive_paper_issues_state(item)
+    ops_summary = build_ops_summary_for_candidate_ids(
+        artifacts_path,
+        _ops_summary_candidate_ids(paper_id),
+        artifact_cache,
+    )
+    item["ops_summary"] = ops_summary
+    item["latest_run_id"] = (
+        getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+    ) or _latest_run_id_for_paper(paper_id)
+    item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
+    _apply_escalation_response_fields(item)
+    return item
 
 
 def _apply_escalation_response_fields(item: dict[str, Any]) -> None:
@@ -2552,34 +2694,8 @@ def list_papers(
     limit: int = Query(default=50, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> list[PaperSummaryResponse]:
-    conn = get_db_connection()
-    papers = conn.execute(
-        "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-        (limit, offset),
-    ).fetchall()
-    conn.close()
-    artifacts_path = artifacts_root()
-    artifact_cache: ArtifactSnapshotCache = {}
-    out = []
-    for p in papers:
-        item = dict(p)
-        paper_id = str(item.get("paper_id") or "").strip()
-        pdf_path = item.get("pdf_path")
-        pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
-        item["pdf_exists"] = pdf_exists
-        item["pdf_path"] = _public_path(pdf_path)
-        if not pdf_exists and pdf_path:
-            item["pdf_status"] = "missing"
-        item["issues_state"] = _derive_paper_issues_state(item)
-        ops_summary = build_ops_summary_for_paper_id(artifacts_path, paper_id, artifact_cache)
-        item["ops_summary"] = ops_summary
-        item["latest_run_id"] = (
-            getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
-        ) or _latest_run_id_for_paper(paper_id)
-        item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
-        _apply_escalation_response_fields(item)
-        out.append(item)
-    return out
+    visible = _list_visible_paper_items()
+    return visible[offset : offset + limit]
 
 
 @app.get("/workspace-summary", response_model=HomeWorkspaceSummaryResponse)
@@ -2601,21 +2717,11 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
             return note_backed[0]
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    item = dict(row)
-    pdf_path = item.get("pdf_path")
-    pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
-    item["pdf_exists"] = pdf_exists
-    item["pdf_path"] = _public_path(pdf_path)
-    if not pdf_exists and pdf_path:
-        item["pdf_status"] = "missing"
-    item["issues_state"] = _derive_paper_issues_state(item)
-    ops_summary = build_ops_summary_for_paper_id(artifacts_root(), paper_id, {})
-    item["ops_summary"] = ops_summary
-    item["latest_run_id"] = (
-        getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
-    ) or _latest_run_id_for_paper(paper_id)
-    item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
-    _apply_escalation_response_fields(item)
+    item = _build_db_backed_paper_item_from_row(
+        row,
+        artifact_cache={},
+        artifacts_path=artifacts_root(),
+    )
     return item
 
 
@@ -2628,6 +2734,7 @@ def get_paper_pdf(paper_id: str):
         row = None
     conn.close()
     pdf_path: Path | None = None
+    stale_db_pdf_path = False
 
     if row:
         raw_pdf_path = str(row["pdf_path"] or "").strip()
@@ -2636,16 +2743,20 @@ def get_paper_pdf(paper_id: str):
             if candidate_pdf_path.exists() and candidate_pdf_path.is_file():
                 pdf_path = candidate_pdf_path
             else:
-                raise HTTPException(status_code=404, detail="PDF file not found")
+                stale_db_pdf_path = True
 
     if pdf_path is None:
         note_backed = _build_note_backed_paper_item(paper_id)
         if note_backed is None:
             if row:
+                if stale_db_pdf_path:
+                    raise HTTPException(status_code=404, detail="PDF file not found")
                 raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
             raise HTTPException(status_code=404, detail="Paper not found")
         _, note_pdf_path = note_backed
         if note_pdf_path is None:
+            if stale_db_pdf_path:
+                raise HTTPException(status_code=404, detail="PDF file not found")
             raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
         pdf_path = note_pdf_path
 

@@ -1,10 +1,19 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
 from backend import main as api_main
+from backend.routers import paper_notes as paper_notes_router
+from src.services.path_masking import mask_local_path
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def _write_artifact_run(path: Path, *, claimset: dict | None = None, stats_report: dict | None = None) -> None:
@@ -13,6 +22,179 @@ def _write_artifact_run(path: Path, *, claimset: dict | None = None, stats_repor
         (path / "claimset.resolved.json").write_text(json.dumps(claimset), encoding="utf-8")
     if stats_report is not None:
         (path / "stats_report.json").write_text(json.dumps(stats_report), encoding="utf-8")
+
+
+def _note_content(
+    *,
+    note_id: str,
+    alias: str,
+    doi: str | None = None,
+    pdf_url: str | None = None,
+) -> str:
+    frontmatter_lines = [
+        "---",
+        f"id: {note_id}",
+        f"aliases: [\"{alias}\"]",
+        "tags:",
+        "  - Medicine/Neurology",
+        "date_processed: 2026-02-24",
+        "confidence: 0.9",
+        "status: INDEXED",
+    ]
+    if doi is not None:
+        frontmatter_lines.append(f"doi: {doi}")
+    if pdf_url is not None:
+        frontmatter_lines.append(f"pdf_url: {pdf_url}")
+    frontmatter_lines.append("---")
+    return (
+        "\n".join(frontmatter_lines)
+        + "\n\n"
+        f"# {alias}\n\n"
+        "## References\n"
+        + (f"- [Open PDF]({pdf_url})\n" if pdf_url else "")
+    )
+
+
+def test_papers_endpoints_include_derived_access_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                doi TEXT,
+                link TEXT,
+                pdf_link TEXT,
+                pdf_path TEXT,
+                pdf_status TEXT,
+                feedback_json TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        local_pdf = tmp_path / "manual.pdf"
+        local_pdf.write_text("%PDF", encoding="utf-8")
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_open",
+                "Open Access Paper",
+                "INDEXED",
+                "10.1000/open",
+                "https://publisher.example/open",
+                "https://oa.example/open.pdf",
+                None,
+                None,
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_institution",
+                "Institution Paper",
+                "INDEXED",
+                "10.1000/inst",
+                "https://publisher.example/inst",
+                None,
+                None,
+                "manual_required",
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_local",
+                "Local PDF Paper",
+                "INDEXED",
+                "10.1000/local",
+                "https://publisher.example/local",
+                None,
+                str(local_pdf),
+                "downloaded",
+                "{}",
+                "summary",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, link, pdf_link, pdf_path, pdf_status, feedback_json, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "paper_unavailable",
+                "Unavailable Paper",
+                "INDEXED",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        by_id = {row["paper_id"]: row for row in listing.json()}
+
+        assert by_id["paper_open"]["access_summary"] == {
+            "status_label": "open",
+            "open_access_url": "https://oa.example/open.pdf",
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/open",
+            "local_pdf_url": None,
+        }
+        assert by_id["paper_institution"]["access_summary"] == {
+            "status_label": "institution_required",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst",
+            "local_pdf_url": None,
+        }
+        assert by_id["paper_local"]["access_summary"] == {
+            "status_label": "user_imported_pdf",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/local",
+            "local_pdf_url": "/papers/paper_local/pdf",
+        }
+        assert by_id["paper_unavailable"]["access_summary"] == {
+            "status_label": "unavailable",
+            "open_access_url": None,
+            "institution_access_url": None,
+            "local_pdf_url": None,
+        }
+
+        detail = client.get("/papers/paper_institution")
+        assert detail.status_code == 200
+        assert detail.json()["access_summary"]["status_label"] == "institution_required"
+    finally:
+        db_utils.DB_PATH = original_db_path
 
 
 def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypatch):
@@ -97,6 +279,310 @@ def test_papers_detail_includes_pdf_exists_and_missing_status(tmp_path, monkeypa
         assert by_id["p_has_pdf"]["pdf_exists"] is True
         assert by_id["p_has_pdf"]["pdf_status"] is None
         assert by_id["p_has_pdf"]["ops_summary"] is None
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_detail_and_pdf_route_fall_back_to_note_backed_local_pdf(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        vault_dir = tmp_path / "vault"
+        local_pdf = tmp_path / "library" / "dubois.pdf"
+        local_pdf.parent.mkdir(parents=True, exist_ok=True)
+        local_pdf.write_bytes(b"%PDF-1.4\n%note-backed fixture\n")
+
+        note_id = "zotero:duboisAlzheimerDiseaseClinicalBiological2024"
+        note_title = "Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation"
+        _write(
+            vault_dir / "Inbox" / "PaperPipe" / f"{note_title}.md",
+            _note_content(
+                note_id=note_id,
+                alias=note_title,
+                doi="10.1016/S1474-4422(24)00001-2",
+                pdf_url=local_pdf.resolve().as_uri(),
+            ),
+        )
+        _write_artifact_run(
+            artifacts_dir / "duboisAlzheimerDiseaseClinicalBiological2024" / "run-001",
+            claimset={"claims": [{"id": "claim-1", "text": "Example claim"}]},
+        )
+
+        monkeypatch.setattr(
+            paper_notes_router,
+            "load_config",
+            lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+        )
+
+        client = TestClient(api_main.app)
+
+        detail = client.get(f"/papers/{note_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["paper_id"] == note_id
+        assert payload["title"] == note_title
+        assert payload["pdf_exists"] is True
+        assert payload["status"] == "completed"
+        assert payload["issues_state"] == "unavailable"
+        assert payload["access_summary"] == {
+            "status_label": "user_imported_pdf",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1016/S1474-4422(24)00001-2",
+            "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
+        }
+        assert payload["ops_summary"]["state"] == "action_needed"
+        assert payload["ops_summary"]["latest_run_id"] == "run-001"
+
+        pdf_response = client.get(f"/papers/{note_id}/pdf")
+        assert pdf_response.status_code == 200
+        assert pdf_response.headers["content-type"] == "application/pdf"
+        assert pdf_response.content.startswith(b"%PDF-1.4")
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_db_row_with_stale_pdf_path_falls_back_to_note_backed_local_pdf(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                doi TEXT,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        note_id = "zotero:stalePdfFallback2026"
+        note_title = "Stale PDF fallback note"
+        stale_pdf = tmp_path / "library" / "stale.pdf"
+        recovered_pdf = tmp_path / "library" / "recovered.pdf"
+        recovered_pdf.parent.mkdir(parents=True, exist_ok=True)
+        recovered_pdf.write_bytes(b"%PDF-1.4\n%recovered note-backed pdf\n")
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, doi, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                note_id,
+                note_title,
+                "INDEXED",
+                "10.1000/stale-fallback",
+                str(stale_pdf),
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        vault_dir = tmp_path / "vault"
+        _write(
+            vault_dir / "Inbox" / "PaperPipe" / f"{note_title}.md",
+            _note_content(
+                note_id=note_id,
+                alias=note_title,
+                doi="10.1000/stale-fallback",
+                pdf_url=recovered_pdf.resolve().as_uri(),
+            ),
+        )
+
+        monkeypatch.setattr(
+            paper_notes_router,
+            "load_config",
+            lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+        )
+
+        client = TestClient(api_main.app)
+
+        detail = client.get(f"/papers/{note_id}")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["pdf_exists"] is True
+        assert payload["pdf_status"] is None
+        assert payload["pdf_path"] == mask_local_path(str(recovered_pdf))
+
+        assert payload["access_summary"] == {
+            "status_label": "user_imported_pdf",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/stale-fallback",
+            "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
+        }
+
+        pdf_response = client.get(f"/papers/{note_id}/pdf")
+        assert pdf_response.status_code == 200
+        assert pdf_response.content.startswith(b"%PDF-1.4")
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        list_payload = {row["paper_id"]: row for row in listing.json()}[note_id]
+        assert list_payload["pdf_exists"] is True
+        assert list_payload["pdf_status"] is None
+        assert list_payload["pdf_path"] == mask_local_path(str(recovered_pdf))
+        assert list_payload["access_summary"] == payload["access_summary"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_includes_note_backed_items_and_sorts_by_note_updated_at(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "paper_db_only",
+                "DB Paper",
+                "INDEXED",
+                None,
+                "summary",
+                "2000-01-01 00:00:00",
+                "2000-01-01 00:00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        vault_dir = tmp_path / "vault"
+        local_pdf = tmp_path / "library" / "note-only.pdf"
+        local_pdf.parent.mkdir(parents=True, exist_ok=True)
+        local_pdf.write_bytes(b"%PDF-1.4\n%note only\n")
+
+        note_id = "zotero:noteOnlyPaper2026"
+        note_title = "Note Only Paper"
+        _write(
+            vault_dir / "Inbox" / "PaperPipe" / f"{note_title}.md",
+            _note_content(
+                note_id=note_id,
+                alias=note_title,
+                doi="10.1000/note-only",
+                pdf_url=local_pdf.resolve().as_uri(),
+            ),
+        )
+
+        monkeypatch.setattr(
+            paper_notes_router,
+            "load_config",
+            lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+        )
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows[:2]] == [note_id, "paper_db_only"]
+        assert rows[0]["status"] == "completed"
+        assert rows[0]["access_summary"] == {
+            "status_label": "user_imported_pdf",
+            "open_access_url": None,
+            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/note-only",
+            "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
+        }
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_prefers_existing_db_rows_over_note_id_variants(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                "zotero:sharedPaper2026",
+                "DB-authoritative Paper",
+                "INDEXED",
+                None,
+                "summary",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        vault_dir = tmp_path / "vault"
+        _write(
+            vault_dir / "Inbox" / "PaperPipe" / "Shared Paper.md",
+            _note_content(
+                note_id="sharedPaper2026",
+                alias="Shared Paper",
+                doi="10.1000/shared-paper",
+            ),
+        )
+
+        monkeypatch.setattr(
+            paper_notes_router,
+            "load_config",
+            lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+        )
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows] == ["zotero:sharedPaper2026"]
+        assert rows[0]["title"] == "DB-authoritative Paper"
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -331,6 +817,193 @@ def test_papers_endpoints_include_operational_summary_from_artifacts(tmp_path, m
         assert payload["ops_summary"]["recommended_action"] == "repair_stats"
         assert payload["ops_summary"]["latest_run_id"] == "run-missing"
         assert payload["latest_run_id"] == "run-missing"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_endpoints_prefer_latest_ops_summary_across_equivalent_paper_ids(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                pdf_status TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            ("zotero:wenzelShortchainFattyAcids2020", "Candidate-linked paper", "INDEXED", "summary"),
+        )
+        conn.commit()
+        conn.close()
+
+        stale_run = artifacts_dir / "zotero:wenzelShortchainFattyAcids2020" / "run-stale"
+        _write_artifact_run(
+            stale_run,
+            claimset={"claims": [{"claim_id": "c1"}]},
+            stats_report={"checks": []},
+        )
+
+        fresh_run = artifacts_dir / "wenzelShortchainFattyAcids2020" / "run-fresh"
+        _write_artifact_run(
+            fresh_run,
+            claimset={"claims": [{"claim_id": "c1"}]},
+            stats_report={"checks": [{"id": "check-1"}, {"id": "check-2"}]},
+        )
+
+        client = TestClient(api_main.app)
+
+        listing = client.get("/papers")
+        assert listing.status_code == 200
+        payload = listing.json()[0]
+        assert payload["paper_id"] == "zotero:wenzelShortchainFattyAcids2020"
+        assert payload["ops_summary"]["state"] == "healthy"
+        assert payload["ops_summary"]["stats_check_count"] == 2
+        assert payload["latest_run_id"] == "run-fresh"
+
+        detail = client.get("/papers/zotero:wenzelShortchainFattyAcids2020")
+        assert detail.status_code == 200
+        detail_payload = detail.json()
+        assert detail_payload["ops_summary"]["state"] == "healthy"
+        assert detail_payload["ops_summary"]["latest_run_id"] == "run-fresh"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_hides_fixture_rows_when_real_papers_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
+        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
+        fixture_pdf.write_text("%PDF", encoding="utf-8")
+        real_pdf = tmp_path / "library" / "real.pdf"
+        real_pdf.parent.mkdir(parents=True, exist_ok=True)
+        real_pdf.write_text("%PDF", encoding="utf-8")
+        conn.executemany(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "paper-e2e-001",
+                    "E2E Seed Paper",
+                    "INDEXED",
+                    str(fixture_pdf),
+                    "fixture",
+                    "2026-03-28 00:00:00",
+                    "2026-03-28 00:00:00",
+                ),
+                (
+                    "paper-real-001",
+                    "Real Paper",
+                    "INDEXED",
+                    str(real_pdf),
+                    "real",
+                    "2026-03-27 00:00:00",
+                    "2026-03-27 00:00:00",
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows] == ["paper-real-001"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_papers_listing_keeps_fixture_rows_when_only_fixtures_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                pdf_path TEXT,
+                summary TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        fixture_pdf = tmp_path / "tests" / "temp_rag_test" / "Library" / "Test_ID.pdf"
+        fixture_pdf.parent.mkdir(parents=True, exist_ok=True)
+        fixture_pdf.write_text("%PDF", encoding="utf-8")
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, pdf_path, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "paper-e2e-001",
+                "E2E Seed Paper",
+                "INDEXED",
+                str(fixture_pdf),
+                "fixture",
+                "2026-03-28 00:00:00",
+                "2026-03-28 00:00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        listing = client.get("/papers")
+
+        assert listing.status_code == 200
+        rows = listing.json()
+        assert [row["paper_id"] for row in rows] == ["paper-e2e-001"]
     finally:
         db_utils.DB_PATH = original_db_path
 
