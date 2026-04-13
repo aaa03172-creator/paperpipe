@@ -185,6 +185,219 @@ export interface StructuredPaperState {
 
 export type OutputModeFamily = "learner" | "lab_meeting" | "project_update" | "builder_debug";
 
+export type MeetingPackMode =
+  | "journal_club"
+  | "literature_update"
+  | "project_progress_update"
+  | "experiment_proposal";
+
+export type MeetingPackStatus = "draft";
+
+export type MeetingPackReadiness = "evidence_backed" | "background_only";
+
+export type MeetingPackMarkdownSyncState = "in_sync" | "drifted";
+
+export type MeetingPackRegenerateStrategy = "saved_request" | "legacy_source_items" | "unavailable";
+
+export type MeetingPackPriority = "low" | "medium" | "high";
+
+export type MeetingPackRetrievalOutcome = "selected" | "deduped" | "resolved" | "loaded";
+
+export interface MeetingPackSourceSelector {
+  type: string;
+  ref: string;
+}
+
+export interface MeetingPackSourceItem {
+  id: string;
+  type: string;
+  ref: string;
+  title: string;
+  priority: number;
+  included: boolean;
+}
+
+export interface MeetingPackRetrievalTraceEntry {
+  order: number;
+  selector_type: string;
+  selector_ref: string;
+  action: string;
+  outcome: MeetingPackRetrievalOutcome;
+  detail: string;
+  source_item_id?: string | null;
+  source_path?: string | null;
+  matched_paper_slugs: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface MeetingPackRetrievalTraceSummary {
+  entry_count: number;
+  selector_count: number;
+  matched_paper_count: number;
+  source_path_count: number;
+  action_counts: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  matched_paper_slugs: string[];
+  source_paths: string[];
+}
+
+export interface MeetingPackKeyPoint {
+  label: string;
+  text: string;
+  evidence_refs: string[];
+  uncertainty_note?: string | null;
+}
+
+export interface MeetingPackConsensus {
+  label: string;
+  summary: string;
+  consensus_type: string;
+  source_item_ids: string[];
+  outlier_source_item_ids: string[];
+  evidence_refs: string[];
+}
+
+export interface MeetingPackConflict {
+  label: string;
+  summary: string;
+  conflict_type: string;
+  source_item_ids: string[];
+  evidence_refs: string[];
+}
+
+export interface MeetingPackOnePageSummary {
+  overview: string;
+  key_points: MeetingPackKeyPoint[];
+  consensus_points: MeetingPackConsensus[];
+  conflicts: MeetingPackConflict[];
+  uncertainties: string[];
+}
+
+export interface MeetingPackSlide {
+  slide_title: string;
+  purpose: string;
+  bullets: string[];
+  evidence_refs: string[];
+  caution_notes: string[];
+}
+
+export interface MeetingPackSpeakerNote {
+  slide_index: number;
+  text: string;
+  evidence_refs: string[];
+}
+
+export interface MeetingPackQuestion {
+  question: string;
+  rationale: string;
+  evidence_refs: string[];
+}
+
+export interface MeetingPackExpectedQuestion {
+  question: string;
+  suggested_response: string;
+  evidence_refs: string[];
+}
+
+export interface MeetingPackNextStep {
+  action: string;
+  why: string;
+  priority: MeetingPackPriority;
+  evidence_refs: string[];
+}
+
+export interface MeetingPackEvidenceRef {
+  id: string;
+  paper_slug: string;
+  claim_id?: string | null;
+  evidence_id?: string | null;
+  run_id?: string | null;
+  support_type: string;
+  note?: string | null;
+}
+
+export interface MeetingPackRequestSnapshot {
+  mode: MeetingPackMode;
+  title?: string | null;
+  source_items: MeetingPackSourceSelector[];
+  max_slides: number;
+}
+
+export interface MeetingPackMarkdownSync {
+  status: MeetingPackMarkdownSyncState;
+  stored_markdown_sha1: string;
+  rendered_markdown_sha1: string;
+  note?: string | null;
+}
+
+export interface MeetingPackValidation {
+  pack_id: string;
+  readiness: MeetingPackReadiness;
+  markdown_sync: MeetingPackMarkdownSync;
+  can_regenerate: boolean;
+  regenerate_strategy: MeetingPackRegenerateStrategy;
+  warnings: string[];
+}
+
+export interface MeetingPackListItem {
+  pack_id: string;
+  title: string;
+  mode: MeetingPackMode;
+  output_mode_family: OutputModeFamily;
+  created_at: string;
+  readiness: MeetingPackReadiness;
+  source_count: number;
+  slide_count: number;
+  trace_entry_count: number;
+  primary_source_title?: string | null;
+  has_generation_request: boolean;
+  regenerated_from_pack_id?: string | null;
+}
+
+export interface MeetingPack {
+  id: string;
+  mode: MeetingPackMode;
+  output_mode_family: OutputModeFamily;
+  title: string;
+  created_at: string;
+  status: MeetingPackStatus;
+  readiness: MeetingPackReadiness;
+  generation_request?: MeetingPackRequestSnapshot | null;
+  regenerated_from_pack_id?: string | null;
+  source_items: MeetingPackSourceItem[];
+  retrieval_trace: MeetingPackRetrievalTraceEntry[];
+  one_page_summary: MeetingPackOnePageSummary;
+  slides: MeetingPackSlide[];
+  speaker_notes: MeetingPackSpeakerNote[];
+  discussion_questions: MeetingPackQuestion[];
+  expected_questions: MeetingPackExpectedQuestion[];
+  next_steps: MeetingPackNextStep[];
+  evidence_refs: MeetingPackEvidenceRef[];
+}
+
+export interface MeetingPackResponse {
+  pack: MeetingPack;
+  markdown?: string | null;
+  markdown_sync?: MeetingPackMarkdownSync | null;
+}
+
+export interface MeetingPackValidationResponse {
+  validation: MeetingPackValidation;
+}
+
+export interface MeetingPackTraceResponse {
+  pack_id: string;
+  available: boolean;
+  summary: MeetingPackRetrievalTraceSummary;
+  trace: MeetingPackRetrievalTraceEntry[];
+}
+
+export interface MeetingPackListResponse {
+  generated_at: string;
+  total: number;
+  items: MeetingPackListItem[];
+}
+
 export type ImageSourceKind = "local_file" | "external_image_ref";
 
 export type ImageWarningSeverity = "info" | "warning" | "error";

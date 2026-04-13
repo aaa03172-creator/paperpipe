@@ -8,6 +8,11 @@ import {
   ImageEvidenceResponse,
   JobEnqueueResponse,
   JobStatus,
+  MeetingPackListResponse,
+  MeetingPackRequestSnapshot,
+  MeetingPackResponse,
+  MeetingPackTraceResponse,
+  MeetingPackValidationResponse,
   ObsidianMirror,
   ObsidianSyncResponse,
   PaperDetail,
@@ -20,6 +25,7 @@ import {
   TimelineResponse,
 } from "./types";
 import {
+  createMockMeetingPack,
   createMockJob,
   getMockArtifactsLatest,
   getMockChartPack,
@@ -29,11 +35,17 @@ import {
   getMockImageEvidenceIndex,
   getMockJob,
   getMockJobs,
+  getMockMeetingPack,
+  getMockMeetingPackIndex,
+  getMockMeetingPackReadOnlyFallbackValidation,
+  getMockMeetingPackTrace,
+  getMockMeetingPackValidation,
   getMockObsidianMirror,
   getMockPaper,
   getMockPapers,
   getMockPersonas,
   getMockTimeline,
+  hasMockGeneratedMeetingPack,
   SAMPLE_PDF,
 } from "./mock";
 
@@ -74,17 +86,55 @@ class ApiHttpError extends Error {
   status: number;
   path: string;
   responseBody?: string;
+  responseHeaders?: Record<string, string>;
 
-  constructor(path: string, status: number, statusText: string, responseBody?: string) {
+  constructor(
+    path: string,
+    status: number,
+    statusText: string,
+    responseBody?: string,
+    responseHeaders?: Record<string, string>,
+  ) {
     super(`${path} -> ${status} ${statusText}`);
     this.path = path;
     this.status = status;
     this.responseBody = responseBody;
+    this.responseHeaders = responseHeaders;
   }
 }
 
 function isApiHttpError(error: unknown): error is ApiHttpError {
   return error instanceof ApiHttpError;
+}
+
+function isProxyAvailabilityHttpError(error: unknown): error is ApiHttpError {
+  if (!import.meta.env.DEV || !isApiHttpError(error) || error.status !== 500) {
+    return false;
+  }
+  if ((error.responseBody ?? "").trim().length > 0) {
+    return false;
+  }
+
+  const contentType = (error.responseHeaders?.["content-type"] ?? "").toLowerCase();
+  if (!contentType.startsWith("text/plain")) {
+    return false;
+  }
+
+  const backendOnlyHeaders = [
+    "server",
+    "x-content-type-options",
+    "x-frame-options",
+    "referrer-policy",
+    "permissions-policy",
+  ];
+  return !backendOnlyHeaders.some((headerName) => {
+    const value = error.responseHeaders?.[headerName];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+function readResponseHeaders(response: Response): Record<string, string> {
+  return Object.fromEntries(Array.from(response.headers.entries(), ([key, value]) => [key.toLowerCase(), value]));
 }
 
 function canUseAutoMockFallback(): boolean {
@@ -145,7 +195,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(path, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(path, response.status, response.statusText, responseBody, readResponseHeaders(response));
     }
 
     return (await response.json()) as T;
@@ -165,7 +215,7 @@ async function fetchBlobFromUrl(url: string, init?: RequestInit): Promise<Blob> 
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(url, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(url, response.status, response.statusText, responseBody, readResponseHeaders(response));
     }
 
     return await response.blob();
@@ -695,6 +745,192 @@ export async function syncToObsidian(paperId: string, runId: string): Promise<Ap
       reason: "obsidian sync unavailable",
     };
   }
+}
+
+export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: "meeting pack unavailable, mock draft loaded",
+    };
+  }
+}
+
+export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackIndex(),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackIndex(),
+      isMock: true,
+      reason: "meeting pack index unavailable, mock drafts loaded",
+    };
+  }
+}
+
+export async function generateMeetingPack(
+  payload: MeetingPackRequestSnapshot,
+): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: createMockMeetingPack(payload),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await fetchJson<MeetingPackResponse>("/meeting-packs/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: createMockMeetingPack(payload),
+      isMock: true,
+      reason: "meeting pack generation unavailable, mock draft created",
+    };
+  }
+}
+
+export async function getMeetingPackTrace(packId: string): Promise<ApiResult<MeetingPackTraceResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackTrace(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackTrace(packId),
+      isMock: true,
+      reason: "meeting pack trace unavailable, mock trace loaded",
+    };
+  }
+}
+
+export async function getMeetingPackValidation(packId: string): Promise<ApiResult<MeetingPackValidationResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPackValidation(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    return {
+      data: await firstSuccess<MeetingPackValidationResponse>([
+        `/meeting-packs/${encodeURIComponent(packId)}/validate`,
+      ]),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback() || !hasMockGeneratedMeetingPack(packId)) {
+      throw error;
+    }
+    return {
+      data: getMockMeetingPackReadOnlyFallbackValidation(packId),
+      isMock: true,
+      reason: "meeting pack validation unavailable, mock validation loaded",
+    };
+  }
+}
+
+export async function regenerateMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await fetchJson<MeetingPackResponse>(`/meeting-packs/${encodeURIComponent(packId)}/regenerate`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
+}
+
+export async function rerenderMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockMeetingPack(packId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  return {
+    data: await fetchJson<MeetingPackResponse>(`/meeting-packs/${encodeURIComponent(packId)}/rerender`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
 }
 
 export async function getChartPack(chartPackId: string): Promise<ApiResult<ChartPackResponse>> {
