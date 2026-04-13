@@ -521,6 +521,26 @@ def _job_for_run_id(run_id: str) -> JobStatus | None:
         conn.close()
 
 
+def _job_sort_timestamp(job: JobStatus) -> float:
+    from datetime import datetime, timezone
+
+    for raw in (job.finished_at, job.started_at, job.created_at):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        normalized = text.replace("Z", "+00:00")
+        if "T" not in normalized and " " in normalized:
+            normalized = normalized.replace(" ", "T")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).timestamp()
+    return 0.0
+
+
 def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[JobStatus]:
     conn = get_db_connection()
     try:
@@ -536,11 +556,11 @@ def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[
         query = "SELECT * FROM jobs"
         if where:
             query += " WHERE " + " AND ".join(where)
-        query += " ORDER BY COALESCE(finished_at, started_at, created_at) DESC LIMIT ?"
-        params.append(limit)
 
         rows = conn.execute(query, params).fetchall()
-        return [_with_bootstrap_meta_path(JobStatus(**dict(row))) for row in rows]
+        jobs = [_with_bootstrap_meta_path(JobStatus(**dict(row))) for row in rows]
+        jobs.sort(key=_job_sort_timestamp, reverse=True)
+        return jobs[:limit]
     finally:
         conn.close()
 
