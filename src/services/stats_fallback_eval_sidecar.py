@@ -10,6 +10,7 @@ from src.schemas.stats_fallback_eval import (
     StatsFallbackEvalMetrics,
     StatsFallbackEvalSidecar,
 )
+from src.skills.storage import atomic_write_text
 
 _AUTO_FALLBACK_PREFIX = "auto_fallback_"
 
@@ -60,7 +61,7 @@ def build_stats_fallback_eval_sidecar(
 
 def write_stats_fallback_eval_sidecar(sidecar: StatsFallbackEvalSidecar, artifact_dir: Path) -> Path:
     path = artifact_dir / "stats_fallback_eval.json"
-    path.write_text(sidecar.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write_text(path, sidecar.model_dump_json(indent=2))
     return path
 
 
