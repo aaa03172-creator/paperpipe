@@ -808,7 +808,7 @@ def test_papers_endpoints_include_operational_summary_from_artifacts(tmp_path, m
         assert by_id["paper_ops_healthy"]["ops_summary"]["stats_check_count"] == 2
         assert by_id["paper_ops_healthy"]["latest_run_id"] == "run-healthy"
         assert by_id["paper_ops_missing"]["ops_summary"]["state"] == "action_needed"
-        assert by_id["paper_ops_missing"]["ops_summary"]["reason"] == "Stats report is missing or empty."
+        assert by_id["paper_ops_missing"]["ops_summary"]["reason"] == "Saved note checks are missing or empty."
         assert by_id["paper_ops_missing"]["latest_run_id"] == "run-missing"
 
         detail = client.get("/papers/paper_ops_missing")
