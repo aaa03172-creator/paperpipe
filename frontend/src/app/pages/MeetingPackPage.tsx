@@ -464,7 +464,7 @@ export function MeetingPackPage() {
           meetingPackNotice: {
             tone: "success",
             message: result.isMock
-              ? "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session while the backend is unreachable. Recreate it after the backend is reachable to get a live saved draft."
+              ? "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session. Recreate it after the backend is reachable to get a live saved draft."
               : "Meeting draft created from the entered paper slug.",
           },
         },

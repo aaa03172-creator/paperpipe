@@ -99,12 +99,20 @@ class ApiHttpError extends Error {
   status: number;
   path: string;
   responseBody?: string;
+  responseHeaders?: Record<string, string>;
 
-  constructor(path: string, status: number, statusText: string, responseBody?: string) {
+  constructor(
+    path: string,
+    status: number,
+    statusText: string,
+    responseBody?: string,
+    responseHeaders?: Record<string, string>,
+  ) {
     super(`${path} -> ${status} ${statusText}`);
     this.path = path;
     this.status = status;
     this.responseBody = responseBody;
+    this.responseHeaders = responseHeaders;
   }
 }
 
@@ -113,10 +121,33 @@ function isApiHttpError(error: unknown): error is ApiHttpError {
 }
 
 function isProxyAvailabilityHttpError(error: unknown): error is ApiHttpError {
-  if (!isApiHttpError(error) || error.status < 500) {
+  if (!import.meta.env.DEV || !isApiHttpError(error) || error.status !== 500) {
     return false;
   }
-  return (error.responseBody ?? "").trim().length === 0;
+  if ((error.responseBody ?? "").trim().length > 0) {
+    return false;
+  }
+
+  const contentType = (error.responseHeaders?.["content-type"] ?? "").toLowerCase();
+  if (!contentType.startsWith("text/plain")) {
+    return false;
+  }
+
+  const backendOnlyHeaders = [
+    "server",
+    "x-content-type-options",
+    "x-frame-options",
+    "referrer-policy",
+    "permissions-policy",
+  ];
+  return !backendOnlyHeaders.some((headerName) => {
+    const value = error.responseHeaders?.[headerName];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+function readResponseHeaders(response: Response): Record<string, string> {
+  return Object.fromEntries(Array.from(response.headers.entries(), ([key, value]) => [key.toLowerCase(), value]));
 }
 
 function canUseAutoMockFallback(): boolean {
@@ -177,7 +208,13 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(path, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(
+        path,
+        response.status,
+        response.statusText,
+        responseBody,
+        readResponseHeaders(response),
+      );
     }
 
     return (await response.json()) as T;
@@ -197,7 +234,13 @@ async function fetchBlobFromUrl(url: string, init?: RequestInit): Promise<Blob> 
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(url, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(
+        url,
+        response.status,
+        response.statusText,
+        responseBody,
+        readResponseHeaders(response),
+      );
     }
 
     return await response.blob();

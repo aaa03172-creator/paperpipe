@@ -155,7 +155,7 @@ export function getMockMeetingPackReadOnlyFallbackValidation(
   response.validation.can_regenerate = false;
   response.validation.regenerate_strategy = "unavailable";
   response.validation.warnings = [
-    "Reconnect the backend before rerendering or regenerating this fallback draft.",
+    "Reconnect the backend, then recreate this draft as a live saved pack before rerendering or regenerating.",
     ...response.validation.warnings,
   ];
   return response;
@@ -2319,7 +2319,7 @@ export function createMockMeetingPack(request: MeetingPackRequestSnapshot): Meet
       purpose: "Check evidence, trace, and discussion prompts",
       bullets: [
         "Open the trace panel to confirm which selectors were used.",
-        "Use regenerate after changing selector inputs.",
+        "Reconnect the backend before recreating a live draft after changing selector inputs.",
       ],
       evidence_refs: ["evref_01"],
       caution_notes: [],
@@ -2336,14 +2336,14 @@ export function createMockMeetingPack(request: MeetingPackRequestSnapshot): Meet
     {
       question: "Is this a live draft or a fallback demo?",
       suggested_response:
-        "This draft was created in mock mode to demonstrate the creation flow while the backend is unavailable.",
+        "This is a session-only placeholder draft created locally because the backend was unavailable.",
       evidence_refs: ["evref_01"],
     },
   ];
   response.pack.next_steps = [
     {
-      action: "Reconnect the live backend and regenerate this draft.",
-      why: "That will replace placeholder content with canonical evidence-backed slides.",
+      action: "Reconnect the live backend, then recreate this draft from the original paper slug.",
+      why: "That is the only way to turn this placeholder into a live saved draft with evidence-backed slides.",
       priority: "medium",
       evidence_refs: ["evref_01"],
     },

@@ -25,7 +25,7 @@ test("meeting pack create auto-fallback opens a session-only placeholder draft w
   await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
   await expect(
     page.getByText(
-      "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session while the backend is unreachable.",
+      "Temporary fallback draft created from the entered paper slug. It only stays available in this browser session.",
       { exact: false },
     ),
   ).toBeVisible();
@@ -112,6 +112,128 @@ test("fallback-created meeting pack surfaces backend 503 instead of silently kee
   await expect(page.getByText(`/meeting-packs/${packId} -> 503 Service Unavailable`)).toBeVisible();
   await expect(page.getByText("Meeting Pack detail temporarily unavailable")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fallback 503 honesty draft", exact: true })).toHaveCount(0);
+  await expect(page.getByText("meeting pack unavailable, mock draft loaded")).toHaveCount(0);
+});
+
+test("fallback-created meeting pack surfaces blank-body backend 500 instead of treating it like proxy downtime", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs/generate", async (route) => {
+    await route.abort("failed");
+  });
+
+  await page.goto("/meeting-packs");
+  await page.getByLabel("Meeting pack paper slug").fill("zoterocoricTargetingProdromalAlzheimer2015");
+  await page.getByLabel("Meeting pack draft title").fill("Fallback blank-body 500 honesty draft");
+  await page.getByLabel("Meeting pack draft mode").selectOption("journal_club");
+  await page.getByRole("button", { name: "Create draft" }).click();
+
+  await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
+  await expect(page.getByRole("heading", { name: "Fallback blank-body 500 honesty draft", exact: true })).toBeVisible();
+
+  const packId = page.url().split("/meeting-packs/")[1];
+  if (!packId) {
+    throw new Error("expected generated meeting pack id in URL");
+  }
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "text/plain",
+      body: "",
+      headers: {
+        server: "uvicorn",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackTrace(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackValidation(packId)),
+    });
+  });
+
+  await page.getByLabel("Meeting pack ID").fill("fallback-switch-pack");
+  await page.getByRole("button", { name: "Open pack" }).click();
+  await expect(page).toHaveURL(/\/meeting-packs\/fallback-switch-pack$/);
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+
+  await page.getByLabel("Meeting pack ID").fill(packId);
+  await page.getByRole("button", { name: "Open pack" }).click();
+  await expect(page).toHaveURL(new RegExp(`/meeting-packs/${packId}$`));
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText(`/meeting-packs/${packId} -> 500 Internal Server Error`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fallback blank-body 500 honesty draft", exact: true })).toHaveCount(0);
+  await expect(page.getByText("meeting pack unavailable, mock draft loaded")).toHaveCount(0);
+});
+
+test("fallback-created meeting pack surfaces blank-body backend 503 instead of treating it like proxy downtime", async ({
+  page,
+}) => {
+  await page.route("**/api/meeting-packs/generate", async (route) => {
+    await route.abort("failed");
+  });
+
+  await page.goto("/meeting-packs");
+  await page.getByLabel("Meeting pack paper slug").fill("zoterocoricTargetingProdromalAlzheimer2015");
+  await page.getByLabel("Meeting pack draft title").fill("Fallback blank-body 503 honesty draft");
+  await page.getByLabel("Meeting pack draft mode").selectOption("journal_club");
+  await page.getByRole("button", { name: "Create draft" }).click();
+
+  await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
+  await expect(page.getByRole("heading", { name: "Fallback blank-body 503 honesty draft", exact: true })).toBeVisible();
+
+  const packId = page.url().split("/meeting-packs/")[1];
+  if (!packId) {
+    throw new Error("expected generated meeting pack id in URL");
+  }
+
+  await page.route(`**/api/meeting-packs/${packId}`, async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "text/plain",
+      body: "",
+      headers: {
+        server: "uvicorn",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/trace`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackTrace(packId)),
+    });
+  });
+  await page.route(`**/api/meeting-packs/${packId}/validate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(getMockMeetingPackValidation(packId)),
+    });
+  });
+
+  await page.getByLabel("Meeting pack ID").fill("fallback-switch-pack");
+  await page.getByRole("button", { name: "Open pack" }).click();
+  await expect(page).toHaveURL(/\/meeting-packs\/fallback-switch-pack$/);
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+
+  await page.getByLabel("Meeting pack ID").fill(packId);
+  await page.getByRole("button", { name: "Open pack" }).click();
+  await expect(page).toHaveURL(new RegExp(`/meeting-packs/${packId}$`));
+  await expect(page.getByRole("heading", { name: "Unable to load pack" })).toBeVisible();
+  await expect(page.getByText(`/meeting-packs/${packId} -> 503 Service Unavailable`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fallback blank-body 503 honesty draft", exact: true })).toHaveCount(0);
   await expect(page.getByText("meeting pack unavailable, mock draft loaded")).toHaveCount(0);
 });
 

@@ -365,3 +365,35 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable|fallback-created meeting pack surfaces backend 503 instead of silently keeping placeholder detail content"`
+
+## 7.14) Session-Only Placeholder Copy Alignment Checkpoint (2026-04-10)
+- Screen/Flow: `/meeting-packs` fallback create notice plus placeholder draft guidance inside `/meeting-packs/:packId`
+- Goal action: 사용자가 fallback-created draft를 current-session convenience shell로 이해하고, reconnect 뒤 같은 placeholder draft를 그대로 regenerate할 수 있다고 오해하지 않는다.
+- Primary persona: backend outage 중에도 meeting-pack shell을 먼저 확인하려는 운영자
+- Current friction:
+  - 일부 success/mock copy는 placeholder draft가 backend reconnect 뒤 같은 artifact처럼 이어질 수 있다는 인상을 남겼다.
+  - dev proxy blank-body `500`와 real backend blank-body `500`의 구분이 너무 넓어서, truth boundary 설명과 runtime behavior가 다시 어긋날 여지가 있었다.
+- Quick decision:
+  - success notice, validation warning, mock Q&A, next-step copy를 모두 session-only placeholder contract로 맞춘다.
+  - dev proxy continuity는 유지하되, blank-body `500`도 backend-like headers가 보이면 real server failure로 surface한다.
+- BMAP:
+  - Motivation: 높음. outage fallback에서는 한 줄 안내 문구가 실제 행동을 거의 결정한다.
+  - Ability: 높음. owner는 copy 몇 줄과 proxy signature 판별 하나만 맞추면 된다.
+  - Prompt: “current browser session only”와 “recreate from the original paper slug”가 가장 정확한 다음 행동을 준다.
+- B.I.A.S:
+  - Block: reconnect 후 같은 placeholder draft를 다시 살릴 수 있다는 뉘앙스가 남아 있었다.
+  - Interpret: 이제 placeholder는 local/session-scoped shell이고, saved truth는 live backend에서 다시 만들어야 한다는 점이 바로 읽힌다.
+  - Act: operator는 reconnect 후 draft recovery를 기대하기보다 live recreate를 선택하게 된다.
+  - Store: fallback convenience와 live saved artifact를 구분하는 mental model이 더 단단해진다.
+- Peak-End:
+  - Peak는 fallback success notice, disabled action guidance, and mock next steps가 모두 같은 truth를 말하는 순간이다.
+  - Pit는 copy는 임시물이라 하면서 runtime은 blank-body `500`를 availability처럼 처리하던 어긋남이다.
+  - Transition은 create success 이후 guidance와 subsequent failure boundary를 같은 contract로 맞춘 점이다.
+  - End는 사용자가 “이 draft는 현재 세션용 placeholder고, live draft는 다시 만들어야 한다”를 기억하고 떠나는 상태다.
+- Ethics:
+  - Regret: 통과. convenience shell을 저장된 draft처럼 과장하지 않는다.
+  - Black Mirror: 통과. proxy ambiguity를 이용해 degraded runtime를 더 좋아 보이게 만들지 않는다.
+  - In Real-Life: 통과. 임시 상태라면 임시 상태라고 말하고, real server failure면 그대로 보여줘야 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.meeting-pack.fallback.config.ts e2e/meeting-pack.fallback.spec.ts -g "meeting pack create auto-fallback opens a session-only placeholder draft when the backend is unavailable|fallback-created meeting pack surfaces blank-body backend 500 instead of treating it like proxy downtime|fallback-created meeting pack surfaces backend 503 instead of silently keeping placeholder detail content"`
