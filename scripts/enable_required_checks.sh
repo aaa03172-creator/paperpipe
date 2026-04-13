@@ -16,7 +16,15 @@ PAYLOAD="$(cat <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["guard", "agents-smoke", "e2e-mock", "e2e-backend"]
+    "contexts": [
+      "guard",
+      "agents-smoke",
+      "meeting-pack-verify",
+      "e2e-mock",
+      "e2e-backend",
+      "deepread-handoff-recommend",
+      "deepread-handoff-run-gate"
+    ]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": null,
@@ -58,5 +66,8 @@ fi
 echo "Applied required checks on ${OWNER}/${REPO}:${BRANCH}"
 echo "- guard"
 echo "- agents-smoke"
+echo "- meeting-pack-verify"
 echo "- e2e-mock"
 echo "- e2e-backend"
+echo "- deepread-handoff-recommend"
+echo "- deepread-handoff-run-gate"
