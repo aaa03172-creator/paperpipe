@@ -124,6 +124,52 @@ def test_method_comparisons_api_generate_roundtrip_and_csv_export(tmp_path, monk
     assert "paper_id,paper_slug,citekey,title" in exported.text
 
 
+def test_method_comparisons_api_keeps_route_stable_trailing_hyphen_export_filename(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "method_comparisons"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_note(vault_dir, "paper-alpha", note_id="doi:10.1000/a", title="Alpha Trial")
+    _write_claimset(
+        artifacts_root,
+        "doi:10.1000/a",
+        "run_a1",
+        {
+            "doc_id": "doi:10.1000/a",
+            "claims": [
+                {
+                    "claim_id": "CLM-A",
+                    "statement": "Intervention: Ketone ester.",
+                    "evidence_spans": [{"quote": "Intervention: Ketone ester.", "page": 1}],
+                }
+            ],
+        },
+    )
+
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+    monkeypatch.setenv("PAPERPIPE_METHOD_COMPARISONS_DIR", str(output_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(method_comparisons_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/method-comparisons/generate",
+        json={
+            "comparison_id": "methodcmp_edge-",
+            "paper_ids": ["doi:10.1000/a"],
+            "field_ids": ["intervention"],
+        },
+    )
+    assert created.status_code == 200
+
+    exported = client.get("/method-comparisons/methodcmp_edge-/export.csv")
+    assert exported.status_code == 200
+    assert exported.headers["content-disposition"] == 'attachment; filename="methodcmp_edge-.csv"'
+
+
 def test_method_comparisons_api_lists_recent_first(tmp_path, monkeypatch):
     vault_dir = tmp_path / "vault"
     artifacts_root = tmp_path / "artifacts"
