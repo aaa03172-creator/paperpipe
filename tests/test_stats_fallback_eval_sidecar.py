@@ -6,6 +6,7 @@ import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
 from src.jobs.queue import JobQueue
 import backend.services.job_runner as job_runner_mod
+import src.services.stats_fallback_eval_sidecar as stats_sidecar_mod
 
 from src.contracts.document_artifact_v2 import ArtifactMetaV2, BlockV2, DocumentArtifactV2, LineV2, PageV2, SpanV2
 from src.schemas.agent_artifacts import (
@@ -18,7 +19,7 @@ from src.schemas.agent_artifacts import (
     StatsReport,
     VerificationStatus,
 )
-from src.services.stats_fallback_eval_sidecar import build_stats_fallback_eval_sidecar
+from src.services.stats_fallback_eval_sidecar import build_stats_fallback_eval_sidecar, write_stats_fallback_eval_sidecar
 
 
 def test_build_stats_fallback_eval_sidecar_summarizes_taxonomy():
@@ -104,6 +105,38 @@ def test_build_stats_fallback_eval_sidecar_infers_no_api_context_from_bootstrap_
     assert sidecar.metrics.unspecified_unverifiable_count == 0
     assert sidecar.metrics.no_api_context_count == 1
     assert sidecar.checks[0].fallback_reason == "NO_API_CONTEXT"
+
+
+def test_write_stats_fallback_eval_sidecar_uses_atomic_write(tmp_path, monkeypatch):
+    report = StatsReport(
+        doc_id="paper-1",
+        run_id="run-1",
+        checks=[
+            StatCheckEntry(
+                check_id="c1",
+                test_type="unknown",
+                code="N/A",
+                outputs="ok",
+                verdict=VerificationStatus.VERIFIED,
+            ),
+        ],
+    )
+    sidecar = build_stats_fallback_eval_sidecar(paper_id="paper-1", stats_report=report)
+    captured: dict[str, object] = {}
+
+    def _capture_atomic_write(path: Path, content: str) -> None:
+        captured["path"] = path
+        captured["content"] = content
+        path.write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(stats_sidecar_mod, "atomic_write_text", _capture_atomic_write)
+
+    written = write_stats_fallback_eval_sidecar(sidecar, tmp_path)
+
+    assert written == tmp_path / "stats_fallback_eval.json"
+    assert captured["path"] == written
+    assert json.loads(captured["content"])["schema_version"] == "stats_fallback_eval.v1"
+    assert json.loads(written.read_text(encoding="utf-8"))["paper_id"] == "paper-1"
 
 
 def test_job_runner_writes_stats_fallback_eval_sidecar(tmp_path, monkeypatch):
