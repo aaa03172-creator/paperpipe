@@ -6,7 +6,7 @@ from src.schemas.agent_artifacts import (
     StatCheckEntry,
     VerificationStatus,
 )
-from src.schemas import BiomedicalClinicalExtraction
+from src.schemas.core import BiomedicalClinicalExtraction
 from src.services.deepread_note_writer import (
     DEEPREAD_HEADER,
     _format_evidence_text_for_display,
