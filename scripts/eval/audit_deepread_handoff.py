@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -48,7 +50,52 @@ def _find_run_dirs(runs_root: Path) -> list[Path]:
     return run_dirs
 
 
-def load_manifest_run_dirs(manifest_path: Path) -> list[Path]:
+def _remap_repo_root_candidate(path: Path, *, repo_root: Path) -> Path:
+    repo_root = repo_root.expanduser().resolve()
+    if path.exists():
+        return path.resolve()
+
+    candidates: list[Path] = []
+    parts = list(path.parts)
+    repo_name = repo_root.name
+    repo_indexes = [index for index, part in enumerate(parts) if part == repo_name]
+    for index in reversed(repo_indexes):
+        suffix = parts[index + 1 :]
+        if suffix:
+            candidates.append(repo_root.joinpath(*suffix))
+
+    for anchor in ("storage", "snapshots", "goldset", "baselines"):
+        if anchor in parts:
+            index = parts.index(anchor)
+            suffix = parts[index:]
+            if suffix:
+                candidates.append(repo_root.joinpath(*suffix))
+
+    seen: set[Path] = set()
+    unique_candidates: list[Path] = []
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        unique_candidates.append(candidate)
+
+    for candidate in unique_candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    if unique_candidates:
+        return unique_candidates[0]
+    return path.resolve()
+
+
+def _resolve_manifest_run_dir(raw_run_dir: str, *, manifest_path: Path, repo_root: Path) -> Path:
+    candidate = Path(raw_run_dir).expanduser()
+    if not candidate.is_absolute():
+        return (manifest_path.parent / candidate).resolve()
+    return _remap_repo_root_candidate(candidate.resolve(), repo_root=repo_root)
+
+
+def load_manifest_run_dirs(manifest_path: Path, *, repo_root: Path | None = None) -> list[Path]:
+    repo_root = (repo_root or REPO_ROOT).expanduser().resolve()
     payload = _load_json(manifest_path)
     if str(payload.get("schema_version") or "") != "deepread_handoff_manifest.v1":
         raise RuntimeError(f"unsupported_manifest_schema={manifest_path}")
@@ -63,7 +110,7 @@ def load_manifest_run_dirs(manifest_path: Path) -> list[Path]:
         raw_run_dir = str(item.get("run_dir") or "").strip()
         if not raw_run_dir:
             raise RuntimeError(f"manifest_run_dir_missing={manifest_path} index={index}")
-        run_dirs.append(Path(raw_run_dir).expanduser().resolve())
+        run_dirs.append(_resolve_manifest_run_dir(raw_run_dir, manifest_path=manifest_path, repo_root=repo_root))
     return run_dirs
 
 
