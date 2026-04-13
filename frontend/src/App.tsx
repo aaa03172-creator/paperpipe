@@ -21,6 +21,11 @@ const PaperNoteDetailPage = lazy(async () => {
   return { default: module.PaperNoteDetailPage };
 });
 
+const MeetingPackPage = lazy(async () => {
+  const module = await import("./app/pages/MeetingPackPage");
+  return { default: module.MeetingPackPage };
+});
+
 const ChartPackPage = lazy(async () => {
   const module = await import("./app/pages/ChartPackPage");
   return { default: module.ChartPackPage };
@@ -44,6 +49,8 @@ export default function App() {
         <Route path="/" element={<TriageDashboard />} />
         <Route path="/papers" element={<PaperNotesListPage />} />
         <Route path="/papers/:slug" element={<PaperNoteDetailPage />} />
+        <Route path="/meeting-packs" element={<MeetingPackPage />} />
+        <Route path="/meeting-packs/:packId" element={<MeetingPackPage />} />
         <Route path="/chart-packs" element={<ChartPackPage />} />
         <Route path="/chart-packs/:chartPackId" element={<ChartPackPage />} />
         <Route path="/image-evidence" element={<ImageEvidencePage />} />
