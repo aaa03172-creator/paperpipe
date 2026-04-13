@@ -614,6 +614,64 @@ def test_jobs_bootstrap_meta_endpoint_returns_404_for_unknown_job():
     assert resp.json()["detail"] == "Job not found"
 
 
+def test_jobs_cancel_endpoint_cancels_open_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_cancel_api_001")
+
+        resp = client.post(f"/jobs/{job_id}/cancel")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "cancelled"}
+        cancelled = client.get(f"/jobs/{job_id}")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_cancel_endpoint_returns_404_for_unknown_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        resp = client.post("/jobs/no_such_job/cancel")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Job not found"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_cancel_endpoint_returns_409_for_terminal_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_cancel_done_001")
+        queue.update_job(job_id, {"status": "completed", "progress": 100, "stage": "completed"})
+
+        resp = client.post(f"/jobs/{job_id}/cancel")
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Job is already in a terminal state"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_jobs_bootstrap_meta_endpoint_returns_404_when_not_available(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
