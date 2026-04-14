@@ -396,6 +396,81 @@ def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
     assert response.items[0].has_generation_request is True
 
 
+def test_list_meeting_packs_hides_fixture_items_when_real_packs_exist(tmp_path):
+    root = tmp_path / "meeting_packs"
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000000Z_journal_club_fixture",
+            mode="journal_club",
+            title="Backend visual meeting pack fixture",
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoteroe2eNoteBackedBBox2026",
+                    title="E2E Note-backed BBox Fixture",
+                    priority=1,
+                )
+            ],
+        ),
+        "# fixture",
+        root=root,
+    )
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000100Z_journal_club_real",
+            mode="journal_club",
+            title="Real Alzheimer journal club draft",
+            created_at=datetime(2026, 3, 28, 0, 1, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoterocoricTargetingProdromalAlzheimer2015",
+                    title="Targeting Prodromal Alzheimer Disease With Avagacestat: A Randomized Clinical Trial",
+                    priority=1,
+                )
+            ],
+        ),
+        "# real",
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 1
+    assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000100Z_journal_club_real"]
+
+
+def test_list_meeting_packs_keeps_fixture_items_when_only_fixtures_exist(tmp_path):
+    root = tmp_path / "meeting_packs"
+    save_meeting_pack_bundle(
+        MeetingPack(
+            id="meetingpack_20260328T000000Z_journal_club_fixture",
+            mode="journal_club",
+            title="Backend visual meeting pack fixture",
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            source_items=[
+                MeetingPackSourceItem(
+                    id="src_01",
+                    type="paper_slug",
+                    ref="zoteroe2eNoteBackedBBox2026",
+                    title="E2E Note-backed BBox Fixture",
+                    priority=1,
+                )
+            ],
+        ),
+        "# fixture",
+        root=root,
+    )
+
+    response = list_meeting_packs(root=root)
+
+    assert response.total == 1
+    assert [item.pack_id for item in response.items] == ["meetingpack_20260328T000000Z_journal_club_fixture"]
+
+
 def test_get_meeting_pack_trace_summarizes_selector_load_path(tmp_path):
     vault_path = tmp_path / "vault"
     root = tmp_path / "meeting_packs"
@@ -481,6 +556,15 @@ def test_regenerate_meeting_pack_uses_saved_generation_request_and_creates_new_p
     assert regenerated.pack.generation_request.model_dump() == created.pack.generation_request.model_dump()
     assert regenerated.markdown_sync is not None
     assert regenerated.markdown_sync.status == "in_sync"
+    regenerated_contract = json.loads(
+        meeting_pack_artifact_path(regenerated.pack.id, "acceptance_contract.json", root).read_text(encoding="utf-8")
+    )
+    regenerated_gate = json.loads(
+        meeting_pack_artifact_path(regenerated.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert regenerated_contract["workflow"] == "meeting_pack"
+    assert regenerated_gate["overall_status"] == "pass"
+    assert regenerated_gate["discussion_ready"] is True
     assert set(list_meeting_pack_ids(root)) == {created.pack.id, regenerated.pack.id}
 
 
@@ -501,7 +585,11 @@ def test_rerender_meeting_pack_rebuilds_markdown_from_saved_json(tmp_path):
     )
 
     markdown_path = meeting_pack_markdown_path(created.pack.id, root)
+    contract_path = meeting_pack_artifact_path(created.pack.id, "acceptance_contract.json", root)
+    quality_gate_path = meeting_pack_artifact_path(created.pack.id, "quality_gate.json", root)
     markdown_path.write_text("# Corrupted\n", encoding="utf-8")
+    contract_path.write_text("{\"stale\": true}\n", encoding="utf-8")
+    quality_gate_path.unlink()
 
     drifted = get_meeting_pack(created.pack.id, root=root)
     assert drifted.markdown_sync is not None
@@ -516,6 +604,13 @@ def test_rerender_meeting_pack_rebuilds_markdown_from_saved_json(tmp_path):
     assert rerendered.markdown == load_meeting_pack_markdown(created.pack.id, root)
     assert rerendered.markdown != "# Corrupted\n"
     assert "## Slide Outline" in (rerendered.markdown or "")
+    assert contract_path.exists()
+    assert quality_gate_path.exists()
+    rerendered_contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    rerendered_gate = json.loads(quality_gate_path.read_text(encoding="utf-8"))
+    assert rerendered_contract["workflow"] == "meeting_pack"
+    assert rerendered_gate["overall_status"] == "pass"
+    assert rerendered_gate["bundle_ready"] is True
 
 
 def test_validate_meeting_pack_reports_drift_and_saved_request_strategy(tmp_path):
