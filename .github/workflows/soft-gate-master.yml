@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -268,6 +269,243 @@ jobs:
         if: ${{ steps.result.outputs.bootstrap_failed == '1' || steps.result.outputs.tests_failed == '1' }}
         run: exit 1
 
+  recommend_deepread:
+    name: deepread-soft-gate-recommend
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') }}
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.recommend.outputs.mode }}
+      reason: ${{ steps.recommend.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Recommend deep-read handoff gate mode
+        id: recommend
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/eval/recommend_deepread_handoff_gate_mode.py \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" \
+            --json > recommendation.json
+          cat recommendation.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("recommendation.json").read_text(encoding="utf-8"))
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"mode={payload['mode']}\n")
+              handle.write(f"reason={payload['reason']}\n")
+
+          lines = [
+              "## DeepRead Handoff Soft Gate Recommendation",
+              "",
+              f"- mode: `{payload['mode']}`",
+              f"- reason: {payload['reason']}",
+          ]
+          if payload.get("relevant_files"):
+              lines.append(f"- relevant files: `{', '.join(payload['relevant_files'])}`")
+          if payload.get("continuity_files"):
+              lines.append(f"- continuity files: `{', '.join(payload['continuity_files'])}`")
+          if payload.get("cross_paper_files"):
+              lines.append(f"- cross-paper files: `{', '.join(payload['cross_paper_files'])}`")
+          if payload.get("ignored_doc_files"):
+              lines.append(f"- ignored doc files: `{', '.join(payload['ignored_doc_files'])}`")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+  check_deepread_runner:
+    name: deepread-soft-gate-runner-check
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' }}
+    needs: recommend_deepread
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.detect.outputs.available }}
+      runner_names: ${{ steps.detect.outputs.runner_names }}
+      lookup_status: ${{ steps.detect.outputs.lookup_status }}
+    steps:
+      - name: Detect paperpipe real-smoke runner
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+          matched = []
+          lookup_status = "ok"
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/actions/runners",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+              for runner in payload.get("runners", []):
+                  labels = {label["name"] for label in runner.get("labels", [])}
+                  if (
+                      runner.get("status") == "online"
+                      and "self-hosted" in labels
+                      and "paperpipe-real-smoke" in labels
+                  ):
+                      matched.append(runner["name"])
+          except urllib.error.HTTPError as exc:
+              lookup_status = f"http_{exc.code}"
+          except Exception:
+              lookup_status = "error"
+
+          available = "1" if matched else "0"
+          with output_path.open("a", encoding="utf-8") as handle:
+              handle.write(f"available={available}\n")
+              handle.write(f"runner_names={','.join(matched)}\n")
+              handle.write(f"lookup_status={lookup_status}\n")
+
+          lines = [
+              "## DeepRead Soft Gate Runner Availability",
+              "",
+              f"- available: `{available}`",
+              f"- lookup status: `{lookup_status}`",
+              f"- matching runners: `{', '.join(matched) if matched else '-'}`",
+          ]
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+  report_deepread_runner_unavailable:
+    name: deepread-soft-gate-runner-unavailable
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' && needs.check_deepread_runner.outputs.available != '1' }}
+    needs:
+      - recommend_deepread
+      - check_deepread_runner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skipped deep-read soft gate
+        run: |
+          {
+            echo "## DeepRead Soft Gate Skipped"
+            echo ""
+            echo "- mode: \`${{ needs.recommend_deepread.outputs.mode }}\`"
+            echo "- reason: no online \`paperpipe-real-smoke\` self-hosted runner is currently registered for this repository"
+            echo "- runner lookup status: \`${{ needs.check_deepread_runner.outputs.lookup_status }}\`"
+            echo "- matching runners: \`${{ needs.check_deepread_runner.outputs.runner_names || '-' }}\`"
+            echo "- note: the deep-read soft gate was skipped instead of waiting indefinitely in queue"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  run_deepread_gate:
+    name: deepread-soft-gate-run
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'revert(soft-gate):') && needs.recommend_deepread.outputs.mode != 'not_applicable' && needs.check_deepread_runner.outputs.available == '1' }}
+    needs:
+      - recommend_deepread
+      - check_deepread_runner
+    runs-on:
+      - self-hosted
+      - paperpipe-real-smoke
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify Python runtime
+        run: python3 --version
+
+      - name: Build audit snapshots and run deep-read handoff gate
+        id: gate
+        env:
+          GATE_MODE: ${{ needs.recommend_deepread.outputs.mode }}
+        run: |
+          set -euo pipefail
+          SHA_SHORT="$(git rev-parse --short=12 HEAD)"
+          CORIC_RUN_ID="deepread_handoff_coric_soft_gate_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${SHA_SHORT}"
+          MULTICASE_RUN_ID="deepread_handoff_multicase_soft_gate_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${SHA_SHORT}"
+          GATE_RUN_ID="deepread_handoff_soft_gate_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${SHA_SHORT}"
+          export GATE_RUN_ID
+
+          python3 scripts/eval/audit_deepread_handoff.py \
+            --manifest goldset/manifests/deepread_handoff_coric_regression_20260408.json \
+            --out-dir snapshots/deepread_handoff_eval \
+            --run-id "${CORIC_RUN_ID}"
+
+          if [[ "${GATE_MODE}" == "cross-paper" ]]; then
+            python3 scripts/eval/audit_deepread_handoff.py \
+              --manifest goldset/manifests/deepread_handoff_multicase_regression_20260408.json \
+              --out-dir snapshots/deepread_handoff_eval \
+              --run-id "${MULTICASE_RUN_ID}"
+          fi
+
+          gate_cmd=(
+            python3 scripts/eval/check_deepread_handoff_gate.py
+            --mode "${GATE_MODE}"
+            --coric-new "snapshots/deepread_handoff_eval/${CORIC_RUN_ID}"
+            --run-id "${GATE_RUN_ID}"
+          )
+          if [[ "${GATE_MODE}" == "cross-paper" ]]; then
+            gate_cmd+=(--multicase-new "snapshots/deepread_handoff_eval/${MULTICASE_RUN_ID}")
+          fi
+          "${gate_cmd[@]}"
+
+          {
+            echo "coric_run_id=${CORIC_RUN_ID}"
+            echo "multicase_run_id=${MULTICASE_RUN_ID}"
+            echo "gate_run_id=${GATE_RUN_ID}"
+          } >> "${GITHUB_OUTPUT}"
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          gate_run_id = os.environ["GATE_RUN_ID"]
+          summary_path = Path("snapshots/deepread_handoff_gate") / gate_run_id / "summary.json"
+          payload = json.loads(summary_path.read_text(encoding="utf-8"))
+          failed_cases = payload.get("decision", {}).get("failed_cases") or []
+          lines = [
+              "## DeepRead Handoff Soft Gate Result",
+              "",
+              f"- mode: `{payload['mode']}`",
+              f"- passed: `{payload['decision']['passed']}`",
+              f"- required cases: `{', '.join(payload['decision']['required_cases'])}`",
+              f"- failed cases: `{', '.join(failed_cases) if failed_cases else '-'}`",
+              f"- summary: `{summary_path}`",
+          ]
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload deep-read soft-gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soft-gate-deepread-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          path: |
+            snapshots/deepread_handoff_eval/${{ steps.gate.outputs.coric_run_id }}
+            snapshots/deepread_handoff_eval/${{ steps.gate.outputs.multicase_run_id }}
+            snapshots/deepread_handoff_gate/${{ steps.gate.outputs.gate_run_id }}
+
   auto-revert-on-failure:
     if: >
       ${{
@@ -277,13 +515,20 @@ jobs:
         !startsWith(github.event.head_commit.message, 'revert(soft-gate):') &&
         github.actor != 'paperpipe-soft-gate[bot]' &&
         needs.inspect-commit.outputs.touches_soft_gate_workflow != '1' &&
-        (needs.verify-mock.outputs.tests_failed == '1' || needs.verify-backend.outputs.tests_failed == '1')
+        (
+          needs.verify-mock.outputs.tests_failed == '1' ||
+          needs.verify-backend.outputs.tests_failed == '1' ||
+          needs.recommend_deepread.result == 'failure' ||
+          needs.run_deepread_gate.result == 'failure'
+        )
       }}
     runs-on: ubuntu-latest
     needs:
       - inspect-commit
       - verify-mock
       - verify-backend
+      - recommend_deepread
+      - run_deepread_gate
     steps:
       - name: Checkout full history
         uses: actions/checkout@v6
@@ -329,5 +574,5 @@ jobs:
             echo ""
             echo "- target: \`${{ github.sha }}\`"
             echo "- branch: \`${{ github.ref_name }}\`"
-            echo "- reason: test verification failure (bootstrap failures are excluded)"
+            echo "- reason: mock/backend/deepread verification failure"
           } >> "${GITHUB_STEP_SUMMARY}"
