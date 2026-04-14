@@ -20,6 +20,7 @@ AUTOMATION_SECTION_RE = re.compile(
 )
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$")
+PAPER_NOTE_EXCLUDED_DIR_NAMES = {".obsidian", "_backup"}
 
 
 def safe_read_text(path: Path) -> str:
@@ -80,12 +81,43 @@ def atomic_write_text(path: Path, content: str) -> None:
     tmp_path.replace(path)
 
 
+def is_candidate_markdown_for_paper_note(path: Path, vault_path: Path) -> bool:
+    try:
+        relative = path.relative_to(vault_path)
+    except ValueError:
+        return False
+
+    for part in relative.parts:
+        if part in PAPER_NOTE_EXCLUDED_DIR_NAMES:
+            return False
+        if part.startswith("."):
+            return False
+    return True
+
+
 def resolve_note_path(vault_path: Path, slug: str) -> Path | None:
-    exact = sorted(path for path in vault_path.rglob(f"{slug}.md") if path.is_file())
+    exact = sorted(
+        path
+        for path in vault_path.rglob(f"{slug}.md")
+        if path.is_file() and is_candidate_markdown_for_paper_note(path, vault_path)
+    )
     if exact:
         return exact[0]
     for path in vault_path.rglob("*.md"):
+        if not is_candidate_markdown_for_paper_note(path, vault_path):
+            continue
         if path.stem == slug:
+            return path
+    legacy_structured_relpath = structured_relpath(slug)
+    for path in vault_path.rglob("*.md"):
+        if not path.is_file() or not is_candidate_markdown_for_paper_note(path, vault_path):
+            continue
+        frontmatter, _body = split_frontmatter(safe_read_text(path))
+        pp = frontmatter.get("pp")
+        if not isinstance(pp, dict):
+            continue
+        candidate = str(pp.get("structured_path") or "").strip()
+        if candidate == legacy_structured_relpath:
             return path
     return None
 
