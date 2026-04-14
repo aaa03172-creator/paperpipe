@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}"
+
 PYTHON_BIN="$(command -v python3 || command -v python)"
 if [[ -z "${PYTHON_BIN}" ]]; then
   echo "python3/python not found" >&2
@@ -8,16 +12,20 @@ if [[ -z "${PYTHON_BIN}" ]]; then
 fi
 
 BACKEND_PORT="${E2E_BACKEND_PORT:-8000}"
-E2E_RUNTIME_DIR="frontend/.e2e-backend-runtime"
+E2E_RUNTIME_DIR="${REPO_ROOT}/frontend/.e2e-backend-runtime"
 E2E_CONFIG_PATH="${E2E_RUNTIME_DIR}/config.e2e.yaml"
+E2E_VAULT_PATH="${E2E_RUNTIME_DIR}/obsidian"
+E2E_PDF_STORAGE_PATH="${E2E_RUNTIME_DIR}/storage/pdfs"
 E2E_STORAGE_DIR="${E2E_RUNTIME_DIR}/storage"
 E2E_ARTIFACTS_DIR="${E2E_STORAGE_DIR}/artifacts"
+E2E_DB_PATH="${E2E_STORAGE_DIR}/state.db"
 
 rm -rf "${E2E_RUNTIME_DIR}"
 mkdir -p "${E2E_STORAGE_DIR}"
 export PAPERPIPE_CONFIG_PATH="${E2E_CONFIG_PATH}"
 export PAPERPIPE_STORAGE_DIR="${E2E_STORAGE_DIR}"
 export PAPERPIPE_ARTIFACTS_DIR="${E2E_ARTIFACTS_DIR}"
+export PAPERPIPE_DB_PATH="${E2E_DB_PATH}"
 export LATTICE_MASK_LOCAL_PATHS="0"
 
 cat > "${E2E_CONFIG_PATH}" <<'YAML'
@@ -26,16 +34,16 @@ system:
   log_level: "INFO"
 
 paths:
-  zotero_base_dir: "./frontend/.e2e-backend-runtime/Library"
-  obsidian_vault: "./frontend/.e2e-backend-runtime/obsidian"
+  zotero_base_dir: "${E2E_RUNTIME_DIR}/Library"
+  obsidian_vault: "${E2E_VAULT_PATH}"
   index_all: "00_Index/paper_collection.csv"
   index_clinical: "00_Index/mct_mci_trials.csv"
-  upload_dir: "./frontend/.e2e-backend-runtime/NotebookLM_Upload"
-  export_dir: "./frontend/.e2e-backend-runtime/export"
-  watch_folder: "./frontend/.e2e-backend-runtime/Inbox"
-  library_dir: "./frontend/.e2e-backend-runtime/Library"
-  downloads_watch_dir: "./frontend/.e2e-backend-runtime/Downloads"
-  pdf_storage_dir: "./frontend/.e2e-backend-runtime/storage/pdfs"
+  upload_dir: "${E2E_RUNTIME_DIR}/NotebookLM_Upload"
+  export_dir: "${E2E_RUNTIME_DIR}/export"
+  watch_folder: "${E2E_RUNTIME_DIR}/Inbox"
+  library_dir: "${E2E_RUNTIME_DIR}/Library"
+  downloads_watch_dir: "${E2E_RUNTIME_DIR}/Downloads"
+  pdf_storage_dir: "${E2E_PDF_STORAGE_PATH}"
 
 search:
   constraints:
@@ -62,7 +70,7 @@ llm:
     api_key: ""
     model: "gpt-4o-mini"
   features:
-    trial_extraction:
+    specialty_trial_extraction:
       enabled: false
       model: "gpt-4o-mini"
     slot_classification:
