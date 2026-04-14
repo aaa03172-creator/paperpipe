@@ -7,8 +7,16 @@ import {
   ImageEvidenceResponse,
   JobEnqueueResponse,
   JobStatus,
+  MeetingPackListItem,
+  MeetingPackListResponse,
+  MeetingPackMode,
+  MeetingPackRequestSnapshot,
+  MeetingPackResponse,
+  MeetingPackTraceResponse,
+  MeetingPackValidationResponse,
   NotebookArtifact,
   ObsidianMirror,
+  OutputModeFamily,
   PaperDetail,
   PaperSummary,
   PersonaListResponse,
@@ -21,6 +29,131 @@ function deepClone<T>(value: T): T {
 }
 
 const SAMPLE_PDF = "/sample.pdf";
+const MOCK_GENERATED_MEETING_PACKS = new Map<string, MeetingPackResponse>();
+const MOCK_GENERATED_MEETING_PACK_ORDER: string[] = [];
+
+function formatMeetingPackModeLabel(value: MeetingPackMode): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function outputModeFamilyForMeetingPackMode(mode: MeetingPackMode): OutputModeFamily {
+  if (mode === "journal_club" || mode === "literature_update") {
+    return "lab_meeting";
+  }
+  if (mode === "project_progress_update") {
+    return "project_update";
+  }
+  return "builder_debug";
+}
+
+function formatMockMeetingPackTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildMockMeetingPackId(mode: MeetingPackMode): string {
+  return `meetingpack_${formatMockMeetingPackTimestamp(new Date())}_${mode}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function buildMeetingPackListItem(response: MeetingPackResponse): MeetingPackListItem {
+  const primarySource = response.pack.source_items.find((item) => item.type === "paper_slug");
+  return {
+    pack_id: response.pack.id,
+    title: response.pack.title,
+    mode: response.pack.mode,
+    output_mode_family: response.pack.output_mode_family,
+    created_at: response.pack.created_at,
+    readiness: response.pack.readiness,
+    source_count: response.pack.source_items.length,
+    slide_count: response.pack.slides.length,
+    trace_entry_count: response.pack.retrieval_trace.length,
+    primary_source_title: primarySource?.ref ?? response.pack.source_items[0]?.title ?? null,
+    has_generation_request: Boolean(response.pack.generation_request),
+    regenerated_from_pack_id: response.pack.regenerated_from_pack_id ?? null,
+  };
+}
+
+function buildMeetingPackTraceSummary(response: MeetingPackResponse): MeetingPackTraceResponse["summary"] {
+  const matchedPaperSlugs = Array.from(
+    new Set(response.pack.retrieval_trace.flatMap((entry) => entry.matched_paper_slugs)),
+  );
+  const sourcePaths = Array.from(
+    new Set(
+      response.pack.retrieval_trace
+        .map((entry) => entry.source_path)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  return {
+    entry_count: response.pack.retrieval_trace.length,
+    selector_count: response.pack.source_items.length,
+    matched_paper_count: matchedPaperSlugs.length,
+    source_path_count: sourcePaths.length,
+    action_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.action] = (counts[entry.action] ?? 0) + 1;
+      return counts;
+    }, {}),
+    outcome_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.outcome] = (counts[entry.outcome] ?? 0) + 1;
+      return counts;
+    }, {}),
+    matched_paper_slugs: matchedPaperSlugs,
+    source_paths: sourcePaths,
+  };
+}
+
+function buildMeetingPackTraceResponse(response: MeetingPackResponse): MeetingPackTraceResponse {
+  return {
+    pack_id: response.pack.id,
+    available: response.pack.retrieval_trace.length > 0,
+    summary: buildMeetingPackTraceSummary(response),
+    trace: deepClone(response.pack.retrieval_trace),
+  };
+}
+
+function buildMeetingPackValidationResponse(response: MeetingPackResponse): MeetingPackValidationResponse {
+  return {
+    validation: {
+      pack_id: response.pack.id,
+      readiness: response.pack.readiness,
+      markdown_sync: deepClone(
+        response.markdown_sync ?? {
+          status: "in_sync",
+          stored_markdown_sha1: "a".repeat(40),
+          rendered_markdown_sha1: "a".repeat(40),
+          note: null,
+        },
+      ),
+      can_regenerate: true,
+      regenerate_strategy: "saved_request",
+      warnings:
+        response.pack.readiness === "background_only"
+          ? ["This draft uses background context only. Recheck canonical evidence before reuse."]
+          : [],
+    },
+  };
+}
+
+export function getMockMeetingPackReadOnlyFallbackValidation(
+  packId: string,
+): MeetingPackValidationResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  const response = generated
+    ? buildMeetingPackValidationResponse(generated)
+    : getMockMeetingPackValidation(packId);
+  response.validation.can_regenerate = false;
+  response.validation.regenerate_strategy = "unavailable";
+  response.validation.warnings = [
+    "This placeholder draft only stays available in the current browser session. Reloading or reopening it later will not recover a live saved draft, so recreate it once the live backend is reachable again.",
+    ...response.validation.warnings,
+  ];
+  return response;
+}
 
 const MOCK_PAPERS: PaperDetail[] = [
   {
@@ -566,6 +699,197 @@ export function getMockTimeline(runId: string): TimelineResponse {
   return deepClone(MOCK_TIMELINES[runId] ?? fallback);
 }
 
+export function getMockMeetingPack(packId: string): MeetingPackResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return deepClone(generated);
+  }
+  const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
+  response.pack.id = packId || MOCK_MEETING_PACK_ID;
+  return response;
+}
+
+export function hasMockGeneratedMeetingPack(packId: string): boolean {
+  return MOCK_GENERATED_MEETING_PACKS.has(packId);
+}
+
+export function getMockMeetingPackIndex(): MeetingPackListResponse {
+  const generatedItems = MOCK_GENERATED_MEETING_PACK_ORDER
+    .map((packId) => MOCK_GENERATED_MEETING_PACKS.get(packId))
+    .filter((response): response is MeetingPackResponse => Boolean(response))
+    .map((response) => buildMeetingPackListItem(response));
+  const base = deepClone(MOCK_MEETING_PACK_LIST_RESPONSE);
+  return {
+    ...base,
+    total: generatedItems.length + base.items.length,
+    items: [...generatedItems, ...base.items],
+  };
+}
+
+export function getMockMeetingPackTrace(packId: string): MeetingPackTraceResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackTraceResponse(generated);
+  }
+  const response = deepClone(MOCK_MEETING_PACK_TRACE_RESPONSE);
+  response.pack_id = packId || MOCK_MEETING_PACK_ID;
+  return response;
+}
+
+export function getMockMeetingPackValidation(packId: string): MeetingPackValidationResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackValidationResponse(generated);
+  }
+  const response = deepClone(MOCK_MEETING_PACK_VALIDATION_RESPONSE);
+  response.validation.pack_id = packId || MOCK_MEETING_PACK_ID;
+  return response;
+}
+
+export function createMockMeetingPack(request: MeetingPackRequestSnapshot): MeetingPackResponse {
+  const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
+  const now = new Date();
+  const sourceRef = request.source_items[0]?.ref?.trim() || "paper-slug";
+  const packId = buildMockMeetingPackId(request.mode);
+  const title =
+    request.title?.trim() || `${formatMeetingPackModeLabel(request.mode)} draft for ${sourceRef}`;
+
+  response.pack.id = packId;
+  response.pack.mode = request.mode;
+  response.pack.output_mode_family = outputModeFamilyForMeetingPackMode(request.mode);
+  response.pack.title = title;
+  response.pack.created_at = now.toISOString();
+  response.pack.readiness = "background_only";
+  response.pack.generation_request = deepClone(request);
+  response.pack.regenerated_from_pack_id = null;
+  response.pack.source_items = request.source_items.map((item, index) => ({
+    id: `src_${String(index + 1).padStart(2, "0")}`,
+    type: item.type,
+    ref: item.ref,
+    title: item.ref,
+    priority: index + 1,
+    included: true,
+  }));
+  response.pack.retrieval_trace = request.source_items.flatMap((item, index) => {
+    const sourceItemId = `src_${String(index + 1).padStart(2, "0")}`;
+    return [
+      {
+        order: index * 2 + 1,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: "selector_selected",
+        outcome: "selected",
+        detail: "Selector accepted for draft generation.",
+        source_item_id: sourceItemId,
+        source_path: null,
+        matched_paper_slugs: [],
+        metadata: {},
+      },
+      {
+        order: index * 2 + 2,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: item.type === "paper_slug" ? "paper_state_loaded" : "selector_resolved",
+        outcome: item.type === "paper_slug" ? "loaded" : "resolved",
+        detail:
+          item.type === "paper_slug"
+            ? "Loaded the selected paper slug into the draft."
+            : "Resolved selector context for the draft.",
+        source_item_id: sourceItemId,
+        source_path: item.type === "paper_slug" ? `.pp/${item.ref}/state.json` : item.ref,
+        matched_paper_slugs: item.type === "paper_slug" ? [item.ref] : [],
+        metadata: {},
+      },
+    ];
+  });
+  response.pack.one_page_summary.overview = `This mock meeting draft starts from ${sourceRef} so you can inspect the full pack flow before the live backend is available.`;
+  response.pack.one_page_summary.key_points = [
+    {
+      label: "Starting point",
+      text: `The draft was created from the paper slug ${sourceRef}. Replace this with a live paper slug to generate a real pack.`,
+      evidence_refs: ["evref_01"],
+      uncertainty_note: "Mock generation keeps the workflow shape but not the final scientific content.",
+    },
+  ];
+  response.pack.one_page_summary.uncertainties = [
+    "This is mock-generated draft content for workflow review.",
+  ];
+  response.pack.slides = [
+    {
+      slide_title: "Why this paper is in the meeting",
+      purpose: "Frame the selected paper slug for discussion",
+      bullets: [`Source slug: ${sourceRef}`, `Mode: ${formatMeetingPackModeLabel(request.mode)}`],
+      evidence_refs: ["evref_01"],
+      caution_notes: ["Replace mock content with a live draft before reuse."],
+    },
+    {
+      slide_title: "What to review next",
+      purpose: "Check evidence, trace, and discussion prompts",
+      bullets: [
+        "Open the trace panel to confirm which selectors were used.",
+        "Reconnect the backend before recreating a live draft after changing selector inputs.",
+      ],
+      evidence_refs: ["evref_01"],
+      caution_notes: [],
+    },
+  ];
+  response.pack.discussion_questions = [
+    {
+      question: `What meeting angle do we want to take for ${sourceRef}?`,
+      rationale: "A starting prompt helps the route feel usable before a live backend is connected.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.expected_questions = [
+    {
+      question: "Is this a live draft or a fallback demo?",
+      suggested_response:
+        "This is a session-only placeholder draft created locally because the backend was unavailable.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.next_steps = [
+    {
+      action: "Reconnect the live backend, then recreate this draft from the original paper slug.",
+      why: "That is the only way to turn this placeholder into a live saved draft with evidence-backed slides.",
+      priority: "medium",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.evidence_refs = [
+    {
+      id: "evref_01",
+      paper_slug: sourceRef,
+      claim_id: null,
+      evidence_id: null,
+      run_id: "mock-meeting-pack-generate",
+      support_type: "direct",
+      note: "Mock source reference created from the draft request.",
+    },
+  ];
+  response.markdown = [
+    `# ${title}`,
+    "",
+    "## One-page Summary",
+    "",
+    response.pack.one_page_summary.overview,
+    "",
+    "## Slide Outline",
+    "",
+    ...response.pack.slides.map((slide, index) => `${index + 1}. ${slide.slide_title}`),
+  ].join("\n");
+  response.markdown_sync = {
+    status: "in_sync",
+    stored_markdown_sha1: "b".repeat(40),
+    rendered_markdown_sha1: "b".repeat(40),
+    note: "Mock-generated markdown mirrors the current draft bundle.",
+  };
+
+  MOCK_GENERATED_MEETING_PACKS.set(packId, response);
+  MOCK_GENERATED_MEETING_PACK_ORDER.unshift(packId);
+  return deepClone(response);
+}
+
 export function getMockImageEvidence(imageEvidenceId: string): ImageEvidenceResponse {
   if (imageEvidenceId === MOCK_SECONDARY_IMAGE_EVIDENCE_ID) {
     return deepClone(MOCK_SECONDARY_IMAGE_EVIDENCE_RESPONSE);
@@ -1082,6 +1406,282 @@ function normalizeNotebookForUi(notebook: NotebookArtifact): NotebookArtifact {
     highlights: normalizedHighlights,
   };
 }
+
+const MOCK_MEETING_PACK_ID = "meetingpack_20260317T090000Z_journal_club_mock1234";
+const MOCK_MEETING_PACK_RESPONSE: MeetingPackResponse = {
+  pack: {
+    id: MOCK_MEETING_PACK_ID,
+    mode: "journal_club",
+    output_mode_family: "lab_meeting",
+    title: "SCFA journal club debug draft",
+    created_at: "2026-03-17T09:00:00Z",
+    status: "draft",
+    readiness: "evidence_backed",
+    generation_request: {
+      mode: "journal_club",
+      title: "SCFA journal club debug draft",
+      source_items: [
+        { type: "paper_slug", ref: "wenzelShortchainFattyAcids2020" },
+        { type: "project_note", ref: "Projects/SCFA.md" },
+      ],
+      max_slides: 6,
+    },
+    regenerated_from_pack_id: null,
+    source_items: [
+      {
+        id: "src_01",
+        type: "paper_slug",
+        ref: "wenzelShortchainFattyAcids2020",
+        title: "wenzelShortchainFattyAcids2020",
+        priority: 1,
+        included: true,
+      },
+      {
+        id: "src_02",
+        type: "project_note",
+        ref: "Projects/SCFA.md",
+        title: "SCFA project",
+        priority: 3,
+        included: true,
+      },
+    ],
+    retrieval_trace: [
+      {
+        order: 1,
+        selector_type: "paper_slug",
+        selector_ref: "wenzelShortchainFattyAcids2020",
+        action: "selector_selected",
+        outcome: "selected",
+        detail: "Direct structured paper selector accepted.",
+        source_item_id: "src_01",
+        source_path: null,
+        matched_paper_slugs: [],
+        metadata: {},
+      },
+      {
+        order: 2,
+        selector_type: "paper_slug",
+        selector_ref: "wenzelShortchainFattyAcids2020",
+        action: "paper_state_loaded",
+        outcome: "loaded",
+        detail: "Loaded canonical structured paper state from the paper sidecar.",
+        source_item_id: "src_01",
+        source_path: ".pp/wenzelShortchainFattyAcids2020/state.json",
+        matched_paper_slugs: ["wenzelShortchainFattyAcids2020"],
+        metadata: {
+          loaded_count: 1,
+          reused_count: 0,
+        },
+      },
+      {
+        order: 3,
+        selector_type: "project_note",
+        selector_ref: "Projects/SCFA.md",
+        action: "selector_selected",
+        outcome: "selected",
+        detail: "Note selector accepted for context-based source resolution.",
+        source_item_id: "src_02",
+        source_path: "Projects/SCFA.md",
+        matched_paper_slugs: [],
+        metadata: {},
+      },
+      {
+        order: 4,
+        selector_type: "project_note",
+        selector_ref: "Projects/SCFA.md",
+        action: "note_links_resolved",
+        outcome: "resolved",
+        detail: "Resolved linked paper slugs from note frontmatter/body only.",
+        source_item_id: "src_02",
+        source_path: "Projects/SCFA.md",
+        matched_paper_slugs: ["wenzelShortchainFattyAcids2020"],
+        metadata: {},
+      },
+      {
+        order: 5,
+        selector_type: "project_note",
+        selector_ref: "Projects/SCFA.md",
+        action: "paper_states_loaded",
+        outcome: "loaded",
+        detail: "Resolved 1 paper slug(s) from the note selector; loaded 0 new state(s) and reused 1 existing state(s).",
+        source_item_id: "src_02",
+        source_path: "Projects/SCFA.md",
+        matched_paper_slugs: ["wenzelShortchainFattyAcids2020"],
+        metadata: {
+          loaded_slugs: [],
+          reused_slugs: ["wenzelShortchainFattyAcids2020"],
+        },
+      },
+    ],
+    one_page_summary: {
+      overview: "This draft focuses on the SCFA paper with project-note framing added for discussion setup.",
+      key_points: [
+        {
+          label: "Main finding",
+          text: "The selected paper reports reduced inflammatory signaling.",
+          evidence_refs: ["evref_01"],
+          uncertainty_note: "Magnitude language should be rechecked before presenting.",
+        },
+      ],
+      consensus_points: [],
+      conflicts: [],
+      uncertainties: ["Project note framing should not override structured claim/evidence truth."],
+    },
+    slides: [
+      {
+        slide_title: "Why this paper matters",
+        purpose: "Frame the paper and the discussion target",
+        bullets: [
+          "SCFA intervention is discussed against inflammatory pathway outcomes.",
+          "Project-note context sharpens the lab discussion target.",
+        ],
+        evidence_refs: ["evref_01"],
+        caution_notes: ["Trace explains source loading, not scientific certainty."],
+      },
+      {
+        slide_title: "Study design and methods",
+        purpose: "Summarize what was studied and how",
+        bullets: ["Structured state was loaded from the canonical paper sidecar."],
+        evidence_refs: ["evref_01"],
+        caution_notes: [],
+      },
+    ],
+    speaker_notes: [
+      {
+        slide_index: 1,
+        text: "Open with the claim/evidence core before mentioning project framing.",
+        evidence_refs: ["evref_01"],
+      },
+    ],
+    discussion_questions: [
+      {
+        question: "Which selector contributed context versus canonical evidence?",
+        rationale: "Trace separation should remain explicit during discussion.",
+        evidence_refs: ["evref_01"],
+      },
+    ],
+    expected_questions: [
+      {
+        question: "Was the note used as a source of truth?",
+        suggested_response: "No. The note only shaped framing while the canonical evidence came from state.json.",
+        evidence_refs: ["evref_01"],
+      },
+    ],
+    next_steps: [
+      {
+        action: "Re-verify the pack if selector inputs change.",
+        why: "Regenerate availability depends on current selector resolution.",
+        priority: "medium",
+        evidence_refs: ["evref_01"],
+      },
+    ],
+    evidence_refs: [
+      {
+        id: "evref_01",
+        paper_slug: "wenzelShortchainFattyAcids2020",
+        claim_id: "claim_abc123",
+        evidence_id: "evidence_def456",
+        run_id: "skill-20260317T090000Z-critical_appraisal",
+        support_type: "direct",
+        note: "Primary evidence reference for the draft overview.",
+      },
+    ],
+  },
+  markdown: [
+    "# SCFA journal club debug draft",
+    "",
+    "## One-page Summary",
+    "",
+    "This draft focuses on the SCFA paper with project-note framing added for discussion setup.",
+    "",
+    "## Slide Outline",
+    "",
+    "1. Why this paper matters",
+    "2. Study design and methods",
+  ].join("\n"),
+  markdown_sync: {
+    status: "in_sync",
+    stored_markdown_sha1: "a".repeat(40),
+    rendered_markdown_sha1: "a".repeat(40),
+    note: null,
+  },
+};
+
+const MOCK_MEETING_PACK_TRACE_RESPONSE: MeetingPackTraceResponse = {
+  pack_id: MOCK_MEETING_PACK_ID,
+  available: true,
+  summary: {
+    entry_count: 5,
+    selector_count: 2,
+    matched_paper_count: 1,
+    source_path_count: 2,
+    action_counts: {
+      selector_selected: 2,
+      paper_state_loaded: 1,
+      note_links_resolved: 1,
+      paper_states_loaded: 1,
+    },
+    outcome_counts: {
+      selected: 2,
+      loaded: 2,
+      resolved: 1,
+    },
+    matched_paper_slugs: ["wenzelShortchainFattyAcids2020"],
+    source_paths: [".pp/wenzelShortchainFattyAcids2020/state.json", "Projects/SCFA.md"],
+  },
+  trace: MOCK_MEETING_PACK_RESPONSE.pack.retrieval_trace,
+};
+
+const MOCK_MEETING_PACK_VALIDATION_RESPONSE: MeetingPackValidationResponse = {
+  validation: {
+    pack_id: MOCK_MEETING_PACK_ID,
+    readiness: "evidence_backed",
+    markdown_sync: {
+      status: "in_sync",
+      stored_markdown_sha1: "a".repeat(40),
+      rendered_markdown_sha1: "a".repeat(40),
+      note: null,
+    },
+    can_regenerate: true,
+    regenerate_strategy: "saved_request",
+    warnings: [],
+  },
+};
+
+const MOCK_MEETING_PACK_LIST_RESPONSE: MeetingPackListResponse = {
+  generated_at: "2026-03-17T09:05:00Z",
+  total: 2,
+  items: [
+    {
+      pack_id: MOCK_MEETING_PACK_ID,
+      title: "SCFA journal club debug draft",
+      mode: "journal_club",
+      output_mode_family: "lab_meeting",
+      created_at: "2026-03-17T09:00:00Z",
+      readiness: "evidence_backed",
+      source_count: 2,
+      slide_count: 2,
+      trace_entry_count: 5,
+      primary_source_title: "wenzelShortchainFattyAcids2020",
+      has_generation_request: true,
+      regenerated_from_pack_id: null,
+    },
+    {
+      pack_id: "meetingpack_20260316T173000Z_experiment_proposal_mock5678",
+      title: "Butyrate follow-up proposal draft",
+      mode: "experiment_proposal",
+      output_mode_family: "builder_debug",
+      created_at: "2026-03-16T17:30:00Z",
+      readiness: "background_only",
+      source_count: 1,
+      slide_count: 2,
+      trace_entry_count: 0,
+      primary_source_title: "butyratePilotStudy2025",
+      has_generation_request: false,
+      regenerated_from_pack_id: MOCK_MEETING_PACK_ID,
+    },
+  ],
+};
 
 const MOCK_CHART_PACK_ID = "chartpack_20260320T120000Z_mock1234";
 const MOCK_SECONDARY_CHART_PACK_ID = "chartpack_20260319T221500Z_mock5678";
