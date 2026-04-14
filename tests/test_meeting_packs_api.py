@@ -253,6 +253,15 @@ def test_meeting_packs_api_lists_saved_packs_with_recent_first_order(tmp_path, m
     assert payload["items"][0]["title"] == "Newer draft"
     assert payload["items"][0]["trace_entry_count"] == 2
 
+    api_prefixed = client.get("/api/meeting-packs")
+    assert api_prefixed.status_code == 200
+    api_payload = api_prefixed.json()
+    assert api_payload["total"] == 2
+    assert [item["pack_id"] for item in api_payload["items"]] == [
+        newer.json()["pack"]["id"],
+        older.json()["pack"]["id"],
+    ]
+
 
 def test_meeting_packs_api_hides_fixture_packs_when_real_packs_exist(tmp_path, monkeypatch):
     vault_dir = tmp_path / "vault"
