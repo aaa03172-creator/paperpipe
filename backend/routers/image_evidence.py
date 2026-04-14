@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from src.image_evidence.service import (
     get_image_evidence_bundle,
+    image_evidence_handoff_payload,
     image_evidence_list_response,
     image_evidence_response_payload,
     register_image_evidence,
@@ -67,9 +68,8 @@ def get_image_evidence_handoff_route(image_evidence_id: str) -> list[ImageHandof
         result = get_image_evidence_bundle(image_evidence_id)
         if result.image_evidence.handoff_ref is None:
             raise FileNotFoundError(f"Image Evidence handoff not found: image_evidence_id={image_evidence_id}")
-        return result.handoff_targets
+        return image_evidence_handoff_payload(result)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
