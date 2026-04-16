@@ -5,7 +5,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
-from src.services.runtime_paths import config_file_path, feedback_index_root, logs_root, rag_root
+from src.services.runtime_paths import (
+    config_file_path,
+    feedback_index_root,
+    install_layout_enabled,
+    logs_root,
+    rag_root,
+    storage_root,
+)
 
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
@@ -22,7 +29,7 @@ class PathsConfig(BaseModel):
     export_dir: Path = Path("export")
     watch_folder: Optional[Path] = None # [NEW]
     library_dir: Path = Path("Library") # [NEW]
-    downloads_watch_dir: Path = Path("~/Downloads")
+    downloads_watch_dir: Path = Field(default_factory=lambda: Path("~/Downloads").expanduser())
     pdf_storage_dir: Path = Path("storage/pdfs")
 
     @field_validator(
@@ -42,6 +49,25 @@ class PathsConfig(BaseModel):
         if v:
             return Path(v).expanduser()
         return v
+
+    @model_validator(mode="after")
+    def normalize_install_layout_owned_defaults(self):
+        if not install_layout_enabled():
+            return self
+
+        app_owned_defaults = {
+            "export_dir": (Path("export"), storage_root() / "exports"),
+            "watch_folder": (Path("Download/PaperPipe_Watch"), storage_root() / "watch_folder"),
+            "library_dir": (Path("Library"), storage_root() / "library"),
+            "pdf_storage_dir": (Path("storage/pdfs"), storage_root() / "pdfs"),
+        }
+
+        for field_name, (legacy_value, install_value) in app_owned_defaults.items():
+            current_value = getattr(self, field_name)
+            if current_value == legacy_value:
+                setattr(self, field_name, install_value.resolve())
+
+        return self
 
 class SlotConfig(BaseModel):
     query: str
