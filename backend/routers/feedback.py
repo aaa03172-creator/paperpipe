@@ -2,15 +2,15 @@ from fastapi import APIRouter, HTTPException, Query
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
-from src.schemas.agent_artifacts import FeedbackCase
 from src.agents.feedback_retriever import FeedbackRetriever
+from src.schemas.agent_artifacts import FeedbackCase
+from src.services.runtime_paths import storage_root
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
-FEEDBACK_FILE = Path("storage/feedback.jsonl")
+FEEDBACK_FILE = None
 _feedback_retriever: FeedbackRetriever | None = None
 
 
@@ -20,6 +20,10 @@ def _get_feedback_retriever() -> FeedbackRetriever:
         _feedback_retriever = FeedbackRetriever()
     return _feedback_retriever
 
+
+def _feedback_file():
+    return FEEDBACK_FILE or (storage_root() / "feedback.jsonl")
+
 @router.post("")
 async def submit_feedback(feedback: FeedbackCase):
     try:
@@ -28,10 +32,11 @@ async def submit_feedback(feedback: FeedbackCase):
             feedback.timestamp = datetime.now(timezone.utc).isoformat()
             
         # Ensure directory
-        FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        feedback_file = _feedback_file()
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Append to JSONL (Golden Data Backup)
-        with open(FEEDBACK_FILE, "a") as f:
+        with open(feedback_file, "a") as f:
             f.write(feedback.model_dump_json() + "\n")
             
         logger.info(f"Feedback saved for run {feedback.run_id}")
@@ -57,13 +62,14 @@ async def list_feedback(
     run_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
 ):
-    if not FEEDBACK_FILE.exists():
+    feedback_file = _feedback_file()
+    if not feedback_file.exists():
         return []
 
     try:
         rows = [
             line.strip()
-            for line in FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
+            for line in feedback_file.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
     except Exception as e:

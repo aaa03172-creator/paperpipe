@@ -71,3 +71,26 @@ def test_feedback_get_filters_and_limits(tmp_path, monkeypatch):
     run_items = run_filtered.json()
     assert len(run_items) == 1
     assert run_items[0]["paper_id"] == "paper_feedback_002"
+
+
+def test_feedback_uses_runtime_storage_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paperpipe_home = tmp_path / "app-home"
+    monkeypatch.setenv("PAPERPIPE_HOME", str(paperpipe_home))
+    client = TestClient(api_main.app)
+
+    payload = {
+        "paper_id": "paper_feedback_runtime",
+        "run_id": "run_feedback_runtime",
+        "user_correction": "runtime path check",
+        "accepted": False,
+    }
+    resp = client.post("/feedback", json=payload)
+    assert resp.status_code == 200
+
+    feedback_file = (paperpipe_home / "storage" / "feedback.jsonl").resolve()
+    assert feedback_file.exists()
+    rows = [line for line in feedback_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    saved = json.loads(rows[0])
+    assert saved["paper_id"] == payload["paper_id"]
