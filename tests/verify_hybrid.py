@@ -31,7 +31,7 @@ def get_mock_config():
                 "api_key": "sk-dummy"
             },
             "features": {
-                "trial_extraction": {"enabled": True},
+                "specialty_trial_extraction": {"enabled": True},
                 "slot_classification": {"enabled": True},
                 "one_liner": {"enabled": True}
             }
