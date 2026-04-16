@@ -91,7 +91,17 @@ from src.services.paper_ops_summary import ArtifactSnapshotCache, build_ops_summ
 from src.services.runtime_readiness import collect_runtime_readiness
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root
 from src.services.stats_repair import seed_stats_reports_from_claimset
-from .routers import chart_packs, feedback, image_evidence, meeting_packs, method_comparisons, obsidian, paper_notes, skills
+from .routers import (
+    chart_packs,
+    feedback,
+    image_evidence,
+    meeting_packs,
+    method_comparisons,
+    obsidian,
+    paper_notes,
+    paper_syntheses,
+    skills,
+)
 
 
 def _best_effort_log_user_action(
@@ -161,13 +171,15 @@ def _requires_api_key(method: str, path: str) -> bool:
 
     normalized = path.rstrip("/") or "/"
     if normalized_method == "GET":
-        if normalized in {"/jobs", "/artifacts", "/user-actions", "/workspace-summary"}:
+        if normalized in {"/jobs", "/artifacts", "/paper-syntheses", "/user-actions", "/workspace-summary"}:
             return True
         if normalized.startswith("/jobs/"):
             return True
         if normalized.startswith("/runs/"):
             return True
         if normalized.startswith("/artifacts/"):
+            return True
+        if normalized.startswith("/paper-syntheses/"):
             return True
         return bool(re.match(r"^/papers/[^/]+/pdf$", normalized))
 
@@ -185,6 +197,8 @@ def _requires_api_key(method: str, path: str) -> bool:
     if normalized.startswith("/chart-packs/"):
         return True
     if normalized.startswith("/method-comparisons/"):
+        return True
+    if normalized.startswith("/paper-syntheses/"):
         return True
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
@@ -1688,3 +1702,4 @@ app.include_router(meeting_packs.router)
 app.include_router(chart_packs.router)
 app.include_router(image_evidence.router)
 app.include_router(method_comparisons.router)
+app.include_router(paper_syntheses.router)

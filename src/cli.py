@@ -53,6 +53,24 @@ def _emit_json(payload: dict) -> None:
     typer.echo(json.dumps(payload, ensure_ascii=False))
 
 
+def _emit_paper_synthesis_cli_result(
+    *,
+    result,
+    markdown_only: bool,
+    manifest_only: bool,
+    bundle_payload: dict,
+) -> None:
+    if markdown_only and manifest_only:
+        raise typer.BadParameter("Choose only one of --manifest or --markdown")
+    if markdown_only:
+        typer.echo(result.markdown)
+        return
+    if manifest_only:
+        _emit_json(result.synthesis.model_dump(mode="json"))
+        return
+    _emit_json(bundle_payload)
+
+
 def bootstrap_database() -> Path:
     """Initialize canonical runtime schema (papers/review_queue/jobs/run_stats)."""
     from scripts.init_db import init_db as init_core_db
@@ -1422,6 +1440,78 @@ def research_dna_project_profile(
 
 def entrypoint():
     app()
+
+
+@app.command(name="paper-synthesis-generate")
+def paper_synthesis_generate(
+    paper_slug: str = typer.Argument(..., help="Paper slug for the canonical structured state."),
+    markdown_only: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print compiled markdown only instead of the JSON bundle payload.",
+    ),
+    manifest_only: bool = typer.Option(
+        False,
+        "--manifest",
+        help="Print structured manifest JSON only instead of the JSON bundle payload.",
+    ),
+):
+    """
+    Generate a bounded paper-scoped compiled-knowledge bundle from canonical state and selected run artifacts.
+    """
+    from src.paper_syntheses.service import generate_paper_synthesis, paper_synthesis_response_payload
+    from src.schemas.paper_synthesis import PaperSynthesisGenerateRequest
+
+    config = load_config()
+    vault_path = Path(config.paths.obsidian_vault).expanduser()
+    result = generate_paper_synthesis(
+        request=PaperSynthesisGenerateRequest(paper_slug=paper_slug),
+        vault_path=vault_path,
+    )
+    _emit_paper_synthesis_cli_result(
+        result=result,
+        markdown_only=markdown_only,
+        manifest_only=manifest_only,
+        bundle_payload=paper_synthesis_response_payload(result).model_dump(mode="json"),
+    )
+
+
+@app.command(name="paper-synthesis-show")
+def paper_synthesis_show(
+    synthesis_id: str = typer.Argument(..., help="Paper synthesis bundle id."),
+    markdown_only: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print compiled markdown only instead of the JSON bundle payload.",
+    ),
+    manifest_only: bool = typer.Option(
+        False,
+        "--manifest",
+        help="Print structured manifest JSON only instead of the JSON bundle payload.",
+    ),
+):
+    """
+    Load an existing paper-scoped compiled-knowledge bundle.
+    """
+    from src.paper_syntheses.service import get_paper_synthesis, paper_synthesis_response_payload
+
+    result = get_paper_synthesis(synthesis_id)
+    _emit_paper_synthesis_cli_result(
+        result=result,
+        markdown_only=markdown_only,
+        manifest_only=manifest_only,
+        bundle_payload=paper_synthesis_response_payload(result).model_dump(mode="json"),
+    )
+
+
+@app.command(name="paper-synthesis-list")
+def paper_synthesis_list():
+    """
+    List saved paper-scoped compiled-knowledge bundles.
+    """
+    from src.paper_syntheses.service import paper_synthesis_list_response
+
+    _emit_json(paper_synthesis_list_response().model_dump(mode="json"))
 
 
 if __name__ == "__main__":
