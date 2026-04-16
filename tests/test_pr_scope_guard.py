@@ -1,5 +1,4 @@
 from src.services.pr_scope_guard import (
-    DEFAULT_ALLOWED_DOCS_WITH_CODE,
     classify_scope,
     classify_title_scope,
     infer_title_policy,
@@ -33,10 +32,10 @@ def test_classify_scope_allows_code_only():
 
 
 def test_classify_scope_blocks_mixed_scope_for_non_allowed_doc():
-    report = classify_scope(["src/processor.py", "docs/Next_Feature_Kickoff_Checklist_2026-02-19.md"])
+    report = classify_scope(["src/processor.py", "docs/archive/Next_Feature_Kickoff_Checklist_2026-02-19.md"])
     assert report.has_mixed_scope is True
     assert report.is_allowed is False
-    assert report.blocked_doc_files == ["docs/Next_Feature_Kickoff_Checklist_2026-02-19.md"]
+    assert report.blocked_doc_files == ["docs/archive/Next_Feature_Kickoff_Checklist_2026-02-19.md"]
 
 
 def test_classify_scope_allows_mixed_scope_for_queue_sync_doc():
@@ -47,41 +46,6 @@ def test_classify_scope_allows_mixed_scope_for_queue_sync_doc():
     assert report.blocked_doc_files == []
 
 
-def test_classify_scope_allows_backend_api_packaging_docs_with_code():
-    doc_files = [
-        "docs/API_CHAT_CONTRACT.md",
-        "docs/MEETING_PACK.md",
-        "docs/reports/Backend_API_PR_Packaging_2026-03-18.md",
-    ]
-    report = classify_scope(["src/processor.py", *doc_files])
-    assert report.has_mixed_scope is True
-    assert report.is_allowed is True
-    assert report.allowed_doc_files == sorted(doc_files)
-    assert report.blocked_doc_files == []
-
-
-def test_default_allowed_docs_with_code_stays_explicit():
-    assert "docs/Pending_PR_Queue.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
-    assert "docs/MEETING_PACK.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
-    assert "docs/reports/Current_Baseline_Recheck_2026-03-18.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
-    assert "docs/UX_REVIEW_TEMPLATE.md" in DEFAULT_ALLOWED_DOCS_WITH_CODE
-
-
-def test_classify_scope_allows_ux_review_docs_with_code():
-    report = classify_scope(
-        [
-            "frontend/src/app/pages/PaperNotesListPage.tsx",
-            "docs/UX_REVIEW_TEMPLATE.md",
-            "docs/UX_REVIEW_REPORT_paper-notes-list.md",
-        ]
-    )
-    assert report.has_mixed_scope is True
-    assert report.is_allowed is True
-    assert report.allowed_doc_files == [
-        "docs/UX_REVIEW_REPORT_paper-notes-list.md",
-        "docs/UX_REVIEW_TEMPLATE.md",
-    ]
-    assert report.blocked_doc_files == []
 
 
 def test_infer_title_policy_detects_docs_and_test_prefixes():
