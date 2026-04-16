@@ -6,7 +6,14 @@ from pathlib import Path
 from src.config import load_config
 from src.db_utils import get_db_path
 from src.schemas.ops import RuntimeReadinessCheck, RuntimeReadinessResponse
-from src.services.runtime_paths import cache_root, config_file_path, config_root, logs_root, storage_root
+from src.services.runtime_paths import (
+    cache_root,
+    config_file_path,
+    config_root,
+    frontend_runtime_dir,
+    logs_root,
+    storage_root,
+)
 
 
 def _nearest_existing_parent(path: Path) -> Path:
@@ -22,8 +29,7 @@ def _path_writable_target(path: Path) -> bool:
 
 
 def _frontend_roots() -> tuple[Path, Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    frontend_dir = repo_root / "frontend"
+    frontend_dir = frontend_runtime_dir()
     return frontend_dir / "dist" / "index.html", frontend_dir / "index.html"
 
 
