@@ -76,6 +76,7 @@ def test_meeting_pack_quality_gate_marks_evidence_backed_pack_as_discussion_read
         markdown_sync_status="in_sync",
     )
 
+    assert gate.schema_version == "2026-04-09.meeting-pack-handoff.v2"
     assert gate.overall_status == "pass"
     assert gate.bundle_ready is True
     assert gate.discussion_ready is True
