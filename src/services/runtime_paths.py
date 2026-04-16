@@ -160,6 +160,38 @@ def cache_root() -> Path:
     return (storage_root() / "cache").resolve()
 
 
+def exports_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "export").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "exports").resolve()
+    return Path("export")
+
+
+def library_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "Library").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "library").resolve()
+    return Path("Library")
+
+
+def pdf_storage_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "storage" / "pdfs").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "pdfs").resolve()
+    return Path("storage/pdfs")
+
+
+def managed_watch_folder_root() -> Path:
+    if os.getenv("PAPERPIPE_HOME"):
+        return (paperpipe_home() / "watch_folder").resolve()
+    if install_layout_enabled():
+        return (storage_root() / "watch_folder").resolve()
+    return Path("Download/PaperPipe_Watch")
+
+
 def rag_root() -> Path:
     value = os.getenv("PAPERPIPE_RAG_DIR")
     if value:
