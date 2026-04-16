@@ -10,9 +10,11 @@ from src.services.event_log import (
     ensure_execution_run,
     get_execution_run_params,
     list_job_events,
+    list_request_audits,
     list_run_events,
     list_user_actions,
     log_job_event,
+    log_request_audit,
     log_user_action,
 )
 
@@ -32,6 +34,7 @@ def test_init_db_creates_additive_event_log_tables(tmp_path, monkeypatch):
         assert "execution_runs" in tables
         assert "job_events" in tables
         assert "user_actions" in tables
+        assert "request_audits" in tables
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -241,6 +244,48 @@ def test_list_run_events_returns_empty_for_legacy_job_events_without_run_id(tmp_
         conn.close()
 
         assert list_run_events("run-legacy-001") == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_request_audit_helpers_persist_and_filter_rows(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        audit_id = log_request_audit(
+            source="browser_api",
+            client_ip="10.0.0.8",
+            host="beta.example",
+            method="POST",
+            path="/api/jobs/deepread",
+            status_code=200,
+            outcome="allowed",
+            payload={"scope": "browser_write"},
+        )
+
+        conn = db_utils.get_db_connection()
+        row = conn.execute(
+            "SELECT audit_id, source, client_ip, host, method, path, status_code, outcome, payload_json FROM request_audits WHERE audit_id = ?",
+            (audit_id,),
+        ).fetchone()
+        conn.close()
+
+        assert row is not None
+        assert row["source"] == "browser_api"
+        assert row["client_ip"] == "10.0.0.8"
+        assert row["host"] == "beta.example"
+        assert row["method"] == "POST"
+        assert row["path"] == "/api/jobs/deepread"
+        assert row["status_code"] == 200
+        assert row["outcome"] == "allowed"
+        assert json.loads(row["payload_json"])["scope"] == "browser_write"
+
+        listed = list_request_audits(path="/api/jobs/deepread", outcome="allowed", limit=10)
+        assert len(listed) == 1
+        assert listed[0]["audit_id"] == audit_id
+        assert listed[0]["payload"]["scope"] == "browser_write"
     finally:
         db_utils.DB_PATH = original_db_path
 
