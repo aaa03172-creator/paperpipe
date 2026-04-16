@@ -5,7 +5,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
-from src.services.runtime_paths import config_file_path, feedback_index_root, logs_root, rag_root
+from src.services.runtime_paths import (
+    config_file_path,
+    exports_root,
+    feedback_index_root,
+    install_layout_enabled,
+    library_root,
+    logs_root,
+    managed_watch_folder_root,
+    pdf_storage_root,
+    rag_root,
+)
 
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
@@ -19,11 +29,11 @@ class PathsConfig(BaseModel):
     index_all: Path = Path("00_Index/paper_collection.csv")
     index_clinical: Path = Path("00_Index/mct_mci_trials.csv")
     upload_dir: Optional[Path] = None
-    export_dir: Path = Path("export")
+    export_dir: Path = Field(default_factory=exports_root)
     watch_folder: Optional[Path] = None # [NEW]
-    library_dir: Path = Path("Library") # [NEW]
-    downloads_watch_dir: Path = Path("~/Downloads")
-    pdf_storage_dir: Path = Path("storage/pdfs")
+    library_dir: Path = Field(default_factory=library_root) # [NEW]
+    downloads_watch_dir: Path = Field(default_factory=lambda: Path("~/Downloads").expanduser())
+    pdf_storage_dir: Path = Field(default_factory=pdf_storage_root)
 
     @field_validator(
         "zotero_base_dir",
@@ -42,6 +52,22 @@ class PathsConfig(BaseModel):
         if v:
             return Path(v).expanduser()
         return v
+
+    @model_validator(mode="after")
+    def normalize_install_layout_owned_defaults(self):
+        if not install_layout_enabled():
+            return self
+
+        if self.export_dir == Path("export"):
+            self.export_dir = exports_root()
+        if self.library_dir == Path("Library"):
+            self.library_dir = library_root()
+        if self.pdf_storage_dir == Path("storage/pdfs"):
+            self.pdf_storage_dir = pdf_storage_root()
+        if self.watch_folder == Path("Download/PaperPipe_Watch"):
+            self.watch_folder = managed_watch_folder_root()
+
+        return self
 
 class SlotConfig(BaseModel):
     query: str

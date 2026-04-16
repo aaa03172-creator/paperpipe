@@ -1,4 +1,3 @@
-from src.services.runtime_paths import cache_root, feedback_index_root, ocr_cache_root, paperpipe_home, rag_root
 import src.services.runtime_paths as runtime_paths
 
 
@@ -9,11 +8,11 @@ def test_cache_and_agent_roots_default_under_paperpipe_home(tmp_path, monkeypatc
     monkeypatch.delenv("PAPERPIPE_OCR_CACHE_DIR", raising=False)
     monkeypatch.setenv("PAPERPIPE_HOME", str(tmp_path))
 
-    assert paperpipe_home() == tmp_path.resolve()
-    assert cache_root() == (tmp_path / "cache").resolve()
-    assert rag_root() == (tmp_path / "storage" / "rag").resolve()
-    assert feedback_index_root() == (tmp_path / "storage" / "feedback_index").resolve()
-    assert ocr_cache_root() == (tmp_path / "cache" / "ocr").resolve()
+    assert runtime_paths.paperpipe_home() == tmp_path.resolve()
+    assert runtime_paths.cache_root() == (tmp_path / "cache").resolve()
+    assert runtime_paths.rag_root() == (tmp_path / "storage" / "rag").resolve()
+    assert runtime_paths.feedback_index_root() == (tmp_path / "storage" / "feedback_index").resolve()
+    assert runtime_paths.ocr_cache_root() == (tmp_path / "cache" / "ocr").resolve()
 
 
 def test_cache_and_agent_roots_respect_env_override(tmp_path, monkeypatch):
@@ -27,10 +26,10 @@ def test_cache_and_agent_roots_respect_env_override(tmp_path, monkeypatch):
     monkeypatch.setenv("PAPERPIPE_FEEDBACK_INDEX_DIR", str(custom_feedback))
     monkeypatch.setenv("PAPERPIPE_OCR_CACHE_DIR", str(custom_ocr))
 
-    assert cache_root() == custom_cache.resolve()
-    assert rag_root() == custom_rag.resolve()
-    assert feedback_index_root() == custom_feedback.resolve()
-    assert ocr_cache_root() == custom_ocr.resolve()
+    assert runtime_paths.cache_root() == custom_cache.resolve()
+    assert runtime_paths.rag_root() == custom_rag.resolve()
+    assert runtime_paths.feedback_index_root() == custom_feedback.resolve()
+    assert runtime_paths.ocr_cache_root() == custom_ocr.resolve()
 
 
 def test_cache_and_agent_roots_follow_install_layout_on_macos(tmp_path, monkeypatch):
