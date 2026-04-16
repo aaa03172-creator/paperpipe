@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 
 from src.config import load_config
@@ -12,6 +12,7 @@ from src.paper_syntheses.service import (
     paper_synthesis_list_response,
     paper_synthesis_response_payload,
 )
+from src.services.event_log import log_request_audit
 from src.schemas.paper_synthesis import (
     PaperSynthesisGenerateRequest,
     PaperSynthesis,
@@ -41,6 +42,27 @@ def _paper_synthesis_compatibility_headers(synthesis_id: str) -> dict[str, str]:
         "PaperPipe-Preferred-Manifest-Route": manifest_path,
         "PaperPipe-Preferred-Markdown-Route": markdown_path,
     }
+
+
+def _best_effort_log_paper_synthesis_compatibility_hit(request: Request, *, synthesis_id: str) -> None:
+    try:
+        log_request_audit(
+            source="compatibility_route",
+            client_ip=request.client.host if request.client else None,
+            host=request.url.hostname,
+            method=request.method,
+            path=request.url.path,
+            status_code=200,
+            outcome="deprecated_bundle_read",
+            payload={
+                "compatibility_route": "paper_synthesis_bundle",
+                "synthesis_id": synthesis_id,
+                "preferred_manifest_route": f"/paper-syntheses/{synthesis_id}/manifest",
+                "preferred_markdown_route": f"/paper-syntheses/{synthesis_id}/markdown",
+            },
+        )
+    except Exception:
+        return
 
 
 @router.post("/generate", response_model=PaperSynthesisResponse)
@@ -77,11 +99,12 @@ def list_paper_syntheses_route(paper_slug: str | None = None) -> PaperSynthesisL
         "`/paper-syntheses/{synthesis_id}/markdown` for user-facing markdown export."
     ),
 )
-def get_paper_synthesis_route(synthesis_id: str, response: Response) -> PaperSynthesisResponse:
+def get_paper_synthesis_route(synthesis_id: str, response: Response, request: Request) -> PaperSynthesisResponse:
     try:
         payload = paper_synthesis_response_payload(get_paper_synthesis(synthesis_id))
         for header_name, header_value in _paper_synthesis_compatibility_headers(synthesis_id).items():
             response.headers[header_name] = header_value
+        _best_effort_log_paper_synthesis_compatibility_hit(request, synthesis_id=synthesis_id)
         return payload
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

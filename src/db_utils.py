@@ -141,10 +141,28 @@ def init_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS request_audits (
+            audit_id TEXT PRIMARY KEY,
+            ts TEXT NOT NULL,
+            source TEXT NOT NULL,
+            client_ip TEXT,
+            host TEXT,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            payload_json TEXT
+        )
+        """
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_execution_runs_paper ON execution_runs(paper_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, ts)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_events_run ON job_events(run_id, ts)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_actions_paper ON user_actions(paper_id, ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_request_audits_ts ON request_audits(ts)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_request_audits_path ON request_audits(path, ts)")
 
     # Lightweight papers migration used by downloader metrics/dashboard.
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='papers'")
