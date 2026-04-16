@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import src.db_utils as db_utils
 from backend import main as api_main
 from backend.routers import paper_syntheses as paper_syntheses_router
+from src.services.event_log import list_request_audits
 
 
 def _write(path: Path, content: str) -> None:
@@ -232,6 +233,16 @@ def test_paper_syntheses_api_generate_roundtrip_with_note_id_artifact_resolution
         assert fetched.headers.get("PaperPipe-Compatibility-Route") == "paper_synthesis_bundle"
         assert fetched.headers.get("PaperPipe-Preferred-Manifest-Route") == f"/paper-syntheses/{synthesis_id}/manifest"
         assert fetched.headers.get("PaperPipe-Preferred-Markdown-Route") == f"/paper-syntheses/{synthesis_id}/markdown"
+        audits = list_request_audits(
+            path=f"/paper-syntheses/{synthesis_id}",
+            source="compatibility_route",
+            limit=10,
+        )
+        assert len(audits) == 1
+        assert audits[0]["outcome"] == "deprecated_bundle_read"
+        assert audits[0]["payload"]["synthesis_id"] == synthesis_id
+        assert audits[0]["payload"]["preferred_manifest_route"] == f"/paper-syntheses/{synthesis_id}/manifest"
+        assert audits[0]["payload"]["preferred_markdown_route"] == f"/paper-syntheses/{synthesis_id}/markdown"
 
         manifest = client.get(f"/paper-syntheses/{synthesis_id}/manifest")
         assert manifest.status_code == 200
@@ -353,6 +364,12 @@ def test_paper_syntheses_api_returns_404_when_missing(tmp_path, monkeypatch):
         response = client.get("/paper-syntheses/papersynth_missing")
 
         assert response.status_code == 404
+        audits = list_request_audits(
+            path="/paper-syntheses/papersynth_missing",
+            source="compatibility_route",
+            limit=10,
+        )
+        assert audits == []
     finally:
         db_utils.DB_PATH = original_db_path
 
