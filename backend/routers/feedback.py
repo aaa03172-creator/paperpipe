@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.schemas.agent_artifacts import FeedbackCase
-from src.services.runtime_paths import storage_root
+from src.services.runtime_paths import feedback_log_path
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -22,7 +22,7 @@ def _get_feedback_retriever() -> FeedbackRetriever:
 
 
 def _feedback_file():
-    return FEEDBACK_FILE or (storage_root() / "feedback.jsonl")
+    return FEEDBACK_FILE or feedback_log_path()
 
 @router.post("")
 async def submit_feedback(feedback: FeedbackCase):
