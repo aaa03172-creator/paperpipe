@@ -296,6 +296,13 @@ def method_comparisons_root() -> Path:
     return (storage_root() / "method_comparisons").resolve()
 
 
+def paper_syntheses_root() -> Path:
+    value = os.getenv("PAPERPIPE_PAPER_SYNTHESES_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "paper_syntheses").resolve()
+
+
 def profiles_config_path() -> Path:
     value = os.getenv("PAPERPIPE_PROFILES_PATH")
     if value:

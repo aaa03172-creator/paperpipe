@@ -20,6 +20,7 @@ AUTOMATION_SECTION_RE = re.compile(
 )
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$")
+NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 PAPER_NOTE_EXCLUDED_DIR_NAMES = {".obsidian", "_backup"}
 
 
@@ -120,6 +121,34 @@ def resolve_note_path(vault_path: Path, slug: str) -> Path | None:
         if candidate == legacy_structured_relpath:
             return path
     return None
+
+
+def normalize_note_identifier(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return NON_ALNUM_RE.sub("", text)
+
+
+def paper_id_lookup_variants(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    variants: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    _append(text)
+    _append(text.replace(":", ""))
+    if ":" in text:
+        suffix = text.split(":", 1)[1].strip()
+        _append(suffix)
+        _append(suffix.replace(":", ""))
+    return variants
 
 
 def structured_relpath(slug: str) -> str:
