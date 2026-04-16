@@ -32,7 +32,7 @@ class MeetingPackQualityGateCheck(BaseModel):
 
 
 class MeetingPackQualityGate(BaseModel):
-    schema_version: str = "2026-03-27.meeting-pack-handoff.v1"
+    schema_version: str = "2026-04-09.meeting-pack-handoff.v2"
     workflow: Literal["meeting_pack"] = "meeting_pack"
     pack_id: str
     overall_status: Literal["pass", "warn", "fail"] = "warn"
