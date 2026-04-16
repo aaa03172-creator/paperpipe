@@ -73,7 +73,7 @@ def test_feedback_get_filters_and_limits(tmp_path, monkeypatch):
     assert run_items[0]["paper_id"] == "paper_feedback_002"
 
 
-def test_feedback_uses_runtime_storage_root(tmp_path, monkeypatch):
+def test_feedback_uses_runtime_storage_for_feedback_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     paperpipe_home = tmp_path / "app-home"
     monkeypatch.setenv("PAPERPIPE_HOME", str(paperpipe_home))

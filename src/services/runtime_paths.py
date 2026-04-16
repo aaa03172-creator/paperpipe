@@ -174,6 +174,13 @@ def feedback_index_root() -> Path:
     return (storage_root() / "feedback_index").resolve()
 
 
+def feedback_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_FEEDBACK_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "feedback.jsonl").resolve()
+
+
 def ocr_cache_root() -> Path:
     value = os.getenv("PAPERPIPE_OCR_CACHE_DIR")
     if value:
