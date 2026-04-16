@@ -845,6 +845,56 @@ export interface NotebookArtifact {
   };
 }
 
+export type PaperSynthesisCanonicalStatus = "non_canonical";
+
+export type PaperSynthesisReadiness = "evidence_backed" | "background_only" | "mixed";
+
+export type PaperSynthesisFreshness = "current" | "stale" | "unknown";
+
+export type PaperSynthesisLineageSourceKind = "structured_state" | "claimset_resolved" | "run_meta";
+
+export type PaperSynthesisReviewArtifactKind = "quality_gate" | "acceptance_contract";
+
+export interface PaperSynthesisLineageSummary {
+  minimum_required_source_kinds: PaperSynthesisLineageSourceKind[];
+  present_required_source_kinds: PaperSynthesisLineageSourceKind[];
+  review_artifact_kinds: PaperSynthesisReviewArtifactKind[];
+  answer_route: "canonical_state_then_upstream_evidence";
+}
+
+export type PaperSynthesisSourceKind =
+  | PaperSynthesisLineageSourceKind
+  | PaperSynthesisReviewArtifactKind
+  | "document_artifact"
+  | "paper_note_state";
+
+export interface PaperSynthesisSourceRef {
+  kind: PaperSynthesisSourceKind;
+  paper_slug: string;
+  run_id?: string | null;
+  path?: string | null;
+  note?: string | null;
+}
+
+export interface PaperSynthesisManifest {
+  synthesis_id: string;
+  paper_slug: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  artifact_family: "paper_synthesis";
+  template_kind: "paper" | "project" | "meeting" | "decision" | "concept";
+  layer: "compiled_knowledge";
+  canonical_status: PaperSynthesisCanonicalStatus;
+  readiness: PaperSynthesisReadiness;
+  freshness: PaperSynthesisFreshness;
+  summary?: string | null;
+  source_refs: PaperSynthesisSourceRef[];
+  warnings: string[];
+  uncertainty_notes: string[];
+  lineage_summary: PaperSynthesisLineageSummary;
+}
+
 export interface ApiResult<T> {
   data: T;
   isMock: boolean;

@@ -18,6 +18,7 @@ import {
   PaperDetail,
   PaperNoteDetailResponse,
   PaperNoteListResponse,
+  PaperSynthesisManifest,
   PaperSummary,
   PersonaListResponse,
   SkillRunResponse,
@@ -983,6 +984,54 @@ export async function getPersonas(): Promise<ApiResult<PersonaListResponse>> {
     () => getMockPersonas(),
     "persona registry unavailable",
   );
+}
+
+export async function getPaperSynthesisManifest(
+  synthesisId: string,
+): Promise<ApiResult<PaperSynthesisManifest | null>> {
+  const normalizedId = synthesisId.trim();
+  if (!normalizedId) {
+    return {
+      data: null,
+      isMock: false,
+      reason: "paper synthesis id unavailable",
+    };
+  }
+
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: null,
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    const response = await firstSuccess<PaperSynthesisManifest>([
+      `/paper-syntheses/${encodeURIComponent(normalizedId)}/manifest`,
+    ]);
+    return {
+      data: response,
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      return {
+        data: null,
+        isMock: false,
+        reason: "paper synthesis manifest not found",
+      };
+    }
+    return {
+      data: null,
+      isMock: false,
+      reason: getApiErrorMessage(error),
+    };
+  }
+}
+
+export function getPaperSynthesisMarkdownUrl(synthesisId: string): string {
+  return apiPath(`/paper-syntheses/${encodeURIComponent(synthesisId)}/markdown`);
 }
 
 export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<string>> {
