@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
+import src.jobs.queue as queue_mod
 import src.jobs.worker as worker_mod
 from backend.services.job_runner import _resolve_ingest_parser_backend
 from src.jobs.queue import JobQueue
@@ -777,5 +778,90 @@ def test_job_queue_claim_respects_configurable_max_concurrency(tmp_path, monkeyp
         assert claimed_second is not None
         assert claimed_second.job_id == second
         assert claimed_third is None
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_job_queue_claim_uses_immediate_transaction_and_queued_guard(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MAX_CONCURRENT_JOBS", "2")
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        first_job_id = queue.enqueue(paper_id="paper_txn_guard_001")
+
+        statements: list[str] = []
+
+        class RecordingCursor:
+            def __init__(self, inner_cursor, sink: list[str]):
+                self._inner = inner_cursor
+                self._sink = sink
+
+            def execute(self, sql, params=()):
+                self._sink.append(" ".join(str(sql).split()))
+                self._inner.execute(sql, params)
+                return self
+
+            def fetchone(self):
+                return self._inner.fetchone()
+
+            @property
+            def rowcount(self):
+                return self._inner.rowcount
+
+        class RecordingConnection:
+            def __init__(self, inner_conn, sink: list[str]):
+                self._inner = inner_conn
+                self._sink = sink
+
+            def cursor(self):
+                return RecordingCursor(self._inner.cursor(), self._sink)
+
+            def execute(self, sql, params=()):
+                self._sink.append(" ".join(str(sql).split()))
+                return self._inner.execute(sql, params)
+
+            def rollback(self):
+                return self._inner.rollback()
+
+            def commit(self):
+                return self._inner.commit()
+
+            def close(self):
+                return self._inner.close()
+
+        def recording_connection():
+            return RecordingConnection(db_utils.get_db_connection(), statements)
+
+        monkeypatch.setattr(queue_mod, "get_db_connection", recording_connection)
+
+        claimed = queue.claim_next_job()
+
+        assert claimed is not None
+        assert claimed.job_id == first_job_id
+        assert "BEGIN IMMEDIATE" in statements
+        update_statement = (
+            "UPDATE jobs SET status = 'running', started_at = CURRENT_TIMESTAMP "
+            "WHERE job_id = ? AND status = 'queued'"
+        )
+        assert update_statement in statements
+
+        begin_index = statements.index("BEGIN IMMEDIATE")
+        running_count_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if "SELECT COUNT(*) FROM jobs WHERE status = 'running'" in statement
+        )
+        queued_select_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if "SELECT job_id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1" in statement
+        )
+        update_index = statements.index(update_statement)
+
+        assert begin_index < running_count_index < queued_select_index < update_index
     finally:
         db_utils.DB_PATH = original_db_path
