@@ -4,6 +4,7 @@ from unittest.mock import patch
 import fitz
 
 from src.agents.ingest_agent import IngestAgent
+from src.ingest.ocr_fallback import run_ocr
 
 
 def _make_pdf(path: Path, text: str | None = None) -> None:
@@ -75,3 +76,20 @@ def test_ocr_fallback_fail_safe_keeps_original_on_error(tmp_path):
     assert artifact.metadata.ocr_applied is False
     assert artifact.metadata.ocr_error == "simulated_failure"
     assert artifact.source.ref == str(src_pdf.absolute())
+
+
+def test_run_ocr_uses_skip_text_without_force_ocr(tmp_path):
+    src_pdf = tmp_path / "source.pdf"
+    out_pdf = tmp_path / "ocr_out.pdf"
+    _make_pdf(src_pdf, text="Original text exists")
+
+    with patch("src.ingest.ocr_fallback.shutil.which", return_value="/opt/homebrew/bin/ocrmypdf"), patch(
+        "src.ingest.ocr_fallback.subprocess.check_output", return_value="17.4.0"
+    ), patch("src.ingest.ocr_fallback.subprocess.run") as run_mock:
+        result = run_ocr(src_pdf, out_pdf)
+
+    assert result["ocr_applied"] is True
+    run_mock.assert_called_once()
+    command = run_mock.call_args.args[0]
+    assert command[:4] == ["ocrmypdf", "--skip-text", "--language", "eng"]
+    assert "--force-ocr" not in command
