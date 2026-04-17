@@ -67,12 +67,19 @@ def test_artifact_bridge_converts_v2_to_legacy():
     assert legacy.tables[0].table_id == "T1"
 
 
-def test_reader_agent_accepts_v2_input():
+def test_reader_agent_accepts_v2_input(monkeypatch):
     v2 = _make_v2()
+    class FakeAdapter:
+        def __init__(self, model_name=None):
+            self.model_name = model_name
+
+        def generate(self, *args, **kwargs):
+            return SimpleNamespace(text='{"doc_id":"doc-v2-001","claims":[]}')
+
+    import src.agents.reader_agent as reader_module
+
+    monkeypatch.setattr(reader_module, "OllamaModelAdapter", FakeAdapter)
     reader = ReaderAgent(model_name="llama3:latest")
-    reader.adapter.generate = lambda *args, **kwargs: SimpleNamespace(
-        text='{"doc_id":"doc-v2-001","claims":[]}'
-    )
 
     result = reader.analyze(v2)
     assert result is not None
@@ -89,7 +96,19 @@ def test_artifact_views_extract_header_and_sections_from_v2():
     assert header.source_ref == "/tmp/sample.pdf"
     assert len(sections) == 1
     assert sections[0].name == "page_1"
+    assert sections[0].page_hint == 1
+    assert sections[0].ordinal == 1
     assert "line one" in sections[0].text
+
+
+def test_artifact_views_preserve_page_hints_for_legacy_artifact():
+    legacy = ensure_legacy_document_artifact(_make_v2())
+    sections = list(iter_text_sections(legacy))
+
+    assert len(sections) == 1
+    assert sections[0].name == "page_1"
+    assert sections[0].page_hint == 1
+    assert sections[0].ordinal == 1
 
 
 def test_indexer_agent_accepts_v2_input_without_init():
