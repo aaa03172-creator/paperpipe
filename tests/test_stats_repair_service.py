@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import src.services.stats_repair as stats_repair
 from src.services.stats_repair import seed_for_paper, seed_stats_reports_from_claimset
 
 
@@ -102,3 +103,35 @@ def test_seed_for_paper_prefers_existing_legacy_dir_for_unsafe_paper_id(tmp_path
     assert result.run_id == "run_legacy"
     assert (legacy_run_dir / "stats_report.json").exists()
     assert not (hashed_run_dir / "stats_report.json").exists()
+
+
+def test_seed_for_paper_uses_atomic_write_helper(tmp_path: Path, monkeypatch) -> None:
+    artifacts_root = tmp_path / "storage" / "artifacts"
+    run_dir = artifacts_root / "paper_001" / "run_001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_claimset(run_dir)
+    (run_dir / "bootstrap_meta.json").write_text(json.dumps({"paper_id": "paper_001"}), encoding="utf-8")
+
+    recorded_paths: list[Path] = []
+
+    def _record_atomic_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+        recorded_paths.append(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding=encoding)
+
+    monkeypatch.setattr(stats_repair, "atomic_write_text", _record_atomic_write)
+
+    result = seed_for_paper(
+        artifacts_root=artifacts_root,
+        paper_id="paper_001",
+        max_checks=5,
+        write_bootstrap_meta=True,
+        skip_existing=False,
+        dry_run=False,
+    )
+
+    assert result.status == "seeded"
+    assert recorded_paths == [
+        run_dir / "stats_report.json",
+        run_dir / "bootstrap_meta.json",
+    ]
