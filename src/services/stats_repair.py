@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from src.schemas.agent_artifacts import EvidenceSpan, StatCheckEntry, StatsReport, VerificationStatus
+from src.skills.storage import atomic_write_text
 from src.services.runtime_paths import artifact_paper_dir_candidates, preferred_artifact_paper_dir
 
 
@@ -143,7 +144,7 @@ def _write_bootstrap_meta(run_dir: Path) -> None:
     meta["artifact_stats_written"] = True
     meta.setdefault("artifact_claimset_written", True)
     meta.setdefault("verifier_status", "fallback_generated")
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(meta_path, json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
 
 def seed_for_paper(
@@ -186,7 +187,7 @@ def seed_for_paper(
     )
 
     if not dry_run:
-        stats_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(stats_path, report.model_dump_json(indent=2))
         if write_bootstrap_meta:
             _write_bootstrap_meta(selected_run)
 
