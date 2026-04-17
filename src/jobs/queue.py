@@ -200,13 +200,16 @@ class JobQueue:
         Implements max concurrency guard for running jobs.
         """
         conn = get_db_connection()
-        cursor = conn.cursor()
         try:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+
             # 1. Check running jobs count
             cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
             running_count = cursor.fetchone()[0]
             max_concurrent_jobs = _resolve_max_concurrent_jobs()
             if running_count >= max_concurrent_jobs:
+                conn.rollback()
                 return None
             
             # 2. Find oldest queued job
@@ -218,6 +221,7 @@ class JobQueue:
             """)
             row = cursor.fetchone()
             if not row:
+                conn.rollback()
                 return None
                 
             job_id = row[0]
@@ -226,10 +230,13 @@ class JobQueue:
             cursor.execute("""
                 UPDATE jobs 
                 SET status = 'running', started_at = CURRENT_TIMESTAMP 
-                WHERE job_id = ?
+                WHERE job_id = ? AND status = 'queued'
             """, (job_id,))
+            if cursor.rowcount == 0:
+                conn.rollback()
+                return None
             run_row = cursor.execute(
-                "SELECT run_id, paper_id FROM jobs WHERE job_id = ?",
+                "SELECT * FROM jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
             if run_row:
@@ -253,11 +260,15 @@ class JobQueue:
             conn.commit()
             
             # 4. Return full object
-            return self.get_job(job_id)
+            return JobStatus(**dict(run_row)) if run_row else None
             
         except sqlite3.OperationalError as e:
+            conn.rollback()
             logger.error(f"DB Error claiming job: {e}")
             return None
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
