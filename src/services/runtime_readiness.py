@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
@@ -31,6 +32,34 @@ def _path_writable_target(path: Path) -> bool:
 def _frontend_roots() -> tuple[Path, Path]:
     frontend_dir = frontend_runtime_dir()
     return frontend_dir / "dist" / "index.html", frontend_dir / "index.html"
+
+
+def _backend_entrypoint_check() -> RuntimeReadinessCheck:
+    try:
+        importlib.import_module("backend.main")
+    except ModuleNotFoundError as exc:
+        missing = exc.name or "unknown"
+        return RuntimeReadinessCheck(
+            name="backend_entrypoint",
+            status="error",
+            detail=(
+                f"backend entrypoint import failed: missing dependency '{missing}'. "
+                "Install runtime dependencies with `python -m pip install -r requirements.txt`. "
+                "If local repo verification is failing before tests really start, rebuild the bounded verification env with "
+                "`python3 scripts/bootstrap_verification_env.py --run-id local_verification_bootstrap`."
+            ),
+        )
+    except Exception as exc:
+        return RuntimeReadinessCheck(
+            name="backend_entrypoint",
+            status="error",
+            detail=f"backend entrypoint import failed: {exc}",
+        )
+    return RuntimeReadinessCheck(
+        name="backend_entrypoint",
+        status="ok",
+        detail="backend entrypoint imports successfully",
+    )
 
 
 def collect_runtime_readiness() -> RuntimeReadinessResponse:
@@ -149,6 +178,8 @@ def collect_runtime_readiness() -> RuntimeReadinessResponse:
                 detail="no frontend entry is available",
             )
         )
+
+    checks.append(_backend_entrypoint_check())
 
     if any(check.status == "error" for check in checks):
         overall = "error"
