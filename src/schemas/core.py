@@ -79,6 +79,15 @@ class Paper(BaseModel):
     # [NEW] Escalation Gate
     is_escalated: bool = Field(default=False, description="True if auto-approved via escalation judge")
     escalation_reason: Optional[str] = Field(None, description="Reason for escalation approval")
+    escalation_final_route: Optional[str] = Field(None, description="Structured escalation route when present.")
+    escalation_in_biomedical_scope: Optional[bool] = Field(
+        None,
+        description="Whether the escalation judge considered the paper to be in biomedical scope.",
+    )
+    escalation_reason_codes: List[str] = Field(
+        default_factory=list,
+        description="Structured escalation reason codes when provided by the escalation judge.",
+    )
 
     # [NEW] Ticket 7: Context-Aware Analysis
     relevance_analysis: Optional[Dict[str, str]] = None # {gap, insight, limitation}
