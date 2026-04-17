@@ -485,3 +485,7 @@ class TrialExtraction(BaseModel):
 > **Ketone Confirmed**: {ketone_str}
 > **Tag**: #{tag}
 """
+
+
+# Canonical specialty-lane name with backward-compatible legacy aliasing.
+SpecialtyTrialExtraction = TrialExtraction
