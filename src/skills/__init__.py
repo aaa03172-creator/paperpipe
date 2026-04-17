@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .registry import list_available_actions
+
+def list_available_actions(*args: Any, **kwargs: Any):
+    from .registry import list_available_actions as _list_available_actions
+
+    return _list_available_actions(*args, **kwargs)
 
 
 def run_skill_action(*args: Any, **kwargs: Any):
