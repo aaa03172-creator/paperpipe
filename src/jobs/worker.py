@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
 from backend.services.job_runner import run_deepread_job
-from src.services.event_log import get_execution_run_params
+from src.services.event_log import get_execution_run_params, log_job_event
 from src.services.runtime_paths import logs_root
 
 # Configure logging
@@ -105,6 +105,14 @@ class Worker:
                     "stage": "completed",
                     "artifact_dir": result.get("artifact_dir"),
                 })
+                log_job_event(
+                    job_id=job.job_id,
+                    run_id=job.run_id,
+                    level="INFO",
+                    event_type="job_completed",
+                    message="completed",
+                    payload={"status": "completed", "artifact_dir": result.get("artifact_dir")},
+                )
                 logger.info(f"✅ Job {job.job_id} completed.")
             else:
                 error_message = (result or {}).get("error", "Deep Read pipeline failed")
@@ -113,6 +121,14 @@ class Worker:
                     "error_message": error_message,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                 })
+                log_job_event(
+                    job_id=job.job_id,
+                    run_id=job.run_id,
+                    level="ERROR",
+                    event_type="job_failed",
+                    message=error_message,
+                    payload={"status": "failed", "error": error_message},
+                )
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
 
         except KeyboardInterrupt:
