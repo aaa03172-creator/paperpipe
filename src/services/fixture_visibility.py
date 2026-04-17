@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Callable, TypeVar
 
 from src.schemas.meeting_pack import MeetingPack
+from src.schemas.skills import StructuredPaperState
 
 T = TypeVar("T")
 
@@ -62,4 +64,38 @@ def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
         if source_title.startswith("e2e ") or "fixture" in source_title:
             return True
 
+    return False
+
+
+def fixture_structured_state_allowed(vault_path: Path | None = None) -> bool:
+    if _include_test_fixtures_enabled():
+        return True
+    if vault_path is None:
+        return False
+    try:
+        resolved = Path(vault_path).expanduser().resolve()
+    except Exception:
+        resolved = Path(vault_path).expanduser()
+    return ".e2e-backend-runtime" in resolved.parts
+
+
+def is_test_fixture_structured_state(state: StructuredPaperState) -> bool:
+    for run in state.runs:
+        run_id = str(run.id or "").strip().lower()
+        if run_id.startswith("run_e2e_fixture") or run_id.startswith("job-e2e-fixture"):
+            return True
+
+    for claim in state.claimset:
+        claim_id = str(claim.id or "").strip().lower()
+        source_claim_id = str(getattr(claim, "source_claim_id", "") or "").strip().lower()
+        if claim_id.startswith("claim_c0ffee") or source_claim_id.startswith("e2e-claim-"):
+            return True
+        for evidence in claim.evidence:
+            evidence_id = str(evidence.id or "").strip().lower()
+            if evidence_id.startswith("evidence_deadbeef"):
+                return True
+            locator = evidence.locator if isinstance(evidence.locator, dict) else {}
+            chunk_id = str(locator.get("chunk_id") or "").strip().lower()
+            if chunk_id.startswith("chunk-e2e-"):
+                return True
     return False
