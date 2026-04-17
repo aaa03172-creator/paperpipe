@@ -937,6 +937,11 @@ async def run_deepread_job(
             bootstrap_meta["reader_eval_heuristic_backfill_claim_count"] = (
                 reader_eval.metrics.heuristic_backfill_claim_count
             )
+            bootstrap_meta["reader_eval_bbox_span_count"] = reader_eval.metrics.bbox_span_count
+            bootstrap_meta["reader_eval_text_match_span_count"] = reader_eval.metrics.text_match_span_count
+            bootstrap_meta["reader_eval_approx_span_count"] = reader_eval.metrics.approx_span_count
+            bootstrap_meta["reader_eval_unresolved_span_count"] = reader_eval.metrics.unresolved_span_count
+            bootstrap_meta["reader_eval_ambiguous_span_count"] = reader_eval.metrics.ambiguous_span_count
         except Exception as exc:
             logger.warning("Failed to build reader_eval sidecar: %s", exc)
         if claim_count > 0:
