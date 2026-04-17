@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import md5, sha1, sha256, sha512
 import json
+import logging
 from pathlib import Path
 
 from src.image_evidence.store import (
@@ -26,6 +27,9 @@ from src.schemas.image_evidence import (
     summarize_image_evidence,
 )
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -139,7 +143,12 @@ def get_image_evidence_bundle(image_evidence_id: str, *, root: Path | None = Non
 
 
 def list_image_evidence_summaries(*, root: Path | None = None) -> list[ImageEvidence]:
-    items = [load_image_evidence(image_evidence_id, root) for image_evidence_id in list_image_evidence_ids(root)]
+    items: list[ImageEvidence] = []
+    for image_evidence_id in list_image_evidence_ids(root):
+        try:
+            items.append(load_image_evidence(image_evidence_id, root))
+        except Exception as exc:
+            logger.warning("Skipping unreadable image evidence bundle %s: %s", image_evidence_id, exc)
     return sorted(items, key=lambda item: (item.created_at, item.image_evidence_id), reverse=True)
 
 
