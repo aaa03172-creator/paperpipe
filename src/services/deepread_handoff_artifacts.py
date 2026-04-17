@@ -123,6 +123,12 @@ def build_deepread_quality_gate(
     reader_eval_approx_span_count = int(bootstrap_meta.get("reader_eval_approx_span_count") or 0)
     reader_eval_unresolved_span_count = int(bootstrap_meta.get("reader_eval_unresolved_span_count") or 0)
     reader_eval_ambiguous_span_count = int(bootstrap_meta.get("reader_eval_ambiguous_span_count") or 0)
+    claimset_section_count = int(
+        bootstrap_meta.get("claimset_section_count")
+        or run_meta.get("section_count")
+        or 0
+    )
+    has_section_navigation_signal = bool(claimset_section_count > 0 or run_meta.get("section_summary"))
     used_heuristic_fallback = bool(raw_analysis.get("used_heuristic_fallback"))
     return_mode = str(raw_analysis.get("return_mode") or "").strip().lower() or None
     reader_timeout_triggered = bool(
@@ -235,6 +241,14 @@ def build_deepread_quality_gate(
                     f"unresolved={reader_eval_unresolved_span_count}, "
                     f"ambiguous={reader_eval_ambiguous_span_count}"
                 )
+            ),
+        ),
+        DeepReadQualityGateCheck(
+            name="section_navigation_signal",
+            status="pass" if has_section_navigation_signal else "warn",
+            detail=(
+                f"claimset_section_count={claimset_section_count}, "
+                f"summary_present={str(bool(run_meta.get('section_summary'))).lower()}"
             ),
         ),
         DeepReadQualityGateCheck(
