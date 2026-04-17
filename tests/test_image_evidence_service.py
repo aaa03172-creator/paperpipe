@@ -94,6 +94,30 @@ def test_register_image_evidence_checksum_mismatch_warns_and_list_sorts_recent_f
     assert [item.image_evidence_id for item in listed.items] == ["img_newer", "img_older"]
 
 
+def test_image_evidence_list_skips_unreadable_bundles(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+
+    register_image_evidence(
+        request=ImageEvidenceRequest(
+            image_evidence_id="img_valid",
+            title="Valid",
+            source_ref={"source_kind": "external_image_ref", "external_ref": "omero://valid"},
+            content_format="image/png",
+        ),
+        root=root,
+        now=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+    )
+
+    broken_dir = root / "img_broken"
+    broken_dir.mkdir(parents=True, exist_ok=True)
+    (broken_dir / "image_evidence.json").write_text("{not valid json", encoding="utf-8")
+
+    listed = image_evidence_list_response(root=root)
+
+    assert listed.total == 1
+    assert [item.image_evidence_id for item in listed.items] == ["img_valid"]
+
+
 def test_image_evidence_package_reexports_service_entrypoints(tmp_path) -> None:
     root = tmp_path / "image_evidence"
     local_file = tmp_path / "raw-image.tif"
