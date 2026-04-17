@@ -64,6 +64,10 @@ def build_deepread_structured_state_candidate(
     claimset_readiness = str(bootstrap_meta.get("claimset_readiness") or "").strip() or None
     quality_gate = _load_json_dict(artifact_dir / "quality_gate.json") or {}
     quality_gate_status = str(quality_gate.get("overall_status") or "").strip() or None
+    section_navigation_signal_status, section_navigation_signal_detail = _quality_gate_check_status_and_detail(
+        quality_gate,
+        "section_navigation_signal",
+    )
     clinical_summary = _build_clinical_extraction_summary(clinical_extraction)
 
     summary_parts = [f"Projected Deep Read artifact bundle into canonical state ({claim_count} claims"]
@@ -102,6 +106,8 @@ def build_deepread_structured_state_candidate(
             "quality_gate_status": quality_gate.get("overall_status"),
             "review_ready": quality_gate.get("review_ready"),
             "current_promotion_candidate": quality_gate.get("current_promotion_candidate"),
+            "section_navigation_signal_status": section_navigation_signal_status,
+            "section_navigation_signal_detail": section_navigation_signal_detail,
             "clinical_extraction_status": clinical_status,
             "clinical_extraction_note_type": clinical_note_type,
             "clinical_condition": clinical_summary["condition"],
@@ -145,6 +151,7 @@ def build_deepread_structured_state_candidate(
             "quality_gate_status": quality_gate.get("overall_status"),
             "quality_gate_review_ready": quality_gate.get("review_ready"),
             "quality_gate_current_promotion_candidate": quality_gate.get("current_promotion_candidate"),
+            "quality_gate_section_navigation_signal": section_navigation_signal_status,
             "claim_count": claim_count,
             "evidence_count": evidence_count,
         }
@@ -221,6 +228,24 @@ def _load_biomedical_clinical_extraction(artifact_dir: Path) -> BiomedicalClinic
         return BiomedicalClinicalExtraction.model_validate(payload)
     except Exception:
         return None
+
+
+def _quality_gate_check_status_and_detail(
+    quality_gate: dict[str, Any],
+    name: str,
+) -> tuple[str | None, str | None]:
+    checks = quality_gate.get("checks")
+    if not isinstance(checks, list):
+        return None, None
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name") or "").strip() != name:
+            continue
+        status = str(item.get("status") or "").strip() or None
+        detail = str(item.get("detail") or "").strip() or None
+        return status, detail
+    return None, None
 
 
 def _build_clinical_extraction_summary(
