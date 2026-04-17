@@ -1,4 +1,4 @@
-from src.schemas import Paper, PaperStatus
+from src.schemas import Paper, PaperStatus, SpecialtyTrialExtraction, TrialExtraction
 
 
 def _mk(status):
@@ -48,3 +48,7 @@ def test_escalation_metadata_defaults_and_roundtrip_are_preserved():
     assert p.escalation_final_route == "FAST_LANE_APPROVE"
     assert p.escalation_in_biomedical_scope is True
     assert p.escalation_reason_codes == ["FASTLANE_GUIDANCE"]
+
+
+def test_specialty_trial_extraction_alias_is_package_exported():
+    assert SpecialtyTrialExtraction is TrialExtraction
