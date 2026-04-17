@@ -258,6 +258,24 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["claimset_ops_action"] == "none"
         assert meta["claimset_ops_alert"] is False
         assert meta["claimset_ops_note"] == "ready"
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        completion = conn.execute(
+            """
+            SELECT event_type, level, message, payload_json
+            FROM job_events
+            WHERE job_id = ?
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            (job_id_1,),
+        ).fetchone()
+        conn.close()
+        assert completion is not None
+        assert completion[0] == "job_completed"
+        assert completion[1] == "INFO"
+        assert completion[2] == "completed"
+        assert json.loads(completion[3])["status"] == "completed"
         span = resolved_claimset["claims"][0]["evidence_spans"][0]
         assert span["chunk_id"] == "p01_c01"
         assert span["page"] == 0
@@ -543,6 +561,24 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         prompts_snapshot = Path(str(run_meta["prompts_snapshot"]))
         assert prompts_snapshot.exists()
         assert prompts_snapshot.read_text(encoding="utf-8") == "# local runtime profiles\nprofiles: []\n"
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        failure = conn.execute(
+            """
+            SELECT event_type, level, message, payload_json
+            FROM job_events
+            WHERE job_id = ?
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+        conn.close()
+        assert failure is not None
+        assert failure[0] == "job_failed"
+        assert failure[1] == "ERROR"
+        assert failure[2] == "Reader step timed out after 123s (pages=1, tables=0)"
+        assert json.loads(failure[3])["status"] == "failed"
     finally:
         db_utils.DB_PATH = original_db_path
 
