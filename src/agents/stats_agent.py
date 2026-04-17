@@ -87,6 +87,26 @@ class StatsVerificationAgent:
                 checks=self._build_no_table_checks(claims),
             )
 
+        if all(self._table_looks_degenerate(table) for table in list(getattr(doc, "tables", []) or [])):
+            fallback_state = StatsAgentState(
+                job_id=job_id,
+                doc=doc,
+                claims=claims,
+                dataframes_code="",
+                extraction_result=[],
+                verification_plan="",
+                python_code="N/A",
+                execution_output="Degenerate table shape detected before verification planning.",
+                execution_error=None,
+                retry_count=0,
+                final_report=None,
+            )
+            return StatsReport(
+                doc_id=get_artifact_header(doc).doc_id,
+                run_id=job_id,
+                checks=self._build_unverifiable_fallback_checks(fallback_state),
+            )
+
         initial_state = StatsAgentState(
             job_id=job_id,
             doc=doc,
@@ -311,6 +331,9 @@ class StatsVerificationAgent:
         checks: List[StatCheckEntry] = []
         code = state.get("python_code") or "N/A"
         outputs = state.get("execution_output") or state.get("execution_error") or "N/A"
+        fallback_reason = StatsVerificationAgent._infer_unverifiable_reason(state)
+        if fallback_reason == "degenerate_table_shape" and "Degenerate table shape detected" not in str(outputs):
+            outputs = f"{outputs}\nDegenerate table shape detected; statistical recomputation skipped.".strip()
         extraction_items = state.get("extraction_result") if isinstance(state.get("extraction_result"), list) else []
 
         if extraction_items:
@@ -327,7 +350,7 @@ class StatsVerificationAgent:
                         code=code,
                         outputs=outputs,
                         verdict=VerificationStatus.UNVERIFIABLE,
-                        notes="auto_fallback_no_executable_verification",
+                        notes=f"auto_fallback_{fallback_reason}",
                     )
                 )
 
@@ -345,10 +368,42 @@ class StatsVerificationAgent:
                     code=code,
                     outputs=outputs,
                     verdict=VerificationStatus.UNVERIFIABLE,
-                    notes="auto_fallback_no_extractable_stats",
+                    notes=f"auto_fallback_{fallback_reason}",
                 )
             )
         return checks
+
+    @staticmethod
+    def _infer_unverifiable_reason(state: StatsAgentState) -> str:
+        if all(
+            StatsVerificationAgent._table_looks_degenerate(table)
+            for table in list(getattr(state.get("doc"), "tables", []) or [])
+        ):
+            return "degenerate_table_shape"
+        if state.get("execution_output") or state.get("execution_error"):
+            return "no_executable_verification"
+        return "no_extractable_stats"
+
+    @staticmethod
+    def _table_looks_degenerate(table: Any) -> bool:
+        rows = getattr(table, "data", None) or []
+        if not rows:
+            return True
+        if len(rows) < 2:
+            return True
+
+        max_row_width = max((len(row) for row in rows if isinstance(row, list)), default=0)
+        if max_row_width <= 1:
+            return True
+
+        flattened_cells = [
+            str(cell)
+            for row in rows
+            if isinstance(row, list)
+            for cell in row
+        ]
+        newline_dense_cells = sum(1 for cell in flattened_cells if "\n" in cell)
+        return bool(flattened_cells) and newline_dense_cells == len(flattened_cells)
 
     @staticmethod
     def _build_no_table_checks(claims: ClaimSet) -> List[StatCheckEntry]:
