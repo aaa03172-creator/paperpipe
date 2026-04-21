@@ -294,11 +294,26 @@ class ImageEvidence(BaseModel):
             self.paper_slug = self.paper_slug.strip() or None
         if self.view_state_ref is not None and self.view_state_ref.kind != "view_state_json":
             raise ValueError("ImageEvidence.view_state_ref must use kind=view_state_json")
+        if self.view_state_ref is not None and self.view_state_ref.path != "view_state.json":
+            raise ValueError("ImageEvidence.view_state_ref.path must be view_state.json")
         if self.handoff_ref is not None and self.handoff_ref.kind != "handoff_json":
             raise ValueError("ImageEvidence.handoff_ref must use kind=handoff_json")
+        if self.handoff_ref is not None and self.handoff_ref.path != "handoff.json":
+            raise ValueError("ImageEvidence.handoff_ref.path must be handoff.json")
         derived_output_ids = [output.derived_output_id for output in self.derived_outputs]
         if len(set(derived_output_ids)) != len(derived_output_ids):
             raise ValueError("ImageEvidence.derived_outputs must not contain duplicate derived_output_id values")
+        nested_view_state_paths = {
+            output.view_state_ref.path
+            for output in self.derived_outputs
+            if output.view_state_ref is not None
+        }
+        if nested_view_state_paths and self.view_state_ref is None:
+            raise ValueError("ImageEvidence derived_outputs.view_state_ref requires top-level view_state_ref")
+        if self.view_state_ref is not None and nested_view_state_paths not in (set(), {self.view_state_ref.path}):
+            raise ValueError(
+                "ImageEvidence derived_outputs.view_state_ref values must match ImageEvidence.view_state_ref.path"
+            )
         return self
 
 
