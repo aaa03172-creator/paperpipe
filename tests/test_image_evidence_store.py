@@ -161,6 +161,45 @@ def test_image_evidence_store_rolls_back_if_handoff_write_fails(tmp_path, monkey
     assert loaded_handoff_targets[0].target == "napari"
 
 
+def test_image_evidence_store_rejects_handoff_view_state_refs_without_declared_view_state(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+    image_evidence = ImageEvidence(
+        image_evidence_id="img_evidence_001",
+        title="Handoff without declared view-state",
+        created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+        source_ref={"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+        content_format="image/png",
+        handoff_ref={"kind": "handoff_json", "path": "handoff.json"},
+    )
+
+    with pytest.raises(ValueError, match="nested view-state refs require declared view-state payload"):
+        save_image_evidence_bundle(
+            image_evidence,
+            handoff_targets=_sample_handoff_targets(),
+            root=root,
+        )
+
+
+def test_image_evidence_store_rejects_mismatched_handoff_view_state_refs(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+    handoff_targets = [
+        ImageHandoffTarget(
+            target="napari",
+            openable_ref="/tmp/image-001.tif",
+            view_state_ref={"kind": "view_state_json", "path": "alternate_view_state.json"},
+            notes="Open with curated channels visible.",
+        )
+    ]
+
+    with pytest.raises(ValueError, match="nested view-state refs must match declared view-state path"):
+        save_image_evidence_bundle(
+            _sample_image_evidence(),
+            view_state=_sample_view_state(),
+            handoff_targets=handoff_targets,
+            root=root,
+        )
+
+
 def test_list_image_evidence_ids_skips_stale_directories_without_manifest(tmp_path) -> None:
     root = tmp_path / "image_evidence"
     stale_dir = root / "img_stale_only"
