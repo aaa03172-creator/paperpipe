@@ -139,6 +139,11 @@ def save_image_evidence_bundle(
     handoff_targets: list[ImageHandoffTarget] | None = None,
     root: Path | None = None,
 ) -> dict[str, Path]:
+    _validate_declared_bundle_members(
+        image_evidence,
+        view_state=view_state,
+        handoff_targets=handoff_targets,
+    )
     json_path = image_evidence_json_path(image_evidence.image_evidence_id, root)
     view_state_path = image_evidence_view_state_path(image_evidence.image_evidence_id, root)
     handoff_path = image_evidence_handoff_path(image_evidence.image_evidence_id, root)
@@ -227,6 +232,45 @@ def _expected_derivative_paths(image_evidence: ImageEvidence, root: Path | None 
             continue
         expected.add(image_evidence_dir(image_evidence.image_evidence_id, root) / derived_output.bundle_ref.path)
     return expected
+
+
+def _validate_declared_bundle_members(
+    image_evidence: ImageEvidence,
+    *,
+    view_state: ImageViewState | None,
+    handoff_targets: list[ImageHandoffTarget] | None,
+) -> None:
+    declared_view_state_path = image_evidence.view_state_ref.path if image_evidence.view_state_ref is not None else None
+    declared_handoff_path = image_evidence.handoff_ref.path if image_evidence.handoff_ref is not None else None
+    if declared_view_state_path not in (None, "view_state.json"):
+        raise ValueError("Image Evidence bundle view-state ref must use view_state.json.")
+    if declared_handoff_path not in (None, "handoff.json"):
+        raise ValueError("Image Evidence bundle handoff ref must use handoff.json.")
+
+    if image_evidence.view_state_ref is not None and view_state is None:
+        raise ValueError("Image Evidence bundle is missing declared view-state payload.")
+    if image_evidence.view_state_ref is None and view_state is not None:
+        raise ValueError("Image Evidence bundle includes undeclared view-state payload.")
+
+    if image_evidence.handoff_ref is not None and handoff_targets is None:
+        raise ValueError("Image Evidence bundle is missing declared handoff payload.")
+    if image_evidence.handoff_ref is None and handoff_targets is not None:
+        raise ValueError("Image Evidence bundle includes undeclared handoff payload.")
+
+    nested_view_state_paths = {
+        output.view_state_ref.path
+        for output in image_evidence.derived_outputs
+        if output.view_state_ref is not None
+    }
+    nested_view_state_paths.update(
+        target.view_state_ref.path
+        for target in (handoff_targets or [])
+        if target.view_state_ref is not None
+    )
+    if nested_view_state_paths and declared_view_state_path is None:
+        raise ValueError("Image Evidence bundle nested view-state refs require declared view-state payload.")
+    if declared_view_state_path is not None and nested_view_state_paths not in (set(), {declared_view_state_path}):
+        raise ValueError("Image Evidence bundle nested view-state refs must match declared view-state path.")
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
