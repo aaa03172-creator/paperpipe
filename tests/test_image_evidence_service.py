@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 
+import pytest
+
 from src.image_evidence import get_image_evidence_bundle as package_get_image_evidence_bundle
 from src.image_evidence import register_image_evidence as package_register_image_evidence
 from src.image_evidence.service import (
@@ -116,6 +118,29 @@ def test_image_evidence_list_skips_unreadable_bundles(tmp_path) -> None:
 
     assert listed.total == 1
     assert [item.image_evidence_id for item in listed.items] == ["img_valid"]
+
+
+def test_register_image_evidence_rejects_handoff_view_state_refs_without_top_level_view_state(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+
+    with pytest.raises(ValueError, match="nested view-state refs require declared view-state payload"):
+        register_image_evidence(
+            request=ImageEvidenceRequest(
+                image_evidence_id="img_missing_view_state",
+                source_ref={"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+                content_format="image/png",
+                handoff_targets=[
+                    {
+                        "target": "napari",
+                        "openable_ref": "/tmp/image-001.tif",
+                        "view_state_ref": {"kind": "view_state_json", "path": "view_state.json"},
+                        "notes": "Open with curated channels visible.",
+                    }
+                ],
+            ),
+            root=root,
+            now=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+        )
 
 
 def test_image_evidence_package_reexports_service_entrypoints(tmp_path) -> None:
