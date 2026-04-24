@@ -207,6 +207,11 @@ def test_list_image_evidence_ids_skips_stale_directories_without_manifest(tmp_pa
     (stale_dir / "handoff.json").write_text("[]", encoding="utf-8")
 
     fresh = _sample_image_evidence()
-    save_image_evidence_bundle(fresh, root=root)
+    save_image_evidence_bundle(
+        fresh,
+        view_state=_sample_view_state(),
+        handoff_targets=_sample_handoff_targets(),
+        root=root,
+    )
 
     assert list_image_evidence_ids(root) == [fresh.image_evidence_id]
