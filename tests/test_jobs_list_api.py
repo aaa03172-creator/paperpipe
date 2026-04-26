@@ -108,3 +108,47 @@ def test_jobs_list_endpoint_prefers_newer_queued_job_over_older_iso_completed_fi
         assert payload[1]["status"] == "completed"
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_list_endpoint_resolves_zotero_id_variants_for_paper_filter(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+        queue = JobQueue()
+
+        prefixed_job_id = queue.enqueue(paper_id="zotero:paper_jobs_variant_001")
+        stripped_job_id = queue.enqueue(paper_id="paper_jobs_variant_002")
+
+        stripped_lookup = client.get("/jobs", params={"paper_id": "paper_jobs_variant_001"})
+        assert stripped_lookup.status_code == 200
+        stripped_payload = stripped_lookup.json()
+        assert [row["job_id"] for row in stripped_payload] == [prefixed_job_id]
+        assert stripped_payload[0]["paper_id"] == "zotero:paper_jobs_variant_001"
+
+        prefixed_lookup = client.get("/jobs", params={"paper_id": "zotero:paper_jobs_variant_002"})
+        assert prefixed_lookup.status_code == 200
+        prefixed_payload = prefixed_lookup.json()
+        assert [row["job_id"] for row in prefixed_payload] == [stripped_job_id]
+        assert prefixed_payload[0]["paper_id"] == "paper_jobs_variant_002"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_list_endpoint_returns_empty_when_jobs_table_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        client = TestClient(api_main.app)
+
+        response = client.get("/jobs")
+
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        db_utils.DB_PATH = original_db_path

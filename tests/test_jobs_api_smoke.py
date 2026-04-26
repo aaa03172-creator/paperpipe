@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import src.db_utils as db_utils
+import src.jobs.queue as queue_mod
 import src.jobs.worker as worker_mod
 from backend.services.job_runner import _resolve_ingest_parser_backend
 from src.jobs.queue import JobQueue
+from src.services.path_masking import mask_local_path
 from backend import main as api_main
 
 
@@ -232,6 +234,8 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         meta["claimset_ops_action"] = "none"
         meta["claimset_ops_alert"] = False
         meta["claimset_ops_note"] = "ready"
+        meta["operator_note"] = "Authorization: Bearer bootstrap-meta-token"
+        meta["OPENAI_API_KEY"] = "sk-proj-bootstrap-meta-secret"
         (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
         queue.update_job(
@@ -247,7 +251,7 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
         detail = client.get(f"/jobs/{job_id}")
         assert detail.status_code == 200
         payload = detail.json()
-        assert payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert payload["bootstrap_meta_path"] == mask_local_path(str(artifact_dir / "bootstrap_meta.json"))
         assert payload["requested_parser_backend"] is None
         assert payload["parser_backend"] == "fitz_pdfplumber"
         assert payload["similar_feedback_count"] == 2
@@ -270,18 +274,23 @@ def test_jobs_bootstrap_meta_endpoint_returns_file_content(tmp_path, monkeypatch
 
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 200
-        assert meta_resp.json()["paper_id"] == "paper_boot_meta"
-        assert meta_resp.json()["parser_backend"] == "fitz_pdfplumber"
-        assert meta_resp.json()["persona_applied"] is True
-        assert meta_resp.json()["artifact_document_written"] is True
-        assert meta_resp.json()["artifact_claimset_resolved_written"] is True
-        assert meta_resp.json()["claimset_readiness"] == "ready"
-        assert meta_resp.json()["claimset_ready"] is True
-        assert meta_resp.json()["claimset_grounded_span_count"] == 2
-        assert meta_resp.json()["claimset_unresolved_span_count"] == 1
-        assert meta_resp.json()["claimset_readiness_badge"] == "READY"
-        assert meta_resp.json()["claimset_ops_action"] == "none"
-        assert meta_resp.json()["claimset_ops_alert"] is False
+        meta_payload = meta_resp.json()
+        assert "bootstrap-meta-token" not in json.dumps(meta_payload)
+        assert "sk-proj-bootstrap-meta-secret" not in json.dumps(meta_payload)
+        assert meta_payload["paper_id"] == "paper_boot_meta"
+        assert meta_payload["parser_backend"] == "fitz_pdfplumber"
+        assert meta_payload["persona_applied"] is True
+        assert meta_payload["artifact_document_written"] is True
+        assert meta_payload["artifact_claimset_resolved_written"] is True
+        assert meta_payload["claimset_readiness"] == "ready"
+        assert meta_payload["claimset_ready"] is True
+        assert meta_payload["claimset_grounded_span_count"] == 2
+        assert meta_payload["claimset_unresolved_span_count"] == 1
+        assert meta_payload["claimset_readiness_badge"] == "READY"
+        assert meta_payload["claimset_ops_action"] == "none"
+        assert meta_payload["claimset_ops_alert"] is False
+        assert meta_payload["operator_note"] == "Authorization: <redacted>"
+        assert meta_payload["OPENAI_API_KEY"] == "<redacted>"
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -592,7 +601,7 @@ def test_jobs_bootstrap_meta_endpoint_handles_malformed_json_boundary(tmp_path, 
         detail = client.get(f"/jobs/{job_id}")
         assert detail.status_code == 200
         payload = detail.json()
-        assert payload["bootstrap_meta_path"] == str(broken_meta)
+        assert payload["bootstrap_meta_path"] == mask_local_path(str(broken_meta))
         assert payload["similar_feedback_count"] is None
         assert payload["persona_applied"] is None
         assert payload["claimset_readiness"] is None
@@ -718,5 +727,132 @@ def test_job_queue_claim_respects_configurable_max_concurrency(tmp_path, monkeyp
         assert claimed_second is not None
         assert claimed_second.job_id == second
         assert claimed_third is None
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_job_queue_claim_uses_immediate_transaction_and_guards_queued_status(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MAX_CONCURRENT_JOBS", "2")
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        first_job_id = queue.enqueue(paper_id="paper_txn_guard_001")
+
+        statements: list[str] = []
+
+        class RecordingCursor:
+            def __init__(self, inner_cursor, sink: list[str]):
+                self._inner = inner_cursor
+                self._sink = sink
+
+            def execute(self, sql, params=()):
+                self._sink.append(" ".join(str(sql).split()))
+                self._inner.execute(sql, params)
+                return self
+
+            def fetchone(self):
+                return self._inner.fetchone()
+
+            @property
+            def rowcount(self):
+                return self._inner.rowcount
+
+        class RecordingConnection:
+            def __init__(self, inner_conn, sink: list[str]):
+                self._inner = inner_conn
+                self._sink = sink
+
+            def cursor(self):
+                return RecordingCursor(self._inner.cursor(), self._sink)
+
+            def execute(self, sql, params=()):
+                self._sink.append(" ".join(str(sql).split()))
+                return self._inner.execute(sql, params)
+
+            def rollback(self):
+                return self._inner.rollback()
+
+            def commit(self):
+                return self._inner.commit()
+
+            def close(self):
+                return self._inner.close()
+
+        def recording_connection():
+            return RecordingConnection(db_utils.get_db_connection(), statements)
+
+        monkeypatch.setattr(queue_mod, "get_db_connection", recording_connection)
+
+        claimed = queue.claim_next_job()
+
+        assert claimed is not None
+        assert claimed.job_id == first_job_id
+        assert claimed.heartbeat_at is not None
+        assert "BEGIN IMMEDIATE" in statements
+        assert any(
+            "UPDATE jobs SET status = 'running', started_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP WHERE job_id = ? AND status = 'queued'"
+            in statement
+            for statement in statements
+        )
+        begin_index = statements.index("BEGIN IMMEDIATE")
+        running_count_index = next(
+            index for index, statement in enumerate(statements) if "SELECT COUNT(*) FROM jobs WHERE status = 'running'" in statement
+        )
+        select_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if "SELECT job_id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1" in statement
+        )
+        update_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if "UPDATE jobs SET status = 'running', started_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP WHERE job_id = ? AND status = 'queued'" in statement
+        )
+        assert begin_index < running_count_index < select_index < update_index
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_cancel_api_returns_404_for_missing_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        response = client.post("/jobs/job_missing_cancel_001/cancel")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Job not found"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_cancel_api_returns_409_for_terminal_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        enqueue = client.post("/jobs/deepread", json={"paper_id": "paper_cancel_terminal_001"})
+        assert enqueue.status_code == 200
+        job_id = enqueue.json()["job_id"]
+
+        queue = JobQueue()
+        queue.update_job(job_id, {"status": "completed"})
+
+        response = client.post(f"/jobs/{job_id}/cancel")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Job is already in a terminal state"
     finally:
         db_utils.DB_PATH = original_db_path
