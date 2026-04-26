@@ -1,7 +1,7 @@
 import time
 import asyncio
 import logging
-import traceback
+import threading
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +12,8 @@ from src.services.event_log import get_execution_run_params, log_job_event
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("Worker")
+JOB_HEARTBEAT_INTERVAL_SECONDS = 30.0
+TERMINAL_STOP_STATUSES = {"completed", "failed", "cancelled"}
 
 class Worker:
     def __init__(self):
@@ -41,22 +43,51 @@ class Worker:
         log_dir = Path("logs/jobs")
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{job.job_id}.jsonl"
+        heartbeat_stop = threading.Event()
+        heartbeat_thread: threading.Thread | None = None
+
+        def current_state():
+            return self.queue.get_job(job.job_id)
         
         try:
             # Update log path
             self.queue.update_job(job.job_id, {"log_path": str(log_file)})
 
-            def is_cancelled() -> bool:
-                state = self.queue.get_job(job.job_id)
-                return bool(state and state.status == "cancelled")
+            def has_left_running_state() -> bool:
+                state = current_state()
+                return bool(state and state.status in TERMINAL_STOP_STATUSES)
+
+            def heartbeat_loop() -> None:
+                while not heartbeat_stop.wait(JOB_HEARTBEAT_INTERVAL_SECONDS):
+                    try:
+                        state = current_state()
+                        if not state or state.status != "running":
+                            return
+                        self.queue.update_job(
+                            job.job_id,
+                            {"heartbeat_at": datetime.now(timezone.utc).isoformat()},
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Heartbeat update failed for job {job.job_id}: {exc}")
+
+            heartbeat_thread = threading.Thread(
+                target=heartbeat_loop,
+                name=f"job-heartbeat-{job.job_id}",
+                daemon=True,
+            )
+            heartbeat_thread.start()
+
+            def should_stop() -> bool:
+                return has_left_running_state()
 
             async def on_progress(event: dict):
-                if is_cancelled():
+                if has_left_running_state():
                     return
 
                 updates = {
                     "progress": int(event.get("progress", 0)),
                     "stage": event.get("stage", "running"),
+                    "heartbeat_at": datetime.now(timezone.utc).isoformat(),
                 }
                 if event.get("level") == "ERROR":
                     updates["error_message"] = event.get("message")
@@ -77,7 +108,7 @@ class Worker:
                 "clean_reindex": bool(getattr(job, "clean_reindex", 0)),
                 "run_id": job.run_id,
                 "progress_callback": on_progress,
-                "cancel_check": is_cancelled,
+                "cancel_check": should_stop,
             }
             try:
                 result = asyncio.run(run_deepread_job(**run_kwargs))
@@ -92,6 +123,15 @@ class Worker:
                 except TypeError:
                     compatibility_kwargs.pop("clean_reindex", None)
                     result = asyncio.run(run_deepread_job(**compatibility_kwargs))
+
+            state = current_state()
+            if state and state.status in TERMINAL_STOP_STATUSES:
+                logger.info(
+                    "Job %s left running state as %s before final worker write; preserving terminal state.",
+                    job.job_id,
+                    state.status,
+                )
+                return
 
             if result and result.get("status") == "cancelled":
                 log_job_event(
@@ -139,7 +179,14 @@ class Worker:
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
 
         except KeyboardInterrupt:
-            state = self.queue.get_job(job.job_id)
+            state = current_state()
+            if state and state.status in TERMINAL_STOP_STATUSES:
+                logger.info(
+                    "Worker interrupt observed after terminal state %s for job %s; preserving current state.",
+                    state.status,
+                    job.job_id,
+                )
+                raise
             updates = {
                 "finished_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -164,7 +211,14 @@ class Worker:
             
         except Exception as e:
             logger.error(f"Job failed: {e}")
-            traceback.print_exc()
+            state = current_state()
+            if state and state.status in TERMINAL_STOP_STATUSES:
+                logger.info(
+                    "Worker exception observed after terminal state %s for job %s; preserving current state.",
+                    state.status,
+                    job.job_id,
+                )
+                return
             self.queue.update_job(job.job_id, {
                 "status": "failed",
                 "error_message": str(e),
@@ -178,6 +232,10 @@ class Worker:
                 message=str(e),
                 payload={"error": str(e)},
             )
+        finally:
+            heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=1.0)
 
 if __name__ == "__main__":
     worker = Worker()

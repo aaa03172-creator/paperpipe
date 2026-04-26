@@ -27,6 +27,7 @@ def test_health_ready_reports_runtime_checks():
         "downloads_watch_dir",
         "pdf_storage_dir",
         "runtime_db",
+        "queue_health",
         "storage_root",
         "logs_root",
         "cache_root",
@@ -51,6 +52,7 @@ def test_api_health_ready_bridge_reports_runtime_checks():
         "downloads_watch_dir",
         "pdf_storage_dir",
         "runtime_db",
+        "queue_health",
         "storage_root",
         "logs_root",
         "cache_root",
@@ -88,6 +90,7 @@ def test_health_ready_returns_browser_safe_summary_when_beta_gate_enabled(monkey
         "downloads_watch_dir",
         "pdf_storage_dir",
         "runtime_storage",
+        "queue_health",
         "ui_bundle",
         "backend_runtime",
     } <= names
@@ -97,6 +100,12 @@ def test_health_ready_returns_browser_safe_summary_when_beta_gate_enabled(monkey
     assert "cache_root" not in names
     assert "backend_entrypoint" not in names
     assert all(entry.get("path") is None for entry in payload["checks"])
+    queue_health = next(entry for entry in payload["checks"] if entry["name"] == "queue_health")
+    assert "available" in queue_health["metadata"]
+    assert "queued_jobs_total" in queue_health["metadata"]
+    assert "running_jobs_total" in queue_health["metadata"]
+    assert "stale_running_suspected_total" in queue_health["metadata"]
+    assert "recent_stale_running_reclaims" not in queue_health["metadata"]
 
 
 def test_health_ready_can_opt_back_into_detailed_mode_under_beta_gate(monkeypatch):
@@ -110,6 +119,7 @@ def test_health_ready_can_opt_back_into_detailed_mode_under_beta_gate(monkeypatc
     payload = resp.json()
     names = {entry["name"] for entry in payload["checks"]}
     assert "runtime_db" in names
+    assert "queue_health" in names
     assert "storage_root" in names
     assert "logs_root" in names
     assert "cache_root" in names
