@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 from typing import Any
@@ -13,13 +14,17 @@ from src.profiles.profile_metadata import (
 from src.profiles.profile_schema import Profile
 from src.profiles.profile_store import load_profiles
 from src.profiles.research_dna_schema import RunLogEntry, ScreeningLogEntry
-from src.profiles.research_dna_store import research_dna_log_path
+from src.profiles.research_dna_store import research_dna_log_path, sanitize_research_dna_log_payload
 from src.schemas.meeting_pack import (
     MeetingPackRetrievalTraceEntry,
     MeetingPackSourceItem,
     MeetingPackSourceSelector,
 )
 from src.schemas.skills import StructuredPaperState
+from src.services.fixture_visibility import (
+    fixture_structured_state_allowed,
+    is_test_fixture_structured_state,
+)
 from src.services.runtime_paths import research_dna_root as default_research_dna_root
 from src.skills.storage import (
     load_structured_state,
@@ -431,7 +436,12 @@ def _resolve_selector_slugs(
             reused_slugs.append(slug)
             continue
         try:
-            source = _load_paper_source(vault_path, slug, paper_index=len(resolved_by_slug) + 1)
+            source = _load_paper_source(
+                vault_path,
+                slug,
+                paper_index=len(resolved_by_slug) + 1,
+                reject_hidden_fixture=False,
+            )
         except FileNotFoundError:
             continue
         resolved_by_slug[slug] = source
@@ -480,8 +490,13 @@ def _load_paper_source(
     *,
     paper_index: int,
     direct_source_item: MeetingPackSourceItem | None = None,
+    reject_hidden_fixture: bool = True,
 ) -> ResolvedMeetingPackSource:
-    state = load_structured_state(vault_path, slug, None)
+    state = _load_visible_structured_state(
+        vault_path,
+        slug,
+        reject_hidden_fixture=reject_hidden_fixture,
+    )
     if state is None:
         raise FileNotFoundError(f"Structured paper state not found for slug={slug}")
 
@@ -493,6 +508,24 @@ def _load_paper_source(
         priority=1,
     )
     return ResolvedMeetingPackSource(source_item=source_item, structured_state=state)
+
+
+def _load_visible_structured_state(
+    vault_path: Path,
+    slug: str,
+    *,
+    reject_hidden_fixture: bool,
+) -> StructuredPaperState | None:
+    state = load_structured_state(vault_path, slug, None)
+    if state is None:
+        return None
+    if is_test_fixture_structured_state(state) and not fixture_structured_state_allowed(vault_path):
+        if reject_hidden_fixture:
+            raise ValueError(
+                f"Structured paper state for slug={slug} appears to be a test fixture and is hidden outside isolated E2E runtimes."
+            )
+        return None
+    return state
 
 
 def _load_screening_context(
@@ -576,7 +609,7 @@ def _load_screening_entries(
         text = line.strip()
         if not text:
             continue
-        entries.append(ScreeningLogEntry.model_validate_json(text))
+        entries.append(ScreeningLogEntry.model_validate(sanitize_research_dna_log_payload(json.loads(text))))
     return entries
 
 
@@ -593,7 +626,7 @@ def _load_run_entries(
         text = line.strip()
         if not text:
             continue
-        entries.append(RunLogEntry.model_validate_json(text))
+        entries.append(RunLogEntry.model_validate(sanitize_research_dna_log_payload(json.loads(text))))
     return entries
 
 
@@ -799,7 +832,7 @@ def _fallback_note_selector_slugs(
         return []
 
     slug = note_path.stem.strip()
-    if slug and load_structured_state(vault_path, slug, None) is not None:
+    if slug and _load_visible_structured_state(vault_path, slug, reject_hidden_fixture=False) is not None:
         return [slug]
     return []
 
@@ -816,7 +849,7 @@ def _resolve_topic_slugs(vault_path: Path, topic_ref: str) -> list[str]:
     matched: list[str] = []
     for state_path in sorted(sidecar_root.glob("*/state.json")):
         slug = state_path.parent.name
-        state = load_structured_state(vault_path, slug, None)
+        state = _load_visible_structured_state(vault_path, slug, reject_hidden_fixture=False)
         if state is None:
             continue
         if topic_key in _structured_topic_signal_keys(vault_path, slug, state):
