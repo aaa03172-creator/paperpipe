@@ -140,3 +140,68 @@ def test_chart_pack_schema_accepts_render_and_spec_refs() -> None:
     assert chart_pack.charts[0].spec_ref is not None
     assert chart_pack.charts[0].spec_ref.kind == "spec_json"
     assert chart_pack.charts[0].render_refs[0].kind == "render_png"
+
+
+def test_chart_pack_schema_accepts_optional_artifact_brief_fields() -> None:
+    chart_pack = ChartPack(
+        chart_pack_id="chartpack_20260320T120000Z_brief_demo",
+        title="Chart pack brief demo",
+        created_at=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),
+        charts=[
+            {
+                "chart_id": "chart_1",
+                "title": "Verification counts",
+                "template_id": "stats_check_status_counts",
+                "source_ref": {
+                    "source_kind": "stats_report",
+                    "paper_id": "paper-001",
+                    "run_id": "run-001",
+                },
+                "field_mappings": [
+                    {"target_field": "status", "source_field": "verdict"},
+                    {"target_field": "value", "source_field": "count"},
+                ],
+            }
+        ],
+        source_items=[{"source_kind": "stats_report", "paper_id": "paper-001", "run_id": "run-001"}],
+        artifact_brief={
+            "artifact_family": "chart_pack",
+            "source_context": {
+                "source_items": [
+                    {
+                        "source_item_id": "chart_source_01",
+                        "source_type": "stats_report",
+                        "ref": "paper-001/run-001",
+                        "role": "canonical",
+                        "layer": "review_gate_artifact",
+                    }
+                ]
+            },
+            "communicative_intent": {
+                "artifact_family": "chart_pack",
+                "goal": "Render deterministic verification charts.",
+                "audience": "artifact reviewers",
+            },
+            "plan": {
+                "artifact_family": "chart_pack",
+                "items": [
+                    {
+                        "item_id": "chart_1",
+                        "kind": "chart",
+                        "label": "Verification counts",
+                        "support_status": "direct",
+                    }
+                ],
+            },
+        },
+        artifact_brief_review={
+            "overall_status": "warn",
+            "warnings": ["Saved chart warnings are present and must remain visible in viewers and exports."],
+            "reason_codes": ["CHART_WARNING_PRESENT"],
+        },
+    )
+
+    assert chart_pack.artifact_brief is not None
+    assert chart_pack.artifact_brief.plan.items[0].kind == "chart"
+    assert chart_pack.artifact_brief_review is not None
+    assert chart_pack.artifact_brief_review.reason_codes == ["CHART_WARNING_PRESENT"]

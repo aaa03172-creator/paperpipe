@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
+import binascii
 from datetime import datetime, timezone
 from hashlib import md5, sha1, sha256, sha512
 import json
+import logging
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from src.image_evidence.store import (
     list_image_evidence_ids,
+    load_image_evidence_artifact_bytes,
     load_image_evidence,
     load_image_handoff_targets,
     load_image_view_state,
@@ -25,6 +30,11 @@ from src.schemas.image_evidence import (
     ImageWarning,
     summarize_image_evidence,
 )
+from src.services.listing_resilience import load_available_items
+from src.services.path_masking import is_path_masking_enabled, mask_local_path
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -37,6 +47,7 @@ class ImageEvidenceResult:
 def register_image_evidence(
     *,
     request: ImageEvidenceRequest,
+    derivative_artifacts: dict[str, bytes] | None = None,
     root: Path | None = None,
     now: datetime | None = None,
 ) -> ImageEvidenceResult:
@@ -46,6 +57,8 @@ def register_image_evidence(
     warnings = [warning.model_copy(deep=True) for warning in request.warnings]
     source_ref = request.source_ref.model_copy(deep=True)
     checksum = request.checksum.model_copy(deep=True) if request.checksum is not None else None
+    derivative_artifact_bytes = dict(derivative_artifacts or {})
+    derivative_artifact_bytes.update(_decode_derivative_artifacts(request.derivative_artifacts))
 
     if source_ref.source_kind == "local_file" and source_ref.local_path is not None:
         local_path = Path(source_ref.local_path).expanduser()
@@ -109,6 +122,7 @@ def register_image_evidence(
         image_evidence,
         view_state=request.view_state.model_copy(deep=True) if request.view_state is not None else None,
         handoff_targets=[target.model_copy(deep=True) for target in request.handoff_targets] or None,
+        derivative_artifacts=derivative_artifact_bytes,
         root=root,
     )
     return ImageEvidenceResult(
@@ -137,16 +151,43 @@ def get_image_evidence_bundle(image_evidence_id: str, *, root: Path | None = Non
     )
 
 
+def load_declared_image_evidence_derivative_artifact(
+    image_evidence_id: str,
+    artifact_subpath: str,
+    *,
+    root: Path | None = None,
+) -> tuple[ImageEvidenceResult, str, bytes]:
+    result = get_image_evidence_bundle(image_evidence_id, root=root)
+    normalized_path = _normalize_derivative_subpath(artifact_subpath)
+    declared_paths = declared_image_evidence_derivative_paths(result.image_evidence)
+    if normalized_path not in declared_paths:
+        raise FileNotFoundError(
+            "Image Evidence derivative artifact is not declared for "
+            f"image_evidence_id={image_evidence_id}: {normalized_path}"
+        )
+    return (
+        result,
+        normalized_path,
+        load_image_evidence_artifact_bytes(image_evidence_id, normalized_path, root=root),
+    )
+
+
 def list_image_evidence_summaries(*, root: Path | None = None) -> list[ImageEvidence]:
-    items = [load_image_evidence(image_evidence_id, root) for image_evidence_id in list_image_evidence_ids(root)]
+    items = load_available_items(
+        list_image_evidence_ids(root),
+        lambda image_evidence_id: load_image_evidence(image_evidence_id, root),
+        item_kind="image evidence bundle",
+        logger=logger,
+    )
     return sorted(items, key=lambda item: (item.created_at, item.image_evidence_id), reverse=True)
 
 
 def image_evidence_response_payload(result: ImageEvidenceResult) -> ImageEvidenceResponse:
+    public_result = _public_image_evidence_result(result)
     return ImageEvidenceResponse(
-        image_evidence=result.image_evidence,
-        view_state=result.view_state,
-        handoff_targets=result.handoff_targets,
+        image_evidence=public_result.image_evidence,
+        view_state=public_result.view_state,
+        handoff_targets=public_result.handoff_targets,
     )
 
 
@@ -158,12 +199,40 @@ def image_evidence_list_response(*, root: Path | None = None) -> ImageEvidenceLi
     return ImageEvidenceListResponse(items=items, total=len(items))
 
 
+def image_evidence_handoff_payload(result: ImageEvidenceResult) -> list[ImageHandoffTarget]:
+    return _public_image_evidence_result(result).handoff_targets
+
+
+def declared_image_evidence_derivative_paths(image_evidence: ImageEvidence) -> set[str]:
+    declared: set[str] = set()
+    for output in image_evidence.derived_outputs:
+        if output.bundle_ref is None:
+            continue
+        declared.add(_normalize_relative_bundle_path(output.bundle_ref.path))
+    return declared
+
+
 def _new_image_evidence_id(request: ImageEvidenceRequest) -> str:
     payload = request.model_dump(mode="json", exclude_none=True)
     digest = sha1(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:10]
     return f"imageev_{digest}"
+
+
+def _normalize_derivative_subpath(path: str) -> str:
+    normalized = _normalize_relative_bundle_path(path)
+    return f"derivatives/{normalized}"
+
+
+def _normalize_relative_bundle_path(path: str) -> str:
+    raw = str(path or "").strip()
+    if not raw:
+        raise ValueError("artifact_path must be non-empty")
+    pure = PurePosixPath(raw)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ValueError(f"artifact_path is invalid: {path}")
+    return pure.as_posix()
 
 
 def _default_title(
@@ -183,6 +252,52 @@ def _default_title(
     return image_evidence_id
 
 
+def _public_image_evidence_result(result: ImageEvidenceResult) -> ImageEvidenceResult:
+    if not is_path_masking_enabled():
+        return result
+
+    image_evidence = result.image_evidence.model_copy(
+        deep=True,
+        update={
+            "source_ref": _public_source_ref(result.image_evidence.source_ref),
+            "warnings": [_public_warning(warning) for warning in result.image_evidence.warnings],
+        },
+    )
+    handoff_targets = [_public_handoff_target(target) for target in result.handoff_targets]
+    return ImageEvidenceResult(
+        image_evidence=image_evidence,
+        view_state=result.view_state.model_copy(deep=True) if result.view_state is not None else None,
+        handoff_targets=handoff_targets,
+    )
+
+
+def _public_source_ref(source_ref):
+    if source_ref.source_kind != "local_file":
+        return source_ref.model_copy(deep=True)
+    return source_ref.model_copy(
+        deep=True,
+        update={"local_path": mask_local_path(source_ref.local_path)},
+    )
+
+
+def _public_handoff_target(target: ImageHandoffTarget) -> ImageHandoffTarget:
+    return target.model_copy(
+        deep=True,
+        update={"openable_ref": mask_local_path(target.openable_ref) or target.openable_ref},
+    )
+
+
+def _public_warning(warning: ImageWarning) -> ImageWarning:
+    if warning.code not in {"LOCAL_SOURCE_MISSING", "LOCAL_SOURCE_NOT_FILE"}:
+        return warning.model_copy(deep=True)
+
+    prefix, separator, raw_path = warning.message.partition(": ")
+    if not separator or not raw_path.strip():
+        return warning.model_copy(deep=True)
+    masked = mask_local_path(raw_path.strip()) or raw_path.strip()
+    return warning.model_copy(deep=True, update={"message": f"{prefix}{separator}{masked}"})
+
+
 def _dedupe_warnings(warnings: list[ImageWarning]) -> list[ImageWarning]:
     deduped: list[ImageWarning] = []
     seen: set[tuple[str, str, str]] = set()
@@ -192,6 +307,17 @@ def _dedupe_warnings(warnings: list[ImageWarning]) -> list[ImageWarning]:
             deduped.append(warning)
             seen.add(key)
     return deduped
+
+
+def _decode_derivative_artifacts(encoded_artifacts: dict[str, str]) -> dict[str, bytes]:
+    decoded: dict[str, bytes] = {}
+    for path, encoded_content in encoded_artifacts.items():
+        normalized_path = _normalize_relative_bundle_path(path)
+        try:
+            decoded[normalized_path] = base64.b64decode(encoded_content, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError(f"Invalid base64 derivative artifact payload for {normalized_path}") from exc
+    return decoded
 
 
 def _compute_checksum(path: Path, algorithm: str) -> str:
