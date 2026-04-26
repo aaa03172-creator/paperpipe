@@ -13,6 +13,7 @@ from src.services.fixture_visibility import (
     fixture_structured_state_allowed,
     hidden_fixture_structured_state_paths,
 )
+from src.services.stale_jobs import collect_queue_health
 from src.services.runtime_paths import (
     cache_root,
     config_file_path,
@@ -22,6 +23,9 @@ from src.services.runtime_paths import (
     meeting_packs_root,
     storage_root,
 )
+
+QUEUE_HEALTH_STALE_AFTER_SECONDS = 15 * 60
+QUEUE_HEALTH_QUEUED_AGE_WARN_AFTER_SECONDS = 15 * 60
 
 
 def _nearest_existing_parent(path: Path) -> Path:
@@ -34,6 +38,15 @@ def _nearest_existing_parent(path: Path) -> Path:
 def _path_writable_target(path: Path) -> bool:
     target = path if path.exists() else _nearest_existing_parent(path)
     return os.access(target, os.W_OK)
+
+
+def _safe_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _configured_external_root_check(name: str, path: Path) -> RuntimeReadinessCheck:
@@ -267,6 +280,79 @@ def collect_meeting_pack_storage_hygiene_check(
     )
 
 
+def collect_queue_health_check(
+    *,
+    db_path: Path | None = None,
+) -> RuntimeReadinessCheck:
+    runtime_db_path = (db_path or get_db_path()).expanduser().resolve(strict=False)
+    snapshot = collect_queue_health(
+        runtime_db_path,
+        stale_after_seconds=QUEUE_HEALTH_STALE_AFTER_SECONDS,
+        queued_age_warn_after_seconds=QUEUE_HEALTH_QUEUED_AGE_WARN_AFTER_SECONDS,
+    )
+    metadata = dict(snapshot)
+    available = bool(metadata.get("available"))
+    queued_jobs_total = _safe_int(metadata.get("queued_jobs_total")) or 0
+    running_jobs_total = _safe_int(metadata.get("running_jobs_total")) or 0
+    oldest_queued_age_seconds = _safe_int(metadata.get("oldest_queued_age_seconds"))
+    stale_running_suspected_total = _safe_int(metadata.get("stale_running_suspected_total")) or 0
+    queue_age_warn_triggered = bool(
+        queued_jobs_total > 0
+        and oldest_queued_age_seconds is not None
+        and oldest_queued_age_seconds >= QUEUE_HEALTH_QUEUED_AGE_WARN_AFTER_SECONDS
+    )
+    metadata["queue_age_warn_triggered"] = queue_age_warn_triggered
+    metadata["stale_running_warn_triggered"] = bool(stale_running_suspected_total > 0)
+
+    if not available:
+        detail = (
+            "runtime DB has no jobs table yet; no queued or running jobs detected"
+            if runtime_db_path.exists()
+            else "runtime DB not initialized yet; no queued or running jobs detected"
+        )
+        return RuntimeReadinessCheck(
+            name="queue_health",
+            status="ok",
+            detail=detail,
+            path=str(runtime_db_path),
+            metadata=metadata,
+        )
+
+    if queued_jobs_total == 0 and running_jobs_total == 0:
+        return RuntimeReadinessCheck(
+            name="queue_health",
+            status="ok",
+            detail="no queued or running jobs detected",
+            path=str(runtime_db_path),
+            metadata=metadata,
+        )
+
+    summary_parts = [
+        f"queued={queued_jobs_total}",
+        f"running={running_jobs_total}",
+    ]
+    if oldest_queued_age_seconds is not None:
+        summary_parts.append(f"oldest_queued_age_seconds={oldest_queued_age_seconds}")
+    if stale_running_suspected_total > 0:
+        summary_parts.append(f"stale_running_suspected_total={stale_running_suspected_total}")
+    stale_running_reclaimed_total = _safe_int(metadata.get("stale_running_reclaimed_total")) or 0
+    if stale_running_reclaimed_total > 0:
+        summary_parts.append(f"stale_running_reclaimed_total={stale_running_reclaimed_total}")
+    stale_running_requeued_total = _safe_int(metadata.get("stale_running_requeued_total")) or 0
+    if stale_running_requeued_total > 0:
+        summary_parts.append(f"stale_running_requeued_total={stale_running_requeued_total}")
+
+    status = "warn" if queue_age_warn_triggered or stale_running_suspected_total > 0 else "ok"
+    detail_prefix = "queue health needs attention" if status == "warn" else "queue health looks stable"
+    return RuntimeReadinessCheck(
+        name="queue_health",
+        status=status,
+        detail=f"{detail_prefix}: {', '.join(summary_parts)}",
+        path=str(runtime_db_path),
+        metadata=metadata,
+    )
+
+
 def collect_runtime_readiness() -> RuntimeReadinessResponse:
     checks: list[RuntimeReadinessCheck] = []
     loaded_config = None
@@ -376,6 +462,7 @@ def collect_runtime_readiness() -> RuntimeReadinessResponse:
             path=str(db_path),
         )
     )
+    checks.append(collect_queue_health_check(db_path=db_path))
 
     storage_path = storage_root()
     storage_writable = _path_writable_target(storage_path)
@@ -540,6 +627,19 @@ def summarize_browser_runtime_readiness(
     )
     if runtime_storage_summary is not None:
         summary_checks.append(runtime_storage_summary)
+
+    queue_health_check = checks_by_name.get("queue_health")
+    if queue_health_check is not None:
+        browser_queue_metadata = dict(queue_health_check.metadata or {})
+        browser_queue_metadata.pop("recent_stale_running_reclaims", None)
+        summary_checks.append(
+            RuntimeReadinessCheck(
+                name="queue_health",
+                status=queue_health_check.status,
+                detail=queue_health_check.detail,
+                metadata=browser_queue_metadata,
+            )
+        )
 
     return RuntimeReadinessResponse(
         status=_overall_status_for_checks(summary_checks),

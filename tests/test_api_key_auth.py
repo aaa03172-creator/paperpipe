@@ -45,6 +45,21 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
         repair_stats = client.post("/ops/repair-stats", json={"paper_ids": ["paper_auth_001"]})
         assert repair_stats.status_code == 401
 
+        stale_jobs = client.get("/ops/stale-jobs")
+        assert stale_jobs.status_code == 401
+
+        stale_incidents = client.get("/ops/stale-incidents")
+        assert stale_incidents.status_code == 401
+
+        stale_snapshot = client.post("/ops/jobs/job_auth_001/stale-incident-snapshot")
+        assert stale_snapshot.status_code == 401
+
+        reclaim_stale = client.post("/ops/jobs/job_auth_001/reclaim-stale")
+        assert reclaim_stale.status_code == 401
+
+        requeue_reclaimed = client.post("/ops/jobs/job_auth_001/requeue-reclaimed")
+        assert requeue_reclaimed.status_code == 401
+
         skills_run = client.post("/skills/run", json={"slug": "paper_auth_001", "action": "validate_citations"})
         assert skills_run.status_code == 401
 
@@ -227,7 +242,7 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         deepread = client.post("/jobs/deepread", json={"paper_id": "paper_auth_allow_001"}, headers=headers)
         assert deepread.status_code == 200
 
-        cancel = client.post("/jobs/job_auth_allow_001/cancel", headers=headers)
+        cancel = client.post(f"/jobs/{deepread.json()['job_id']}/cancel", headers=headers)
         assert cancel.status_code == 200
         assert cancel.json()["status"] == "cancelled"
 
@@ -524,7 +539,11 @@ def test_read_endpoints_do_not_require_api_key(tmp_path, monkeypatch):
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
 
-        chat_stub = client.post("/api/chat", json={"paper_slug": "paper_auth_001", "message": "hello"})
+        chat_stub = client.post(
+            "/api/chat",
+            json={"paper_slug": "paper_auth_001", "message": "hello"},
+            headers={"Origin": "http://testserver"},
+        )
         assert chat_stub.status_code == 501
         assert chat_stub.json()["error_code"] == "CHAT_NOT_IMPLEMENTED"
 

@@ -27,11 +27,115 @@ class DownloaderOpsMetricsResponse(BaseModel):
     alerts: list[str] = Field(default_factory=list)
 
 
+class StaleJobDiagnosticEntry(BaseModel):
+    job_id: str
+    paper_id: Optional[str] = None
+    run_id: Optional[str] = None
+    status: Literal["running"] = "running"
+    stage: Optional[str] = None
+    progress: Optional[int] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    running_for_seconds: int = 0
+    log_exists: bool = False
+    artifact_dir_exists: bool = False
+    recommended_action: str
+
+
+class RecentStaleRunningReclaimEntry(BaseModel):
+    job_id: str
+    run_id: Optional[str] = None
+    paper_id: Optional[str] = None
+    reclaimed_at: Optional[str] = None
+    error_code: str
+    replacement_job_id: Optional[str] = None
+    replacement_run_id: Optional[str] = None
+    requeued_at: Optional[str] = None
+
+
+class StaleJobDiagnosticsResponse(BaseModel):
+    generated_at: str
+    stale_after_seconds: int
+    running_jobs_total: int = 0
+    stale_candidates_total: int = 0
+    stale_running_reclaimed_total: int = 0
+    last_stale_running_reclaimed_at: Optional[str] = None
+    stale_running_requeued_total: int = 0
+    last_stale_running_requeued_at: Optional[str] = None
+    recent_stale_running_reclaims: list[RecentStaleRunningReclaimEntry] = Field(default_factory=list)
+    stale_jobs: list[StaleJobDiagnosticEntry] = Field(default_factory=list)
+
+
+class StaleJobReclaimResponse(BaseModel):
+    job_id: str
+    paper_id: Optional[str] = None
+    run_id: Optional[str] = None
+    previous_status: Literal["running"] = "running"
+    status: Literal["failed"] = "failed"
+    error_code: str
+    error_message: str
+    running_for_seconds: int
+    stale_after_seconds: int
+    reclaimed_at: str
+
+
+class StaleJobRequeueResponse(BaseModel):
+    original_job_id: str
+    original_run_id: Optional[str] = None
+    job_id: str
+    run_id: Optional[str] = None
+    paper_id: str
+    status: Literal["queued"] = "queued"
+    requeued_at: str
+
+
+class StaleJobIncidentSnapshotResponse(BaseModel):
+    incident_id: str
+    job_id: str
+    run_id: Optional[str] = None
+    paper_id: Optional[str] = None
+    status: str
+    is_stale_candidate: bool = False
+    running_for_seconds: Optional[int] = None
+    stale_after_seconds: int
+    captured_at: str
+    incident_path: str
+
+
+class StaleJobIncidentEntry(BaseModel):
+    incident_id: str
+    incident_type: Optional[str] = None
+    captured_at: Optional[str] = None
+    job_id: Optional[str] = None
+    run_id: Optional[str] = None
+    paper_id: Optional[str] = None
+    status: Optional[str] = None
+    is_stale_candidate: bool = False
+    running_for_seconds: Optional[int] = None
+    stale_after_seconds: Optional[int] = None
+    artifact_kind: Optional[str] = None
+    layer: Optional[str] = None
+    incident_path: str
+    file_mtime: Optional[str] = None
+    path_observations_available: bool = False
+    recent_job_events_count: int = 0
+    parse_error: bool = False
+
+
+class StaleJobIncidentListResponse(BaseModel):
+    generated_at: str
+    incidents_root: str
+    incidents_total: int = 0
+    returned_total: int = 0
+    incidents: list[StaleJobIncidentEntry] = Field(default_factory=list)
+
+
 class RuntimeReadinessCheck(BaseModel):
     name: str
     status: Literal["ok", "warn", "error"] = "ok"
     detail: str = ""
     path: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RuntimeReadinessResponse(BaseModel):

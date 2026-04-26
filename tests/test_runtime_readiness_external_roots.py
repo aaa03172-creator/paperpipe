@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 
+import src.db_utils as db_utils
 import src.services.runtime_readiness as runtime_readiness
+import src.services.stale_jobs as stale_jobs_service
+from src.schemas.ops import RuntimeReadinessCheck, RuntimeReadinessResponse
 
 
 def _write_config(path: Path, *, zotero: str, vault: str) -> None:
@@ -132,3 +136,120 @@ def test_collect_runtime_readiness_surfaces_missing_watchdog_for_pickup_paths(tm
     assert "watchdog" in checks["watch_folder"].detail
     assert checks["downloads_watch_dir"].status == "error"
     assert "watchdog" in checks["downloads_watch_dir"].detail
+
+
+def test_collect_runtime_readiness_warns_for_queue_health_signals(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        fixed_now = datetime(2026, 4, 22, 12, 0, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(stale_jobs_service, "utc_now", lambda: fixed_now)
+
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, started_at, heartbeat_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_runtime_stale_001",
+                "run_runtime_stale_001",
+                "paper_runtime_stale_001",
+                "running",
+                12,
+                "read",
+                "2026-04-22 10:00:00",
+                "2026-04-22 10:15:00",
+                "2026-04-22T10:20:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_runtime_queued_001",
+                "run_runtime_queued_001",
+                "paper_runtime_queued_001",
+                "queued",
+                0,
+                "2026-04-22T11:30:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO job_events (
+                event_id, job_id, run_id, ts, level, event_type, message, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "event_runtime_reclaim_001",
+                "job_runtime_stale_001",
+                "run_runtime_stale_001",
+                "2026-04-22T11:55:00+00:00",
+                "ERROR",
+                "job_reclaimed_stale_running",
+                "reclaimed",
+                '{"paper_id":"paper_runtime_stale_001","error_code":"STALE_RUNNING_RECLAIMED"}',
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        check = runtime_readiness.collect_queue_health_check(db_path=db_utils.get_db_path())
+
+        assert check.status == "warn"
+        assert "queue health needs attention" in check.detail
+        assert check.metadata["available"] is True
+        assert check.metadata["queued_jobs_total"] == 1
+        assert check.metadata["running_jobs_total"] == 1
+        assert check.metadata["oldest_queued_age_seconds"] == 1800
+        assert check.metadata["stale_running_suspected_total"] == 1
+        assert check.metadata["stale_running_reclaimed_total"] == 1
+        assert check.metadata["recent_stale_running_reclaims"][0]["job_id"] == "job_runtime_stale_001"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_browser_summary_strips_specific_reclaim_identifiers() -> None:
+    readiness = RuntimeReadinessResponse(
+        status="degraded",
+        checks=[
+            RuntimeReadinessCheck(
+                name="queue_health",
+                status="warn",
+                detail="queue health needs attention: stale_running_suspected_total=1",
+                path="/Users/example/paperpipe/storage/state.db",
+                metadata={
+                    "available": True,
+                    "queued_jobs_total": 0,
+                    "running_jobs_total": 1,
+                    "stale_running_suspected_total": 1,
+                    "recent_stale_running_reclaims": [
+                        {
+                            "job_id": "job_sensitive",
+                            "run_id": "run_sensitive",
+                            "paper_id": "paper_sensitive",
+                            "error_code": "STALE_RUNNING_RECLAIMED",
+                        }
+                    ],
+                },
+            )
+        ],
+    )
+
+    summary = runtime_readiness.summarize_browser_runtime_readiness(readiness)
+    checks = {check.name: check for check in summary.checks}
+
+    assert checks["queue_health"].path is None
+    assert checks["queue_health"].metadata == {
+        "available": True,
+        "queued_jobs_total": 0,
+        "running_jobs_total": 1,
+        "stale_running_suspected_total": 1,
+    }

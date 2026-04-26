@@ -70,6 +70,7 @@ def init_db():
             stage TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             started_at TIMESTAMP,
+            heartbeat_at TIMESTAMP,
             finished_at TIMESTAMP,
             artifact_dir TEXT,
             log_path TEXT,
@@ -91,6 +92,10 @@ def init_db():
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_verify INTEGER DEFAULT 0")
     if "clean_reindex" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN clean_reindex INTEGER DEFAULT 0")
+    if "heartbeat_at" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN heartbeat_at TIMESTAMP")
+    if "error_code" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN error_code TEXT")
 
     cursor.execute(
         """
