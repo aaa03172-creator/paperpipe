@@ -43,6 +43,19 @@ def _normalize_codes(value: Any) -> list[str]:
     return codes
 
 
+def _quality_gate_check_status(quality_gate: dict[str, Any], name: str) -> str:
+    checks = quality_gate.get("checks")
+    if not isinstance(checks, list):
+        return "missing"
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name") or "").strip() != name:
+            continue
+        return _normalize_status(item.get("status"))
+    return "missing"
+
+
 def _find_run_dirs(runs_root: Path) -> list[Path]:
     run_dirs: list[Path] = []
     for path in sorted(runs_root.rglob("quality_gate.json")):
@@ -135,6 +148,7 @@ def _collect_run_row(run_dir: Path) -> dict[str, Any]:
     step_status = _normalize_status(step_summary.get("status"))
     recovery_status = _normalize_status(recovery_summary.get("status"))
     goal_status = _normalize_status(goal_summary.get("status"))
+    section_navigation_status = _quality_gate_check_status(quality_gate, "section_navigation_signal")
 
     return {
         "paper_id": paper_id or None,
@@ -151,6 +165,7 @@ def _collect_run_row(run_dir: Path) -> dict[str, Any]:
         "failure_recovery_reason_codes": _normalize_codes(recovery_summary.get("reason_codes")),
         "goal_drift_status": goal_status,
         "goal_drift_reason_codes": _normalize_codes(goal_summary.get("reason_codes")),
+        "section_navigation_signal_status": section_navigation_status,
         "context_manifest_present": context_manifest_path.exists(),
     }
 
@@ -170,6 +185,7 @@ def run_audit(
     step_counts: Counter[str] = Counter()
     recovery_counts: Counter[str] = Counter()
     goal_counts: Counter[str] = Counter()
+    section_navigation_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     hard_fail_counts: Counter[str] = Counter()
 
@@ -178,6 +194,7 @@ def run_audit(
         step_counts[row["step_stability_status"]] += 1
         recovery_counts[row["failure_recovery_status"]] += 1
         goal_counts[row["goal_drift_status"]] += 1
+        section_navigation_counts[row["section_navigation_signal_status"]] += 1
         for code in row["quality_gate_reason_codes"]:
             reason_counts[code] += 1
         for code in row["quality_gate_hard_fail_codes"]:
@@ -205,10 +222,16 @@ def run_audit(
         "step_stability_status_counts": {key: int(value) for key, value in sorted(step_counts.items())},
         "failure_recovery_status_counts": {key: int(value) for key, value in sorted(recovery_counts.items())},
         "goal_drift_status_counts": {key: int(value) for key, value in sorted(goal_counts.items())},
+        "section_navigation_signal_status_counts": {
+            key: int(value) for key, value in sorted(section_navigation_counts.items())
+        },
         "review_ready_count": sum(1 for row in rows if row["review_ready"]),
         "promotion_candidate_count": sum(1 for row in rows if row["current_promotion_candidate"]),
         "context_manifest_missing_count": sum(1 for row in rows if not row["context_manifest_present"]),
         "runs_with_goal_drift_warn": [row["run_id"] for row in rows if row["goal_drift_status"] == "warn"],
+        "runs_with_section_navigation_signal_warn_or_fail": [
+            row["run_id"] for row in rows if row["section_navigation_signal_status"] in {"warn", "fail"}
+        ],
         "runs_with_step_stability_warn_or_fail": [
             row["run_id"] for row in rows if row["step_stability_status"] in {"warn", "fail"}
         ],

@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 from scripts.eval.compare_extraction_outputs import compare_extraction_rows, evaluate_extraction_pair
-from src.schemas.core import TrialExtraction
+from src.schemas.core import SpecialtyTrialExtraction
 
 
-def _trial_extraction_payload(
+def _specialty_trial_extraction_payload(
     paper_id: str,
     *,
     mci_only: bool = True,
@@ -23,7 +23,7 @@ def _trial_extraction_payload(
     include_for_review: bool = True,
     missing_fields: list[str] | None = None,
 ) -> dict:
-    payload = TrialExtraction(
+    payload = SpecialtyTrialExtraction(
         paper_id=paper_id,
         citation={
             "title": paper_id,
@@ -78,10 +78,10 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
 
     gold_missing = tmp_path / "gold_missing.json"
     pred_missing = tmp_path / "pred_missing.json"
-    _write_json(gold_missing, _trial_extraction_payload("paper-missing", sample_size=48))
+    _write_json(gold_missing, _specialty_trial_extraction_payload("paper-missing", sample_size=48))
     _write_json(
         pred_missing,
-        _trial_extraction_payload("paper-missing", sample_size=0, missing_fields=["sample_size"]),
+        _specialty_trial_extraction_payload("paper-missing", sample_size=0, missing_fields=["sample_size"]),
     )
     pairs.append({"paper_id": "paper-missing", "gold_path": gold_missing, "prediction_path": pred_missing})
 
@@ -89,11 +89,11 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
     pred_negation = tmp_path / "pred_negation.json"
     _write_json(
         gold_negation,
-        _trial_extraction_payload("paper-negation", outcome_effect="no_change", include_for_review=False),
+        _specialty_trial_extraction_payload("paper-negation", outcome_effect="no_change", include_for_review=False),
     )
     _write_json(
         pred_negation,
-        _trial_extraction_payload("paper-negation", outcome_effect="improved", include_for_review=True),
+        _specialty_trial_extraction_payload("paper-negation", outcome_effect="improved", include_for_review=True),
     )
     pairs.append({"paper_id": "paper-negation", "gold_path": gold_negation, "prediction_path": pred_negation})
 
@@ -101,7 +101,7 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
     pred_comparator = tmp_path / "pred_comparator.json"
     _write_json(
         gold_comparator,
-        _trial_extraction_payload(
+        _specialty_trial_extraction_payload(
             "paper-comparator",
             intervention_product_name="Ketone ester",
             comparator_description="Placebo",
@@ -109,7 +109,7 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
     )
     _write_json(
         pred_comparator,
-        _trial_extraction_payload(
+        _specialty_trial_extraction_payload(
             "paper-comparator",
             intervention_product_name="Placebo",
             comparator_description="Ketone ester",
@@ -121,7 +121,7 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
     pred_hallucination = tmp_path / "pred_hallucination.json"
     _write_json(
         gold_hallucination,
-        _trial_extraction_payload(
+        _specialty_trial_extraction_payload(
             "paper-hallucination",
             duration_weeks=0,
             missing_fields=["duration"],
@@ -129,14 +129,14 @@ def test_compare_extraction_rows_classifies_expected_bucket_types(tmp_path: Path
     )
     _write_json(
         pred_hallucination,
-        _trial_extraction_payload("paper-hallucination", duration_weeks=12),
+        _specialty_trial_extraction_payload("paper-hallucination", duration_weeks=12),
     )
     pairs.append({"paper_id": "paper-hallucination", "gold_path": gold_hallucination, "prediction_path": pred_hallucination})
 
     gold_other = tmp_path / "gold_other.json"
     pred_other = tmp_path / "pred_other.json"
-    _write_json(gold_other, _trial_extraction_payload("paper-other", duration_weeks=12))
-    _write_json(pred_other, _trial_extraction_payload("paper-other", duration_weeks=24))
+    _write_json(gold_other, _specialty_trial_extraction_payload("paper-other", duration_weeks=12))
+    _write_json(pred_other, _specialty_trial_extraction_payload("paper-other", duration_weeks=24))
     pairs.append({"paper_id": "paper-other", "gold_path": gold_other, "prediction_path": pred_other})
 
     rows = [
@@ -166,13 +166,13 @@ def test_evaluate_extraction_pair_honors_normalized_missing_field_aliases_and_pa
     pred_alias = tmp_path / "pred_alias.json"
     _write_json(
         gold_alias,
-        _trial_extraction_payload(
+        _specialty_trial_extraction_payload(
             "paper-alias",
             duration_weeks=12,
             missing_fields=["study_design.duration_weeks"],
         ),
     )
-    _write_json(pred_alias, _trial_extraction_payload("paper-alias", duration_weeks=12))
+    _write_json(pred_alias, _specialty_trial_extraction_payload("paper-alias", duration_weeks=12))
 
     alias_row = evaluate_extraction_pair(gold_path=gold_alias, prediction_path=pred_alias, paper_id="paper-alias")
     assert alias_row["gold_snapshot"]["duration_weeks"] is None
@@ -180,8 +180,24 @@ def test_evaluate_extraction_pair_honors_normalized_missing_field_aliases_and_pa
 
     gold_pair = tmp_path / "gold_pair.json"
     pred_pair = tmp_path / "pred_pair.json"
-    _write_json(gold_pair, _trial_extraction_payload("paper-a"))
-    _write_json(pred_pair, _trial_extraction_payload("paper-b"))
+    _write_json(gold_pair, _specialty_trial_extraction_payload("paper-a"))
+    _write_json(pred_pair, _specialty_trial_extraction_payload("paper-b"))
+
+    wrapped_payload = {
+        "specialty_trial_extraction": _specialty_trial_extraction_payload("paper-wrapped")
+    }
+    wrapped_gold = tmp_path / "wrapped_gold.json"
+    wrapped_pred = tmp_path / "wrapped_pred.json"
+    _write_json(wrapped_gold, wrapped_payload)
+    _write_json(wrapped_pred, wrapped_payload)
+
+    wrapped_row = evaluate_extraction_pair(
+        gold_path=wrapped_gold,
+        prediction_path=wrapped_pred,
+        paper_id="paper-wrapped",
+    )
+    assert wrapped_row["pairing_valid"] is True
+    assert wrapped_row["buckets"] == []
 
     pairing_row = evaluate_extraction_pair(gold_path=gold_pair, prediction_path=pred_pair)
     assert pairing_row["pairing_valid"] is False
@@ -197,12 +213,12 @@ def test_compare_extraction_outputs_cli_writes_metrics_and_rows(tmp_path: Path) 
     pred_ok = tmp_path / "pred_ok.json"
     gold_swap = tmp_path / "gold_swap.json"
     pred_swap = tmp_path / "pred_swap.json"
-    _write_json(gold_ok, _trial_extraction_payload("paper-ok"))
-    _write_json(pred_ok, _trial_extraction_payload("paper-ok"))
-    _write_json(gold_swap, _trial_extraction_payload("paper-swap"))
+    _write_json(gold_ok, _specialty_trial_extraction_payload("paper-ok"))
+    _write_json(pred_ok, _specialty_trial_extraction_payload("paper-ok"))
+    _write_json(gold_swap, _specialty_trial_extraction_payload("paper-swap"))
     _write_json(
         pred_swap,
-        _trial_extraction_payload(
+        _specialty_trial_extraction_payload(
             "paper-swap",
             intervention_product_name="Placebo",
             comparator_description="Ketone ester",

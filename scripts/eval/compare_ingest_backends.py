@@ -172,6 +172,9 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
         "table_failure_taxonomy": [],
         "table_fallback_used": False,
         "table_fallback_pages": [],
+        "same_page_table_rescue_actions": [],
+        "same_page_table_rescue_pages": [],
+        "same_page_table_rescue_patched_cells": [],
     }
 
     if not pdf_path.exists():
@@ -218,6 +221,15 @@ def evaluate_pdf_with_backend(pdf_path: Path, backend_name: str) -> dict[str, An
     row["table_failure_taxonomy"] = list(ingest.last_table_extraction_meta.get("table_failure_taxonomy") or [])
     row["table_fallback_used"] = bool(ingest.last_table_extraction_meta.get("fallback_used"))
     row["table_fallback_pages"] = list(ingest.last_table_extraction_meta.get("fallback_pages") or [])
+    row["same_page_table_rescue_actions"] = list(
+        ingest.last_table_extraction_meta.get("same_page_table_rescue_actions") or []
+    )
+    row["same_page_table_rescue_pages"] = list(
+        ingest.last_table_extraction_meta.get("same_page_table_rescue_pages") or []
+    )
+    row["same_page_table_rescue_patched_cells"] = list(
+        ingest.last_table_extraction_meta.get("same_page_table_rescue_patched_cells") or []
+    )
     return row
 
 
@@ -236,6 +248,19 @@ def _backend_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             1 for row in success_rows if int(row.get("meaningful_table_count") or 0) > 0
         ),
         "docs_with_table_fallback_count": sum(1 for row in success_rows if bool(row.get("table_fallback_used"))),
+        "docs_with_same_page_table_rescue_count": sum(
+            1
+            for row in success_rows
+            if row.get("same_page_table_rescue_actions")
+            or row.get("same_page_table_rescue_pages")
+            or row.get("same_page_table_rescue_patched_cells")
+        ),
+        "same_page_table_rescue_page_event_count": sum(
+            len(row.get("same_page_table_rescue_pages") or []) for row in success_rows
+        ),
+        "same_page_table_rescue_patched_cell_count": sum(
+            len(row.get("same_page_table_rescue_patched_cells") or []) for row in success_rows
+        ),
         "docs_with_text_count": sum(1 for row in success_rows if int(row.get("text_char_count") or 0) > 0),
         "avg_text_char_count": mean(text_counts) if text_counts else 0.0,
         "table_failure_taxonomy_counts": _taxonomy_counts(rows),
@@ -278,6 +303,7 @@ def compare_backend_rows(
     raw_table_loss_docs: list[dict[str, Any]] = []
     raw_table_gain_docs: list[dict[str, Any]] = []
     table_fallback_docs: list[dict[str, Any]] = []
+    same_page_table_rescue_docs: list[dict[str, Any]] = []
     doi_gain_docs: list[dict[str, Any]] = []
     low_text_ratio_docs: list[dict[str, Any]] = []
 
@@ -334,6 +360,21 @@ def compare_backend_rows(
                 {
                     "pdf_path": pdf_path,
                     "fallback_pages": list(candidate.get("table_fallback_pages") or []),
+                    "candidate_table_pages": list(candidate.get("table_pages") or []),
+                    "candidate_meaningful_table_count": int(candidate.get("meaningful_table_count") or 0),
+                }
+            )
+        if (
+            candidate.get("same_page_table_rescue_actions")
+            or candidate.get("same_page_table_rescue_pages")
+            or candidate.get("same_page_table_rescue_patched_cells")
+        ):
+            same_page_table_rescue_docs.append(
+                {
+                    "pdf_path": pdf_path,
+                    "actions": list(candidate.get("same_page_table_rescue_actions") or []),
+                    "pages": list(candidate.get("same_page_table_rescue_pages") or []),
+                    "patched_cells": list(candidate.get("same_page_table_rescue_patched_cells") or []),
                     "candidate_table_pages": list(candidate.get("table_pages") or []),
                     "candidate_meaningful_table_count": int(candidate.get("meaningful_table_count") or 0),
                 }
@@ -430,6 +471,7 @@ def compare_backend_rows(
         "doi_loss_docs": doi_loss_docs,
         "doi_gain_docs": doi_gain_docs,
         "table_fallback_docs": table_fallback_docs,
+        "same_page_table_rescue_docs": same_page_table_rescue_docs,
         "same_page_merge_docs": same_page_merge_docs,
         "meaningful_table_page_loss_docs": meaningful_table_page_loss_docs,
         "meaningful_table_loss_docs": meaningful_table_loss_docs,

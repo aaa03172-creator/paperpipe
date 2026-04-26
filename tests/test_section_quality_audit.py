@@ -69,6 +69,33 @@ def test_classify_low_ratio_page_marks_figure_heavy_on_figure_cues() -> None:
     assert "baseline_figure_cue" in result["review_signals"]
 
 
+def test_classify_low_ratio_page_marks_figure_heavy_on_image_and_scale_bar_cues() -> None:
+    result = classify_low_ratio_page(
+        page=25,
+        baseline_text="Representative images of stained tissue. Scale bar, 50 um.",
+        candidate_text="Bipolar cell Article",
+        baseline_table_pages=[],
+        candidate_table_pages=[],
+    )
+
+    assert result["review_bucket"] == "figure_heavy_page"
+    assert "baseline_figure_cue" in result["review_signals"]
+
+
+def test_classify_low_ratio_page_marks_numeric_dense_page_without_table_or_figure_cues() -> None:
+    result = classify_low_ratio_page(
+        page=7,
+        baseline_text="AUC 0.91 CI95 0.84 0.97 n=247 p=0.003 fold-change 12.8",
+        candidate_text="legend on next page",
+        baseline_table_pages=[],
+        candidate_table_pages=[],
+    )
+
+    assert result["review_bucket"] == "numeric_dense_page"
+    assert "baseline_numeric_dense" in result["review_signals"]
+    assert result["baseline_digit_ratio"] >= 0.2
+
+
 def test_classify_low_ratio_page_marks_overlap_when_table_and_figure_signals_both_exist() -> None:
     result = classify_low_ratio_page(
         page=8,
