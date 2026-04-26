@@ -85,16 +85,93 @@ def test_build_reader_eval_sidecar_summarizes_grounding_and_heuristics():
     assert sidecar.metrics.supported_claim_count == 1
     assert sidecar.metrics.unknown_claim_count == 1
     assert sidecar.metrics.heuristic_backfill_claim_count == 1
+    assert sidecar.metrics.text_match_span_count == 2
+    assert sidecar.metrics.bbox_span_count == 0
+    assert sidecar.metrics.approx_span_count == 0
     assert sidecar.metrics.grounded_span_count == 2
     assert sidecar.metrics.grounded_limitation_count == 1
     first = sidecar.claims[0]
     assert first.supported is True
     assert first.grounding_resolutions == ["OK"]
+    assert first.text_match_span_count == 1
     assert first.grounded_limitation_count == 1
     second = sidecar.claims[1]
     assert second.heuristic_backfill is True
     assert second.unknown is True
     assert second.unknown_reason == "HEURISTIC_BACKFILL"
+    assert second.text_match_span_count == 1
+
+
+def test_build_reader_eval_sidecar_tracks_locator_source_mix():
+    claimset = ClaimSet(
+        doc_id="paper-locator",
+        claims=[
+            ScientificClaim(
+                claim_id="c-bbox",
+                type="finding",
+                statement="BBox-backed claim.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote="bbox evidence",
+                        raw_text="bbox evidence",
+                        highlight_source="bbox",
+                        grounded=True,
+                        resolution="OK",
+                    )
+                ],
+            ),
+            ScientificClaim(
+                claim_id="c-text",
+                type="finding",
+                statement="Text-match claim.",
+                confidence=0.8,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote="text match evidence",
+                        raw_text="text match evidence",
+                        highlight_source="text_match",
+                        grounded=True,
+                        resolution="NORMALIZED_MATCH",
+                    )
+                ],
+            ),
+            ScientificClaim(
+                claim_id="c-approx",
+                type="finding",
+                statement="Approximate claim.",
+                confidence=0.5,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote="approx evidence",
+                        raw_text="approx evidence",
+                        highlight_source="approx",
+                        grounded=False,
+                        resolution="FAILED_MATCH",
+                    )
+                ],
+                unknown=True,
+                unknown_reason="EVIDENCE_LOCATION_MISSING",
+            ),
+        ],
+    )
+    resolved_claimset = claimset.model_copy(deep=True)
+    index_artifact = IndexArtifact(doc_id="paper-locator", vector_store_id="v1", chunk_count=0, chunks=[])
+
+    sidecar = build_reader_eval_sidecar(
+        paper_id="paper-locator",
+        run_id="run-locator",
+        claimset=claimset,
+        resolved_claimset=resolved_claimset,
+        index_artifact=index_artifact,
+    )
+
+    assert sidecar.metrics.evidence_span_count == 3
+    assert sidecar.metrics.bbox_span_count == 1
+    assert sidecar.metrics.text_match_span_count == 1
+    assert sidecar.metrics.approx_span_count == 1
+    assert sidecar.metrics.unresolved_span_count == 1
+    assert sidecar.metrics.failed_grounding_span_count == 1
 
 
 def test_job_runner_writes_reader_eval_sidecar(tmp_path, monkeypatch):
@@ -144,6 +221,7 @@ def test_job_runner_writes_reader_eval_sidecar(tmp_path, monkeypatch):
                             blocks=[
                                 BlockV2(
                                     block_id="b1",
+                                    bbox_pdf=[0.0, 0.0, 595.0, 842.0],
                                     lines=[
                                         LineV2(
                                             line_id="l1",
@@ -216,8 +294,11 @@ def test_job_runner_writes_reader_eval_sidecar(tmp_path, monkeypatch):
         artifact_dir = Path(done.artifact_dir)
         sidecar = json.loads((artifact_dir / "reader_eval.json").read_text(encoding="utf-8"))
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         assert sidecar["schema_version"] == "reader_eval.v1"
         assert sidecar["metrics"]["claim_count"] == 1
+        assert sidecar["metrics"]["bbox_span_count"] == 1
+        assert sidecar["metrics"]["text_match_span_count"] == 0
         assert sidecar["metrics"]["grounded_span_count"] == 1
         assert sidecar["claims"][0]["supported"] is True
         assert sidecar["claims"][0]["grounding_resolutions"] == ["OK"]
@@ -225,5 +306,11 @@ def test_job_runner_writes_reader_eval_sidecar(tmp_path, monkeypatch):
         assert meta["reader_eval_claim_count"] == 1
         assert meta["reader_eval_supported_claim_count"] == 1
         assert meta["reader_eval_unsupported_claim_count"] == 0
+        assert meta["reader_eval_bbox_span_count"] == 1
+        assert meta["reader_eval_text_match_span_count"] == 0
+        assert meta["reader_eval_approx_span_count"] == 0
+        span = resolved_claimset["claims"][0]["evidence_spans"][0]
+        assert span["highlight_source"] == "bbox"
+        assert span["bbox_pdf"] == [0.0, 0.0, 595.0, 842.0]
     finally:
         db_utils.DB_PATH = original_db_path

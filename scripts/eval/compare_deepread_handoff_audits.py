@@ -79,6 +79,7 @@ def compare_summaries(
     *,
     allow_review_ready_drop: float = 0.0,
     allow_goal_drift_increase: float = 0.0,
+    allow_section_navigation_signal_increase: float = 0.0,
     allow_step_stability_increase: float = 0.0,
     allow_failure_recovery_increase: float = 0.0,
     allow_goal_drift_missing_increase: float = 0.0,
@@ -97,6 +98,14 @@ def compare_summaries(
     )
     new_goal_drift_warn_rate = _rate(
         _warn_or_fail_count(new_summary, "goal_drift_status_counts"),
+        new_run_count,
+    )
+    baseline_section_navigation_warn_rate = _rate(
+        _warn_or_fail_count(baseline_summary, "section_navigation_signal_status_counts"),
+        baseline_run_count,
+    )
+    new_section_navigation_warn_rate = _rate(
+        _warn_or_fail_count(new_summary, "section_navigation_signal_status_counts"),
         new_run_count,
     )
     baseline_step_warn_rate = _rate(
@@ -160,6 +169,16 @@ def compare_summaries(
             "direction": "lower_is_better",
         },
         {
+            "name": "section_navigation_signal_warn_or_fail_rate",
+            "baseline": baseline_section_navigation_warn_rate,
+            "new": new_section_navigation_warn_rate,
+            "required": baseline_section_navigation_warn_rate + allow_section_navigation_signal_increase,
+            "passed": new_section_navigation_warn_rate <= (
+                baseline_section_navigation_warn_rate + allow_section_navigation_signal_increase
+            ),
+            "direction": "lower_is_better",
+        },
+        {
             "name": "step_stability_warn_or_fail_rate",
             "baseline": baseline_step_warn_rate,
             "new": new_step_warn_rate,
@@ -215,6 +234,8 @@ def compare_summaries(
         regressions.append("review_ready_rate")
     if new_goal_drift_warn_rate > baseline_goal_drift_warn_rate:
         regressions.append("goal_drift_warn_or_fail_rate")
+    if new_section_navigation_warn_rate > baseline_section_navigation_warn_rate:
+        regressions.append("section_navigation_signal_warn_or_fail_rate")
     if new_step_warn_rate > baseline_step_warn_rate:
         regressions.append("step_stability_warn_or_fail_rate")
     if new_recovery_warn_rate > baseline_recovery_warn_rate:
@@ -236,6 +257,9 @@ def compare_summaries(
         "deltas": {
             "review_ready_rate": new_review_ready_rate - baseline_review_ready_rate,
             "goal_drift_warn_or_fail_rate": new_goal_drift_warn_rate - baseline_goal_drift_warn_rate,
+            "section_navigation_signal_warn_or_fail_rate": (
+                new_section_navigation_warn_rate - baseline_section_navigation_warn_rate
+            ),
             "step_stability_warn_or_fail_rate": new_step_warn_rate - baseline_step_warn_rate,
             "failure_recovery_warn_or_fail_rate": new_recovery_warn_rate - baseline_recovery_warn_rate,
             "goal_drift_missing_rate": new_goal_missing_rate - baseline_goal_missing_rate,
@@ -268,6 +292,7 @@ def compare_deepread_handoff_audits(
     out: Path,
     allow_review_ready_drop: float = 0.0,
     allow_goal_drift_increase: float = 0.0,
+    allow_section_navigation_signal_increase: float = 0.0,
     allow_step_stability_increase: float = 0.0,
     allow_failure_recovery_increase: float = 0.0,
     allow_goal_drift_missing_increase: float = 0.0,
@@ -284,6 +309,7 @@ def compare_deepread_handoff_audits(
         new_summary,
         allow_review_ready_drop=allow_review_ready_drop,
         allow_goal_drift_increase=allow_goal_drift_increase,
+        allow_section_navigation_signal_increase=allow_section_navigation_signal_increase,
         allow_step_stability_increase=allow_step_stability_increase,
         allow_failure_recovery_increase=allow_failure_recovery_increase,
         allow_goal_drift_missing_increase=allow_goal_drift_missing_increase,
@@ -308,6 +334,7 @@ def compare_deepread_handoff_audits(
         "thresholds": {
             "allow_review_ready_drop": allow_review_ready_drop,
             "allow_goal_drift_increase": allow_goal_drift_increase,
+            "allow_section_navigation_signal_increase": allow_section_navigation_signal_increase,
             "allow_step_stability_increase": allow_step_stability_increase,
             "allow_failure_recovery_increase": allow_failure_recovery_increase,
             "allow_goal_drift_missing_increase": allow_goal_drift_missing_increase,
@@ -350,6 +377,7 @@ def main() -> int:
     parser.add_argument("--out", required=True, help="Output compare report JSON path")
     parser.add_argument("--allow-review-ready-drop", type=float, default=0.0)
     parser.add_argument("--allow-goal-drift-increase", type=float, default=0.0)
+    parser.add_argument("--allow-section-navigation-signal-increase", type=float, default=0.0)
     parser.add_argument("--allow-step-stability-increase", type=float, default=0.0)
     parser.add_argument("--allow-failure-recovery-increase", type=float, default=0.0)
     parser.add_argument("--allow-goal-drift-missing-increase", type=float, default=0.0)
@@ -365,6 +393,7 @@ def main() -> int:
         out=Path(args.out).expanduser().resolve(),
         allow_review_ready_drop=float(args.allow_review_ready_drop),
         allow_goal_drift_increase=float(args.allow_goal_drift_increase),
+        allow_section_navigation_signal_increase=float(args.allow_section_navigation_signal_increase),
         allow_step_stability_increase=float(args.allow_step_stability_increase),
         allow_failure_recovery_increase=float(args.allow_failure_recovery_increase),
         allow_goal_drift_missing_increase=float(args.allow_goal_drift_missing_increase),
