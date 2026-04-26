@@ -14,13 +14,23 @@ ALLOWED = {
     "tests/test_db_schema_compat.py",
 }
 
+SKIP_PREFIXES = (
+    ".codex/",
+    "build/",
+    "dist/",
+    "frontend/.e2e-backend-runtime/",
+    "storage/",
+)
+
 
 def test_no_new_direct_src_db_imports_outside_allowlist():
     root = Path(__file__).resolve().parents[1]
     offenders: list[str] = []
     for py in root.rglob("*.py"):
+        if not py.is_file():
+            continue
         rel = py.relative_to(root).as_posix()
-        if rel == "src/db.py" or rel in ALLOWED:
+        if rel == "src/db.py" or rel in ALLOWED or any(rel.startswith(prefix) for prefix in SKIP_PREFIXES):
             continue
         text = py.read_text(encoding="utf-8", errors="ignore")
         if any(pattern.search(text) for pattern in IMPORT_PATTERNS):
