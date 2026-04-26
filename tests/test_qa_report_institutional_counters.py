@@ -17,6 +17,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             feedback_json TEXT,
             pdf_status TEXT,
             pdf_path TEXT,
+            obsidian_path TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -47,24 +48,24 @@ def test_qa_report_counts_institutional_counters(tmp_path: Path, monkeypatch):
     _create_tables(conn)
     conn.execute(
         """
-        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path, obsidian_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("p_manual", "Manual", "APPROVED", "s", "{}", "manual_required", None),
+        ("p_manual", "Manual", "APPROVED", "s", "{}", "manual_required", None, "Inbox/PaperPipe/p_manual.md"),
     )
     conn.execute(
         """
-        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path, obsidian_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("p_missing_path", "Missing path", "INDEXED", "s", "{}", "downloaded", None),
+        ("p_missing_path", "Missing path", "INDEXED", "s", "{}", "downloaded", None, "Inbox/PaperPipe/p_missing_path.md"),
     )
     conn.execute(
         """
-        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_status, pdf_path, obsidian_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("p_ok", "OK", "APPROVED", "s", '{"claims":[{"statement":"x"}]}', "downloaded", "/tmp/f.pdf"),
+        ("p_ok", "OK", "APPROVED", "s", '{"claims":[{"statement":"x"}]}', "downloaded", "/tmp/f.pdf", "Inbox/PaperPipe/p_ok.md"),
     )
     conn.execute(
         "INSERT INTO review_queue (paper_id, decision, reason) VALUES (?, ?, ?)",

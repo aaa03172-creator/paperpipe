@@ -3,20 +3,99 @@ import sqlite3
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from datetime import datetime
 import sys
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.db_utils import get_db_connection
-from src.config import load_config
+from src.services.runtime_paths import config_file_path
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+_NOTE_STEM_ALLOWED_RE = re.compile(r"[^A-Za-z0-9 _-]+")
+_WHITESPACE_RE = re.compile(r"\s+")
+_PREFIXED_PAPER_ID_RE = re.compile(r"^(zotero|pmid):(.+)$", re.IGNORECASE)
+
+
+def _load_config_fallback():
+    obsidian_vault = None
+    pdf_storage_dir = None
+    config_path = config_file_path()
+    if config_path.exists():
+        try:
+            in_paths = False
+            for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.split("#", 1)[0].rstrip()
+                if not line.strip():
+                    continue
+                indent = len(line) - len(line.lstrip(" "))
+                stripped = line.strip()
+                if indent == 0:
+                    in_paths = stripped == "paths:"
+                    continue
+                if not in_paths or indent < 2 or ":" not in stripped:
+                    continue
+                key, value = stripped.split(":", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key == "obsidian_vault":
+                    obsidian_vault = value
+                elif key == "pdf_storage_dir":
+                    pdf_storage_dir = value
+        except Exception:
+            pass
+    return SimpleNamespace(
+        paths=SimpleNamespace(
+            obsidian_vault=obsidian_vault,
+            pdf_storage_dir=pdf_storage_dir,
+        )
+    )
+
+
+def _clean_note_stem_component(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = _NOTE_STEM_ALLOWED_RE.sub(" ", text)
+    text = _WHITESPACE_RE.sub(" ", text).strip()
+    return text
+
+
+def _default_obsidian_stem_for_paper_id(paper_id: str) -> str:
+    paper_text = str(paper_id or "").strip()
+    if not paper_text:
+        return "paper"
+    match = _PREFIXED_PAPER_ID_RE.match(paper_text)
+    if match:
+        suffix = _clean_note_stem_component(match.group(2).replace(":", " "))
+        if suffix:
+            return suffix
+    cleaned = _clean_note_stem_component(paper_text.replace(":", " "))
+    return cleaned or "paper"
+
+
+def _expected_obsidian_relpath_for_candidate(candidate: dict[str, object]) -> str:
+    title = _clean_note_stem_component(str(candidate.get("title") or ""))
+    stem = title[:120].rstrip() if title else _default_obsidian_stem_for_paper_id(str(candidate.get("paper_id") or ""))
+    return f"Inbox/PaperPipe/{stem}.md"
+
+
+def load_config():
+    try:
+        from src.config import load_config as real_load_config
+    except ModuleNotFoundError:
+        return _load_config_fallback()
+    try:
+        return real_load_config()
+    except ModuleNotFoundError:
+        return _load_config_fallback()
 
 def _is_test_fixture_record(paper_id: str, pdf_path: str | None) -> bool:
     pid = str(paper_id or "")
@@ -145,7 +224,7 @@ def run_qa_check(include_test_fixtures: bool = False):
     # 1. DB Integrity Check (operational view excludes test fixtures by default)
     cursor.execute(
         """
-        SELECT paper_id, title, summary, feedback_json, pdf_path
+        SELECT paper_id, title, summary, feedback_json, pdf_path, obsidian_path
         FROM papers
         WHERE status IN ('APPROVED', 'INDEXED')
         """
@@ -157,6 +236,7 @@ def run_qa_check(include_test_fixtures: bool = False):
             "summary": row[2],
             "feedback_json": row[3],
             "pdf_path": row[4],
+            "obsidian_path": row[5],
         }
         for row in cursor.fetchall()
     ]
@@ -277,15 +357,18 @@ def run_qa_check(include_test_fixtures: bool = False):
     bad_content_files = []
     
     for row in filtered_rows:
-        pid = str(row["paper_id"])
-        # Heuristic for filename: same logic as exporter
-        safe_filename = "".join([c for c in pid if c.isalnum() or c in (' ', '-', '_')]).strip()
-        if not safe_filename: safe_filename = "paper"
-        
-        fpath = inbox_dir / f"{safe_filename}.md"
+        candidate = {
+            "paper_id": row["paper_id"],
+            "title": row["title"],
+            "obsidian_path": row["obsidian_path"],
+        }
+        relpath = str(candidate.get("obsidian_path") or "").strip().replace("\\", "/")
+        if not relpath:
+            relpath = _expected_obsidian_relpath_for_candidate(candidate)
+        fpath = vault_path / relpath
         
         if not fpath.exists():
-            missing_files.append(pid)
+            missing_files.append(str(row["paper_id"]))
         else:
             # Check content
             try:

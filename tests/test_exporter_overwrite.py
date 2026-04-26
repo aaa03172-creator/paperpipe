@@ -30,7 +30,7 @@ def test_new_file_creation(tmp_path):
     updated = export_paper_to_markdown(paper, vault_path, overwrite=False)
     
     # Verify file created
-    target_file = vault_path / "Inbox" / "PaperPipe" / "paper_overwrite_test.md"
+    target_file = vault_path / "Inbox" / "PaperPipe" / "Overwrite Test Paper.md"
     assert updated is True
     assert target_file.exists()
     assert "Overwrite Test Paper" in target_file.read_text(encoding="utf-8")
@@ -40,7 +40,7 @@ def test_overwrite_db_newer(tmp_path):
     vault_path = tmp_path
     inbox = vault_path / "Inbox" / "PaperPipe"
     inbox.mkdir(parents=True, exist_ok=True)
-    target_file = inbox / "paper_overwrite_test.md"
+    target_file = inbox / "Overwrite Test Paper.md"
     
     # 1. Create file with OLD content & OLD timestamp (2 hours ago)
     target_file.write_text("Old Content", encoding="utf-8")
@@ -64,7 +64,7 @@ def test_no_overwrite_db_older(tmp_path):
     vault_path = tmp_path
     inbox = vault_path / "Inbox" / "PaperPipe"
     inbox.mkdir(parents=True, exist_ok=True)
-    target_file = inbox / "paper_overwrite_test.md"
+    target_file = inbox / "Overwrite Test Paper.md"
     
     # 1. Create file with NEW content (Current time)
     target_file.write_text("User Edited Content", encoding="utf-8")
@@ -88,7 +88,7 @@ def test_force_overwrite(tmp_path):
     vault_path = tmp_path
     inbox = vault_path / "Inbox" / "PaperPipe"
     inbox.mkdir(parents=True, exist_ok=True)
-    target_file = inbox / "paper_overwrite_test.md"
+    target_file = inbox / "Overwrite Test Paper.md"
     
     # 1. Create file with NEW content
     target_file.write_text("User Edited Content", encoding="utf-8")
@@ -110,7 +110,7 @@ def test_no_overwrite_missing_updated_at(tmp_path):
     vault_path = tmp_path
     inbox = vault_path / "Inbox" / "PaperPipe"
     inbox.mkdir(parents=True, exist_ok=True)
-    target_file = inbox / "paper_overwrite_test.md"
+    target_file = inbox / "Overwrite Test Paper.md"
     
     # 1. Create file with User Content
     target_file.write_text("User Content", encoding="utf-8")
@@ -131,7 +131,7 @@ def test_no_overwrite_malformed_updated_at(tmp_path):
     vault_path = tmp_path
     inbox = vault_path / "Inbox" / "PaperPipe"
     inbox.mkdir(parents=True, exist_ok=True)
-    target_file = inbox / "paper_overwrite_test.md"
+    target_file = inbox / "Overwrite Test Paper.md"
     
     # 1. Create file with User Content
     target_file.write_text("User Content", encoding="utf-8")
