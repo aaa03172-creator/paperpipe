@@ -10,7 +10,14 @@ from urllib.parse import unquote, urlparse
 
 import yaml
 
-from src.schemas.skills import SkillClaimCard, SkillRunRecord, StructuredPaperState
+from src.schemas.skills import (
+    build_section_signal_summary,
+    ReadingAssistPayload,
+    SkillClaimCard,
+    SkillRunRecord,
+    StructuredPaperState,
+)
+from src.services.fixture_visibility import visible_structured_state
 
 
 AUTOMATION_HEADER = "## 🔧 Automation Results (short)"
@@ -83,11 +90,30 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def resolve_note_path(vault_path: Path, slug: str) -> Path | None:
-    exact = sorted(path for path in vault_path.rglob(f"{slug}.md") if path.is_file())
+    exact = sorted(
+        path
+        for path in vault_path.rglob(f"{slug}.md")
+        if path.is_file() and is_candidate_markdown_for_paper_note(path, vault_path)
+    )
     if exact:
         return exact[0]
     for path in vault_path.rglob("*.md"):
+        if not is_candidate_markdown_for_paper_note(path, vault_path):
+            continue
         if path.stem == slug:
+            return path
+    legacy_structured_relpath = structured_relpath(slug)
+    for path in vault_path.rglob("*.md"):
+        if not path.is_file():
+            continue
+        if not is_candidate_markdown_for_paper_note(path, vault_path):
+            continue
+        frontmatter, _body = split_frontmatter(safe_read_text(path))
+        pp = frontmatter.get("pp")
+        if not isinstance(pp, dict):
+            continue
+        candidate = str(pp.get("structured_path") or "").strip()
+        if candidate == legacy_structured_relpath:
             return path
     return None
 
@@ -192,7 +218,10 @@ def _paper_note_preference_score(
     relative_path: Path,
     frontmatter: dict[str, Any],
 ) -> tuple[int, int, int]:
-    structured_state = 1 if load_structured_state(vault_path, note_path.stem, frontmatter) is not None else 0
+    structured_state = 1 if visible_structured_state(
+        load_structured_state(vault_path, note_path.stem, frontmatter),
+        vault_path=vault_path,
+    ) is not None else 0
     metadata_score = sum(
         1
         for key in ("aliases", "tags", "date_processed", "confidence", "status", "doi")
@@ -300,13 +329,9 @@ def merge_state(
     entities: list[str] | None = None,
     mesh: list[str] | None = None,
     outcomes: list[str] | None = None,
+    reading_assists: list[ReadingAssistPayload] | None = None,
     signals: dict[str, Any] | None = None,
 ) -> StructuredPaperState:
-    runs = [latest_run]
-    if existing is not None:
-        runs.extend(run for run in existing.runs if run.id != latest_run.id)
-    runs = sorted(runs, key=lambda item: item.ts, reverse=True)
-
     def _merge_values(current: list[str], update: list[str] | None) -> list[str]:
         merged: list[str] = []
         for item in current:
@@ -319,8 +344,47 @@ def merge_state(
                 merged.append(text)
         return merged
 
+    def _merge_reading_assists(
+        current: list[ReadingAssistPayload],
+        update: list[ReadingAssistPayload] | None,
+    ) -> list[ReadingAssistPayload]:
+        merged_by_locale: dict[str, ReadingAssistPayload] = {}
+        ordered_locales: list[str] = []
+
+        def _store(payload: ReadingAssistPayload) -> None:
+            locale = str(payload.locale).strip().lower()
+            if not locale:
+                return
+            if locale not in merged_by_locale:
+                ordered_locales.append(locale)
+            merged_by_locale[locale] = payload
+
+        for payload in current:
+            _store(payload)
+        for payload in update or []:
+            _store(payload)
+        return [merged_by_locale[locale] for locale in ordered_locales]
+
     base_claimset = existing.claimset if existing is not None else []
     resolved_claimset = claimset if claimset is not None else list(base_claimset)
+    section_summary = build_section_signal_summary(resolved_claimset)
+    latest_run_data = dict(latest_run.data)
+    if section_summary:
+        latest_run_data["section_summary"] = section_summary
+        latest_run_data["section_count"] = len(section_summary)
+    else:
+        latest_run_data.pop("section_summary", None)
+        latest_run_data.pop("section_count", None)
+    latest_run = latest_run.model_copy(update={"data": latest_run_data})
+    runs = [latest_run]
+    if existing is not None:
+        runs.extend(run for run in existing.runs if run.id != latest_run.id)
+    runs = sorted(runs, key=lambda item: item.ts, reverse=True)
+    resolved_reading_assists = _merge_reading_assists(
+        existing.reading_assists if existing is not None else [],
+        reading_assists,
+    )
+    reading_assist_locales = [payload.locale for payload in resolved_reading_assists if payload.blocks]
     merged_signals = dict(existing.signals if existing is not None else {})
     merged_signals.update(
         {
@@ -328,6 +392,10 @@ def merge_state(
             "claim_count": len(resolved_claimset),
             "evidence_count": sum(len(card.evidence) for card in resolved_claimset),
             "run_count": len(runs),
+            "section_count": len(section_summary),
+            "has_reading_assists": bool(reading_assist_locales),
+            "reading_assist_count": len(reading_assist_locales),
+            "reading_assist_locales": reading_assist_locales,
             "last_run_id": latest_run.id,
             "last_action": latest_run.action,
             "last_status": latest_run.status,
@@ -347,6 +415,7 @@ def merge_state(
         entities=_merge_values(existing.entities if existing is not None else [], entities),
         mesh=_merge_values(existing.mesh if existing is not None else [], mesh),
         outcomes=_merge_values(existing.outcomes if existing is not None else [], outcomes),
+        reading_assists=resolved_reading_assists,
     )
 
 
