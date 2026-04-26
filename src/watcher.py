@@ -16,7 +16,7 @@ from src.processor import (
 from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
 from src.obsidian import save_paper_to_obsidian
 from src.zotero import export_to_ris
-from src.schemas import PaperStatus
+from src.schemas import Paper, PaperStatus
 from src.db_utils import save_paper_state
 
 # Setup logger for this module
@@ -27,8 +27,8 @@ class PaperFileHandler(FileSystemEventHandler):
     """
     Handles file system events for the watch folder.
     """
-    def __init__(self, processor):
-        self.processor = processor
+    def __init__(self, process_local_pdf):
+        self.process_local_pdf = process_local_pdf
 
     def on_created(self, event):
         if event.is_directory:
@@ -42,7 +42,7 @@ class PaperFileHandler(FileSystemEventHandler):
             time.sleep(1)
             logger.info(f"👀 Detected new PDF: {path.name}")
             try:
-                self.processor.process_local_pdf(path)
+                self.process_local_pdf(path)
             except Exception as e:
                 logger.error(f"❌ Error processing local PDF {path.name}: {e}")
 
@@ -65,7 +65,7 @@ class WatcherService:
             logger.info(f"📁 Creating watch folder: {self.watch_folder}")
             self.watch_folder.mkdir(parents=True, exist_ok=True)
 
-        event_handler = PaperFileHandler(processor)
+        event_handler = PaperFileHandler(lambda path: processor.process_local_pdf(path, self.config))
         self.observer.schedule(event_handler, str(self.watch_folder), recursive=False)
         self.observer.start()
         
@@ -96,21 +96,37 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
     fetched = fetch_pubmed([doi], max_results=1) if doi else []
     paper = fetched[0] if fetched else None
     if paper is None:
-        return processor_process_local_pdf(file_path, config=config)
+        fallback_paper = processor_process_local_pdf(file_path, config=config)
+        if isinstance(fallback_paper, Paper):
+            paper = fallback_paper
+        else:
+            return fallback_paper
 
     llm = get_llm_provider(config.llm, getattr(config, "entity_aliases", {}))
     analysis_available = bool(llm)
     tags: list[str] = []
     confidence = 0.0
-    slot = "test"
+    slot = "manual"
+    tagging_metrics: dict[str, object] = {}
+    slot_metrics: dict[str, object] = {}
     if llm:
         tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
         tags = tag_payload.get("soft_tags", []) or []
         confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
+        get_tagging_metrics = getattr(llm, "get_tagging_metrics", None)
+        if callable(get_tagging_metrics):
+            metrics_candidate = get_tagging_metrics()
+            if isinstance(metrics_candidate, dict):
+                tagging_metrics = metrics_candidate
         try:
             slot = llm.classify_slot({"title": paper.title, "summary": paper.summary}, slot) or slot
         except Exception:
             pass
+        get_slot_metrics = getattr(llm, "get_slot_classification_metrics", None)
+        if callable(get_slot_metrics):
+            metrics_candidate = get_slot_metrics()
+            if isinstance(metrics_candidate, dict):
+                slot_metrics = metrics_candidate
 
     processing_status = PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW
     issues_state = derive_saved_issues_state(
@@ -122,7 +138,11 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         analysis_available=analysis_available,
         llm_tagging_used=analysis_available,
         llm_slot_classification_used=analysis_available,
-        input_slot="test",
+        llm_tagging_adjudication_used=bool(tagging_metrics.get("adjudication_triggered")),
+        llm_tagging_adjudication_reason=str(tagging_metrics.get("adjudication_reason") or "").strip() or None,
+        llm_slot_adjudication_used=bool(slot_metrics.get("adjudication_triggered")),
+        llm_slot_adjudication_reason=str(slot_metrics.get("adjudication_reason") or "").strip() or None,
+        input_slot="manual",
         stored_slot=slot,
         input_tags=tags,
         stored_tags=tags,
@@ -134,7 +154,7 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
     row = {
         "id": paper.id,
         "paper_id": paper.id,
-        "doi": paper.doi or paper.id,
+        "doi": str(getattr(paper, "doi", "") or "").strip(),
         "title": paper.title,
         "authors": paper.authors,
         "published": paper.published,
@@ -147,15 +167,18 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         "pdf_path": str(file_path),
         "local_pdf_path": str(file_path),
     }
+    row["pdf_status"] = "downloaded"
     row["feedback_json"] = merge_feedback_json_with_intake_override(None, intake_override_log)
 
     save_paper_to_obsidian(row, config)
     export_to_ris(row, Path(config.paths.export_dir))
     save_paper_state(
-        row["doi"],
+        row["paper_id"],
         row["title"],
         row["source"],
         time.strftime("%Y-%m-%d"),
+        doi=row.get("doi") or None,
+        pdf_status=row.get("pdf_status"),
         local_pdf_path=row["pdf_path"],
         feedback_json=row["feedback_json"],
         status=processing_status.value,
@@ -164,5 +187,11 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
     if config.paths.upload_dir:
         upload_dir = Path(config.paths.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(file_path, upload_dir / file_path.name)
+        destination = upload_dir / file_path.name
+        try:
+            if destination.resolve() != file_path.resolve() and not destination.exists():
+                shutil.copy2(file_path, destination)
+        except FileNotFoundError:
+            if not destination.exists():
+                shutil.copy2(file_path, destination)
     return row
