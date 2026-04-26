@@ -34,7 +34,7 @@ def _build_config() -> LLMConfig:
             "model": "gpt-4o",
         },
         features={
-            "trial_extraction": {"enabled": False, "model": "gpt-4o-mini"},
+            "specialty_trial_extraction": {"enabled": False, "model": "gpt-4o-mini"},
             "slot_classification": {"enabled": False, "model": "gpt-4o-mini"},
             "one_liner": {"enabled": False, "model": "gpt-4o-mini"},
         },
