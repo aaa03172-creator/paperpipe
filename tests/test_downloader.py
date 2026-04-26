@@ -18,9 +18,10 @@ def mock_config(tmp_path):
             zotero_base_dir=tmp_path,
             obsidian_vault=tmp_path,
             upload_dir=tmp_path / "uploads",
+            pdf_storage_dir=tmp_path / "pdfs",
         ),
         search={"slots": {}},
-        llm={"features": {"trial_extraction": {}, "slot_classification": {}, "one_liner": {}}},
+        llm={"features": {"specialty_trial_extraction": {}, "slot_classification": {}, "one_liner": {}}},
     )
 
 
@@ -64,10 +65,10 @@ def test_direct_link_provider_resolves():
 
 def test_router_skips_when_pdf_exists(mock_config, dummy_paper):
     router = DownloadRouter(mock_config)
-    upload_dir = Path(mock_config.paths.upload_dir)
-    upload_dir.mkdir(parents=True)
+    storage_dir = Path(mock_config.paths.pdf_storage_dir)
+    storage_dir.mkdir(parents=True)
 
-    fake_pdf = upload_dir / "test-paper-123.pdf"
+    fake_pdf = storage_dir / "test-paper-123.pdf"
     fake_pdf.write_text("dummy")
 
     result = router.execute(dummy_paper)
@@ -166,6 +167,45 @@ def test_router_policy_block(mock_config, dummy_paper):
     assert result.local_pdf_path is None
     assert len(result.download_attempts) == 1
     assert result.download_attempts[0].status == DownloadFailure.POLICY_BLOCK
+
+
+@patch("src.downloader.router.DownloadRouter._download_file", return_value=True)
+def test_router_uses_pdf_storage_dir_when_upload_dir_missing(_mock_download, tmp_path, dummy_paper):
+    config = AppConfig(
+        system=SystemConfig(unpaywall_email="test@example.com"),
+        paths=PathsConfig(
+            zotero_base_dir=tmp_path,
+            obsidian_vault=tmp_path,
+            upload_dir=None,
+            pdf_storage_dir=tmp_path / "pdfs",
+        ),
+        search={"slots": {}},
+        llm={"features": {"specialty_trial_extraction": {}, "slot_classification": {}, "one_liner": {}}},
+    )
+
+    router = DownloadRouter(config, providers=[_GoodProvider()])
+    result = router.execute(dummy_paper)
+
+    assert result.local_pdf_path == config.paths.pdf_storage_dir / "test-paper-123.pdf"
+
+
+def test_router_reuses_existing_upload_pdf_into_storage(mock_config, dummy_paper):
+    router = DownloadRouter(mock_config)
+    upload_dir = Path(mock_config.paths.upload_dir)
+    storage_dir = Path(mock_config.paths.pdf_storage_dir)
+    upload_dir.mkdir(parents=True)
+    storage_dir.mkdir(parents=True)
+
+    upload_pdf = upload_dir / "test-paper-123.pdf"
+    upload_pdf.write_bytes(b"%PDF-1.4 test")
+
+    result = router.execute(dummy_paper)
+
+    expected_pdf = storage_dir / "test-paper-123.pdf"
+    assert result.local_pdf_path == expected_pdf
+    assert expected_pdf.exists()
+    assert expected_pdf.read_bytes() == upload_pdf.read_bytes()
+    assert len(result.download_attempts) == 0
 
 
 @patch("src.downloader.router.DownloadRouter._download_file", return_value=True)

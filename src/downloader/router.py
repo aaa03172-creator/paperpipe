@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -101,20 +102,36 @@ class DownloadRouter:
         return paper
 
     def execute_with_result(self, paper: Paper) -> DownloadResult:
-        upload_dir = self.config.paths.upload_dir
-        if not upload_dir:
-            logger.warning("[%s] Upload directory not configured, skipping download.", paper.id)
-            return DownloadResult(success=False, final_status=DownloadFailure.TEMP_FAIL, message="upload_dir_not_configured")
+        storage_root = getattr(self.config.paths, "pdf_storage_dir", None) or getattr(self.config.paths, "upload_dir", None)
+        if not storage_root:
+            logger.warning("[%s] No download destination configured, skipping download.", paper.id)
+            return DownloadResult(
+                success=False,
+                final_status=DownloadFailure.TEMP_FAIL,
+                message="download_destination_not_configured",
+            )
 
-        upload_path = Path(upload_dir)
-        upload_path.mkdir(parents=True, exist_ok=True)
+        storage_path = Path(storage_root)
+        storage_path.mkdir(parents=True, exist_ok=True)
 
         filename = _sanitize_filename(paper.id) + ".pdf"
-        filepath = upload_path / filename
+        filepath = storage_path / filename
 
         if filepath.exists():
             logger.info("[%s] PDF already exists at %s, skipping download.", paper.id, filepath)
             return DownloadResult(success=True, local_pdf_path=filepath, pdf_link=paper.pdf_link)
+
+        upload_dir = getattr(self.config.paths, "upload_dir", None)
+        if upload_dir:
+            upload_filepath = Path(upload_dir) / filename
+            if upload_filepath.exists():
+                try:
+                    if upload_filepath.resolve() != filepath.resolve():
+                        shutil.copy2(upload_filepath, filepath)
+                    logger.info("[%s] Reused existing upload PDF at %s", paper.id, upload_filepath)
+                    return DownloadResult(success=True, local_pdf_path=filepath, pdf_link=paper.pdf_link)
+                except FileNotFoundError:
+                    pass
 
         attempts: list[DownloadAttempt] = []
 
@@ -313,7 +330,23 @@ class DownloadRouter:
                 filepath.unlink(missing_ok=True)
                 return False
 
+        self._copy_to_upload_dir(filepath)
+
         return True
+
+    def _copy_to_upload_dir(self, filepath: Path) -> None:
+        upload_dir = getattr(self.config.paths, "upload_dir", None)
+        if not upload_dir:
+            return
+
+        upload_path = Path(upload_dir)
+        upload_path.mkdir(parents=True, exist_ok=True)
+        destination = upload_path / filepath.name
+        if destination.resolve() == filepath.resolve():
+            return
+        if destination.exists():
+            return
+        shutil.copy2(filepath, destination)
 
 
 def download_paper(paper: Paper, config: AppConfig) -> Paper:
