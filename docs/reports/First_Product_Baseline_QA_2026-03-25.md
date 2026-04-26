@@ -96,6 +96,10 @@ Current end-to-end loop:
 
 This is the first workflow the repo can currently support honestly.
 
+Current exposure note:
+- `ResearchDNA` is part of the first workflow, but today it is operated through API/CLI paths rather than a dedicated main web viewer route.
+- The current web product should not imply that `/ui/*` already includes a full `Research DNA` surface.
+
 Current anchors:
 
 - `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
@@ -111,6 +115,10 @@ Current canonical roots:
 - `StructuredPaperState`
 - job / run / event trail
 - `ResearchDNA`
+
+Current operator-surface note:
+- `ResearchDNA` is a canonical root and a release-defining lane
+- its current product exposure remains API/CLI-first in this stage
 
 Current important but bounded derived families:
 

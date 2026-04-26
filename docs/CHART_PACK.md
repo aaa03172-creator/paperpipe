@@ -137,18 +137,24 @@ Current storage root:
 storage/chart_packs/<chart_pack_id>/
   chart_pack.json
   chart_pack.md
+  acceptance_contract.json
+  quality_gate.json
   data/
     <chart_id>.csv
   specs/
     <chart_id>.json
+  renders/
+    <chart_id>.svg
 ```
 
 Current rule:
 - `chart_pack.json` remains the primary bundle-local manifest for the pack
 - `chart_pack.md`, `data/*.csv`, and `specs/*.json` are sibling derived bundle members
+- `acceptance_contract.json` and `quality_gate.json` are additive review-gate artifacts, not stronger truth owners than the main bundle
 - `data/<chart_id>.csv` is the normalized tabular snapshot
 - `specs/<chart_id>.json` is the deterministic render spec
-- render files may exist later, but they are optional derived outputs rather than the primary bundle contract
+- `renders/<chart_id>.svg` is an optional deterministic render artifact for the current template allowlist
+- render files remain derived outputs rather than the primary bundle contract
 
 ### 7. API stays thin
 
@@ -156,11 +162,14 @@ Current API surface:
 - `POST /chart-packs/generate`
 - `GET /chart-packs`
 - `GET /chart-packs/{chart_pack_id}`
+- `GET /chart-packs/{chart_pack_id}/markdown`
 - `GET /chart-packs/{chart_pack_id}/charts/{chart_id}/data.csv`
 - `GET /chart-packs/{chart_pack_id}/charts/{chart_id}/spec.json`
+- `GET /chart-packs/{chart_pack_id}/charts/{chart_id}/render.svg`
 
 Current rule:
 - API remains a thin wrapper over schema/service/store code
+- `chart_pack.md` may be handed off as bounded plain-text output, while chart-level raw exports stay limited to the declared data/spec/render surfaces
 - export routes remain attachment-backed handoff surfaces
 - the API is not a live chart-editing contract
 

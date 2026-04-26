@@ -42,9 +42,13 @@ Related docs:
   - `validate` now downgrades regenerate availability to `unavailable` with warnings when the current vault can no longer resolve the saved selector set
   - bundle save now rolls back on second-write failure so partial `meeting_pack.json` / `meeting_pack.md` artifacts are not left behind
   - repeatable real-input smoke command: `python3 scripts/check_meeting_pack_real_smoke.py`
+  - stronger actual-paper-aligned developer probe can be rerun by passing `--expect-key-point-substring` and `--require-quality-pass` against an aligned temp vault
   - standard local verify lane: `./scripts/run_meeting_pack_verify.sh`
   - standard local verify lane now fails if the generated saved bundles drift or lose regenerate availability via `python3 scripts/check_meeting_pack_storage_sync.py`
   - CI workflow now runs the same lane under `.github/workflows/meeting-pack-verify.yml`
+  - bundle-local `quality_gate.json` now adds a bounded content-risk scan that can downshift `overall_status` to `warn` for generic key-point text, high exact key-point reuse across saved packs, or title/key-point token mismatch without changing canonical `pack.readiness`
+  - operator hygiene CLI: `paperpipe archive-meeting-pack-noise`
+  - cleanup command is dry-run by default and archives low-value pack directories into `storage/_quarantine/meeting_packs/<timestamp>/` with a `manifest.json` record instead of deleting them in place
   - structured `one_page_summary.consensus_points[]` / `conflicts[]` + Markdown `[Consensus]` / `[Conflict]` rendering
   - saved `retrieval_trace[]` for selector/load observability during pack generation
 - Currently deferred or open follow-ups:
@@ -105,9 +109,12 @@ Related docs:
 - `rerender`는 saved `meeting_pack.json`에서 deterministic markdown을 다시 생성하는 explicit recovery lane이다.
 - response-level `markdown_sync`는 saved markdown과 deterministic render의 drift 여부를 자동으로 surfaced 한다.
 - pack contract는 `readiness`로 `evidence_backed` vs `background_only`를 구분한다.
+- `evidence_backed`는 claim text 존재만이 아니라 최소 `1`개의 direct structured evidence ref가 있는 경우에만 허용한다.
+- direct structured evidence ref가 있더라도 `grounded` / `resolution` metadata가 비어 있거나 unresolved면 pack 안에서 uncertainty로 surfaced 해야 하며, full citation verification처럼 말하면 안 된다.
 - regenerated draft는 `regenerated_from_pack_id`로 immediate parent lineage를 남긴다.
 - legacy packs that predate `generation_request` storage can still rerender, and regenerate may use a bounded `source_items` fallback only when selector reconstruction is deterministic.
 - `validate`는 saved request 또는 bounded legacy fallback이 있더라도 current vault에서 selector set을 다시 풀 수 없으면 `can_regenerate=false` / `regenerate_strategy=unavailable`로 내려야 한다.
+- `validate` warnings는 current vault regenerate availability warning뿐 아니라 bounded content-risk review warning도 함께 surfaced 할 수 있어야 한다.
 - `save_meeting_pack_bundle()`은 JSON write 뒤 markdown write가 실패해도 이전 bundle state로 롤백되어 partial artifact를 남기지 않아야 한다.
 
 ## Multi-Angle Checkpoint (2026-03-13)
@@ -131,6 +138,7 @@ Related docs:
 - `screening_decision`도 `context-only` source다.
 - `topic`은 deterministic selector이고, current exact-match rule 밖의 fuzzy expansion은 허용하지 않는다.
 - `project_profile` / `research_profile`도 deterministic selector이고, projection-backed include-set resolution 밖의 fuzzy expansion은 허용하지 않는다.
+- non-test runtime에서는 fixture-like structured sidecar state를 real paper truth처럼 source selection에 올리면 안 된다. isolated E2E runtime이나 explicit fixture opt-in일 때만 허용한다.
 - secondary note source는 `state.json` claim/evidence truth를 override하지 않는다.
 - screening rationale은 selection context를 설명할 수 있지만, effect/evidence truth를 override하지 않는다.
 - note-derived framing은 uncertainty/caution layer로만 pack에 반영한다.
@@ -201,6 +209,23 @@ Shared rule:
 - `Meeting Pack`은 existing evidence-linked state를 재구성한 draft output이다.
 - 현재 surface는 발표 내용의 correctness와 evidence traceability를 먼저 해결하고, visual slide export는 의도적으로 뒤로 미룬다.
 
+## Actual-Paper-Aligned Probe
+Current `Meeting Pack` verification now distinguishes between two different smoke levels:
+
+- default real-input smoke:
+  - `python3 scripts/check_meeting_pack_real_smoke.py`
+  - intended to prove runtime wiring, bundle persistence, and markdown sync against the current bundled vault input
+- actual-paper-aligned developer probe:
+  - run the same script against a temp vault whose note and `state.json` are aligned to one real paper abstract
+  - optionally require:
+    - `--expect-key-point-substring "clinical-biological construct"`
+    - `--require-quality-pass`
+
+Important boundary:
+- the aligned probe is still an abstract-aligned gold path
+- it does not claim full-PDF automatic extraction fidelity
+- the stricter flags should remain opt-in until the default bundled smoke input is upgraded from its current fixture-lite posture
+
 ## Current Judgment
 현재 repo 상황에서 `Meeting Pack`은 아래 위치에 놓는 것이 가장 자연스럽다.
 
@@ -215,9 +240,13 @@ Shared rule:
 - 출력 artifact:
   - `storage/meeting_packs/<pack_id>/meeting_pack.json`
   - `storage/meeting_packs/<pack_id>/meeting_pack.md`
+- reversible cleanup/archive artifact:
+  - `storage/_quarantine/meeting_packs/<timestamp>/manifest.json`
+  - archived pack directories remain bundle-local and non-canonical after quarantine
 - interface:
   - backend service + thin FastAPI endpoint 우선
   - CLI/UI는 이후 wrapper or surface로 붙인다
+  - current operator CLI wrapper includes `paperpipe archive-meeting-pack-noise` for bounded storage cleanup
 
 이 경로를 택하는 이유는 다음과 같다.
 - pack은 단일 paper note를 넘는 multi-source artifact일 수 있다.
@@ -621,6 +650,7 @@ Current endpoint surface:
 - router는 thin wrapper여야 한다.
 - CLI-only path는 만들지 않는다.
 - `MeetingPackResponse`는 current slice에서 `markdown_sync`를 함께 돌려줄 수 있어야 한다.
+- `readiness=evidence_backed`는 최소 하나의 direct structured evidence ref를 전제로 해야 하고, missing/unresolved grounding metadata는 uncertainty note로 남겨야 한다.
 - local standard verify lane은 `./scripts/run_meeting_pack_verify.sh`를 기준으로 유지하고, targeted pytest + real-input smoke + stored-bundle sync check + docs lint를 한 번에 묶어야 한다.
 
 ## Example Output Shape

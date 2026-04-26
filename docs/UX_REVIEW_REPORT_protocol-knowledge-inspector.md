@@ -103,3 +103,697 @@ Canonical parent: `docs/ux-review.md`
   - In Real-Life: 통과. maintainers가 protocol route 변화를 더 정확히 검토할 수 있다.
 - Verification:
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "protocol knowledge detail layout|protocol knowledge index layout"`
+
+## 7.2) Create-From-UI Checkpoint (2026-03-28)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 사용자가 저장된 protocol card가 없어도 현재 protocol snapshot 하나를 직접 저장하고 바로 version review detail로 이동한다.
+- Primary persona: paper note나 current assay summary를 보고 protocol knowledge를 반복 재사용 가능한 card로 남기려는 운영자
+- Current friction:
+  - 기존 route는 saved-card inspector로는 좋았지만, 저장된 card가 하나도 없으면 할 수 있는 행동이 없었다.
+  - backend `POST /protocol-cards`는 이미 있었지만 frontend에는 create entry가 없었다.
+- Quick decision:
+  - broad editor나 multi-version wizard는 열지 않는다.
+  - index 왼쪽 rail에 bounded create form 하나만 추가한다.
+  - first create path는 single current-version snapshot 저장에만 집중한다.
+- BMAP:
+  - Motivation: 높음. protocol knowledge는 note나 downstream artifact에서 반복 참조될 가능성이 높다.
+  - Ability: create entry가 없어서 실제로는 시작하기 어려웠다.
+  - Prompt: `Start a new protocol card`가 첫 행동을 바로 제시해야 한다.
+- B.I.A.S:
+  - Block: saved artifact가 없으면 route가 사실상 dead end였다.
+  - Interpret: `review-only lane`이 아니라 `save + review lane`으로 읽히게 해야 한다.
+  - Act: title, note slug, current snapshot 정도의 최소 입력으로 행동을 닫아야 한다.
+  - Store: 생성 직후 detail landing이 이어져야 reusable knowledge artifact라는 감각이 남는다.
+- Peak-End:
+  - Peak는 create 후 current version review로 바로 landing하는 순간이다.
+  - Pit는 broad editor처럼 보여 입력이 과도해지는 순간이다.
+  - Transition은 index search/create -> detail review 구조를 유지한다.
+  - End는 `Selected as current version`과 saved snapshot이 즉시 보이는 상태다.
+- Ethics:
+  - Regret: 통과. broad execution tool로 과장하지 않고 current snapshot 저장만 연다.
+  - Black Mirror: 통과. protocol 실행 console처럼 보이지 않게 read/review framing을 유지한다.
+  - In Real-Life: 통과. 운영자가 note 내용을 bounded saved reference로 남기기에 자연스럽다.
+- Concrete change:
+  - index 왼쪽에 `Start a new protocol card` form 추가
+  - fields는 title, purpose, note slug, paper id, source kind, current version status, version snapshot, key steps로 제한
+  - create 성공 시 existing `/protocol-cards/:protocolId` detail viewer로 바로 이동
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser"`
+
+## 7.4) Header Context Strip Checkpoint (2026-03-29)
+- Screen/Flow: `/protocol-cards` index and `/protocol-cards/:protocolId` detail header
+- Goal action: 사용자가 protocol lane를 read-only knowledge review surface로 이해하고, selected version이 무엇에서 파생됐는지 더 빨리 읽는다.
+- Primary persona: note-linked protocol snapshot을 cite하거나 downstream artifact에 재사용하기 전에 trust boundary를 확인하는 연구 운영자
+- Current friction:
+  - existing header는 review tone은 괜찮았지만 `언제 쓰는지`와 `현재 version snapshot이 어떤 note/paper/source refs에 기대는지`를 header 수준에서 말하지 않았다.
+  - provenance는 version body와 linked context로 내려가야 읽혔다.
+- Quick decision:
+  - current version/detail layout은 유지한다.
+  - header 아래에 reusable context strip을 추가해 `When to use`와 `Derived from`만 먼저 고정한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser"`
+
+## 7.3) Recent Note Quick-Pick Checkpoint (2026-03-28)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 외부 테스트 사용자가 note slug와 paper id를 직접 기억하지 않아도, 최근 note context를 골라 protocol card 생성을 시작한다.
+- Primary persona: paper note를 읽다가 현재 protocol snapshot을 reusable knowledge card로 바로 저장하려는 연구 운영자와 초기 외부 테스터
+- Current friction:
+  - create form은 열렸지만, `linked note slug`와 `linked paper id`를 직접 입력해야 해서 여전히 operator-friendly했다.
+  - note title은 기억해도 slug는 기억하지 못하는 사용자가 많아, 첫 create 시도에서 다시 다른 화면을 오가게 만들었다.
+- Quick decision:
+  - backend contract는 바꾸지 않는다.
+  - recent notes quick-pick을 create card에 추가해 `linked note slug`와 `linked paper id`를 함께 채운다.
+  - 기존 manual input path는 유지해 power-user 경로를 해치지 않는다.
+- BMAP:
+  - Motivation: 높음. protocol card는 downstream reuse 목적이 분명해 note context로 시작하는 가치가 크다.
+  - Ability: slug/id 직접 입력이 장벽이었고, quick-pick으로 낮춘다.
+  - Prompt: `Recent notes`가 첫 행동을 더 자연스럽게 제시한다.
+- B.I.A.S:
+  - Block: note slug와 paper id를 따로 기억해야 하는 점
+  - Interpret: create lane가 내부 폼이 아니라 “note에서 시작하는 저장 경로”로 읽히게 된다
+  - Act: note 제목을 눌러 두 필드를 함께 채울 수 있다
+  - Store: protocol lane도 덜 차갑고 더 approachable하게 기억된다
+- Peak-End:
+  - Peak는 recent note를 눌러 두 필드가 함께 채워지는 순간이다.
+  - Pit는 slug copy/paste를 위해 다른 화면을 다시 열어야 하던 상태였다.
+  - Transition은 `pick note -> create -> detail review`다.
+  - End는 selected current version과 note handoff가 함께 보이는 상태다.
+- Ethics:
+  - Regret: 통과. 없는 자동화를 약속하지 않고, 입력 부담만 줄인다.
+  - Black Mirror: 통과. 사용자를 특정 note로 몰아붙이지 않고 기존 manual path도 유지한다.
+  - In Real-Life: 통과. 실제 사람은 slug보다 note 제목을 더 잘 기억하므로 더 자연스럽다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser"`
+
+## 7.4) Note-Started Protocol Create Checkpoint (2026-03-30)
+- Screen/Flow: `/papers/:slug` detail -> `/protocol-cards` create lane
+- Goal action: 사용자가 note detail에서 바로 protocol card 생성을 시작하고, linked note slug와 linked paper id를 다시 입력하지 않아도 된다.
+- Primary persona: note를 읽고 바로 protocol snapshot을 남기려는 연구자
+- Current friction:
+  - recent-note quick-pick은 index 내부에서는 좋았지만, note detail에서 protocol lane으로 들어갈 direct CTA가 없었다.
+  - 사용자는 note를 이미 열어 놓고도 다시 `/protocol-cards`로 가서 같은 context를 재선택해야 했다.
+- Quick decision:
+  - protocol create form은 그대로 둔다.
+  - note detail CTA가 query params로 note slug와 paper id를 넘기고, protocol index는 그 값을 prefill만 한다.
+  - manual path와 recent-note quick-pick path는 그대로 유지한다.
+- BMAP:
+  - Motivation: 높음. note에서 막 protocol-worthy snapshot을 발견한 순간이 가장 강한 생성 시점이다.
+  - Ability: note context가 자동으로 채워져 첫 입력 부담이 줄어든다.
+  - Prompt: `Save protocol card`가 note detail에서 직접 보인다.
+- B.I.A.S:
+  - Block: route 이동 후 context 재입력
+  - Interpret: protocol lane가 note에서 이어지는 downstream artifact surface로 읽힌다
+  - Act: note detail에서 바로 create form으로 이동할 수 있다
+  - Store: protocol capture가 덜 운영자적이고 더 자연스럽게 기억된다
+- Peak-End:
+  - Peak는 note detail에서 protocol CTA를 보고 바로 prefilled create lane으로 landing하는 순간이다.
+  - Pit는 note를 이미 읽고도 slug/paper context를 다시 채워야 하던 상태였다.
+  - Transition은 note detail -> protocol create -> saved detail이다.
+  - End는 saved protocol detail에서 다시 `Open note`로 닫힌다.
+- Ethics:
+  - Regret: 통과. 사용자가 이미 알고 있는 note context를 다시 묻지 않는다.
+  - Black Mirror: 통과. note detail을 과도한 action hub로 만들지 않고, 하나의 downstream capture만 추가한다.
+  - In Real-Life: 통과. 실제 동료도 “이 note에서 바로 protocol card로 저장하자”라고 말하는 쪽이 자연스럽다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper note detail can start a protocol card with note context from the browser"`
+
+## 7.5) Recent Note Identity Compression Checkpoint (2026-04-09)
+- Screen/Flow: `/protocol-cards` index create lane recent note quick-picks
+- Goal action: 사용자가 recent note 중 하나를 골라 protocol card 생성을 시작할 때, 긴 paper title 아래에 거의 같은 slug를 다시 읽지 않고도 올바른 note context를 빠르게 고른다.
+- Primary persona: paper note를 읽은 뒤 protocol snapshot을 저장하려는 연구 운영자와 close-user 테스트 사용자
+- Current friction:
+  - current runtime recent note buttons were visually helpful, but the second line often repeated the title in slug form.
+  - in practice that made the quick-picks read like noisy duplicates instead of compact note identities.
+- Quick decision:
+  - keep the recent-note quick-pick pattern and existing create contract.
+  - when the slug is effectively a low-signal restatement of the title, switch the secondary line to the paper id instead.
+  - keep the secondary line monospace so it reads as an identifier rather than more content copy.
+- BMAP:
+  - Motivation: 높음. protocol card capture is most valuable when users can start directly from a known note.
+  - Ability: duplicate title/slug text made exact note selection slower than it needed to be.
+  - Prompt: `Recent notes` already existed; the missing piece was a more distinct second-line identifier.
+- B.I.A.S:
+  - Block: near-duplicate slug text under long titles
+  - Interpret: quick-picks felt more like repeated text blocks than compact note-entry actions
+  - Act: switch redundant slug lines to a distinct identifier
+  - Store: protocol create starts feel less operator-like and more skimmable
+- Peak-End:
+  - Peak는 source title 아래에 `zotero:...` 또는 compact paper id가 immediately visible한 상태다.
+  - Pit는 title line을 다시 한 번 읽는 것처럼 느껴지던 slug subtitle이었다.
+  - Transition은 `recent note pick -> prefilled create form -> saved protocol detail`이다.
+  - End는 note context selection이 더 짧고 덜 noisy하게 닫히는 상태다.
+- Ethics:
+  - Regret: 통과. existing note choices를 숨기지 않고 identity만 더 분명하게 했다.
+  - Black Mirror: 통과. stronger labels do not push a preferred note; they reduce confusion.
+  - In Real-Life: 통과. people remember the note title first, then need one compact identifier to confirm the exact note.
+- Verification:
+  - `cd frontend && npm run build`
+- `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+- `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser"`
+- current runtime `/ui/protocol-cards` direct check confirms the first recent-note choices now read as `title + distinct identifier` instead of `title + near-duplicate slug`
+
+## 7.6) Attachment-Derived Draft Handoff Checkpoint (2026-04-10)
+- Screen/Flow: `/protocol-cards` index create lane and `/papers/:slug` detail handoff
+- Goal action: 사용자가 외부 protocol text/image/document를 첨부하면, protocol create lane이 reviewable draft를 자동으로 채우고 note-backed context가 있으면 mixed draft로 이어진다.
+- Primary persona: 논문 note를 읽다가 protocol 관련 외부 자료를 함께 정리해 reusable knowledge artifact로 남기려는 연구 운영자
+- Current friction:
+  - backend attachment ingest는 이미 있었지만, browser에서는 multipart handcraft 없이 접근할 수 없었다.
+  - external attachment-only draft와 note-backed mixed draft 모두 runtime UI entry가 없어서 실제 사용 흐름이 끊겨 있었다.
+- Quick decision:
+  - raw-source 저장 / explicit save boundary는 유지한다.
+  - `/protocol-cards` create lane 최상단에 attachment seed entry를 추가한다.
+  - `/papers/:slug` detail header에는 direct attachment handoff만 얹고, actual form editing은 protocol lane에 남긴다.
+- BMAP:
+  - Motivation: 높음. protocol capture는 note review 직후와 외부 자료를 받았을 때가 가장 강한 행동 시점이다.
+  - Ability: multipart API가 있어도 UI entry가 없으면 실사용 ability는 낮다.
+  - Prompt: `Upload attachment`와 `Attach protocol file`가 각각 external start와 note-context handoff를 닫아준다.
+- B.I.A.S:
+  - Block: attachment-derived draft generation이 browser flow 밖에 있었다.
+  - Interpret: protocol lane가 paper-derived only가 아니라 `review before save` 방식의 mixed knowledge lane로 읽힌다.
+  - Act: file 선택 -> prefilled draft -> explicit create save의 세 단계로 단순화된다.
+  - Store: raw source saved / review required messaging이 반복되어 trust boundary가 기억에 남는다.
+- Peak-End:
+  - Peak는 첨부 직후 current version snapshot과 source kind가 자동으로 채워지는 순간이다.
+  - Pit는 upload 이후 raw source 저장 여부나 note-context merge 여부를 알 수 없던 상태였다.
+  - Transition은 note detail or protocol index -> attachment seed -> create review -> saved detail이다.
+  - End는 attachment notice와 current version review가 함께 보여 저장 전 confidence calibration이 쉬운 상태다.
+- Ethics:
+  - Regret: 통과. 첨부 즉시 저장을 강행하지 않고 reviewable draft까지만 자동화한다.
+  - Black Mirror: 통과. uploaded material을 execution-ready SOP처럼 보이게 하지 않고 raw source + review language를 유지한다.
+  - In Real-Life: 통과. 실제 팀원이 파일 하나를 올리고 “이걸 note 문맥에 붙여 정리해보자”라고 말하는 흐름과 맞다.
+- Concrete change:
+  - `/protocol-cards` create lane에 hidden file input + attachment seed card 추가
+  - attachment success 시 title / source kind / snapshot / key steps / note context를 draft payload로 hydrate
+  - `/papers/:slug` header에 `Attach protocol file` CTA 추가, success 시 note-context query와 router state를 함께 넘겨 mixed draft landing 보장
+  - live backend가 아닌 mock fallback에서는 attachment CTA를 disabled copy로 명시
+- Verification:
+- `cd frontend && npm run build`
+- `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend paper note detail can attach a protocol file and hand off a mixed draft|backend keyboard focus keeps primary actions ahead of static content on core routes"`
+- `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector can create a new protocol card in mock mode|structured paper note detail keeps review focus close to reading|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.7) Attachment Inspectability Checkpoint (2026-04-13)
+- Screen/Flow: `/protocol-cards` create lane attachment notice
+- Goal action: 사용자가 attachment-derived draft를 저장하기 전에 raw-source bundle 상태와 extracted text 품질을 바로 점검한다.
+- Primary persona: 외부 protocol 파일을 올린 뒤, 이 draft가 실제로 무엇을 뽑았고 어디에 저장됐는지 확인하고 싶은 연구 운영자
+- Current friction:
+  - 이전 단계에서는 attachment draft가 잘 로드됐다는 사실만 알 수 있었고, extraction engine / byte size / excerpt / bundle drill-down은 바로 보이지 않았다.
+  - raw-source bundle retrieval API는 있었지만 UI에서 “저장 전에 직접 확인”하는 감각이 약했다.
+- Quick decision:
+  - backend contract는 그대로 둔다.
+  - create lane notice에서 bundle metadata, extracted preview, bundle JSON / extracted markdown 바로가기를 노출한다.
+  - saved protocol detail viewer까지 확장하지 않고, first review surface인 create lane 안에서만 inspectability를 높인다.
+- BMAP:
+  - Motivation: 높음. protocol save 전에 source quality를 확인하고 싶은 욕구가 크다.
+  - Ability: 이전에는 current snapshot만 보고 추출 품질을 간접 추정해야 했다.
+  - Prompt: attachment notice 안의 metadata와 drill-down links가 “지금 확인할 수 있다”는 행동 신호를 만든다.
+- B.I.A.S:
+  - Block: raw-source bundle이 실제로 저장됐는지, extraction이 어떤 상태인지 UI에서 바로 읽기 어려웠다.
+  - Interpret: attachment lane가 opaque ingest가 아니라 inspectable draft stage로 읽히게 된다.
+  - Act: preview 확인 -> bundle JSON / markdown 열기 -> save 결정의 흐름이 닫힌다.
+  - Store: protocol attachment flow가 “올리면 알아서 된다”가 아니라 “올리면 확인 가능한 draft가 생긴다”로 기억된다.
+- Peak-End:
+  - Peak는 upload 직후 excerpt와 bundle links가 함께 보이는 순간이다.
+  - Pit는 raw source가 저장됐다 해도 사용자가 그 사실을 체감하지 못하는 상태였다.
+  - Transition은 upload -> notice preview -> optional drill-down -> explicit save다.
+  - End는 source inspectability를 가진 채 저장 여부를 결정하는 상태다.
+- Ethics:
+  - Regret: 통과. saved/raw-source distinction을 흐리지 않고 더 명확하게 만든다.
+  - Black Mirror: 통과. opaque automation처럼 보이지 않고, inspectable local state를 강화한다.
+  - In Real-Life: 통과. 실제로는 파일을 올린 뒤 “뭐가 추출됐는지 먼저 보자”가 자연스러운 팀 행동이다.
+- Concrete change:
+  - attachment notice에 layer / byte size / extraction status / engine metadata 추가
+  - extracted markdown excerpt preview 추가
+  - bundle JSON / extracted markdown 바로가기 추가
+- Verification:
+- `cd frontend && npx eslint src/app/lib/api.ts src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+- `cd frontend && npm run build`
+- `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+- `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector can create a new protocol card in mock mode|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.8) Saved Attachment Provenance Checkpoint (2026-04-13)
+- Screen/Flow: `/protocol-cards/:protocolId` detail version review
+- Goal action: 사용자가 저장된 protocol card detail에서도 attachment-derived provenance를 다시 열고, create-stage에서 봤던 raw-source inspectability를 잃지 않는다.
+- Primary persona: attachment-derived 또는 mixed protocol version을 저장한 뒤, 나중에 detail screen에서 provenance를 재확인하려는 연구 운영자
+- Current friction:
+  - create-stage notice에서는 attachment bundle을 잘 보여줬지만, 저장 후 detail에서는 그 provenance가 사라져 보였다.
+  - 원인은 create payload가 attachment draft의 hidden provenance 필드(`note`, `source_refs`, `change_reason`, `created_by`)를 충분히 보존하지 않던 점이었다.
+- Quick decision:
+  - backend schema/store는 바꾸지 않는다.
+  - create save 시 attachment draft seed의 provenance 필드를 보존한다.
+  - saved detail에서는 `version.note`에 남아 있는 attachment bundle anchors를 파싱해 provenance card를 렌더링한다.
+- BMAP:
+  - Motivation: 높음. attachment-driven protocol은 저장 후에도 provenance 재확인이 중요하다.
+  - Ability: 이전에는 create 순간을 지나면 raw-source inspectability가 사실상 사라졌다.
+  - Prompt: saved detail의 `Attachment provenance` card가 revisit 행동을 자연스럽게 유도한다.
+- B.I.A.S:
+  - Block: attachment provenance가 create-stage 일회성 UI처럼 끝나던 점
+  - Interpret: saved protocol detail도 inspectable derived artifact로 읽히게 된다
+  - Act: detail에서 bundle JSON / extracted markdown을 다시 열 수 있다
+  - Store: attachment-backed protocol card는 저장 이후에도 provenance를 재검토할 수 있다는 감각이 남는다
+- Peak-End:
+  - Peak는 saved detail에서 attachment card와 preview가 다시 뜨는 순간이다.
+  - Pit는 저장 직후 provenance가 눈앞에서 사라지던 상태였다.
+  - Transition은 create notice -> explicit save -> saved detail provenance card다.
+  - End는 protocol detail을 나중에 다시 열어도 raw-source lineage를 복구 가능한 상태다.
+- Ethics:
+  - Regret: 통과. provenance를 숨기지 않고 저장 이후에도 유지한다.
+  - Black Mirror: 통과. derived artifact가 source-less truth처럼 보이는 위험을 낮춘다.
+  - In Real-Life: 통과. 실제 협업에서는 저장 후에도 “이 버전이 어느 파일에서 왔는지” 다시 확인하는 일이 자주 생긴다.
+- Concrete change:
+  - create save path가 attachment draft seed provenance를 유지하도록 보강
+  - saved detail version review에 `Attachment provenance` card 추가
+  - card 안에서 bundle metadata, excerpt preview, bundle JSON / extracted markdown 바로가기 제공
+- Verification:
+  - `cd frontend && npx eslint src/app/lib/api.ts src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+  - `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector filters saved cards and opens version-forward detail in mock mode|protocol knowledge inspector keeps second mock card detail aligned with the selected index item|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.9) Saved Attachment Warning Visibility Checkpoint (2026-04-13)
+- Screen/Flow: `/protocol-cards/:protocolId` detail attachment provenance card
+- Goal action: 사용자가 저장된 protocol detail에서 extraction 실패나 fallback warning을 바로 읽고, extracted preview가 없는 상태를 정상적인 provenance signal로 이해한다.
+- Primary persona: 이미지/문서/불투명 바이너리 등 추출 실패 가능성이 있는 외부 프로토콜 자료를 올린 뒤, 저장 이후에도 재검토하려는 연구 운영자
+- Current friction:
+  - saved detail에서는 provenance card가 생겼지만, extraction 실패 경고가 충분히 전면에 보이지 않았다.
+  - 그래서 preview가 비어 있을 때 사용자가 “불러오기 실패인가?”와 “정상적인 raw-source fallback인가?”를 구분하기 어려웠다.
+- Quick decision:
+  - saved detail card에 extraction-failed guidance를 직접 노출한다.
+  - bundle warnings를 별도 summary block으로 보여준다.
+  - extracted markdown이 없을 때는 링크가 사라지는 상태를 그대로 유지해 false affordance를 만들지 않는다.
+- BMAP:
+  - Motivation: 높음. attachment-derived protocol을 재사용하기 전, 추출 실패 여부는 품질 판단의 핵심이다.
+  - Ability: warning block이 없으면 operator가 metadata와 빈 preview만 보고 추론해야 했다.
+  - Prompt: saved detail의 warning summary가 “원본 파일을 다시 열어보라”는 행동 신호를 제공한다.
+- B.I.A.S:
+  - Block: extraction failure가 saved detail에서 충분히 드러나지 않던 점
+  - Interpret: preview 부재를 UI 누락이 아니라 raw-source-first fallback으로 읽게 만든다
+  - Act: bundle JSON 열기 또는 원본 재검토로 자연스럽게 이어진다
+  - Store: “첨부 추출 실패도 저장 후 다시 확인 가능하다”는 신뢰 경계를 남긴다
+- Peak-End:
+  - Peak는 saved detail에서 failure guidance와 warning code가 함께 보이는 순간이다.
+  - Pit는 preview가 비어 있을 때 사용자가 흐름 이상인지 fallback인지 헷갈리던 상태였다.
+  - Transition은 upload fallback notice -> explicit save -> saved detail warning recap이다.
+  - End는 preview가 없어도 provenance가 설명 가능한 상태다.
+- Ethics:
+  - Regret: 통과. 자동 추출 실패를 숨기지 않고 더 전면에 드러낸다.
+  - Black Mirror: 통과. 실패한 추출을 조용히 매끈한 derived artifact처럼 포장하지 않는다.
+  - In Real-Life: 통과. 실제 운영에서는 “이번 파일은 텍스트 추출이 안 됐다”는 사실이 나중에도 다시 보여야 한다.
+- Concrete change:
+  - saved detail provenance card에 extraction-failed guidance 문구 추가
+  - bundle warnings summary block 추가
+  - extraction-failed attachment를 만드는 backend E2E 추가
+- Verification:
+  - `cd frontend && npx eslint src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend protocol knowledge detail keeps extraction-failed attachment warnings visible after save|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+
+## 7.10) Raw Source Reopen Checkpoint (2026-04-13)
+- Screen/Flow: `/protocol-cards` create notice and `/protocol-cards/:protocolId` saved detail provenance card
+- Goal action: 사용자가 bundle JSON만 우회적으로 보지 않고, 저장된 attachment의 raw source 자체를 바로 다시 열거나 내려받아 검토할 수 있다.
+- Primary persona: PDF, 이미지, 바이너리 첨부 등 browser-native preview 가능 여부가 제각각인 외부 프로토콜 자료를 다루는 연구 운영자
+- Current friction:
+  - bundle JSON은 provenance metadata를 보여주지만, 실제 업로드 원본을 바로 열지는 못했다.
+  - 특히 extraction 실패 시에는 “원본을 다시 보자”는 권고가 있어도 클릭 한 번으로 raw source에 닿지 않았다.
+- Quick decision:
+  - canonical store나 save semantics는 건드리지 않는다.
+  - attachment bundle에서 이미 보존된 `source_ref`만 read-only로 서빙하는 전용 endpoint를 추가한다.
+  - create notice와 saved detail provenance 둘 다 같은 raw-source link를 노출한다.
+- BMAP:
+  - Motivation: 높음. 원본 파일 재검토는 derived protocol 품질 확인의 핵심이다.
+  - Ability: 이전에는 metadata drill-down만 가능해서 원본 접근성이 한 단계 부족했다.
+  - Prompt: `Open raw source` CTA가 바로 다음 행동을 명확히 만든다.
+- B.I.A.S:
+  - Block: raw source reopen affordance 부재
+  - Interpret: provenance가 “설명은 되지만 다시 열 수는 없는 상태”처럼 보이던 점
+  - Act: 이제 create/detail 어디서든 raw source를 곧바로 연다
+  - Store: attachment provenance는 metadata와 원본 파일을 함께 재검토할 수 있다는 감각을 남긴다
+- Peak-End:
+  - Peak는 saved detail에서 `Open raw source`를 바로 볼 수 있는 순간이다.
+  - Pit는 extraction 실패 warning이 있어도 원본으로 가는 한 단계가 빠져 있던 상태였다.
+  - Transition은 warning/preview 확인 -> raw source reopen -> explicit downstream 판단이다.
+  - End는 provenance가 metadata-only가 아니라 source-openable 상태로 닫힌다.
+- Ethics:
+  - Regret: 통과. 원본 접근을 더 쉽게 하되 자동 진실 승격은 없다.
+  - Black Mirror: 통과. 실패한 추출을 매끈하게 포장하지 않고, 원본으로 되돌아가게 만든다.
+  - In Real-Life: 통과. 실제 운영에서는 JSON보다 원본 파일을 다시 여는 행동이 더 자연스럽다.
+- Concrete change:
+  - read-only `/protocol-cards/attachments/{id}/source` endpoint 추가
+  - create-stage attachment notice에 `Open raw source` 추가
+  - saved detail provenance card에 `Open raw source` 추가
+  - API test와 backend E2E에서 source link/response를 검증
+- Verification:
+  - `pytest tests/test_protocol_attachments_api.py`
+  - `cd frontend && npx eslint src/app/lib/api.ts src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend protocol knowledge detail keeps extraction-failed attachment warnings visible after save|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+  - `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector filters saved cards and opens version-forward detail in mock mode|protocol knowledge inspector keeps second mock card detail aligned with the selected index item|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.11) Raw Source Download Choice Checkpoint (2026-04-13)
+- Screen/Flow: `/protocol-cards` create attachment notice and `/protocol-cards/:protocolId` saved detail provenance card
+- Goal action: 사용자가 browser inline/open이 적합한 형식과 “로컬에 내려받아 외부 도구로 봐야 하는” 형식을 구분해 행동할 수 있다.
+- Primary persona: PDF/이미지/바이너리/문서 첨부를 다루며, 브라우저 재열람과 파일 다운로드를 상황에 따라 번갈아 쓰는 연구 운영자
+- Current friction:
+  - `Open raw source`만 있으면 브라우저 preview가 가능한 형식에는 좋지만, 바이너리나 외부 앱이 필요한 형식에는 행동 의도가 모호했다.
+  - 특히 extraction failure 경로에서는 “원본을 다시 보자”와 “파일을 내려받자”가 실제로 다른 행동이다.
+- Quick decision:
+  - source route를 새로 둘로 쪼개지 않고, 동일 route에 `download=1` 모드만 추가한다.
+  - UI는 `Open raw source`와 `Download raw source`를 분리해 affordance를 명확히 한다.
+  - API 테스트에서 `inline`과 `attachment` content-disposition을 모두 확인한다.
+- BMAP:
+  - Motivation: 높음. 사용자는 preview와 download를 다르게 기대한다.
+  - Ability: 이전에는 raw source reopen만 있었고 다운로드 의도가 드러나지 않았다.
+  - Prompt: 두 개의 명시적 CTA가 다음 행동을 더 분명하게 만든다.
+- B.I.A.S:
+  - Block: inline/open과 download intent가 섞여 있던 점
+  - Interpret: “원본 재검토”와 “로컬 저장”을 별개 행동으로 읽게 만든다
+  - Act: 상황에 맞게 open 또는 download를 고르게 된다
+  - Store: attachment provenance는 metadata, browser-open, file-download 세 가지 재검토 레벨을 가진다는 감각을 남긴다
+- Peak-End:
+  - Peak는 saved detail에서 `Open raw source`와 `Download raw source`가 나란히 보이는 순간이다.
+  - Pit는 browser가 열어줄지 내려받을지 애매하던 단일 CTA 상태였다.
+  - Transition은 warning/preview 확인 -> open or download 선택 -> downstream 판단이다.
+  - End는 provenance 재검토가 사용자 의도에 맞는 두 갈래 행동으로 닫힌다.
+- Ethics:
+  - Regret: 통과. 행동 선택지만 더 분명하게 했고 자동화는 늘리지 않았다.
+  - Black Mirror: 통과. source access를 숨기거나 강제 다운로드로 몰지 않는다.
+  - In Real-Life: 통과. 실제 연구 운영에서는 브라우저에서 훑기와 파일 저장이 분명히 다른 행동이다.
+- Concrete change:
+  - `/protocol-cards/attachments/{id}/source?download=1` attachment mode 추가
+  - create-stage notice에 `Download raw source` 추가
+  - saved detail provenance card에 `Download raw source` 추가
+  - API test에서 inline/attachment 헤더 검증 추가
+- Verification:
+  - `pytest tests/test_protocol_attachments_api.py`
+  - `cd frontend && npx eslint src/app/lib/api.ts src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend protocol knowledge detail keeps extraction-failed attachment warnings visible after save|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+  - `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector filters saved cards and opens version-forward detail in mock mode|protocol knowledge inspector keeps second mock card detail aligned with the selected index item|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.12) Media-Aware Source Action Priority Checkpoint (2026-04-14)
+- Screen/Flow: `/protocol-cards` create attachment notice and `/protocol-cards/:protocolId` saved detail provenance card
+- Goal action: 사용자가 previewable attachment에서는 `Open raw source`를 먼저 읽고, opaque attachment에서는 `Download raw source`를 먼저 읽는다.
+- Primary persona: 텍스트/PDF/이미지처럼 브라우저에서 바로 확인 가능한 첨부와, 바이너리/외부 앱이 필요한 첨부를 섞어 다루는 연구 운영자
+- Current friction:
+  - `Open`과 `Download`를 둘 다 제공해도, 두 CTA가 동일한 위상으로 보이면 어떤 행동이 더 자연스러운지 즉시 읽기 어려웠다.
+  - 특히 extraction failure가 걸린 opaque attachment에서는 download가 더 자연스러운 첫 행동인데, 이전엔 open/download가 동등했다.
+- Quick decision:
+  - media type과 filename suffix를 이용해 previewable 여부를 가볍게 판정한다.
+  - previewable attachment는 `Open raw source`를 primary, `Download raw source`를 secondary로 둔다.
+  - opaque attachment는 반대로 `Download raw source`를 primary로 둔다.
+  - 내부 검증을 위해 CTA에 `data-priority`를 남기고 E2E에서 확인한다.
+- BMAP:
+  - Motivation: 높음. 사용자는 파일 성격에 따라 다음 행동이 다르다.
+  - Ability: 이전에는 두 CTA가 있어도 우선순위가 드러나지 않았다.
+  - Prompt: 이제 파일 성격에 따라 첫 CTA가 바뀌며 다음 행동을 더 잘 유도한다.
+- B.I.A.S:
+  - Block: CTA 존재는 충분했지만, 우선순위가 약했다.
+  - Interpret: 텍스트/PDF/이미지는 “열어보자”, opaque 파일은 “받아보자”로 더 자연스럽게 해석된다.
+  - Act: 첫 클릭이 파일 성격에 더 잘 맞는다.
+  - Store: provenance 재검토는 파일 형식에 맞는 방식으로 진행된다는 감각을 남긴다.
+- Peak-End:
+  - Peak는 텍스트 attachment에서 `Open`이 먼저, opaque attachment에서 `Download`가 먼저 잡히는 순간이다.
+  - Pit는 같은 CTA 세트가 모든 파일에 똑같이 보이던 상태였다.
+  - Transition은 warning/preview 확인 -> 파일 형식에 맞는 primary CTA 선택이다.
+  - End는 provenance 행동이 파일 형식에 맞춰 정리된 상태다.
+- Ethics:
+  - Regret: 통과. 행동 유도는 더 선명해졌지만 강제성은 없다.
+  - Black Mirror: 통과. 파일 형식을 숨기거나 잘못된 행동으로 몰지 않는다.
+  - In Real-Life: 통과. 실제로는 텍스트는 열어보고, opaque 파일은 저장해서 열 확률이 높다.
+- Concrete change:
+  - previewable/opaque 판정 helper 추가
+  - source CTA에 primary/secondary styling 및 `data-priority` 부여
+  - previewable text attachment와 opaque binary attachment 양쪽에서 priority를 backend E2E로 확인
+- Verification:
+  - `cd frontend && npx eslint src/app/pages/ProtocolCardPage.tsx e2e/backend.spec.ts`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend protocol knowledge detail keeps extraction-failed attachment warnings visible after save|backend paper note detail can attach a protocol file and hand off a mixed draft"`
+  - `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector filters saved cards and opens version-forward detail in mock mode|protocol knowledge inspector keeps second mock card detail aligned with the selected index item|paper note detail fallback points back to runtime checks in mock mode"`
+
+## 7.6) Current Note Context Placement Checkpoint (2026-04-10)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 사용자가 recent note를 고르거나 note detail에서 prefilled 상태로 들어왔을 때, 현재 저장에 쓰일 note context를 manual fallback보다 먼저 확인한다.
+- Primary persona: note-linked protocol snapshot을 빠르게 저장하려는 연구 운영자
+- Current friction:
+  - recent-note quick-pick 자체는 빨랐지만, 선택 결과를 보여주는 `Current note context` 박스가 manual note/paper fallback 아래에 있었다.
+  - 그래서 사용자는 선택 직후에도 시선을 다시 아래로 내려 확인해야 했다.
+- Quick decision:
+  - create contract는 유지한다.
+  - `Current note context` 확인 블록만 recent-note 영역 바로 아래로 올린다.
+  - manual fallback 입력은 그대로 둔다.
+- BMAP:
+  - Motivation: 높음. quick-pick의 핵심은 note context를 빠르게 확정하는 것이다.
+  - Ability: 확인 위치가 늦으면 quick-pick의 체감 이득이 줄어든다.
+  - Prompt: 선택 직후 바로 보이는 확인 블록이 가장 좋은 prompt다.
+- B.I.A.S:
+  - Block: 선택 결과 확인이 manual fallback 아래로 밀려 있던 점
+  - Interpret: 사용자는 “지금 어떤 note로 저장되는지”를 한 번에 해석하지 못했다
+  - Act: quick-pick 직후 현재 context를 바로 보고 계속 작성할 수 있다
+  - Store: protocol create가 더 일관된 note-first capture flow로 기억된다
+- Peak-End:
+  - Peak는 recent note를 누른 직후 `Current note context`가 바로 보이는 순간이다.
+  - Pit는 선택 결과가 manual fallback보다 늦게 보이던 상태였다.
+  - Transition은 `pick note -> confirm context -> save snapshot`이다.
+  - End는 saved protocol detail로 넘어가기 전 context uncertainty가 줄어든 상태다.
+- Ethics:
+  - Regret: 통과. 새 자동화 없이 기존 선택 결과만 더 빨리 확인하게 했다.
+  - Black Mirror: 통과. fallback을 숨기지 않고 quick-pick 확인만 앞당겼다.
+  - In Real-Life: 통과. 실제 사람도 note를 고른 뒤 바로 “이 note 맞나?”를 먼저 확인한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "protocol knowledge index layout|mobile.*protocol knowledge index layout" --update-snapshots`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "protocol knowledge index layout|mobile.*protocol knowledge index layout"`
+
+## 7.6) Active Create-Context Clarity Checkpoint (2026-04-09)
+- Screen/Flow: `/protocol-cards` index create lane, including note-started prefills from `/papers/:slug`
+- Goal action: 사용자가 지금 어떤 note context로 protocol card를 만들고 있는지 inputs 안을 다시 읽지 않고도 바로 이해한다.
+- Primary persona: note detail에서 바로 protocol capture를 시작하거나, recent note quick-pick으로 create form을 여는 연구 운영자
+- Current friction:
+  - recent note를 누르거나 note detail CTA로 들어와도, active context는 input value 안에만 숨어 있었다.
+  - 그래서 “지금 어떤 note로 시작 중인지”가 한눈에 안 들어오고, clear/reset path도 없었다.
+- Quick decision:
+  - create contract와 prefill query params는 그대로 둔다.
+  - create shell 안에 small active-context strip 하나를 추가해 current note title or slug, note slug, paper id를 먼저 보여 준다.
+  - `Clear note context`로 current prefill만 바로 비운다.
+- BMAP:
+  - Motivation: 높음. protocol capture는 note context를 잃지 않는 것이 핵심이다.
+  - Ability: active context가 inputs에만 있으면 확인 비용이 커진다.
+  - Prompt: `Current note context` strip이 지금 무엇에서 출발하는지 먼저 말해 준다.
+- B.I.A.S:
+  - Block: active create-state visibility 부족
+  - Interpret: form이 context-aware capture lane보다 generic admin form처럼 읽힐 수 있었다
+  - Act: current note context strip + clear action
+  - Store: protocol create가 note에서 이어지는 downstream save flow로 더 선명하게 남는다
+- Peak-End:
+  - Peak는 recent note 선택 직후 accent strip에 current note context가 바로 뜨는 순간이다.
+  - Pit는 linked note slug / paper id inputs를 다시 직접 읽어야 하던 상태였다.
+  - Transition은 `pick note or note CTA -> context strip 확인 -> create`다.
+  - End는 active context가 덜 숨어 있고 reset path도 명시적인 상태다.
+- Ethics:
+  - Regret: 통과. hidden automation 없이 현재 입력 상태만 더 잘 보여 준다.
+  - Black Mirror: 통과. 특정 note로 몰아가지 않고 clear path도 함께 준다.
+  - In Real-Life: 통과. 실제 사람은 “지금 이 note 기준으로 저장 중인가?”를 먼저 확인하고 싶어 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - shareable runtime direct checks:
+    - `/ui/protocol-cards` recent-note click shows `Current note context`
+    - `/ui/protocol-cards?noteSlug=...&paperId=...` prefill route shows the same strip and `Clear note context`
+
+## 7.7) Create-Readiness Clarity Checkpoint (2026-04-09)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 사용자가 submit을 눌러 보기 전에도 지금 무엇이 부족한지, 혹은 이미 저장 가능한 상태인지 바로 이해한다.
+- Primary persona: note-backed protocol snapshot을 빠르게 저장하려는 close-user tester와 연구 운영자
+- Current friction:
+  - create form은 작동했지만, validation feedback은 submit 이후 `createError`에만 의존했다.
+  - 그래서 사용자는 지금 무엇이 아직 필요한지 form을 직접 해석해야 했다.
+- Quick decision:
+  - backend validation contract는 그대로 둔다.
+  - create form 상단에 small readiness strip을 추가해 required fields 상태만 먼저 말해 준다.
+  - required fields는 current contract대로 `Protocol title`과 `Current version snapshot`만 본다.
+- BMAP:
+  - Motivation: 높음. protocol capture는 빠르게 저장 가능한 순간을 알아채는 게 중요하다.
+  - Ability: submit 전 readiness가 안 보이면 폼이 더 운영자적으로 느껴진다.
+  - Prompt: `Still needed before save` / `Ready to save`가 next action을 먼저 말해 준다.
+- B.I.A.S:
+  - Block: submit-before-feedback
+  - Interpret: form progress가 사용자가 아니라 validator만 아는 것처럼 보일 수 있었다
+  - Act: required-field readiness strip
+  - Store: create lane가 더 guide-like하고 덜 opaque하게 남는다
+- Peak-End:
+  - Peak는 title과 snapshot을 채운 뒤 strip이 바로 `Ready to save`로 바뀌는 순간이다.
+  - Pit는 이전처럼 submit 전엔 readiness를 알 수 없던 상태였다.
+  - Transition은 `missing required fields -> ready to save -> create`다.
+  - End는 저장 직전의 상태가 더 calm하게 읽히는 상태다.
+- Ethics:
+  - Regret: 통과. hidden validation logic를 늘리지 않고 existing requirements만 더 잘 드러냈다.
+  - Black Mirror: 통과. artificial gating보다 honest state communication이다.
+  - In Real-Life: 통과. 실제 사람은 save 전에 “지금 충분한가?”를 먼저 확인하고 싶어 한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - shareable runtime direct check confirms:
+    - initial strip reads `Still needed before save`
+    - after filling title + snapshot it reads `Ready to save`
+
+## 7.8) Empty Search Recovery Checkpoint (2026-04-09)
+- Screen/Flow: `/protocol-cards` index search with no matching saved cards
+- Goal action: 사용자가 no-match state에 들어가도 막힌 느낌 없이 바로 recovery한다.
+- Primary persona: saved protocol cards를 찾다가 검색어가 너무 좁아져 no-match state를 만나는 연구 운영자
+- Current friction:
+  - previous no-match state ended at `No protocol cards matched the current search.`
+  - that was honest but too final; it did not show the next recovery step.
+- Quick decision:
+  - keep the search rail and create rail as-is.
+  - change the no-match state to explicitly say what to do next and add a bounded `Clear search` action.
+  - do not hide the create lane; keep `start a new protocol card from the left` visible in the copy.
+- BMAP:
+  - Motivation: 높음. no-match state는 “찾기 실패”가 아니라 “recover and continue” 순간이어야 한다.
+  - Ability: explicit clear action이 없으면 작은 no-match도 dead end처럼 느껴질 수 있다.
+  - Prompt: `Clear search`가 가장 직접적인 recovery prompt다.
+- B.I.A.S:
+  - Block: search no-match가 too final하게 읽힘
+  - Interpret: user가 lane 전체가 empty하거나 broken하다고 오해할 수 있었다
+  - Act: clear-search CTA와 new-card fallback copy
+  - Store: protocol index가 더 forgiving한 search surface로 기억된다
+- Peak-End:
+  - Peak는 no-match state에서 `Clear search`가 바로 보이는 순간이다.
+  - Pit는 blunt empty copy만 남던 이전 상태였다.
+  - Transition은 `search too narrow -> no-match -> clear search -> saved cards back`이다.
+  - End는 route가 막혔다기보다 회복 가능한 search surface로 읽히는 상태다.
+- Ethics:
+  - Regret: 통과. fake results를 보여주지 않고 honest recovery만 추가했다.
+  - Black Mirror: 통과. 사용자를 create flow로 몰지 않고 clear path도 같이 줬다.
+  - In Real-Life: 통과. 실제 검색 UI라면 no-match 직후 clear/reset affordance가 자연스럽다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - shareable runtime direct checks confirm:
+    - no-match copy reads `No saved protocol cards matched this search yet. Clear the search or start a new protocol card from the left.`
+    - `Clear search` resets the query and saved protocol cards become visible again
+
+## 7.9) Load-Error Recovery Checkpoint (2026-04-09)
+- Screen/Flow: `/protocol-cards` index/detail load failure
+- Goal action: 사용자가 saved protocol index나 detail load failure를 만나도 바로 retry하거나 index로 복귀할 수 있다.
+- Primary persona: saved protocol card를 다시 열거나 note-backed create 흐름으로 이어가려는 close-user tester와 연구 운영자
+- Current friction:
+  - previous load-error state only surfaced the raw API error inside a warning card.
+  - it did not give a direct retry action, and detail-route failure did not offer a bounded way back to the saved-card index.
+  - index shell also kept its generic count/empty wording even when the saved-card API was temporarily unavailable.
+- Quick decision:
+  - keep the warning card and raw error payload visible.
+  - add `Try again` to both index and detail load failures.
+  - add `Back to protocol cards` on detail failures only.
+  - change the index-side summary copy so load failure reads as temporary unavailability rather than an empty index.
+- BMAP:
+  - Motivation: 높음. saved-card revisit flow는 load failure가 나도 회복 가능성이 바로 보여야 한다.
+  - Ability: retry affordance가 없으면 작은 backend hiccup도 dead end처럼 느껴질 수 있다.
+  - Prompt: `Try again`과 `Back to protocol cards`가 recovery prompt를 직접 맡는다.
+- B.I.A.S:
+  - Block: load error without bounded recovery
+  - Interpret: user가 route 전체가 broken하거나 empty한 것으로 오해할 수 있었다
+  - Act: retry + back-to-index recovery shell
+  - Store: protocol-card lane가 더 robust하고 explainable한 saved-artifact surface로 남는다
+- Peak-End:
+  - Peak는 detail load failure에서 warning card 안에 `Try again`과 `Back to protocol cards`가 같이 보이는 순간이다.
+  - Pit는 raw error만 보이고 다음 action이 비어 있던 이전 상태였다.
+  - Transition은 `load failure -> retry or back to index -> detail recovery`다.
+  - End는 error state가 terminal state보다 temporary recovery state로 읽히는 상태다.
+- Ethics:
+  - Regret: 통과. failure를 숨기지 않고 raw error를 그대로 남겼다.
+  - Black Mirror: 통과. fake success나 silent fallback을 추가하지 않았다.
+  - In Real-Life: 통과. 실제 user는 load failure에서 원인보다 먼저 retry/back affordance를 찾는다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - strict runtime direct probe on `http://127.0.0.1:43175/protocol-cards/protocol_20260401T080535Z_70326b11` with `VITE_STRICT_API=1 VITE_AUTO_MOCK_FALLBACK=0` confirms:
+    - the first two detail fetches can be forced to `503` on mount
+    - the warning card appears with `Try again` and `Back to protocol cards`
+    - clicking `Try again` loads the saved protocol detail successfully on the next request
+
+## 7.10) Field-Level Validation Clarity Checkpoint (2026-04-10)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 사용자가 save readiness strip을 본 뒤에도, 실제로 어느 field를 먼저 채우면 되는지 form 내부에서 바로 이해한다.
+- Primary persona: note-backed protocol snapshot을 빠르게 저장하려는 close-user tester와 연구 운영자
+- Current friction:
+  - the readiness strip already said what was missing, but the title and snapshot fields themselves stayed visually neutral until submit.
+  - if save failed because a required field was blank, the feedback still felt more form-global than field-local.
+- Quick decision:
+  - keep the create contract, readiness strip, and create shell structure exactly as-is.
+  - add small inline guidance under the two required fields only.
+  - on failed submit, mark only the missing required fields as invalid instead of showing a generic top error for a local validation miss.
+- BMAP:
+  - Motivation: 높음. users already want to save; the remaining problem is local clarity, not motivation.
+  - Ability: the strip reduced global ambiguity, but field-level next steps were still one layer removed.
+  - Prompt: title and snapshot helper lines now act as local prompts right where the user is typing.
+- B.I.A.S:
+  - Block: missing-field feedback felt detached from the field itself
+  - Interpret: users could still read the form as “mostly ready, but somehow not yet”
+  - Act: put the missing/ready language directly under the owning field and flag invalid fields on failed submit
+  - Store: the create lane feels more guided and less admin-like
+- Peak-End:
+  - Peak는 first failed submit 이후 exactly the two missing fields만 warning state로 바뀌는 순간이다.
+  - Pit는 global strip은 있지만 field-level cue가 없는 이전 상태였다.
+  - Transition은 `global readiness -> local missing field -> ready field`다.
+  - End는 save 전 마지막 hesitation이 줄어든 상태다.
+- Ethics:
+  - Regret: 통과. validation rules를 늘리지 않고 existing requirements만 더 가까이 보여 준다.
+  - Black Mirror: 통과. fear copy나 fake urgency 없이 필요한 field만 설명한다.
+  - In Real-Life: 통과. 실제 사람은 “무엇이 부족한지”를 form 전체보다 field 바로 아래에서 더 빨리 이해한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && E2E_FRONTEND_PORT=5173 npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - shareable runtime direct check on `/ui/protocol-cards` confirms:
+    - initial field guidance reads:
+      - `Required before save. Give this saved snapshot a short review title.`
+      - `Required before save. Add the current protocol wording or step summary.`
+    - after clicking `Create protocol card` with those fields blank, both required fields expose `aria-invalid="true"`
+
+## 7.11) Required vs Optional Create Hierarchy Checkpoint (2026-04-10)
+- Screen/Flow: `/protocol-cards` index create lane
+- Goal action: 사용자가 protocol card create form에서 지금 바로 필요한 입력과 revisitability를 높이는 optional/defaulted 입력을 한눈에 구분한다.
+- Primary persona: note-backed protocol snapshot을 빠르게 저장하되, 필요하면 traceable context까지 남기려는 close-user tester와 연구 운영자
+- Current friction:
+  - required-field guidance는 좋아졌지만, the rest of the form still read a little too flat.
+  - snapshot was still separated from the title by optional context fields, so the true save threshold was one layer harder to scan.
+- Quick decision:
+  - keep the backend create contract exactly as-is.
+  - move the required `Current version snapshot` field up so the two required inputs sit together.
+  - add one small optional-context explainer, plus compact `Optional` / `Defaults set` cues on the non-required fields.
+- BMAP:
+  - Motivation: 높음. the user already wants to save; the remaining problem is form hierarchy, not motivation.
+  - Ability: save readiness got better once the two required fields were grouped together and the rest of the form was explicitly framed as optional/defaulted.
+  - Prompt: the readiness strip now says the rest is optional or defaulted, and the optional-context card reinforces that same reading path.
+- B.I.A.S:
+  - Block: optional and defaulted fields still competed too evenly with required fields
+  - Interpret: users could still read the create lane as “large form first, save threshold second”
+  - Act: group required fields first and mark the rest as optional/defaulted
+  - Store: the create lane feels more skimmable and less form-heavy
+- Peak-End:
+  - Peak는 `Protocol title` 바로 아래에 `Current version snapshot`이 붙고, 그 다음에 optional-context explainer가 이어지는 순간이다.
+  - Pit는 required fields 사이에 optional inputs가 끼어 있어 save threshold가 한 번 더 흐려지던 이전 상태였다.
+  - Transition은 `required pair -> optional context -> saved detail`이다.
+  - End는 “지금 저장하려면 여기까지만 채우면 된다”가 더 분명한 상태다.
+- Ethics:
+  - Regret: 통과. hidden requirement를 늘리지 않고 existing defaults와 optional fields를 더 honest하게 설명한다.
+  - Black Mirror: 통과. optional cues are clarifying, not coercive.
+  - In Real-Life: 통과. 실제 사람도 먼저 꼭 필요한 두 칸을 채우고, 나머지는 필요할 때만 덧붙이는 흐름을 기대한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && E2E_FRONTEND_PORT=5173 npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
+  - shareable runtime direct check on `/ui/protocol-cards` confirms:
+    - the readiness strip now says the rest of the form is optional or already defaulted
+    - the optional-context explainer is visible before the non-required fields
+    - the vertical order is `Protocol title -> Current version snapshot -> Purpose`

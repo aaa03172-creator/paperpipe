@@ -20,6 +20,22 @@ Use this note to answer:
 
 This is not a new runtime spec.
 
+## 2026-04 usage note
+
+This checklist remains the late-March first-product release gate for the bounded launch slice.
+
+Use it for:
+- the first-product launch bar
+- the release-defining verification set for that bounded slice
+- understanding which lanes were intentionally outside first-product readiness
+
+Do not use it as the first current docs entrypoint for later worktree triage or staging decisions.
+
+Read these first for current repo posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
+
 ## Status Vocabulary
 
 - `green`: repo-grounded evidence says the item is implemented and currently credible for the first product bar
@@ -63,12 +79,12 @@ Working judgment:
 | Area | Status | What must be true | Current evidence | Notes / blocker judgment |
 | --- | --- | --- | --- | --- |
 | Product shape is paper-centered, paper-first, artifact-first, single-operator-first | `green` | First product story stays centered on `papers`, `jobs`, `artifacts`, `Research DNA`, and `Meeting Pack`; not `projects`/memory/chat | `docs/Product_Positioning_Principles.md`, `frontend/src/App.tsx`, `docs/reports/Project_Memory_API_Gate_2026-03-23.md`, `docs/API_CHAT_CONTRACT.md` | Boundary is currently explicit and defensible. |
-| Deep-read/job path produces inspectable paper state | `green` | Real paper can run through deep-read/job flow and leave reusable saved state instead of only logs | `backend/services/job_runner.py`, `backend/main.py`, `docs/WEB_VIEWER.md`, `docs/API_CHAT_CONTRACT.md`, `docs/reports/Current_Baseline_Recheck_2026-03-18.md`, `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md`, `docs/reports/Deep_Read_Structured_State_Gap_2026-03-24.md`, `docs/reports/Fresh_Real_Paper_Deep_Read_Rerun_2026-03-24.md`, `docs/reports/Deep_Read_Legacy_Bundle_Release_Boundary_2026-03-25.md` | The fresh representative rerun on `zotero:coricTargetingProdromalAlzheimer2015` completed successfully and promoted note-side canonical state. Older legacy/partial bundles are now explicitly outside the bounded v1 proof slice unless later backfilled. |
+| Deep-read/job path produces inspectable paper state | `green` | Real paper can run through deep-read/job flow and leave reusable saved state instead of only logs | `backend/services/job_runner.py`, `backend/main.py`, `docs/WEB_VIEWER.md`, `docs/API_CHAT_CONTRACT.md`, `docs/reports/Current_Baseline_Recheck_2026-03-18.md`, `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md`, `docs/reports/Deep_Read_Structured_State_Gap_2026-03-24.md`, `docs/reports/Fresh_Real_Paper_Deep_Read_Rerun_2026-03-24.md`, `docs/reports/Deep_Read_Legacy_Bundle_Release_Boundary_2026-03-25.md` | The fresh representative rerun on `zotero:coricTargetingProdromalAlzheimer2015` completed successfully and promoted a runtime-managed paper-scoped sidecar state under `.pp/<slug>/state.json`. Older legacy/partial bundles are now explicitly outside the bounded v1 proof slice unless later backfilled. |
 | Paper-notes/workbench review surface is product-real | `green` | Operator can open and inspect real backend-backed note state and operational state | `frontend/src/App.tsx`, `backend/routers/paper_notes.py`, `frontend/e2e/backend.spec.ts`, `docs/WEB_VIEWER.md`, `docs/reports/Current_Baseline_Recheck_2026-03-18.md` | Current baseline recheck, active viewer spec, and backend workbench coverage support this as a real surface. |
 | Research DNA loop is real | `green` | `DRAFT -> PILOT -> LOCKED` plus screening/refine loop works as a bounded reproducible search-design lane | `docs/RESEARCH_DNA.md`, `src/profiles/research_dna_schema.py`, `src/profiles/research_dna_service.py` | Implemented and supported by real pilot/probe reports. |
 | Meeting Pack is a real downstream anchor artifact | `green` | Pack generation from real saved state works, and validate/rerender/regenerate boundaries are explicit | `docs/MEETING_PACK.md`, `src/meeting_packs/service.py`, `backend/routers/meeting_packs.py`, `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md` | Current checklist review cleared `7/7`; this is the strongest current downstream artifact lane. |
-| Provenance and uncertainty remain visible | `yellow` | Saved state and downstream artifacts keep evidence linkage and visible caution instead of polishing weak support into certainty | `docs/Evidence_and_Uncertainty_Rules.md`, `docs/MEETING_PACK.md`, `docs/WEB_VIEWER.md`, `docs/Citation_Grounding_Audit_2026-03-13.md` | Core rule is explicit and implemented, but citation readiness is still presence-based in places rather than full verification-based. |
-| Non-destructive rerun/regenerate behavior is credible | `yellow` | Reruns and artifact regeneration do not silently corrupt state or leave hidden partial bundles | `docs/MEETING_PACK.md`, `src/meeting_packs/store.py`, `src/services/paper_ops_summary.py`, `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md` | Meeting Pack rollback/regenerate path is strong; broader deep-read acceptance should still be spot-checked directly for release. |
+| Provenance and uncertainty remain visible | `yellow` | Saved state and downstream artifacts keep evidence linkage and visible caution instead of polishing weak support into certainty | `docs/Evidence_and_Uncertainty_Rules.md`, `docs/MEETING_PACK.md`, `docs/WEB_VIEWER.md`, `docs/Citation_Grounding_Audit_2026-03-13.md`, `docs/reports/Provenance_Uncertainty_Implementation_Audit_2026-03-27.md`, `docs/reports/Focused_First_Gated_Pilot_Acceptance_2026-03-28.md` | Representative paper detail and the refreshed representative `Meeting Pack` now surface grounding ambiguity directly. The remaining yellow is now narrower still: `evidence_backed` is not full citation verification, even when the current saved representative artifact carries fresh caution wording. |
+| Non-destructive rerun/regenerate behavior is credible | `green` | Reruns and artifact regeneration do not silently corrupt state or leave hidden partial bundles | `docs/MEETING_PACK.md`, `src/meeting_packs/store.py`, `src/services/paper_ops_summary.py`, `docs/archive/Meeting_Pack_V1_Checklist_Review_2026-03-13.md`, `docs/reports/Deep_Read_Rerun_Integrity_Check_2026-03-27.md` | Meeting Pack rollback/regenerate path remains strong, and the representative deep-read rerun integrity check preserved canonical sidecar state, previous artifact lineage, and note/API health while advancing to a new run id. |
 | Release-defining verification set is identified | `green` | A narrow release gate exists and is not confused with the entire repo | `scripts/run_backend_api_smoke.sh`, `scripts/run_meeting_pack_verify.sh`, `frontend/package.json`, `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`, `docs/reports/Deep_Read_Release_Acceptance_Spot_Check_2026-03-24.md` | The release set is now concrete; historical baseline reports are supporting context only and do not replace a fresh rerun. |
 | Gated/internal-only lanes stay outside product readiness | `green` | `Project Memory`, `/api/chat`, and other gated surfaces do not leak into the launch story | `docs/reports/Project_Memory_API_Gate_2026-03-23.md`, `docs/API_CHAT_CONTRACT.md`, `docs/reports/Deferred_Lanes_Recheck_2026-03-24.md` | Current gating is explicit. |
 
@@ -124,10 +140,22 @@ cd frontend && npm run verify:frontend:backend
 python3 scripts/lint_docs.py
 ```
 
+Direct CLI fallback if the current shell makes `npm`/`npx` wrappers unstable:
+
+```bash
+cd frontend && node node_modules/eslint/bin/eslint.js .
+cd frontend && node node_modules/typescript/bin/tsc -b --pretty false && node node_modules/vite/bin/vite.js build
+cd frontend && env PAPERPIPE_REAL_SMOKE=1 PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES=1 node node_modules/@playwright/test/cli.js test -c playwright.backend.real.config.ts e2e/backend.spec.ts -g 'backend real-paper smoke' --reporter=line
+```
+
 Latest rerun note:
 - the 2026-03-24 rerun passed `run_backend_api_smoke.sh`, the `Research DNA` test slice, `run_meeting_pack_verify.sh`, `lint_docs.py`, `frontend build`, and `frontend e2e:backend:real-smoke`
 - `cd frontend && npm run verify:frontend:backend` also passed after aligning the paper-note detail E2E expectations with the current `Saved state` panel ordering
 - the 2026-03-25 release-boundary decision now treats older legacy/partial bundles as out-of-slice historical evidence unless explicitly backfilled later
+- the 2026-03-27 double-check confirmed the fresh backend/runtime slice is healthy; in the current shell, direct Node CLI paths for frontend build, lint, and real-smoke are more reliable than `npm run ...` / `npx ...` wrappers
+- the 2026-03-28 refresh rerun again passed `run_backend_api_smoke.sh`, the `Research DNA` targeted slice, `run_meeting_pack_verify.sh`, and `lint_docs.py`
+- the same 2026-03-28 refresh also passed direct frontend lint, TypeScript build, Vite build, and `backend real-paper smoke`
+- follow-up recheck on 2026-03-28 confirmed that `cd frontend && npm run verify:frontend:backend` passes on the clean current tree, including `e2e:backend` and `e2e:backend:parser-worker`
 
 ### Required release-scoped checks
 
@@ -135,6 +163,12 @@ Latest rerun note:
 
 ```bash
 cd frontend && npm run e2e:backend:real-smoke
+```
+
+Direct fallback if needed:
+
+```bash
+cd frontend && env PAPERPIPE_REAL_SMOKE=1 PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES=1 node node_modules/@playwright/test/cli.js test -c playwright.backend.real.config.ts e2e/backend.spec.ts -g 'backend real-paper smoke' --reporter=line
 ```
 
 - route families that must remain covered by the release-scoped frontend/backend proof:
@@ -170,9 +204,10 @@ No blocker-shaped follow-ups remain on the bounded current-runtime slice.
 
 Optional closeout only:
 
-1. Provenance/trust language consistency across release-defining surfaces
-- Why: the evidence-first rule is explicit, but citation/grounding readiness is still not equivalent to full verification everywhere.
-- This is no longer a launch-slice viability blocker.
+1. Provenance/trust semantics remain intentionally narrower than full citation verification
+- Why: the evidence-first rule is explicit, and the refreshed representative `Meeting Pack` now carries current caution wording, but `evidence_backed` still does not mean fully citation-verified.
+- Current note: the 2026-03-27 wording audit plus the 2026-03-28 refreshed representative pack close the saved-artifact freshness gap; the remaining yellow is semantic, not a release-doc conflict or stale representative artifact problem.
+- This is not a launch-slice viability blocker.
 
 ## Suggested Usage
 

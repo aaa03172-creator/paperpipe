@@ -14,6 +14,7 @@ Canonical parent: `docs/ux-review.md`
 - Constraints:
 
 ## Quick Review (5 min)
+- First meaningful success:
 
 ## Full Review
 ### P0
@@ -38,3 +39,7 @@ Canonical parent: `docs/ux-review.md`
 ## Ethics check results
 
 ## Next PR-sized actions
+
+## Verification
+- Backend/API contract checks for additive review-gate artifacts when the surface depends on them.
+- Frontend viewer changes should include `cd frontend && npm run build` plus the relevant Playwright or visual coverage for the touched surface when that route already has tests.

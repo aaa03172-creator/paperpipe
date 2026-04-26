@@ -128,6 +128,8 @@ Current rule:
 - `image_evidence.json` remains the primary bundle-local metadata and provenance file
 - it does not replace canonical paper/run truth elsewhere in the runtime
 - optional files stay additive and bundle-relative
+- bundle-local derived outputs are valid only when the same bounded save path materializes the declared derivative files; metadata-only `bundle_ref` declarations are invalid
+- nested `view_state_ref` pointers on derived outputs or handoff targets must resolve to the shared top-level `view_state.json`; alternate or dangling bundle-local view-state paths are invalid
 - the bundle is a bounded sidecar artifact, not a generalized image-data platform
 
 ### 6. API stays thin
@@ -138,10 +140,12 @@ Current API surface:
 - `GET /image-evidence/{image_evidence_id}`
 - `GET /image-evidence/{image_evidence_id}/view-state`
 - `GET /image-evidence/{image_evidence_id}/handoff`
+- `GET /image-evidence/{image_evidence_id}/derivatives/{artifact_subpath}`
 
 Current rule:
 - the API remains a thin wrapper over schema/service/store code
 - register-time validation may emit warnings such as missing-local-file or checksum-mismatch
+- raw file download is bounded to declared derivative bundle members only; `view_state` and `handoff` stay on typed metadata routes
 - the API does not open editing, analysis, or viewer-control workflows
 
 ### 7. Viewer stays read-only and metadata-first

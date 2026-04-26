@@ -130,6 +130,16 @@ Current best-fit usage shape:
 - Reasoning persona, profile context, and output/view mode are different concerns.
 - Different audiences or deliverables should not automatically create separate agents or truth policies.
 
+## Current exposure boundary note
+
+`Research DNA` is part of the active product shape, but its current operator-facing surface is API/CLI-first rather than web-viewer-first.
+
+That means:
+- `Research DNA` remains part of the core paper-first story
+- current main web viewer routes do not yet include a dedicated `Research DNA` viewer
+- current frontend absence should be described as an intentional product-boundary choice for this stage, not as hidden or missing truth
+- if `Research DNA` becomes web-visible later, it should start as a bounded read-first surface rather than a broad workflow wizard
+
 ## Current product shape
 
 As of 2026-03-24, the live product shape is best described as:
@@ -141,6 +151,10 @@ As of 2026-03-24, the live product shape is best described as:
 - bounded `Meeting Pack`
 
 This is the active core product reality.
+
+Current exposure note:
+- `papers`, workbench, and bounded artifact viewers are today’s primary web surfaces
+- `Research DNA` is currently a real core lane with API/CLI/operator workflows, but not yet a first-class web viewer route
 
 Current bounded extensions also exist and are real:
 - `Method Comparison`

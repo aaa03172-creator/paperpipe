@@ -35,7 +35,7 @@ Purpose: Help AI coding agents be immediately productive in the repository by de
 
 ## Known gotchas & important implementation notes ⚠️
 - Slot name mismatch (critical): `processor.py` sets `paper['slot'] = 'clinical'` (lowercase) for the clinical slot, and the rest of the code checks for `'clinical'`. However, `src/obsidian.py` currently checks `if paper.get('slot') == 'Clinical'` (capitalized) to decide which template to use. This will prevent clinical `TrialExtraction` data from being embedded into the clinical template. When editing, prefer using lowercase `'clinical'` (or normalize `paper['slot'].lower()` in `obsidian.py`).
-- Config schema drift: `config.yaml` contains convenience keys and comments (e.g., `model_override`, `enable_trial_extraction`) while `src/config.py` declares the authoritative pydantic model shape. When adding features, update the pydantic models in `src/config.py` accordingly.
+- Config schema drift: `config.yaml` contains convenience keys and legacy alias comments (e.g., `model_override`) while `src/config.py` declares the authoritative pydantic model shape. When adding features, update the pydantic models in `src/config.py` accordingly.
 - LLM API key handling: `src/config.load_config()` prioritizes `OPENAI_API_KEY`. Do not store the key in `config.yaml` in the repository.
 - Database and logs are created relative to the working directory (DB `state.db` and log `logs/paperpipe.log`). For tests or CI, use temp paths or a temporary working directory.
 

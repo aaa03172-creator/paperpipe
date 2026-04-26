@@ -5,6 +5,31 @@ Date: 2026-03-13
 Owner: Lattice runtime maintainers
 Purpose: keep a single reference map for specs, runbooks, templates, and historical records.
 
+## Current posture entrypoint
+
+Use this section first when the question is "what is the current repo posture and which dated notes still matter?"
+
+Read in this order:
+
+1. `docs/reports/Current_Docs_Posture_2026-04-17.md`
+   - Current reading-order note for the mixed repo state.
+   - Start here if the question is "which docs should I trust first before I touch anything?"
+2. `docs/reports/Lattice_Current_Safe_Product_Summary_2026-04-13.md`
+   - Current-safe product wording anchor.
+   - Start here if the question is "how should I describe the current product without overclaiming?"
+3. `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+   - Current lane split for the mixed dirty tree.
+   - Start here if the question is "which implementation lane is actually open right now?"
+4. `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
+   - Packaging split note for runtime-readiness and installability work.
+   - Start here if the question is "what belongs in the personal-runtime/readiness lane?"
+5. `docs/reports/Internal_Data_Readiness_For_Biomedical_Workspace_2026-04-13.md`
+   - Support-only internal-data posture.
+   - Start here only if the task touches project-context, artifact-history, or bounded raw-log surfaces.
+6. `docs/reports/Python313_Import_Health_2026-04-14.md`
+   - Local verification environment diagnostic.
+   - Start here if local `pytest`, `src.cli`, or `backend.main` imports behave inconsistently.
+
 ## First-product baseline entrypoint
 
 Use this section first when you need the current first shipped/demo-ready product baseline without re-reading the full doc tree.
@@ -14,37 +39,41 @@ Read in this order:
 1. `docs/Product_Positioning_Principles.md`
    - Product identity, core assertions, and explicit non-positioning traps.
    - Start here if the question is "what kind of product is this, really?"
-2. `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
+2. `docs/reports/Lattice_Current_Safe_Product_Summary_2026-04-13.md`
+   - Current-safe wording anchor for product summaries, demos, and internal restatements.
+   - Start here if the question is "how should we describe the current product without overclaiming?"
+3. `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
    - The first-product promise, launch-defining loop, minimum deep-read bar, and out-of-scope lanes.
    - Start here if the question is "what counts as the first product?"
-3. `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
+4. `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
    - The go/no-go checklist for the current first-product slice.
    - Start here if the question is "is the current slice launch-credible?"
-4. `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
+5. `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
    - The actual current canonical objects, now/later/not-this-product cut, and the researcher journey the repo honestly supports.
    - Start here if the question is "what does the runtime really support today?"
-5. `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
+6. `docs/reports/Release_Rehearsal_Run_2026-03-25.md`
    - Recorded rehearsal result for the bounded current-runtime slice.
    - Start here if the question is "did we actually run the story end to end?"
-6. `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
-   - The current stop/continue decision and smallest remaining follow-ups.
-   - Start here if the question is "what should we do next?"
-7. `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
+7. `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+   - The late-March stop/continue decision and smallest follow-ups for that bounded first-product slice.
+   - Start here only if the question is "what was the late-March baseline next-action call?"
+8. `docs/reports/First_Product_Baseline_QA_2026-03-25.md`
    - Direct answers to the recurring baseline questions: product identity, source of truth, v1 user, core workflow, first-class entities, current non-promises, and remaining doc/runtime gaps.
    - Start here if the question is "what is the concise repo-grounded answer?"
-8. `docs/reports/First_Product_Demo_Runbook_2026-03-27.md`
+9. `docs/reports/First_Product_Demo_Runbook_2026-03-27.md`
    - The actual demo/handoff script for the bounded first-product slice.
    - Start here if the question is "how should we show or hand off the current product honestly?"
-9. `docs/reports/First_Product_Demo_FAQ_2026-03-27.md`
+10. `docs/reports/First_Product_Demo_FAQ_2026-03-27.md`
    - Presenter-facing short answers for the most likely demo questions.
    - Start here if the question is "what should I say when asked directly?"
-10. `docs/reports/First_Product_Demo_Script_3min_2026-03-27.md`
+11. `docs/reports/First_Product_Demo_Script_3min_2026-03-27.md`
    - A short spoken script for the current first-product demo.
    - Start here if the question is "what exactly should I say in the demo?"
 
 If you need the shortest path to the current answer, use:
 
 - product shape -> `docs/Product_Positioning_Principles.md`
+- current-safe wording -> `docs/reports/Lattice_Current_Safe_Product_Summary_2026-04-13.md`
 - first-product bar -> `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
 - launch judgment -> `docs/reports/Launch_Readiness_Checklist_2026-03-24.md`
 - actual supported journey -> `docs/reports/Canonical_Objects_Scope_Cut_And_Supported_Journey_2026-03-24.md`
@@ -62,6 +91,7 @@ If the question is not "which spec is canonical?" but "what can the current prod
    - `README.md`
    - `backend/main.py` (`POST /jobs/deepread`)
    - `docs/reports/First_Shippable_Product_Bar_2026-03-24.md`
+   - `docs/DEEPREAD_HANDOFF_QUALITY_LOOP.md` when the question is "how do we audit or compare saved deep-read handoff quality?"
 2. Inspect saved paper state
    - `docs/WEB_VIEWER.md`
    - `docs/Lattice_Paper_Notes_Web_Viewer_Spec.md`
@@ -92,6 +122,24 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 - `docs/working-files.md`
   - Lightweight task-local planning workflow for long multi-step work.
   - Keeps ephemeral `plan.md` / `findings.md` / `progress.md` under `.codex/work/` and promotes durable outcomes into canonical docs.
+- `docs/PaperPipe_Minimum_Operating_Principles.md`
+  - Smallest durable operating guardrails for the current paper/job/artifact runtime shape.
+  - Use this to evaluate workflow or governance proposals without reopening product shape or replacing runtime SSOT.
+- `docs/inference_strategy.md`
+  - Active operating note for local-first data ownership vs inference placement.
+  - Use this when the question is "what backend strategy fits the current repo without turning it into a cloud-first or local-only product?"
+- `docs/inference_data_boundary.md`
+  - Active operating note for `local_only` / `lab_allowed` / `external_allowed` payload classification.
+  - Use this before adding or widening any inference request path so canonical state and private research material are not over-shared.
+- `docs/inference_routing_policy.md`
+  - Active operating note for current task-to-backend routing posture across local, lab-server, and commercial inference slots.
+  - Use this when deciding where a new reasoning or synthesis lane should run.
+- `docs/KNOWLEDGE_LAYER_OPERATING_NOTE.md`
+  - Bounded operating note for future compiled knowledge assets.
+  - Use this when evaluating wiki-style or compiled-memory proposals so derived knowledge does not become a second source of truth.
+- `docs/INDEPENDENT_REVIEW_TEMPLATE.md`
+  - Optional PR-sized independent review template for bounded non-UX changes using `pass / warn / fail`.
+  - Use this as an additive signoff aid, not as a mandatory universal protocol.
 - `docs/ARCHITECTURE_REFOCUS_EXECUTION_GUIDE.md`
   - Repo-grounded workflow guide for architecture/ownership/linkage/priority refocus work.
   - Use this when a prompt or proposal risks widening scope beyond the current paper/job/artifact runtime.
@@ -121,6 +169,14 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
   - Prevents audience or deliverable variants from turning into separate agents by default.
 - `docs/Evidence_and_Uncertainty_Rules.md`
   - Consolidates current evidence-first, uncertainty-visible, and grounding-preservation rules across claim, export, chat, and downstream artifact surfaces.
+- `docs/KNOWLEDGE_LAYER_OPERATING_NOTE.md`
+  - Clarifies how future compiled knowledge assets fit the current runtime without replacing canonical structured state.
+- `docs/inference_strategy.md`
+  - Clarifies the current recommended product posture: local-first data ownership with selective external inference.
+- `docs/inference_data_boundary.md`
+  - Defines the current payload-minimization and backend-boundary rules for inference calls.
+- `docs/inference_routing_policy.md`
+  - Defines the current task-family routing recommendation for local, lab, and commercial inference backends.
 - `docs/API_CHAT_CONTRACT.md`
   - Chat/API contract for the current runtime.
 - `docs/RESEARCH_DNA.md`
@@ -131,6 +187,8 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
   - CI workflow: `.github/workflows/meeting-pack-verify.yml`
 - `docs/METHOD_COMPARISON.md`
   - Evidence-linked paper-centric comparison artifact spec for saved cross-paper method snapshots.
+- `docs/PAPER_SYNTHESIS.md`
+  - Paper-scoped compiled-knowledge pilot spec for saved synthesis bundles derived from canonical state and selected run artifacts.
 - `docs/CHART_PACK.md`
   - Deterministic chart artifact spec for file-backed visualization bundles built from saved structured artifacts.
 - `docs/PROTOCOL_KNOWLEDGE.md`
@@ -171,13 +229,46 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
   - Recorded midpoint decision log for what is implemented now vs intentionally deferred.
 
 ### 6. Runtime and ops runbooks
+- `docs/OPERATIONS_RUNBOOK.md`
+  - First operator entrypoint for health/readiness, stuck jobs, logs, lightweight monitoring, secrets, backup posture, and deployment/rollback.
+  - Use this when the question is "where should an operator start during an incident or routine runtime check?"
+- `docs/RESTORE_READINESS_MATRIX.md`
+  - Current restore expectation matrix for runtime DB, logs, caches, raw sources, bounded artifact bundles, and generated reports.
+  - Use this when the question is "can this asset be directly restored, rerendered, recovered from a pre-apply backup, or only handled manually?"
+- `docs/MUTATION_SCRIPT_SAFETY_INVENTORY.md`
+  - Current safety inventory for local mutation scripts: dry-run, `--apply`, backup-before-apply, transaction/rollback, and summary output.
+  - Use this before running archive, migration, replay, cleanup, or backfill scripts against local runtime state.
+- `docs/DEPLOYMENT_ROLLBACK_CHECKLIST.md`
+  - Current deployment/update/rollback checklist for repo alpha, macOS alpha handoff, macOS Gatekeeper-ready release, and Windows source alpha.
+  - Use this before sharing, updating, or rolling back a personal runtime.
 - `docs/CLI_WORKFLOW_REFERENCE.md`
   - Current implemented CLI surface grouped into operator-facing workflows, secondary utilities, and retained legacy/diagnostic commands.
+- `docs/PERSONAL_RUNTIME_INSTALL.md`
+  - Current close-person alpha install/start runbook for the personal-runtime path.
+  - Use this when the question is "how should one operator install and run Lattice without turning it into a shared server?"
+- `docs/PERSONAL_RUNTIME_USER_KITS.md`
+  - Generator runbook for the current user-facing macOS and Windows handoff folders.
+  - Use this when the question is "what folder do we send a tester right now, and how is it produced?"
+- `docs/WINDOWS_PERSONAL_RUNTIME_ALPHA.md`
+  - Honest Windows status note and cautious from-source alpha path for the personal-runtime shape.
+  - Use this when the question is "what can we really say about Windows today, and what is the least risky operator path?"
+- `docs/MACOS_PERSONAL_RUNTIME_RELEASE.md`
+  - macOS release runbook for signing, notarization, stapling, and Gatekeeper-ready packaging around the current personal-runtime bundle.
+  - Use this when the question is "how do we turn the current macOS alpha bundle into a distribution artifact?"
+- `docs/MACOS_PERSONAL_RUNTIME_ALPHA_HANDOFF.md`
+  - close-person macOS alpha handoff runbook for sharing the current bundle before Gatekeeper-ready trust distribution.
+  - Use this when the question is "what do we actually send a trusted tester right now?"
 - `docs/runtime_security_env.md`
+- `docs/STALE_RUNNING_RECOVERY.md`
+  - Current operator runbook for diagnosing stale `running` jobs, confirming queue-health warnings, and performing bounded manual recovery without direct DB edits.
+  - Use this when the question is "a deep-read job looks stuck; how do we safely inspect, cancel, and re-run it with the current runtime semantics?"
 - `docs/downloader_monitoring.md`
 - `docs/institutional_access.md`
 - `docs/operations_checklist_watcher_review_queue.md`
 - `docs/teacher_quality_loop.md`
+- `docs/DEEPREAD_HANDOFF_QUALITY_LOOP.md`
+  - Current runbook for bounded saved-run deep-read handoff audits, derived-artifact backfill, baseline compare, and promotion across fixed coric and multicase manifests.
+  - Use this when the question is "how do we measure long-run deep-read reliability without reopening runtime architecture?"
 - `docs/Local_Backup_Branch_Retention_2026-02-24.md`
   - Local branch-backup retention policy; adjacent to, but not a replacement for, future runtime backup/restore semantics.
 
@@ -185,12 +276,19 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 - Reports index: `docs/reports/README.md`
 - Archive index: `docs/archive/README.md`
 - Dated validation and audit outputs live under `docs/reports/`
+- `docs/Pending_PR_Queue.md` remains a secondary working queue for staging, packaging, and bounded reopen history.
+- Do not use the queue as the first current-posture entrypoint when `docs/reports/Current_Docs_Posture_2026-04-17.md` answers the question directly.
+- Current dated reading-order and lane posture is summarized by:
+  - `docs/reports/Current_Docs_Posture_2026-04-17.md`
+  - `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+  - `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 - Current state / packaging / staging posture is currently summarized by:
   - `docs/reports/Current_State_Update_2026-03-24.md`
   - `docs/reports/Current_State_Packaging_2026-03-24.md`
   - `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
   - `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
   - `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md`
+  - `docs/reports/Personal_Runtime_Packaging_Decision_2026-03-28.md`
 - Current lane-specific packaging notes are:
   - `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`
   - `docs/reports/Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md`
@@ -224,6 +322,8 @@ Additional note:
 
 - `docs/ux-review-report.md` is a historical example report.
 - New review artifacts should use `docs/UX_REVIEW_REPORT_<flow>.md`.
+- `docs/PaperPipe_Minimum_Operating_Principles.md` is the canonical operating note.
+- `docs/reports/PaperPipe_Minimum_Operating_Principles_2026-03-25.md` is a retired compatibility stub kept only so older references do not break.
 
 ## Naming rules from now on
 
@@ -254,7 +354,9 @@ Additional note:
 ## Immediate cleanup backlog
 
 1. Update future references to point to `docs/Lattice_v3_Master_Spec.md` instead of the retired stub paths.
-2. Delete the retired stub files only after you are comfortable breaking old links/bookmarks.
-3. Keep UX review artifacts on the uppercase `UX_REVIEW_*` path family and treat `docs/ux-review-report.md` as historical only.
-4. Move additional zero-reference historical working docs into `docs/archive/` when they stop serving as active handoff material.
-5. Consider wiring `python3 scripts/lint_docs.py` into any local pre-commit flow if docs churn increases further.
+2. Update future operating-rule references to point to `docs/PaperPipe_Minimum_Operating_Principles.md` instead of the retired dated stub path.
+3. Delete retired stub files only after you are comfortable breaking old links/bookmarks.
+4. Keep new compatibility stubs paired with an explicit canonical target and docs lint coverage.
+5. Keep UX review artifacts on the uppercase `UX_REVIEW_*` path family and treat `docs/ux-review-report.md` as historical only.
+6. Move additional zero-reference historical working docs into `docs/archive/` when they stop serving as active handoff material.
+7. Consider wiring `python3 scripts/lint_docs.py` into any local pre-commit flow if docs churn increases further.

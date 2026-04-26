@@ -30,6 +30,8 @@ storage/project_memory/<project_id>/
 Current bundle contract:
 - bounded `pmproj_*` workspace identity
 - bounded `pmitem_*` memory-item identity
+- explicit `layer="raw_memory"` marker on workspace and item records
+- explicit `canonical_status="non_canonical"` marker on workspace and item records
 - typed entity links to existing runtime artifacts
 - workspace required before item writes
 - duplicate `item_id` values rejected
@@ -96,6 +98,7 @@ Safe now:
 - keep the file-backed backend slice
 - use it as a bounded implementation reference
 - harden schema/store behavior if bugs appear
+- keep the lane explicitly marked as raw-memory support data rather than canonical scientific state
 - evaluate real use cases against the current bundle shape
 
 Not safe yet:
