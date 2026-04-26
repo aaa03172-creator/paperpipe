@@ -1,10 +1,17 @@
+import hashlib
 import json
+from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
 from backend import main as api_main
 from backend.routers import paper_notes as paper_notes_router
+from src import db_utils
+from src.schemas.paper_notes import PaperNoteIndexItem, PaperNoteOpsSummary
+from src.services.paper_operator_state_store import operator_state_path
 
 
 def _write(path, content: str) -> None:
@@ -23,6 +30,44 @@ def _write_artifact_run(path, *, claimset: dict | None = None, stats_report: dic
         _write_state(path / "claimset.resolved.json", claimset)
     if stats_report is not None:
         _write_state(path / "stats_report.json", stats_report)
+
+
+def _fixture_structured_state(slug: str) -> dict:
+    return {
+        "paper_slug": slug,
+        "updated_at": "2026-03-10T09:00:00Z",
+        "runs": [],
+        "signals": {"has_claimset": True},
+        "claimset": [
+            {
+                "id": "claim_c0ffee000001",
+                "claim": "Fixture-only structured state should stay hidden from real viewer surfaces.",
+                "evidence_ids": ["evidence_deadbeef0001"],
+                "evidence": [
+                    {
+                        "id": "evidence_deadbeef0001",
+                        "claim_id": "claim_c0ffee000001",
+                        "text": "Fixture evidence.",
+                        "page": 0,
+                        "source": "bbox",
+                        "locator": {
+                            "page": 0,
+                            "span": [0, 16],
+                            "chunk_id": "chunk-e2e-001",
+                            "source": "bbox",
+                        },
+                    }
+                ],
+                "confidence": 0.9,
+                "tags": ["fixture"],
+                "outcomes": ["hidden"],
+                "source_claim_id": "e2e-claim-1",
+            }
+        ],
+        "entities": ["Fixture"],
+        "mesh": ["Fixture"],
+        "outcomes": ["hidden"],
+    }
 
 
 def _note_content(
@@ -131,6 +176,25 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
             "entities": ["Amyloid"],
             "mesh": ["Neurology"],
             "outcomes": ["memory"],
+            "reading_assists": [
+                {
+                    "locale": "ko",
+                    "canonical_locale": "en",
+                    "machine_translated": True,
+                    "partial": True,
+                    "blocks": [
+                        {
+                            "kind": "abstract",
+                            "text": "한국어 보조 요약이 준비된 노트다.",
+                            "source_heading": "Abstract",
+                            "provenance": {
+                                "source_field": "abstract",
+                                "source_locale": "en",
+                            },
+                        }
+                    ],
+                }
+            ],
         },
     )
     _write(vault_dir / "2026-02-24.md", "# daily note\n")
@@ -149,8 +213,21 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
 
     assert payload["total"] == 2
     assert len(payload["items"]) == 2
+    assert payload["available_reading_assist_note_count"] == 1
+    assert payload["available_reading_assist_locales"] == ["ko"]
     assert payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+    assert payload["items"][0]["pp_signals"]["has_claimset"] is True
+    assert payload["items"][0]["reading_assist_available"] is True
+    assert payload["items"][0]["reading_assist_locales"] == ["ko"]
     assert (tmp_path / "storage" / "obsidian" / "paper_notes_index.json").exists()
+
+    api_prefixed = client.get("/api/paper-notes")
+    assert api_prefixed.status_code == 200
+    api_payload = api_prefixed.json()
+    assert api_payload["total"] == 2
+    assert api_payload["available_reading_assist_note_count"] == 1
+    assert api_payload["available_reading_assist_locales"] == ["ko"]
+    assert api_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
 
     filtered = client.get("/paper-notes", params={"tag": "Alzheimers_Disease", "q": "prodromal"})
     assert filtered.status_code == 200
@@ -164,6 +241,18 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
     assert structured_payload["total"] == 1
     assert structured_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
 
+    any_reading_assist = client.get("/paper-notes", params={"has_reading_assist": "true"})
+    assert any_reading_assist.status_code == 200
+    any_reading_assist_payload = any_reading_assist.json()
+    assert any_reading_assist_payload["total"] == 1
+    assert any_reading_assist_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+
+    korean_assist = client.get("/paper-notes", params={"reading_assist_locale": "ko"})
+    assert korean_assist.status_code == 200
+    korean_assist_payload = korean_assist.json()
+    assert korean_assist_payload["total"] == 1
+    assert korean_assist_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+
     multi_token = client.get("/paper-notes", params={"q": "Amyloid Neurology"})
     assert multi_token.status_code == 200
     multi_token_payload = multi_token.json()
@@ -175,6 +264,236 @@ def test_paper_notes_list_builds_index_and_filters(tmp_path, monkeypatch):
     exact_phrase_payload = exact_phrase.json()
     assert exact_phrase_payload["total"] == 1
     assert exact_phrase_payload["items"][0]["slug"] == "zoteroduboisAlzheimerDiseaseClinicalBiological2024"
+
+
+def test_paper_notes_home_context_summarizes_counts_and_slug_links(monkeypatch, tmp_path):
+    monkeypatch.setattr(paper_notes_router, "_resolve_vault_path", lambda: tmp_path / "vault")
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_build_index",
+        lambda vault_path: SimpleNamespace(
+            items=[
+                PaperNoteIndexItem(
+                    slug="zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                    title="Dubois",
+                    note_path="Inbox/PaperPipe/zoteroduboisAlzheimerDiseaseClinicalBiological2024.md",
+                    id="zotero:duboisAlzheimerDiseaseClinicalBiological2024",
+                    structured_state_present=True,
+                    starred=True,
+                    has_operator_note=True,
+                    triage_labels=["revisit"],
+                    updated_at="2026-04-12T09:30:00Z",
+                ),
+                PaperNoteIndexItem(
+                    slug="paper-standalone-2026",
+                    title="Standalone",
+                    note_path="Inbox/PaperPipe/paper-standalone-2026.md",
+                    id="paper-standalone-2026",
+                    structured_state_present=False,
+                    triage_labels=["needs_verification", "experiment_relevant"],
+                    updated_at="2026-04-10T07:00:00Z",
+                ),
+            ]
+        ),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/home-context")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "saved_notes": 2,
+        "structured_notes": 1,
+        "latest_note_updated_at": "2026-04-12T09:30:00Z",
+        "note_context_limited": False,
+        "note_slug_by_paper_id": {
+            "zotero:duboisAlzheimerDiseaseClinicalBiological2024": "zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+            "zoteroduboisAlzheimerDiseaseClinicalBiological2024": "zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+            "duboisAlzheimerDiseaseClinicalBiological2024": "zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+            "paper-standalone-2026": "paper-standalone-2026",
+        },
+        "marker_summary": {
+            "marked_papers": 2,
+            "note_backed_papers": 1,
+            "starred": 1,
+            "triage_counts": {
+                "revisit": 1,
+                "needs_verification": 1,
+                "experiment_relevant": 1,
+            },
+        },
+    }
+
+
+def test_paper_notes_list_dedupes_legacy_variant_but_preserves_ops_signal(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    canonical_slug = "Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer s disease mice"
+    legacy_slug = "parkDiscoveryDualactionSmall2022"
+    paper_id = "zotero:parkDiscoveryDualactionSmall2022"
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{canonical_slug}.md",
+        "\n".join(
+            [
+                "---",
+                f"id: {paper_id}",
+                'aliases: ["Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice"]',
+                "tags:",
+                "  - Neuroscience/Alzheimer_s_Disease",
+                "date_processed: 2026-04-02",
+                "confidence: 0.9",
+                "status: INDEXED",
+                "pp:",
+                f"  structured_path: .pp/{canonical_slug}/state.json",
+                "---",
+                "",
+                "# Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/park.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / canonical_slug / "state.json",
+        _fixture_structured_state(canonical_slug),
+    )
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{legacy_slug}.md",
+        _note_content(
+            note_id="parkDiscoveryDualactionSmall2022",
+            alias="Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
+            tags=["Neuroscience/Alzheimer_s_Disease"],
+            date_processed="2026-02-19",
+            confidence=0.9,
+            status="INDEXED",
+        ),
+    )
+    _write_artifact_run(
+        artifacts_dir / legacy_slug / "run-legacy",
+        claimset={"claims": [{"claim_id": "c1"}]},
+        stats_report={"checks": []},
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+
+    response = client.get("/paper-notes", params={"q": "dual-action small molecule"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["slug"] == canonical_slug
+    assert payload["items"][0]["id"] == paper_id
+    assert payload["items"][0]["ops_summary"]["state"] == "action_needed"
+    assert payload["items"][0]["ops_summary"]["recommended_action"] == "repair_stats"
+
+    legacy_query = client.get("/paper-notes", params={"q": legacy_slug})
+    assert legacy_query.status_code == 200
+    legacy_payload = legacy_query.json()
+    assert legacy_payload["total"] == 1
+    assert legacy_payload["items"][0]["slug"] == canonical_slug
+
+
+def test_paper_notes_home_context_dedupes_equivalent_variants_and_preserves_markers(monkeypatch, tmp_path):
+    canonical_slug = "Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer s disease mice"
+    monkeypatch.setattr(paper_notes_router, "_resolve_vault_path", lambda: tmp_path / "vault")
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_build_index",
+        lambda vault_path: SimpleNamespace(
+            items=[
+                PaperNoteIndexItem(
+                    slug=canonical_slug,
+                    title="Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
+                    note_path=f"Inbox/PaperPipe/{canonical_slug}.md",
+                    id="zotero:parkDiscoveryDualactionSmall2022",
+                    structured_state_present=True,
+                    updated_at="2026-04-12T09:30:00Z",
+                ),
+                PaperNoteIndexItem(
+                    slug="parkDiscoveryDualactionSmall2022",
+                    title="Discovery of a dual-action small molecule that improves neuropathological features of Alzheimer’s disease mice",
+                    note_path="Inbox/PaperPipe/parkDiscoveryDualactionSmall2022.md",
+                    id="parkDiscoveryDualactionSmall2022",
+                    structured_state_present=False,
+                    starred=True,
+                    has_operator_note=True,
+                    triage_labels=["needs_verification"],
+                    updated_at="2026-04-10T07:00:00Z",
+                ),
+            ]
+        ),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/home-context")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "saved_notes": 1,
+        "structured_notes": 1,
+        "latest_note_updated_at": "2026-04-12T09:30:00Z",
+        "note_context_limited": False,
+        "note_slug_by_paper_id": {
+            "zotero:parkDiscoveryDualactionSmall2022": canonical_slug,
+            "zoteroparkDiscoveryDualactionSmall2022": canonical_slug,
+            "parkDiscoveryDualactionSmall2022": canonical_slug,
+            canonical_slug: canonical_slug,
+        },
+        "marker_summary": {
+            "marked_papers": 1,
+            "note_backed_papers": 1,
+            "starred": 1,
+            "triage_counts": {
+                "revisit": 0,
+                "needs_verification": 1,
+                "experiment_relevant": 0,
+            },
+        },
+    }
+
+
+def test_paper_notes_home_context_marks_note_context_limited_when_index_fails(monkeypatch):
+    monkeypatch.setattr(paper_notes_router, "_resolve_vault_path", lambda: Path("/missing"))
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_build_index",
+        lambda vault_path: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/home-context")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "saved_notes": 0,
+        "structured_notes": 0,
+        "latest_note_updated_at": None,
+        "note_context_limited": True,
+        "note_slug_by_paper_id": {},
+        "marker_summary": {
+            "marked_papers": 0,
+            "note_backed_papers": 0,
+            "starred": 0,
+            "triage_counts": {
+                "revisit": 0,
+                "needs_verification": 0,
+                "experiment_relevant": 0,
+            },
+        },
+    }
 
 
 def test_paper_notes_search_prefers_query_relevance_before_secondary_sort(tmp_path, monkeypatch):
@@ -218,6 +537,642 @@ def test_paper_notes_search_prefers_query_relevance_before_secondary_sort(tmp_pa
     assert response.status_code == 200
     payload = response.json()
     assert [item["slug"] for item in payload["items"]] == ["title-match", "tag-match"]
+
+
+def test_paper_notes_support_renamed_stateful_note_with_legacy_structured_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    legacy_slug = "zoterocoricTargetingProdromalAlzheimer2015"
+    readable_slug = "Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial"
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{readable_slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:coricTargetingProdromalAlzheimer2015",
+                f"aliases: [\"{readable_slug}\"]",
+                "tags:",
+                "  - Medicine/Neurology",
+                "date_processed: 2026-03-28",
+                "confidence: 0.91",
+                "status: INDEXED",
+                "pp:",
+                f"  structured_path: .pp/{legacy_slug}/state.json",
+                "---",
+                "",
+                f"# {readable_slug}",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / legacy_slug / "state.json",
+        {
+            "paper_slug": legacy_slug,
+            "updated_at": "2026-03-28T00:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [
+                {
+                    "id": "claim-001",
+                    "claim": "Example claim",
+                    "confidence": 0.9,
+                    "tags": ["biomarker"],
+                    "evidence": [],
+                    "evidence_ids": [],
+                }
+            ],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["memory"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+
+    listing = client.get("/paper-notes")
+    assert listing.status_code == 200
+    list_payload = listing.json()
+    assert list_payload["items"][0]["slug"] == readable_slug
+    assert list_payload["items"][0]["structured_state_present"] is True
+
+    resolved = client.get(
+        "/paper-notes/resolve-by-paper-id",
+        params={"paper_id": "zotero:coricTargetingProdromalAlzheimer2015"},
+    )
+    assert resolved.status_code == 200
+    resolved_payload = resolved.json()
+    assert resolved_payload["slug"] == readable_slug
+    assert resolved_payload["structured_state"]["paper_slug"] == legacy_slug
+
+    detail = client.get(f"/paper-notes/{readable_slug}")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["structured_state"]["paper_slug"] == legacy_slug
+    assert ".pp/zoterocoricTargetingProdromalAlzheimer2015/state.json" in detail_payload["context_trace"]["summary"]["source_paths"]
+
+
+def test_paper_notes_import_pdf_creates_note_and_pdf_route(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+
+    sample_pdf_path = Path(__file__).resolve().parents[1] / "frontend" / "public" / "sample.pdf"
+    client = TestClient(api_main.app)
+
+    with sample_pdf_path.open("rb") as handle:
+        response = client.post(
+            "/paper-notes/import-pdf",
+            files={"file": ("sample.pdf", handle.read(), "application/pdf")},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_id"].startswith("userpdf-")
+    assert payload["slug"].startswith("sample")
+    assert payload["pdf_url"] == f"/papers/{payload['paper_id']}/pdf"
+
+    note_path = vault_dir / payload["note_path"]
+    assert note_path.exists()
+    note_body = note_path.read_text(encoding="utf-8")
+    assert "Imported from a local PDF on this machine." in note_body
+    assert "Open in Workbench" in note_body
+
+    listing = client.get("/paper-notes")
+    assert listing.status_code == 200
+    listing_payload = listing.json()
+    assert listing_payload["total"] == 1
+    assert listing_payload["items"][0]["slug"] == payload["slug"]
+    assert listing_payload["items"][0]["id"] == payload["paper_id"]
+
+    pdf_response = client.get(payload["pdf_url"])
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
+
+
+def test_paper_notes_import_pdf_sanitizes_filename_derived_title(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+
+    raw_secret = "sk-proj-import-title-secret-abcdef"
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/paper-notes/import-pdf",
+        files={"file": (f"secret-{raw_secret}.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert raw_secret not in json.dumps(payload)
+    assert payload["title"] == "secret <redacted>"
+    assert raw_secret not in payload["slug"]
+
+    note_body = (vault_dir / payload["note_path"]).read_text(encoding="utf-8")
+    assert raw_secret not in note_body
+    assert "secret <redacted>" in note_body
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT title FROM papers WHERE paper_id = ?", (payload["paper_id"],)).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "secret <redacted>"
+
+
+def test_paper_notes_import_pdf_cleans_up_when_db_state_is_not_persisted(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+    monkeypatch.setattr(paper_notes_router, "save_paper_state", lambda *args, **kwargs: None)
+
+    sample_pdf_path = Path(__file__).resolve().parents[1] / "frontend" / "public" / "sample.pdf"
+    client = TestClient(api_main.app)
+
+    with sample_pdf_path.open("rb") as handle:
+        response = client.post(
+            "/paper-notes/import-pdf",
+            files={"file": ("sample.pdf", handle.read(), "application/pdf")},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to persist imported paper state."
+    assert list((vault_dir / "Inbox" / "PaperPipe").glob("*.md")) == []
+    assert list(pdf_storage_dir.glob("*.pdf")) == []
+
+    listing = client.get("/paper-notes")
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 0
+
+
+def test_paper_notes_import_pdf_rejects_note_path_collision_without_overwriting(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+
+    sample_pdf_path = Path(__file__).resolve().parents[1] / "frontend" / "public" / "sample.pdf"
+    sample_bytes = sample_pdf_path.read_bytes()
+    digest = hashlib.sha1(sample_bytes).hexdigest()
+    title = paper_notes_router._extract_import_title(sample_pdf_path, fallback_name=sample_pdf_path.stem)
+    slug = f"{paper_notes_router._slugify_import_title(title)}-{digest[:8]}"
+    colliding_note = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    original_body = (
+        "---\n"
+        "id: collision-existing-note\n"
+        'aliases: ["Existing Note"]\n'
+        "---\n\n"
+        "# Existing Note\n"
+    )
+    _write(colliding_note, original_body)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/paper-notes/import-pdf",
+        files={"file": ("sample.pdf", sample_bytes, "application/pdf")},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "An existing note already occupies this import path."
+    assert colliding_note.read_text(encoding="utf-8") == original_body
+    assert list(pdf_storage_dir.glob("*.pdf")) == []
+
+
+def test_paper_notes_import_pdf_rejects_oversized_uploads(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MAX_IMPORT_PDF_BYTES", "8")
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/paper-notes/import-pdf",
+        files={"file": ("too-large.pdf", b"%PDF-1.4\n1234567890", "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert "configured limit" in response.json()["detail"]
+
+
+def test_paper_notes_list_uses_runtime_storage_for_index_cache_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paperpipe_home = tmp_path / "app-home"
+    monkeypatch.setenv("PAPERPIPE_HOME", str(paperpipe_home))
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "runtime-path-note.md",
+        _note_content(
+            note_id="zotero:runtime-path-note",
+            alias="Runtime Path Note",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes")
+    assert response.status_code == 200
+
+    expected_index_path = (paperpipe_home / "storage" / "obsidian" / "paper_notes_index.json").resolve()
+    payload = response.json()
+    assert payload["index_path"] == str(expected_index_path)
+    assert expected_index_path.exists()
+
+
+def test_paper_notes_list_reuses_fresh_index_cache_without_rebuilding(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "cache-reuse-note.md",
+        _note_content(
+            note_id="zotero:cache-reuse-note",
+            alias="Cache Reuse Note",
+            tags=["Ops/Cache"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    first = client.get("/paper-notes")
+    assert first.status_code == 200
+    assert first.json()["items"][0]["slug"] == "cache-reuse-note"
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_build_index_item",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cache miss unexpectedly rebuilt index items")),
+    )
+
+    second = client.get("/paper-notes")
+    assert second.status_code == 200
+    assert second.json()["items"][0]["slug"] == "cache-reuse-note"
+
+
+def test_paper_note_resolve_by_paper_id_reuses_cached_runtime_metadata_without_rereading_markdown(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    vault_dir = tmp_path / "vault"
+    note_id = "zotero:cache-lookup-note"
+    slug = "cache-lookup-note"
+    pdf_url = f"/papers/{quote(note_id, safe='')}/pdf"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    _write(
+        note_path,
+        _note_content(
+            note_id=note_id,
+            alias="Cache Lookup Note",
+            tags=["Ops/Cache"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+            doi="10.1000/cache-lookup-note",
+            pdf_url=pdf_url,
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    first = client.get("/paper-notes")
+    assert first.status_code == 200
+    assert first.json()["items"][0]["slug"] == slug
+
+    cached_index = paper_notes_router._build_index(vault_dir)
+    assert cached_index.items[0].has_runtime_source_metadata() is True
+
+    def _unexpected_markdown_read(path: Path) -> str:
+        raise AssertionError(f"unexpected markdown reread for resolve-by-paper-id: {path}")
+
+    monkeypatch.setattr(paper_notes_router, "_safe_read_text", _unexpected_markdown_read)
+
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": note_id})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_id"] == note_id
+    assert payload["slug"] == slug
+    assert payload["pdf_url"] == pdf_url
+    assert payload["doi_url"] == "https://doi.org/10.1000/cache-lookup-note"
+    assert payload["note"]["title"] == "Cache Lookup Note"
+
+
+def test_paper_notes_cache_invalidates_when_note_file_changes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    vault_dir = tmp_path / "vault"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / "cache-note-change.md"
+    _write(
+        note_path,
+        _note_content(
+            note_id="zotero:cache-note-change",
+            alias="Original Cache Title",
+            tags=["Ops/Cache"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    first = client.get("/paper-notes")
+    assert first.status_code == 200
+    assert first.json()["items"][0]["title"] == "Original Cache Title"
+
+    _write(
+        note_path,
+        _note_content(
+            note_id="zotero:cache-note-change",
+            alias="Updated Cache Title",
+            tags=["Ops/Cache"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+
+    second = client.get("/paper-notes")
+    assert second.status_code == 200
+    assert second.json()["items"][0]["title"] == "Updated Cache Title"
+
+
+def test_paper_notes_cache_invalidates_when_operator_state_changes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(tmp_path / "storage" / "artifacts"))
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "cache-operator-note.md",
+        _note_content(
+            note_id="zotero:cache-operator-note",
+            alias="Cache Operator Note",
+            tags=["Ops/Cache"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    before = client.get("/paper-notes/home-context")
+    assert before.status_code == 200
+    assert before.json()["marker_summary"]["marked_papers"] == 0
+
+    update = client.put(
+        "/paper-notes/cache-operator-note/operator-state",
+        json={
+            "paper_note_text": "Marked after cache build.",
+            "starred": True,
+            "triage_labels": ["needs_verification"],
+        },
+    )
+    assert update.status_code == 200
+
+    after = client.get("/paper-notes/home-context")
+    assert after.status_code == 200
+    assert after.json()["marker_summary"] == {
+        "marked_papers": 1,
+        "note_backed_papers": 1,
+        "starred": 1,
+        "triage_counts": {
+            "revisit": 0,
+            "needs_verification": 1,
+            "experiment_relevant": 0,
+        },
+    }
+
+
+def test_paper_notes_detail_accepts_legacy_slug_for_renamed_stateful_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    legacy_slug = "zoterocoricTargetingProdromalAlzheimer2015"
+    readable_slug = "Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial"
+
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{readable_slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:coricTargetingProdromalAlzheimer2015",
+                f"aliases: [\"{readable_slug}\"]",
+                "tags:",
+                "  - Medicine/Neurology",
+                "date_processed: 2026-03-28",
+                "confidence: 0.91",
+                "status: INDEXED",
+                "pp:",
+                f"  structured_path: .pp/{legacy_slug}/state.json",
+                "---",
+                "",
+                f"# {readable_slug}",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / legacy_slug / "state.json",
+        {
+            "paper_slug": legacy_slug,
+            "updated_at": "2026-03-28T00:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{legacy_slug}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["note"]["slug"] == readable_slug
+    assert payload["structured_state"]["paper_slug"] == legacy_slug
 
 
 def test_paper_notes_list_includes_operational_summary(tmp_path, monkeypatch):
@@ -286,8 +1241,337 @@ def test_paper_notes_list_includes_operational_summary(tmp_path, monkeypatch):
     assert items["repair-note"]["ops_summary"]["latest_run_id"] == "run_repair_001"
 
 
+def test_deduped_paper_note_items_recompute_ops_summary_from_latest_variant_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    artifacts_dir = tmp_path / "storage" / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_dir))
+
+    canonical = PaperNoteIndexItem(
+        slug="canonical-note",
+        title="Same paper",
+        note_path="Inbox/PaperPipe/canonical-note.md",
+        id="zotero:same-paper",
+        structured_state_present=True,
+        ops_summary=PaperNoteOpsSummary(
+            state="healthy",
+            label="Healthy",
+            reason="Saved claims and note checks are available. 2 checks are ready.",
+            recommended_action="none",
+            latest_run_id="run_healthy_001",
+            has_claimset=True,
+            has_stats_report=True,
+            stats_check_count=2,
+        ),
+    )
+    legacy = PaperNoteIndexItem(
+        slug="legacy-note",
+        title="Same paper",
+        note_path="Inbox/PaperPipe/legacy-note.md",
+        id="same-paper",
+        ops_summary=PaperNoteOpsSummary(
+            state="action_needed",
+            label="Action needed",
+            reason="Saved note checks are missing or empty.",
+            recommended_action="repair_stats",
+            latest_run_id="run_repair_001",
+            has_claimset=True,
+            has_stats_report=False,
+            stats_check_count=0,
+        ),
+    )
+
+    _write_artifact_run(
+        artifacts_dir / "legacy-note" / "run_repair_001",
+        claimset={"claims": [{"claim_id": "c1"}]},
+    )
+    _write_artifact_run(
+        artifacts_dir / "zotero:same-paper" / "run_healthy_001",
+        claimset={"claims": [{"claim_id": "c1"}]},
+        stats_report={"checks": [{"id": "check-1"}, {"id": "check-2"}]},
+    )
+
+    merged = paper_notes_router._dedupe_equivalent_note_items_with_ops(
+        [canonical, legacy],
+        artifacts_path=artifacts_dir,
+        artifact_cache={},
+    )
+
+    assert len(merged) == 1
+    assert merged[0].slug == "canonical-note"
+    assert merged[0].id == "zotero:same-paper"
+    assert merged[0].ops_summary is not None
+    assert merged[0].ops_summary.state == "healthy"
+    assert merged[0].ops_summary.recommended_action == "none"
+    assert merged[0].ops_summary.latest_run_id == "run_healthy_001"
+
+
+def test_default_deduped_paper_note_items_recompute_ops_summary_from_artifacts_root(tmp_path, monkeypatch):
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(paper_notes_router, "artifacts_root", lambda: artifacts_dir)
+
+    canonical = PaperNoteIndexItem(
+        slug="canonical-note",
+        title="Same paper",
+        note_path="Inbox/PaperPipe/canonical-note.md",
+        id="zotero:same-paper",
+        structured_state_present=True,
+        ops_summary=PaperNoteOpsSummary(
+            state="healthy",
+            label="Healthy",
+            reason="Saved claims and note checks are available. 2 checks are ready.",
+            recommended_action="none",
+            latest_run_id="run_healthy_stale",
+            has_claimset=True,
+            has_stats_report=True,
+            stats_check_count=2,
+        ),
+    )
+    legacy = PaperNoteIndexItem(
+        slug="legacy-note",
+        title="Same paper",
+        note_path="Inbox/PaperPipe/legacy-note.md",
+        id="same-paper",
+        ops_summary=PaperNoteOpsSummary(
+            state="action_needed",
+            label="Action needed",
+            reason="Saved note checks are missing or empty.",
+            recommended_action="repair_stats",
+            latest_run_id="run_repair_001",
+            has_claimset=True,
+            has_stats_report=False,
+            stats_check_count=0,
+        ),
+    )
+
+    _write_artifact_run(
+        artifacts_dir / "legacy-note" / "run_repair_001",
+        claimset={"claims": [{"claim_id": "c1"}]},
+    )
+
+    merged = paper_notes_router._dedupe_equivalent_note_items([canonical, legacy])
+
+    assert len(merged) == 1
+    assert merged[0].slug == "canonical-note"
+    assert merged[0].id == "zotero:same-paper"
+    assert merged[0].ops_summary is not None
+    assert merged[0].ops_summary.state == "action_needed"
+    assert merged[0].ops_summary.recommended_action == "repair_stats"
+    assert merged[0].ops_summary.latest_run_id == "run_repair_001"
+
+
+def test_dedupe_equivalent_note_items_prefers_real_variant_over_fixture_duplicate():
+    fixture = PaperNoteIndexItem(
+        slug="e2e-note-fixture-duplicate",
+        title="E2E Note Fixture Duplicate",
+        note_path="Inbox/PaperPipe/E2E Note Fixture Duplicate.md",
+        id="same-note-duplicate",
+    )
+    real = PaperNoteIndexItem(
+        slug="same-note-real-duplicate",
+        title="Same Note Real Duplicate",
+        note_path="Inbox/PaperPipe/Same Note Real Duplicate.md",
+        id="same-note-duplicate",
+    )
+
+    merged = paper_notes_router._dedupe_equivalent_note_items_with_ops(
+        [fixture, real],
+        artifacts_path=None,
+        artifact_cache={},
+    )
+
+    assert len(merged) == 1
+    assert merged[0].slug == "same-note-real-duplicate"
+    assert merged[0].title == "Same Note Real Duplicate"
+
+
+def test_paper_note_operator_state_persists_and_drives_list_filters(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "operator-state-note"
+    paper_id = "zotero:operator-state-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Operator State Fixture",
+            tags=["Medicine/Neurology", "Review"],
+            date_processed="2026-04-10",
+            confidence=0.82,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+
+    initial = client.get(f"/paper-notes/{slug}/operator-state")
+    assert initial.status_code == 200
+    initial_payload = initial.json()
+    assert initial_payload["note_slug"] == slug
+    assert initial_payload["paper_id"] == paper_id
+    assert initial_payload["starred"] is False
+    assert initial_payload["paper_note_text"] is None
+    assert initial_payload["triage_labels"] == []
+
+    updated = client.put(
+        f"/paper-notes/{slug}/operator-state",
+        json={
+            "paper_note_text": "  Needs a second pass before downstream reuse.  ",
+            "starred": True,
+            "triage_labels": ["needs_verification", "revisit", "needs_verification"],
+        },
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.json()
+    assert updated_payload["paper_note_text"] == "Needs a second pass before downstream reuse."
+    assert updated_payload["starred"] is True
+    assert updated_payload["triage_labels"] == ["revisit", "needs_verification"]
+    assert updated_payload["created_at"] is not None
+    assert updated_payload["updated_at"] is not None
+
+    fetched = client.get(f"/paper-notes/{slug}/operator-state")
+    assert fetched.status_code == 200
+    assert fetched.json()["triage_labels"] == ["revisit", "needs_verification"]
+
+    listing = client.get("/paper-notes", params={"starred": "true"})
+    assert listing.status_code == 200
+    list_payload = listing.json()
+    assert list_payload["total"] == 1
+    assert list_payload["items"][0]["slug"] == slug
+    assert list_payload["items"][0]["starred"] is True
+    assert list_payload["items"][0]["has_operator_note"] is True
+    assert list_payload["items"][0]["triage_labels"] == ["revisit", "needs_verification"]
+
+    triage_listing = client.get("/paper-notes", params={"triage_label": "needs_verification"})
+    assert triage_listing.status_code == 200
+    assert triage_listing.json()["items"][0]["slug"] == slug
+
+    resolved = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": paper_id})
+    assert resolved.status_code == 200
+    resolved_payload = resolved.json()
+    assert resolved_payload["operator_state"]["starred"] is True
+    assert resolved_payload["operator_state"]["triage_labels"] == ["revisit", "needs_verification"]
+
+    detail = client.get(f"/paper-notes/{slug}")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["note"]["starred"] is True
+    assert detail_payload["note"]["has_operator_note"] is True
+    assert detail_payload["note"]["triage_labels"] == ["revisit", "needs_verification"]
+    assert detail_payload["operator_state"]["paper_note_text"] == "Needs a second pass before downstream reuse."
+
+
+def test_paper_note_operator_state_sanitizes_secret_like_note_text(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "operator-state-secret-note"
+    paper_id = "zotero:operator-state-secret-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Operator State Secret Fixture",
+            tags=["Review"],
+            date_processed="2026-04-10",
+            confidence=0.82,
+            status="INDEXED",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    raw_text = (
+        "Do not keep Authorization: Bearer operator-note-token-123; "
+        "key=sk-proj-operator-note-secret-abcdef."
+    )
+    updated = client.put(
+        f"/paper-notes/{slug}/operator-state",
+        json={
+            "paper_note_text": raw_text,
+            "starred": True,
+            "triage_labels": ["revisit"],
+        },
+    )
+    assert updated.status_code == 200
+    safe_text = "Do not keep Authorization: <redacted>; key=<redacted>."
+    assert updated.json()["paper_note_text"] == safe_text
+
+    state_path = operator_state_path(vault_dir, slug, paper_id)
+    raw_file = state_path.read_text(encoding="utf-8")
+    assert "operator-note-token-123" not in raw_file
+    assert "sk-proj-operator-note-secret-abcdef" not in raw_file
+
+    fetched = client.get(f"/paper-notes/{slug}/operator-state")
+    assert fetched.status_code == 200
+    assert fetched.json()["paper_note_text"] == safe_text
+
+    detail = client.get(f"/paper-notes/{slug}")
+    assert detail.status_code == 200
+    assert detail.json()["operator_state"]["paper_note_text"] == safe_text
+
+
+def test_paper_note_operator_state_sanitizes_legacy_raw_note_text(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "operator-state-legacy-secret-note"
+    paper_id = "zotero:operator-state-legacy-secret-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Operator State Legacy Secret Fixture",
+            tags=["Review"],
+            date_processed="2026-04-10",
+            confidence=0.82,
+            status="INDEXED",
+        ),
+    )
+    state_path = operator_state_path(vault_dir, slug, paper_id)
+    _write_state(
+        state_path,
+        {
+            "note_slug": slug,
+            "paper_id": paper_id,
+            "layer": "raw_memory",
+            "canonical_status": "non_canonical",
+            "paper_note_text": "Legacy Authorization: Bearer legacy-operator-note-token-123",
+            "starred": True,
+            "triage_labels": ["revisit"],
+            "created_at": "2026-04-10T00:00:00Z",
+            "updated_at": "2026-04-10T00:00:00Z",
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    fetched = client.get(f"/paper-notes/{slug}/operator-state")
+    assert fetched.status_code == 200
+    assert fetched.json()["paper_note_text"] == "Legacy Authorization: <redacted>"
+
+
 def test_paper_note_detail_renders_properties_related_and_references(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "false")
+    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
 
     vault_dir = tmp_path / "vault"
     artifacts_dir = tmp_path / "storage" / "artifacts"
@@ -365,10 +1649,13 @@ def test_paper_note_detail_renders_properties_related_and_references(tmp_path, m
     assert payload["context_trace"]["trace"][-1]["source_path"] == (
         ".pp/zoteroduboisAlzheimerDiseaseClinicalBiological2024/state.json"
     )
+    assert payload["section_navigator"] == []
 
 
 def test_paper_note_detail_backfills_structured_state_ids_and_signals(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "false")
+    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
 
     vault_dir = tmp_path / "vault"
     slug = "stateful-note"
@@ -439,6 +1726,8 @@ def test_paper_note_detail_backfills_structured_state_ids_and_signals(tmp_path, 
     assert state["signals"]["claim_count"] == 1
     assert state["signals"]["evidence_count"] == 1
     assert state["signals"]["run_count"] == 1
+    assert state["signals"]["section_count"] == 1
+    assert state["signals"]["quality_gate_section_navigation_signal"] == "pass"
     assert state["signals"]["last_run_id"] == "skill-20260309T000000Z-critical_appraisal"
     assert payload["context_trace"]["summary"]["reference_sources"] == ["pdf", "doi"]
     assert payload["context_trace"]["trace"][-1]["action"] == "structured_state_loaded"
@@ -454,8 +1743,306 @@ def test_paper_note_detail_backfills_structured_state_ids_and_signals(tmp_path, 
     assert evidence["claim_id"] == "CLM-001"
     assert evidence["locator"]["page"] == 2
     assert evidence["locator"]["section"] == "Results"
+    assert state["runs"][0]["data"]["section_count"] == 1
+    assert state["runs"][0]["data"]["section_navigation_signal_status"] == "pass"
+    assert state["runs"][0]["data"]["section_navigation_signal_detail"] == "claimset_section_count=1, summary_present=true"
+    assert state["runs"][0]["data"]["section_summary"] == [
+        {
+            "key": "results",
+            "label": "Results",
+            "claim_count": 1,
+            "evidence_count": 1,
+            "representative_claim_id": "CLM-001",
+            "representative_evidence_id": evidence["id"],
+            "page_start": 2,
+            "page_end": 2,
+        }
+    ]
+    assert payload["section_navigator"] == [
+        {
+            "key": "results",
+            "label": "Results",
+            "outline_id": None,
+            "outline_order": None,
+            "claim_count": 1,
+            "evidence_count": 1,
+            "representative_claim_id": "CLM-001",
+            "representative_evidence_id": evidence["id"],
+            "page_start": 2,
+            "page_end": 2,
+            "matched_to_outline": False,
+        }
+    ]
     assert len(payload["available_actions"]) >= 1
     assert all(action["enabled"] is False for action in payload["available_actions"])
+
+
+def test_paper_note_detail_section_navigator_prefers_note_heading_match(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "section-match-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:section-match-note",
+                'aliases: ["Section Match Note"]',
+                "tags:",
+                "  - Tag/One",
+                "date_processed: 2026-03-09",
+                "confidence: 0.91",
+                "status: INDEXED",
+                "---",
+                "",
+                "# Section Match Note",
+                "",
+                "## Results",
+                "Result section body.",
+                "",
+                "## Discussion",
+                "Discussion section body.",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / slug / "state.json",
+        {
+            "paper_slug": slug,
+            "updated_at": "2026-03-09T00:00:00Z",
+            "runs": [],
+            "claimset": [
+                {
+                    "id": "CLM-RESULTS",
+                    "claim": "Result headings should reconnect saved evidence to note sections.",
+                    "evidence": [
+                        {
+                            "id": "EV-RESULTS",
+                            "text": "The saved evidence belongs under the Results heading.",
+                            "page": 1,
+                            "section": "Results",
+                            "source": "text_match",
+                        }
+                    ],
+                    "confidence": 0.88,
+                    "tags": ["results"],
+                    "outcomes": ["results"],
+                }
+            ],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{slug}")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["section_navigator"] == [
+        {
+            "key": "results",
+            "label": "Results",
+            "outline_id": "results",
+            "outline_order": 0,
+            "claim_count": 1,
+            "evidence_count": 1,
+            "representative_claim_id": "CLM-RESULTS",
+            "representative_evidence_id": "EV-RESULTS",
+            "page_start": 1,
+            "page_end": 1,
+            "matched_to_outline": True,
+        }
+    ]
+
+
+def test_paper_note_detail_exposes_korean_reading_assist_from_structured_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LATTICE_MASK_LOCAL_PATHS", raising=False)
+    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
+
+    vault_dir = tmp_path / "vault"
+    slug = "reading-assist-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        "\n".join(
+            [
+                "---",
+                "id: zotero:reading-assist-note",
+                'aliases: ["Reading Assist Note"]',
+                "tags:",
+                "  - Medicine/Neurology",
+                "date_processed: 2026-03-11",
+                "confidence: 0.92",
+                "status: INDEXED",
+                "---",
+                "",
+                "# Reading Assist Note",
+                "",
+                "> **One-Line Summary**",
+                "> Canonical one-line summary for the detail viewer.",
+                "",
+                "## Abstract",
+                "Canonical abstract text remains the source of truth for this note.",
+                "",
+                "## Critical Analysis",
+                "- Canonical critical analysis stays in English.",
+                "- Evidence judgment should still happen against the original source.",
+                "",
+                "## 🔗 References",
+                "* [Open PDF](file:///Users/test/Documents/private.pdf)",
+                "",
+            ]
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / slug / "state.json",
+        {
+            "paper_slug": slug,
+            "updated_at": "2026-03-11T09:00:00Z",
+            "runs": [],
+            "claimset": [],
+            "entities": [],
+            "mesh": [],
+            "outcomes": [],
+            "reading_assists": [
+                {
+                    "locale": "ko",
+                    "canonical_locale": "en",
+                    "machine_translated": True,
+                    "partial": True,
+                    "blocks": [
+                        {
+                            "kind": "one_line_summary",
+                            "text": "디테일 뷰를 위한 핵심 한 줄 요약이다.",
+                            "source_heading": "One-Line Summary",
+                            "provenance": {
+                                "source_field": "one_line_summary",
+                                "source_locale": "en",
+                                "translator": "unit-test",
+                                "model": "mock-translator",
+                                "version": "v1",
+                            },
+                        },
+                        {
+                            "kind": "abstract",
+                            "text": "이 노트는 원문 영어를 정본으로 유지한 채 한국어 보조만 제공한다.",
+                            "source_heading": "Abstract",
+                            "provenance": {
+                                "source_field": "abstract",
+                                "source_locale": "en",
+                            },
+                        },
+                        {
+                            "kind": "critical_analysis",
+                            "text": "비판적 해석은 읽기 보조로만 제공되고, 근거 판단은 원문에서 해야 한다.",
+                            "source_heading": "Critical Analysis",
+                            "provenance": {
+                                "source_field": "critical_analysis",
+                                "source_locale": "en",
+                            },
+                        },
+                    ],
+                },
+                {
+                    "locale": "ja",
+                    "canonical_locale": "en",
+                    "machine_translated": True,
+                    "partial": True,
+                    "blocks": [
+                        {
+                            "kind": "one_line_summary",
+                            "text": "詳細ビュー向けの重要な一文要約です。",
+                            "source_heading": "One-Line Summary",
+                            "provenance": {
+                                "source_field": "one_line_summary",
+                                "source_locale": "en",
+                                "translator": "unit-test-ja",
+                                "model": "mock-translator-ja",
+                                "version": "v2",
+                            },
+                        },
+                        {
+                            "kind": "abstract",
+                            "text": "このノートは英語原文を正本として維持し、日本語の読書補助だけを提供します。",
+                            "source_heading": "Abstract",
+                            "provenance": {
+                                "source_field": "abstract",
+                                "source_locale": "en",
+                            },
+                        },
+                        {
+                            "kind": "critical_analysis",
+                            "text": "批判的解釈は読書補助に限られ、根拠判断は原文で行うべきです。",
+                            "source_heading": "Critical Analysis",
+                            "provenance": {
+                                "source_field": "critical_analysis",
+                                "source_locale": "en",
+                            },
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{slug}")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["reading_assist"]["locale"] == "ko"
+    assert payload["reading_assist"]["canonical_locale"] == "en"
+    assert payload["reading_assist"]["machine_translated"] is True
+    assert payload["reading_assist"]["partial"] is True
+    assert [block["kind"] for block in payload["reading_assist"]["blocks"]] == [
+        "one_line_summary",
+        "abstract",
+        "critical_analysis",
+    ]
+    assert payload["reading_assist"]["blocks"][0]["canonical_text"] == "Canonical one-line summary for the detail viewer."
+    assert payload["reading_assist"]["blocks"][0]["translated_text"] == "디테일 뷰를 위한 핵심 한 줄 요약이다."
+    assert payload["reading_assist"]["blocks"][1]["canonical_text"] == (
+        "Canonical abstract text remains the source of truth for this note."
+    )
+    assert "Canonical critical analysis stays in English." in payload["reading_assist"]["blocks"][2]["canonical_text"]
+    assert payload["structured_state"]["reading_assists"][0]["locale"] == "ko"
+    assert payload["structured_state"]["signals"]["has_reading_assists"] is True
+    assert payload["structured_state"]["signals"]["reading_assist_count"] == 2
+    assert payload["structured_state"]["signals"]["reading_assist_locales"] == ["ko", "ja"]
+    assert payload["note"]["reading_assist_available"] is True
+    assert payload["note"]["reading_assist_locales"] == ["ko", "ja"]
+
+    japanese = client.get(f"/paper-notes/{slug}", params={"reading_assist_locale": "ja"})
+    assert japanese.status_code == 200
+    japanese_payload = japanese.json()
+    assert japanese_payload["reading_assist"]["locale"] == "ja"
+    assert japanese_payload["reading_assist"]["blocks"][0]["translated_text"] == "詳細ビュー向けの重要な一文要約です。"
+
+    listing = client.get("/paper-notes")
+    assert listing.status_code == 200
+    listing_payload = listing.json()
+    matching = next(item for item in listing_payload["items"] if item["slug"] == slug)
+    assert matching["pp_signals"]["has_reading_assists"] is True
+    assert matching["pp_signals"]["reading_assist_locales"] == ["ko", "ja"]
 
 
 def test_paper_note_resolve_by_paper_id_prefers_frontmatter_id_and_returns_structured_state(tmp_path, monkeypatch):
@@ -484,13 +2071,13 @@ def test_paper_note_resolve_by_paper_id_prefers_frontmatter_id_and_returns_struc
             "signals": {"has_claimset": True},
             "claimset": [
                 {
-                    "id": "claim_c0ffee000001",
+                    "id": "claim-structured-001",
                     "claim": "Structured sidecar should win over stale artifact claimsets for bbox-backed highlighting.",
-                    "evidence_ids": ["evidence_deadbeef0001"],
+                    "evidence_ids": ["evidence-structured-001"],
                     "evidence": [
                         {
-                            "id": "evidence_deadbeef0001",
-                            "claim_id": "claim_c0ffee000001",
+                            "id": "evidence-structured-001",
+                            "claim_id": "claim-structured-001",
                             "text": "BBox-backed evidence from canonical state.",
                             "page": 0,
                             "source": "bbox",
@@ -527,8 +2114,261 @@ def test_paper_note_resolve_by_paper_id_prefers_frontmatter_id_and_returns_struc
     assert payload["paper_id"] == paper_id
     assert payload["slug"] == slug
     assert payload["note_path"] == f"Inbox/PaperPipe/{slug}.md"
+    assert payload["note"]["slug"] == slug
+    assert payload["note"]["title"] == "Dubois Structured Note"
+    assert payload["doi_url"] == "https://doi.org/10.1000/182"
     assert payload["structured_state"]["paper_slug"] == slug
     assert payload["structured_state"]["claimset"][0]["evidence"][0]["locator"]["bbox_pct"]["left"] == 8
+
+
+def test_paper_note_resolve_by_paper_id_exposes_pdf_url_for_lookup_synthesis(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "lookupPdfUrlNote2026"
+    paper_id = "lookupPdfUrlNote2026"
+    pdf_url = f"/papers/{quote(paper_id, safe='')}/pdf"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Lookup PDF URL Note",
+            tags=["Medicine/Neurology"],
+            date_processed="2026-03-10",
+            confidence=0.91,
+            status="INDEXED",
+            doi="10.1000/lookup-pdf-url-note",
+            pdf_url=pdf_url,
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": paper_id})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["paper_id"] == paper_id
+    assert payload["slug"] == slug
+    assert payload["pdf_url"] == pdf_url
+    assert payload["doi_url"] == "https://doi.org/10.1000/lookup-pdf-url-note"
+    assert payload["note"]["slug"] == slug
+    assert payload["note"]["title"] == "Lookup PDF URL Note"
+    assert payload["note"]["status"] == "INDEXED"
+
+
+def test_paper_note_resolve_by_paper_id_accepts_stripped_id_for_prefixed_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "zoterostrippedlookupnote2026"
+    paper_id = "zotero:strippedlookupnote2026"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Stripped Lookup Note",
+            tags=["Medicine/Neurology"],
+            date_processed="2026-03-10",
+            confidence=0.91,
+            status="INDEXED",
+        ),
+    )
+    _write_state(
+        vault_dir / ".pp" / slug / "state.json",
+        {
+            "paper_slug": slug,
+            "updated_at": "2026-03-10T09:00:00Z",
+            "runs": [],
+            "signals": {"has_claimset": True},
+            "claimset": [],
+            "entities": ["Amyloid"],
+            "mesh": ["Neurology"],
+            "outcomes": ["diagnostic criteria"],
+        },
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": "strippedlookupnote2026"})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["paper_id"] == paper_id
+    assert payload["slug"] == slug
+    assert payload["structured_state"]["paper_slug"] == slug
+
+
+def test_paper_notes_list_hides_fixture_like_structured_state_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "fixture-hidden-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id="zotero:fixture-hidden-note",
+            alias="Fixture Hidden Note",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+    _write_state(vault_dir / ".pp" / slug / "state.json", _fixture_structured_state(slug))
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["total"] == 1
+    assert payload["items"][0]["slug"] == slug
+    assert payload["items"][0]["structured_state_present"] is False
+    assert payload["items"][0]["claim_tags"] == []
+
+    structured_only = client.get("/paper-notes", params={"structured_only": "true"})
+    assert structured_only.status_code == 200
+    assert structured_only.json()["total"] == 0
+
+
+def test_paper_note_resolve_by_paper_id_hides_fixture_like_structured_state_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "fixture-hidden-note"
+    paper_id = "zotero:fixture-hidden-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id=paper_id,
+            alias="Fixture Hidden Note",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+    _write_state(vault_dir / ".pp" / slug / "state.json", _fixture_structured_state(slug))
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": paper_id})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["paper_id"] == paper_id
+    assert payload["slug"] == slug
+    assert payload["structured_state"] is None
+
+
+def test_paper_note_resolve_by_paper_id_returns_bounded_error_when_config_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    paper_id = "zotero:missing-config-note"
+
+    def _raise_missing_config():
+        raise FileNotFoundError("Config file not found at /tmp/missing-config.yaml")
+
+    monkeypatch.setattr(paper_notes_router, "load_config", _raise_missing_config)
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/resolve-by-paper-id", params={"paper_id": paper_id})
+
+    assert response.status_code == 503
+    assert "Config file not found" in response.json()["detail"]
+
+
+def test_paper_note_detail_hides_fixture_like_structured_state_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "fixture-hidden-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id="zotero:fixture-hidden-note",
+            alias="Fixture Hidden Note",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+    _write_state(vault_dir / ".pp" / slug / "state.json", _fixture_structured_state(slug))
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{slug}")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["note"]["slug"] == slug
+    assert payload["note"]["structured_state_present"] is False
+    assert payload["structured_state"] is None
+    assert payload["reading_assist"] is None
+    assert payload["context_trace"]["trace"][-1]["action"] == "structured_state_loaded"
+    assert payload["context_trace"]["trace"][-1]["outcome"] == "missing"
+
+
+def test_paper_note_detail_allows_fixture_like_structured_state_in_e2e_runtime(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "frontend" / ".e2e-backend-runtime" / "obsidian"
+    slug = "fixture-e2e-note"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md",
+        _note_content(
+            note_id="zotero:fixture-e2e-note",
+            alias="Fixture E2E Note",
+            tags=["Ops/Fix"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+        ),
+    )
+    _write_state(vault_dir / ".pp" / slug / "state.json", _fixture_structured_state(slug))
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get(f"/paper-notes/{slug}")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["note"]["slug"] == slug
+    assert payload["note"]["structured_state_present"] is True
+    assert payload["structured_state"]["paper_slug"] == slug
+    assert payload["context_trace"]["trace"][-1]["outcome"] == "loaded"
 
 
 def test_paper_notes_list_supports_status_filter_and_sorting(tmp_path, monkeypatch):
