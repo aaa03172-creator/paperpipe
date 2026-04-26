@@ -3,7 +3,9 @@
 Status: Active
 Date: 2026-03-24
 Owner: Lattice runtime maintainers
-Canonical: `docs/reports/Current_State_Packaging_2026-03-24.md`
+Related current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
 
 ## Purpose
 
@@ -12,6 +14,22 @@ Summarize the current dirty workspace in a way that makes the next safe action o
 This note is not a new roadmap.
 
 It is a packaging and separation note for the current mixed worktree state.
+
+## 2026-04 usage note
+
+This note remains useful as the original late-March packaging split for that mixed tree snapshot.
+
+Use it for:
+- the first docs-tail vs frontend-visual vs Docling/eval separation
+- understanding what the late-March packaging pass considered "current"
+- historical staging context when reviewing older docs-only bundles
+
+Do not use it as the first current packaging or lane-selection note for the later repo state.
+
+Read these first for current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Current judgment
 

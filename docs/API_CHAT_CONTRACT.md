@@ -1,7 +1,7 @@
 # API Chat Contract
 
 Status: Stub-only compatibility surface
-Date: 2026-03-09
+Date: 2026-04-08
 Owner: Chat/runtime maintainers
 Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 
@@ -185,3 +185,9 @@ Current response:
   - if omitted, the effective family defaults to `learner`
   - if provided, the stub echoes the requested family in the response
   - endpoint behavior remains `501 Not Implemented` either way
+
+## Future Answer-Generation Boundary
+- If `/api/chat` becomes live later, evidence-backed biomedical answers should route through current structured paper state and upstream evidence refs first.
+- `output_mode_family` may change wording density or framing, but it must not select a looser truth policy.
+- Raw memory, backend-only `Project Memory`, compiled knowledge assets, and review/gate artifacts may help focus retrieval or answer composition, but they must not become stronger truth owners than canonical evidence-linked state.
+- If a future answer path cannot recover a clear canonical/evidence trace, the response should stay explicitly uncertain or background-only rather than sounding fully grounded.

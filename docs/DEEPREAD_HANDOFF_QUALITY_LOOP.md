@@ -34,6 +34,7 @@ The current deep-read handoff loop measures:
 - `goal_drift`
 - `step_stability`
 - `failure_recovery`
+- `section_navigation_signal`
 - `context_manifest` coverage
 
 The loop stays additive.
@@ -145,6 +146,8 @@ Possible outputs:
 
 Use this as an operator aid.
 
+When `--json` is used, the script now keeps JSON on stdout and emits a compact stderr hint such as `mode=cross-paper relevant=2 continuity=1 cross_paper=1` for easier CI/log scanning.
+
 It does not replace judgment, but it keeps the current coric-only vs coric+multicase rule explicit and machine-readable.
 
 `--against-ref <ref>` compares `merge-base(<ref>, HEAD)...HEAD`, so it is the shortest path for asking "what gate mode does my current branch diff imply?"
@@ -218,6 +221,10 @@ Only do this when the new snapshot reflects a deliberate measurement reset, not 
 - `failure_recovery_warn_or_fail_rate`
   - Lower is better.
   - This tracks whether failure and cancel paths preserve enough terminal metadata and guidance.
+- `section_navigation_signal_warn_or_fail_rate`
+  - Lower is better.
+  - This is derived from the bounded per-run `section_navigation_signal` quality-gate check, not a new promotion owner.
+  - It tracks whether saved runs are missing the compact section-aware metadata needed for section reopen/navigation aids without re-reading note markdown first.
 - `goal_drift_missing_rate`
   - Lower is better.
   - This tracks whether `goal_drift_summary` is present at all.

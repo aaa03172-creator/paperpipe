@@ -135,6 +135,7 @@ Current anchors:
 Required outcome:
 - the operator can create a bounded search-design asset, run a pilot, record screening decisions, refine query versions, and lock the result
 - the projected `Profile` compatibility surface may exist behind this flow, but it is not a separate launch-defining canonical product lane
+- current first-product exposure does not require a dedicated web viewer route for `Research DNA`; API/CLI/operator entry is sufficient for this stage
 
 Why required:
 - this is the clearest current expression of reproducible biomedical search-design state
@@ -144,6 +145,7 @@ Current anchors:
 - `docs/RESEARCH_DNA.md`
 - `src/profiles/research_dna_schema.py`
 - `src/profiles/research_dna_service.py`
+- `docs/CLI_WORKFLOW_REFERENCE.md`
 
 ### 4. Meeting Pack
 

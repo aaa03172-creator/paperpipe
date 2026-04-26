@@ -36,7 +36,7 @@ Untracked docs:
 - `docs/reports/First_Product_Demo_Script_3min_2026-03-27.md`
 - `docs/reports/Fresh_Real_Paper_Deep_Read_Rerun_2026-03-24.md`
 - `docs/reports/Future_Lane_Leakage_Review_2026-03-24.md`
-- `docs/reports/PaperPipe_Minimum_Operating_Principles_2026-03-25.md`
+- `docs/PaperPipe_Minimum_Operating_Principles.md`
 - `docs/reports/Product_Document_Final_v2_Review_2026-03-24.md`
 - `docs/reports/Readiness_Vocabulary_Drift_Review_2026-03-24.md`
 - `docs/reports/Release_Rehearsal_Checklist_2026-03-25.md`

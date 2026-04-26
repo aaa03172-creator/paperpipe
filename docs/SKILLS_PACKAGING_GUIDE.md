@@ -5,19 +5,28 @@ Date: 2026-03-17
 Owner: Skills maintainers
 Canonical: `docs/SKILLS_PACKAGING_GUIDE.md`
 
-Purpose: define how future PaperPipe-local skills should be packaged and documented, using external skill repositories as design reference only.
+Purpose: define how future PaperPipe-local skills should be packaged and documented, using external skill repositories as packaging and authoring reference only.
 
 ## Reference stance
 
-Use external repositories such as [Anthropic skills](https://github.com/anthropics/skills) as packaging and authoring reference only.
+Use external repositories as structural reference only.
+
+Primary packaging reference:
+- [OpenAI skills](https://github.com/openai/skills)
+
+Secondary structural reference:
+- [Anthropic skills](https://github.com/anthropics/skills)
 
 Do not:
+- add a direct runtime dependency on OpenAI/Codex skill infrastructure
 - add a direct runtime dependency on Anthropic skill infrastructure
+- assume Codex/OpenAI preinstalled/system skill behavior exists inside PaperPipe runtime
 - assume Claude-specific hooks, slash commands, artifacts, connectors, or subagent features exist in PaperPipe
 - copy source-available skill content, examples, templates, or scripts until license boundaries are checked and the project policy explicitly allows it
 
 Reason:
 - PaperPipe already has its own runtime/action contract under `config/skills_policy.yaml` and `src/skills/`
+- `openai/skills` is a strong packaging example, but its install/discovery/runtime model is for Codex rather than FastAPI-first PaperPipe
 - the Anthropic repository uses mixed per-skill licenses rather than one uniform reusable license
 - some skills include client/runtime assumptions that do not map cleanly onto FastAPI-first PaperPipe
 
@@ -25,14 +34,17 @@ Reason:
 
 These patterns are useful and should be reused in a PaperPipe-native form:
 - folder-based skill packaging with one required `SKILL.md`
+- `name` + `description` metadata as the minimum routing surface
 - minimal trigger metadata in `SKILL.md` frontmatter
 - progressive disclosure: short `SKILL.md`, heavy detail in bundled files
 - separation between workflow instructions, references, examples, templates, and helper scripts
+- curated/system/experimental-style capability separation, translated into PaperPipe-native workflow lanes
 - domain-specific skill folders instead of one giant all-purpose biomedical skill
 
 ## What not to borrow
 
 Do not adopt these as-is:
+- Codex/OpenAI install commands, preinstalled `.system` semantics, or skill discovery assumptions
 - Claude-only runtime hooks or plugin systems
 - tool names like `create_file`, `str_replace`, or artifact-specific assumptions
 - benchmark/eval infrastructure that depends on Anthropic-specific orchestration
@@ -55,6 +67,50 @@ Future local skills should live under `.codex/skills/<skill-name>/` and use this
 ```
 
 Use the smallest subset that solves the problem. Many skills should remain just `SKILL.md` plus one small `references/` file.
+
+## Packaging lanes
+
+Translate external curated/experimental/system patterns into these PaperPipe-native lanes:
+
+### 1. Approved local workflow skills
+
+Location:
+- `.codex/skills/<skill-name>/`
+
+Purpose:
+- actively used developer-facing workflow helpers
+- safe, repeatable capabilities that support implementation, review, diagnosis, or content assembly
+
+Rule:
+- folder presence here means the skill is approved for local developer workflow use
+- it does not make the skill a product runtime feature
+
+### 2. Incubating skill proposals
+
+Location:
+- `docs/reports/`, `docs/archive/`, or task-local `.codex/work/...` notes until adoption is explicit
+
+Purpose:
+- hold draft skill ideas, proposed scaffolds, or fit reviews that are not yet active local workflow skills
+
+Rule:
+- do not keep incubating skills in the active `.codex/skills/` discovery path until they are approved
+- use notes, RFCs, or small one-off scaffolds outside the active skill root first
+
+### 3. Runtime-visible product skills
+
+Location:
+- `src/skills/`
+- `config/skills_policy.yaml`
+- relevant `src/schemas/`
+
+Purpose:
+- user-visible, policy-gated runtime actions
+
+Rule:
+- these are product capabilities, not Codex workflow helpers
+- folder presence under `.codex/skills/` is never enough to create a runtime-visible capability
+- any runtime-visible skill must preserve source data / canonical structured state / derived artifact separation
 
 ## Codex workflow boundary
 
@@ -186,7 +242,32 @@ PaperPipe rule:
 - output should normalize into structured intake data or note sidecar state, not remain a free-form chat artifact
 - keep DOI, PMID, Zotero, and local vault identifiers explicit
 
-### 2. Screening / review skills
+### 2. Researcher intake skills
+
+Type:
+- workflow-oriented intake wrapper over the current paper-centered workspace
+
+Recommended packaging:
+
+```text
+.codex/skills/researcher-intake/
+  SKILL.md
+  references/
+    question-framing.md
+    search-scope.md
+  templates/
+    research-brief.md
+    scoped-request.md
+  examples/
+    intake-examples.md
+```
+
+PaperPipe rule:
+- the skill may help frame research questions, search scope, and paper selection criteria
+- it must not silently promote a project-first canonical model
+- outputs should resolve into existing paper/research DNA/runtime state rather than a second truth document
+
+### 3. Screening / review skills
 
 Type:
 - workflow-oriented, policy-heavy
@@ -211,7 +292,7 @@ PaperPipe rule:
 - inclusion/exclusion, evidence quality, and review outputs must remain consistent with `Research DNA`, reviewer workflows, and existing structured review state
 - do not invent a second screening truth in skill-local markdown files
 
-### 3. Meeting-pack generation skills
+### 4. Meeting-pack skills
 
 Type:
 - document-oriented workflow wrapper over an existing canonical contract
@@ -236,7 +317,31 @@ PaperPipe rule:
 - the skill should help choose inputs, mode, and verification steps, not redefine pack schema or storage shape
 - generated packs must still land in `storage/meeting_packs/<pack_id>/`
 
-### 4. Future biomedical workflow skills
+### 5. Chart / figure skills
+
+Type:
+- artifact-oriented workflow wrapper over existing chart/figure contracts
+
+Recommended packaging:
+
+```text
+.codex/skills/chart-figure/
+  SKILL.md
+  references/
+    source-selection.md
+    provenance-checks.md
+  templates/
+    figure-review-note.md
+  examples/
+    chart-review-examples.md
+```
+
+PaperPipe rule:
+- chart or figure outputs are derived artifacts, not canonical state
+- the skill may help validate source selection, labeling, and provenance visibility
+- it must not invent a second chart truth separate from saved artifact bundles and canonical structured inputs
+
+### 6. Future biomedical workflow skills
 
 Type:
 - domain-variant workflows with shared core steps
@@ -260,6 +365,21 @@ Example:
 PaperPipe rule:
 - variant-specific guidance should stay additive and selective
 - durable biomedical outputs still need the repo’s canonical contracts and pathing rules
+
+## Developer-only skill candidates
+
+Good PaperPipe-local developer workflow skill candidates include:
+- `librarian-intake-dev`
+- `researcher-intake-dev`
+- `screening-review-dev`
+- `meeting-pack-verifier`
+- `chart-figure-hardening`
+- `biomedical-workflow-fit-review`
+
+Rule:
+- start with a developer-only workflow scaffold under `.codex/skills/`
+- only promote a capability into `src/skills/` if a separate product contract explicitly adopts it
+- keep packaging convenience separate from runtime truth ownership
 
 ## License and provenance rule
 

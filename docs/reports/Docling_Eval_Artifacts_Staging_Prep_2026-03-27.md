@@ -38,4 +38,4 @@
 
 ## Notes
 - This lane is parser-eval evidence only. It does not reopen runtime adoption or broad extraction-regression work.
-- `compare_extraction_outputs.py` remains a separate eval lane because it targets `TrialExtraction` goldset comparison rather than docling parser comparison.
+- `compare_extraction_outputs.py` remains a separate eval lane because it targets `SpecialtyTrialExtraction` goldset comparison rather than docling parser comparison.

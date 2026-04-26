@@ -108,3 +108,74 @@ Canonical parent: `docs/ux-review.md`
 - If the shell keeps changing, consider a broader visual lane that snapshots detail plus side-rail subregions separately for tighter diffs.
 - If warning taxonomy expands again, add a `LOCAL_SOURCE_NOT_FILE` real backend bundle rather than broadening the current missing-file case.
 - Defer any visual image preview or viewer-launch behavior into a separate RFC lane.
+
+## 7.2) Header Context Strip Checkpoint (2026-03-29)
+- Screen/Flow: `/image-evidence` index and `/image-evidence/:imageEvidenceId` detail header
+- Goal action: 사용자가 image-evidence lane를 generic bundle viewer가 아니라 provenance-first review surface로 이해하고, raw source/derived outputs 관계를 header에서 바로 읽는다.
+- Primary persona: raw image source, warning state, derived lineage를 검토한 뒤 note나 external viewer로 handoff하려는 운영자
+- Current friction:
+  - existing header는 review 목적은 말하지만, `언제 쓰는지`와 `무엇에서 파생됐는지`를 한 번에 말하지 않았다.
+  - raw source identity와 derived outputs 관계는 body에서만 읽혔다.
+- Quick decision:
+  - existing bundle review layout과 trust boundary는 유지한다.
+  - header 바로 아래에 reusable context strip을 추가해 `When to use`와 `Derived from`을 먼저 보여준다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend image evidence viewer loads a registered bundle and keeps note handoff on the real route"`
+
+## 7.3) Continue In Note Handoff Checkpoint (2026-03-29)
+- Screen/Flow: `/image-evidence/:imageEvidenceId` `Handoff Targets` card
+- Goal action: 사용자가 saved viewer target보다 먼저 linked paper note review를 떠올리게 한다.
+- Primary persona: image metadata를 검토한 뒤 note와 external viewer 사이에서 다음 행동을 정하려는 운영자
+- Current friction:
+  - `Open note` action은 있었지만, 왜 note review가 먼저인지에 대한 설명은 없었다.
+  - saved handoff targets는 note review와 같은 레벨의 다음 행동처럼 읽힐 수 있었다.
+- Quick decision:
+  - existing `Open note` action과 saved target list는 유지한다.
+  - `Handoff Targets` card 안에 `Continue in note`와 note-first guidance를 추가한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend image evidence viewer loads a registered bundle and keeps note handoff on the real route"`
+
+## 7.4) Continue After Note Review Checkpoint (2026-03-29)
+- Screen/Flow: `/image-evidence/:imageEvidenceId` right-rail `Handoff Targets` card
+- Goal action: 사용자가 note review 다음의 downstream artifact lane도 바로 떠올릴 수 있다.
+- Primary persona: image metadata를 note에서 다시 검토한 뒤, 비교/팩/후속 artifact lane으로 이어가려는 연구자
+- Current friction:
+  - note-first guidance는 좋아졌지만, note를 본 뒤 다음에 어떤 artifact lane을 다시 열어야 하는지는 여전히 사용자가 추론해야 했다.
+  - `linked_artifact_refs`는 저장돼 있었지만, main body의 `Linked References` 안쪽에 있어 next-step cue로는 약했다.
+- Quick decision:
+  - 새 route나 새 계약은 만들지 않는다.
+  - existing `linked_artifact_refs`를 right rail로 끌어와 `Continue after note review` 블록으로 보여주고, detail ids 대신 lane-level reopen path만 제공한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend image evidence viewer loads a registered bundle and keeps note handoff on the real route"`
+
+## 7.5) Lane Hint Follow-Up Checkpoint (2026-03-29)
+- Screen/Flow: `/image-evidence/:imageEvidenceId` `Continue after note review` follow-up links
+- Goal action: 사용자가 lane 이름만 보는 수준을 넘어서, 왜 그 lane을 다시 열어야 하는지도 즉시 이해한다.
+- Primary persona: note review 뒤 meeting/chart/comparison/protocol 중 어느 lane으로 이어갈지 빨리 판단하려는 연구자
+- Current friction:
+  - lane label만 있으면 사용자는 여전히 “왜 이걸 열지?”를 한 번 더 해석해야 했다.
+  - `linked_artifact_refs`는 downstream 연결은 말해주지만, lane purpose까지는 말해주지 않았다.
+- Quick decision:
+  - 새 route나 richer artifact payload는 만들지 않는다.
+  - follow-up link마다 lane-specific one-line hint만 붙여 note 이후 next action을 더 직접적으로 말한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend image evidence viewer loads a registered bundle and keeps note handoff on the real route"`
+
+## 7.6) Keyboard Focus Drift Checkpoint (2026-03-30)
+- Screen/Flow: `/image-evidence/:imageEvidenceId` detail keyboard navigation
+- Goal action: keyboard-only user가 header actions와 note/follow-up handoff를 순서대로 밟고, 비대화형 metadata text block에서 focus가 멈추지 않는다.
+- Primary persona: dense review surface를 마우스 없이 훑는 반복 사용자
+- Current friction:
+  - Chromium에서는 `overflow-x-auto`가 걸린 `<pre>`가 탭 순서에 들어올 수 있다.
+  - `ImageEvidencePage` detail의 raw source ref와 handoff `openable_ref`는 정보 전달용 static text인데도 focus를 먹어, `Open note`와 downstream follow-up 뒤 흐름을 끊었다.
+- Quick decision:
+  - layout, copy, provenance contract는 유지한다.
+  - non-interactive scrollable `<pre>`에 `tabIndex={-1}`만 추가해 keyboard focus drift를 막는다.
+- Verification:
+  - `cd frontend && npm run build`
+  - current runtime keyboard tab audit on `/ui/image-evidence/imageev_current_runtime_smoke_20260330`
+  - confirm `Open note`, downstream follow-up links stay in the tab order while raw source / handoff `<pre>` blocks do not

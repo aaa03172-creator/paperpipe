@@ -3,13 +3,31 @@
 Status: Active
 Date: 2026-03-24
 Owner: Lattice runtime maintainers
-Canonical: `docs/reports/Current_State_Update_2026-03-24.md`
+Related current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
 
 ## Purpose
 
 Restate the current repo/document state after the recent bounded-spec promotions and gate decisions, then record the current posture for the mixed dirty tree.
 
 This is a current-state update note, not a new master plan.
+
+## 2026-04 usage note
+
+This note remains useful as a 2026-03 baseline posture record.
+
+Use it for:
+- the late-March bounded-spec promotion state
+- the late-March deferred-lane and packaging posture
+- understanding how the first docs/packaging split was framed at that time
+
+Do not use it as the first current-posture entrypoint for the later mixed tree.
+
+Read these first for current repo posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Current state
 
@@ -83,6 +101,8 @@ Why:
 - active bounded specs are already promoted
 - deferred lanes remain explicitly closed
 - the remaining noisy paths are generated/runtime artifacts or unrelated in-progress work
+- the 2026-03-28 release verification refresh and clean frontend/backend recheck did not reveal a new blocker-shaped lane
+- the bounded institutional-access assist cleanup is now already applied as additive API/UI shaping and does not justify a new subsystem lane
 
 ## Non-recommendations
 
@@ -101,8 +121,10 @@ The queue should now be read as:
 - the Docling/eval lane is now separately packaged
 - the frontend visual-coverage lane is now separately packaged
 - the frontend visual-coverage lane also has an explicit closeout note
+- the bounded institutional-access assist cleanup is already applied and should stay closed unless a concrete access-routing blocker appears
 - staging should follow `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
 - concrete action order should follow `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md`
+- current release posture should also read `docs/reports/Release_Verification_Refresh_2026-03-28.md`
 - no new feature or packaging lane is recommended from the current dirty tree
 
 ## Conclusion
@@ -115,4 +137,5 @@ The next real job is discipline, not expansion:
 - use the frontend closeout note before reopening any broad viewer/work-surface UI lane
 - use the staging guide before treating any remaining dirty files as one bundle
 - use the concrete next-actions note before deciding whether any non-doc lane should be touched at all
+- use the 2026-03-28 release verification refresh as the latest clean proof that the bounded release slice is still healthy
 - avoid reopening deferred lanes or starting a new feature lane without a concrete trigger

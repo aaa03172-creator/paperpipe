@@ -219,6 +219,39 @@ Reviewer: Codex
 - Current friction:
   - 현재 detail page는 하나의 static panel order만 제공해서, reading-oriented 사용자와 debug-oriented 사용자가 같은 정보 밀도를 같은 순서로 받아야 한다.
 
+## 7.9) Section Navigator Signal Visibility Checkpoint (2026-04-14)
+- Screen/Flow: `/papers/:slug` detail viewer `Properties` panel + `Section navigator`
+- Goal action: 사용자가 section navigator가 saved run signal에 기대는지, 아니면 viewer fallback에 더 의존하는지 빠르게 판단한다.
+- Primary persona: saved evidence reopen 품질을 확인한 뒤 note를 계속 읽거나 workbench로 넘어갈 연구자/운영자
+- Current friction:
+  - `Section navigator`는 이미 보이지만, 현재 표면만 보면 이게 최신 saved run metadata에서 온 것인지, viewer fallback인지 구분하기 어렵다.
+  - section metadata 신호는 runtime/handoff/state까지 연결됐지만, note detail에서는 operator가 이 상태를 한 번 더 추정해야 한다.
+- Quick decision:
+  - 새 panel이나 CTA는 추가하지 않는다.
+  - 기존 `Properties` 안에 compact status row 하나만 추가한다.
+  - signal이 없으면 억지 placeholder를 만들지 않고 숨긴다.
+- BMAP:
+  - Motivation: 높음. 사용자는 section reopen 품질이 saved state에서 왔는지 빠르게 알고 싶어 한다.
+  - Ability: properties 안의 short badge + one-line hint면 해석 비용이 거의 없다.
+  - Prompt: section navigator 옆이 아니라 `saved checks` 바로 아래가 가장 자연스럽다.
+- B.I.A.S:
+  - Block: 새 status row를 하나로 제한해 rail 밀도를 유지한다.
+  - Interpret: `Saved signal ready/thin/missing`처럼 operator가 바로 읽을 수 있는 언어로 바꾼다.
+  - Act: `thin/missing`일 때만 viewer fallback 존재를 설명하고, 자동 행동을 강제하지 않는다.
+  - Store: saved state와 viewer fallback의 경계를 드러내 장기 신뢰를 높인다.
+- Peak-End:
+  - Peak는 `Section navigator`를 열기 전에 저장된 reopen 품질을 한눈에 읽는 순간이다.
+  - Pit는 section navigator가 보여도 provenance를 다시 추정해야 하는 순간인데, properties row가 이를 메운다.
+- Ethics:
+  - Regret: 통과. 숨은 우선순위를 드러내는 투명성 강화다.
+  - Black Mirror: 통과. 새 urgency/pressure 없이 현재 상태만 설명한다.
+  - In Real-Life: 통과. “이건 저장된 신호고, 부족하면 fallback이 있다”라고 먼저 말해주는 협업자에 가깝다.
+- Concrete change:
+  - `Properties` 패널에 `section navigator` readiness row를 조건부로 추가한다.
+  - source는 `structured_state.runs[0].data.section_navigation_signal_status` 우선, top-level additive signal fallback이다.
+  - older saved states에서는 explicit signal이 없더라도 saved `section_summary` / `section_count`가 있으면 same-language readiness를 infer한다.
+  - copy는 section truth ownership을 주장하지 않고 “saved reopen cues” 수준으로만 설명한다.
+
 ## 7.9) `/papers` Discoverability Checkpoint (2026-03-25)
 - Screen/Flow: `/papers` default list entry
 - Goal action: 대표 real paper가 search 없이도 기본 진입에서 더 빨리 발견되게 한다.
@@ -258,6 +291,57 @@ Reviewer: Codex
 - BMAP:
   - Motivation: 높음. 읽기와 점검은 같은 note detail에서도 완전히 다른 우선순위를 가진다.
   - Ability: small mode toggle과 rail reorder만으로 충분하다.
+
+## 7.10) Section Navigator Pilot Checkpoint (2026-04-14)
+- Screen/Flow: `/papers/:slug` detail left rail and mobile review sheet
+- Goal action: 사용자가 긴 노트에서 관련 section을 더 빨리 다시 열고, saved evidence focus와 note heading 사이를 덜 헤매게 한다.
+- Primary persona: structured state가 있는 논문 노트를 읽다가 특정 section이나 evidence anchor를 다시 열어보는 연구자
+- Current friction:
+  - existing `Outline`은 note heading jump에는 좋지만, saved claim/evidence가 어느 section에 몰려 있는지는 바로 보이지 않는다.
+  - existing `Saved claims` panel은 evidence deep-link는 제공하지만, long-document section scan 관점에서는 너무 아래쪽에 있고 전체 section map을 먼저 주지 않는다.
+- Quick decision:
+  - backend retrieval/runtime contract는 건드리지 않는다.
+  - current note headings + saved evidence `locator.section`만으로 derived `Section navigator`를 만든다.
+  - 이 패널은 navigation help일 뿐이고 canonical section registry가 아니다.
+- Quick Review (5 min):
+  - Block: 기존 rail 정보량을 크게 늘리지 않도록 section count와 jump actions만 보여준다.
+  - Interpret: `Matched to a note heading` vs `Saved evidence section only`를 나눠 사용자가 어떤 링크를 기대해야 하는지 바로 이해하게 한다.
+  - Act: `Open note section`과 `Open saved evidence` 두 행동만 둬서 선택 부담을 줄인다.
+  - Store: "이 note는 어느 section에서 근거가 몰려 있는지"가 더 빨리 기억에 남는다.
+  - Ethics first pass: urgency, lock-in, hidden ranking은 없다.
+- Full Review:
+  - P0:
+    - section navigator는 derived helper여야 하고, canonical state나 source locator를 대체하면 안 된다.
+    - section label mismatch가 있어도 note/evidence 링크가 실패할 수 있다는 사실을 UI copy에서 과장 없이 드러내야 한다.
+  - P1:
+    - heading 매칭 여부를 badge로 보여줘 note jump 기대치를 낮춘다.
+    - page hint를 compact badge로만 제공해 rail clutter를 막는다.
+    - mobile sheet에도 같은 패널을 넣어 deep-link auto-open 흐름과 분리되지 않게 한다.
+  - P2:
+    - future section-tree work가 실제로 필요해지면 backend artifact metadata를 붙일 수 있지만, 지금은 viewer-derived pilot로 유지한다.
+- BMAP diagnosis:
+  - Motivation: 높음. 사용자는 특정 section과 saved evidence를 빠르게 다시 열고 싶다.
+  - Ability: 높음. 기존 데이터만으로 새 판단 비용 없이 jump aid를 제공할 수 있다.
+  - Prompt: rail과 mobile sheet에 두는 것이 가장 자연스럽다.
+- B.I.A.S diagnosis:
+  - Block: outline와 claim list 사이의 중복은 최소 badge와 2개 CTA로 줄인다.
+  - Interpret: section map이 "truth table"이 아니라 "reopen aid"라는 점을 설명 문구로 고정한다.
+  - Act: 바로 note section 또는 saved evidence로 이동할 수 있게 한다.
+  - Store: long-document note에서도 "내가 찾던 부분으로 다시 돌아갈 수 있다"는 감각을 남긴다.
+- Peak-End design notes:
+  - Peak: section label을 보고 바로 note heading이나 saved evidence로 다시 열리는 순간
+  - Pit: section label이 있지만 heading mismatch로 note jump가 안 될 수 있는 순간
+  - Transition: outline -> section navigator -> saved evidence 흐름이 현재 가장 자연스럽다
+  - End: workbench로 가기 전 note-detail 안에서 재열기 confidence를 조금 더 높여준다
+- Ethics check:
+  - Regret: 통과. 사용자를 더 빨리 근거로 돌려보내는 변화다.
+  - Black Mirror: 통과. section prominence를 조작적으로 이용하지 않고 existing evidence density만 드러낸다.
+  - In Real-Life: 통과. 실제 연구 조교처럼 "이 section 쪽을 먼저 다시 보라"고 돕는 행동에 가깝다.
+- Concrete changes:
+  - `PaperNoteDetailPage` left rail에 `Section navigator` 패널을 추가한다.
+  - mobile review sheet에도 같은 패널을 추가한다.
+  - panel source는 `outline + structured_state.claimset[].evidence[].locator.section` 조합으로 제한한다.
+  - `Open note section`과 `Open saved evidence`만 제공하고 새 truth semantics는 만들지 않는다.
   - Prompt: header 바로 아래의 compact toggle이 가장 적절하다.
 - B.I.A.S:
   - Block: static panel order는 목적이 다른 사용자 모두에게 절충안만 제공한다.
@@ -531,3 +615,659 @@ Reviewer: Codex
 1. batch producer와 watcher local producer 외의 producer/artifact level source가 준비되면 `issues_state`를 추가 승격할지 검토하기
 2. 실제 note volume과 사용 패턴을 본 뒤에만 list density preset을 검토하기
 3. `issues_label`만으로 설명이 부족한 시점에만 `review_flags[]` 같은 구조화 계약 필요성을 검토하기
+
+## 9) Workbench Handoff Integrity Checkpoint (2026-03-28)
+- Screen/Flow:
+  - `/papers/:slug` detail -> `Open in Workbench` -> `/workbench/:paperId`
+- Goal action:
+  - 사용자가 live note detail에서 mock fallback 없이 workbench review로 이어진다.
+- Primary persona:
+  - close-user alpha tester who starts from a paper note and expects the workbench to stay grounded in the same live source.
+- Current friction:
+  - some notes store prefixed IDs such as `zotero:*`, while the live artifact/runtime source may exist only for the stripped artifact id.
+  - before the patch, this mismatch caused `Open in Workbench` to land on a mock-backed workbench even though the note itself was live.
+- Success metric:
+  - the real-browser journey smoke `paper note detail -> workbench -> protocol create` stays green without a `Mock mode` banner on the workbench landing state.
+- Quick Review:
+  - P0 was the handoff truth break: a user could move from a live note into a mock workbench.
+  - the smallest safe fix was to make the frontend respect runtime aliases and note-backed fallbacks instead of widening backend contracts before close-user testing.
+  - placeholder PDF should remain clearly disclosed, but it should not turn the whole workbench into mock mode when claims/artifacts are live.
+- Full Review:
+  - P0: `getArtifactsLatest()` now tries stripped alias candidates for prefixed note ids.
+  - P0: `getPaper()` now synthesizes a minimal live paper detail from the matched note when `/papers/{id}` is missing but the note exists.
+  - P1: workbench PDF placeholder keeps its explicit “not source evidence” notice without escalating to global `Mock mode`.
+  - P2: broader alias families beyond `zotero:` are not covered yet.
+- BMAP diagnosis:
+  - Motivation: very high, because `Open in Workbench` is the natural next step from a note.
+  - Ability: broken before the patch because the user did the right thing and still landed in mock mode.
+  - Prompt: the CTA was already good; the landing truth was the real problem.
+- B.I.A.S diagnosis:
+  - Block: prefixed-id handoff mismatch
+  - Interpret: users read the workbench as “fake” when it suddenly showed mock mode
+  - Act: the next action felt punished instead of supported
+  - Store: this kind of break is memorable in the worst way
+- Peak-End design notes:
+  - Peak is a note detail flowing into a grounded workbench without changing truth sources.
+  - Pit was the abrupt `Mock mode` banner after a live note.
+  - Transition is the whole point of this checkpoint.
+  - End is a workbench that may still lack a routed PDF, but does not pretend the whole review surface is mock.
+- Concrete changes:
+  - frontend alias-aware artifact lookup for note-backed workbench handoff
+  - frontend note-backed paper-detail synthesis when `/papers/{id}` is absent
+  - workbench placeholder PDF notice decoupled from global mock-mode escalation
+- Ethics check:
+  - Regret: improved, because the user no longer gets a false break in continuity.
+  - Black Mirror: avoided, because placeholder PDF still stays explicitly labeled as non-source evidence.
+  - In Real-Life: this is closer to how a researcher expects “open in workbench” to behave from a saved note.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper note to workbench to protocol create journey stays connected in the browser"`
+
+## 10) Manual PDF Import And Return-Home Checkpoint (2026-03-29)
+- Screen/Flow:
+  - `/papers` list header
+  - global non-root navigation
+  - imported note detail references
+- Goal action:
+  - first-time users can bring an existing local PDF into the product without understanding the watched-folder setup first.
+- Primary persona:
+  - close-user alpha testers on mixed OS setups, especially people who expect a manual import path before they trust background pickup.
+- Current friction:
+  - automatic pickup exists as a local-machine watcher path, but it is not obvious from the product UI.
+  - on a fresh machine, users do not know whether Downloads watching is configured, whether Windows changed the path, or whether the product is idle.
+  - some note-detail links still felt harsher than necessary because non-root routes lacked a simple return-home affordance and the default theme preference was dark-first.
+- Success metric:
+  - a user can open `/papers`, click `Import PDF`, land on a saved note detail, and still see an `Open PDF` reference without touching raw IDs or local watcher config.
+- Quick Review:
+  - P0 was discoverability, not backend parsing sophistication.
+  - the smallest safe patch is a manual import path that creates a note, stores the local PDF behind `/papers/{paper_id}/pdf`, and lands the user on the new note.
+  - supporting changes are a global `Home` button, a home-surface `Add your PDF` CTA, and a softer visual default (`system` theme + token-based note-link color).
+- Full Review:
+  - P0: add `POST /paper-notes/import-pdf` and a visible `Import PDF` button in `/papers`.
+  - P0: keep imported-note references honest by showing internal `/papers/.../pdf` links even when local path masking is enabled.
+  - P1: add a global `Home` pill on non-root routes and rename the misleading `/papers` top-right link to `Home`.
+  - P1: add `Add your PDF` on the triage header so the manual path is visible from the main product surface.
+  - P2: switch the default theme preference from forced dark to `system`, and remove hardcoded purple note-link accents in favor of the existing `--pp-accent` token family.
+- BMAP diagnosis:
+  - Motivation: high, because bringing your own PDF is one of the first proof-of-value actions.
+  - Ability: previously low, because the product implicitly assumed a watched-folder setup.
+  - Prompt: the import card and home CTA now act as explicit prompts instead of hidden operational assumptions.
+- B.I.A.S diagnosis:
+  - Block: no visible manual import path
+  - Interpret: users could not tell whether the watcher path was broken, unsupported on Windows, or simply invisible
+  - Act: import now starts from a normal file picker
+  - Store: this makes the product feel more like a usable tool and less like an internal runtime
+- Peak-End design notes:
+  - Peak is landing on a saved note immediately after import.
+  - Pit was “I have a PDF, but I do not know where to put it.”
+  - Transition is `/papers` header -> file picker -> imported note detail.
+  - End is a note detail that still exposes `Open PDF` and `Open in Workbench`.
+- Ethics check:
+  - Regret: improved, because the product no longer silently assumes background setup that the user cannot see.
+  - Black Mirror: avoided, because the UI does not pretend drag-drop exists or that all machines are auto-configured.
+  - In Real-Life: closer to how a supportive teammate would onboard a new user: “if the watcher is not set up yet, just import it here.”
+- Concrete changes:
+  - backend `POST /paper-notes/import-pdf`
+  - `/papers` header import card with live-only guard
+  - imported note stub with `Open PDF` and `Open in Workbench` next-step copy
+  - global `Home` button on non-root routes
+  - triage header `Add your PDF`
+  - default theme preference `system`
+  - note-link colors now use `--pp-accent` tokens instead of hardcoded purple
+- Verification:
+  - `pytest -q tests/test_paper_notes_api.py`
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper notes index can import a local PDF from the browser"`
+
+## 11) Automatic Pickup Transparency Checkpoint (2026-03-29)
+- Screen/Flow:
+  - `/papers` import card
+  - `/ready`
+- Goal action:
+  - users should know whether automatic pickup is actually configured on this machine before they waste time guessing about Windows paths or background watchers.
+- Primary persona:
+  - close-user alpha testers using a machine they did not personally set up.
+- Current friction:
+  - manual import exists now, but users still need a visible answer to “is automatic pickup supposed to work here?”
+- Success metric:
+  - `/papers` offers a direct setup-check link, and `/ready` exposes watch-folder/downloads/storage readiness clearly enough that users can decide whether to fix setup or import manually.
+- Quick Review:
+  - this is not a new ingest feature.
+  - it is a trust and onboarding patch: explain whether automatic pickup is ready on this machine.
+- Full Review:
+  - P0: `/papers` links to `/ready` from the import card.
+  - P0: `/ready` includes pickup-related checks instead of only generic runtime roots.
+  - P1: `/ready` explicitly points warning users back to `Import PDF`.
+  - P2: avoid wizard-like complexity; keep the answer direct.
+- BMAP diagnosis:
+  - Motivation: users want the fastest path to “my PDF is in.”
+  - Ability: improves because the product now answers the setup question directly.
+  - Prompt: `Check automatic pickup setup` is the right secondary CTA.
+- B.I.A.S diagnosis:
+  - Block: uncertainty about watcher setup
+  - Interpret: clearer machine-level explanation
+  - Act: either fix pickup setup or import now
+  - Store: less invisible-magic confusion
+- Peak-End design notes:
+  - Peak is getting a clear yes/no about pickup readiness.
+  - Pit was guessing whether Windows broke the watcher.
+  - Transition is `/papers` -> `/ready` -> back to manual import.
+  - End is a lower-anxiety import path.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a helpful teammate would guide a new user
+
+## 12) Import Card Language Cleanup (2026-03-29)
+- Screen/Flow:
+  - `/papers` import card
+- Goal action:
+  - users should understand the import path without having to think about OS-specific folder behavior first.
+- Primary persona:
+  - first-session users who just want to add one PDF and keep moving.
+- Current friction:
+  - wording leaned too heavily on watched-folder and Downloads specifics, and the page also duplicated `Home` even though the app already has a global home pill.
+- Success metric:
+  - the import card reads as a general fallback path, and `/papers` no longer repeats the return-home affordance.
+- Quick Review:
+  - this is a clarity cleanup.
+  - the smallest safe change is to make the import language generic and let `/ready` carry the setup specifics.
+- Full Review:
+  - P0: change import card copy from folder-specific wording to setup-neutral wording.
+  - P0: remove the redundant local `Home` link from the page-level list shell.
+  - P1: keep the explicit `/ready` setup link for anyone who wants more detail.
+  - P2: keep import CTA and search/filter behavior unchanged.
+- BMAP diagnosis:
+  - Motivation: high
+  - Ability: improves when copy is simpler and less operational
+  - Prompt: `Import PDF` stays primary, setup remains secondary
+- B.I.A.S diagnosis:
+  - Block: OS-specific wording made users overthink the setup
+  - Interpret: simpler language keeps the action obvious
+  - Act: import now, debug setup only if needed
+  - Store: `/papers` feels calmer and less cluttered
+- Peak-End design notes:
+  - Peak is reading the import card and immediately knowing what to do.
+  - Pit was parsing watcher-specific wording and duplicate navigation.
+  - Transition is `/papers` import card -> note detail.
+  - End is a cleaner first-session note index.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a teammate would phrase the fallback path
+
+## 13) Review Snapshot Lift Checkpoint (2026-03-29)
+- Screen/Flow:
+  - `/papers/:slug` detail header and top-of-page summary
+- Goal action:
+  - users should understand, before scrolling into side panels, whether the note has saved review state, how much evidence is grounded, and what the next best action is.
+- Primary persona:
+  - researchers reading a note and deciding whether to stay in the note, open Workbench, or trust downstream artifacts.
+- Current friction:
+  - provenance and review signals existed, but they lived lower in the right rail and inside structured panels.
+  - the detail page still opened primarily as a reading surface, so PaperPipe's differentiator could remain invisible until deeper inspection.
+- Success metric:
+  - the note detail header includes a compact review snapshot with saved-state status, claim/evidence counts, grounding status, and a next-step hint.
+- Quick Review:
+  - this is a hierarchy lift, not a data-model change.
+  - the smallest safe change is to summarize existing state earlier rather than create a new review system.
+- Full Review:
+  - P0: add a `Review snapshot` strip directly under the note header badges.
+  - P0: summarize saved state, saved checks, claim/evidence counts, and grounded/review-needed/unresolved evidence in one place.
+  - P1: keep the existing `Saved state`, `Properties`, and `Structured claims` panels; do not replace them.
+  - P1: lightly retitle the left rail context card so the route reads as reading plus review, not reading only.
+  - P2: leave learner/builder mode routing and side-panel ordering unchanged.
+- BMAP diagnosis:
+  - Motivation: high
+  - Ability: improves when provenance and next-step cues appear before the user explores the rail
+  - Prompt: the summary should answer “is this review-ready?” and “what should I do next?” quickly
+- B.I.A.S diagnosis:
+  - Block: important review information was too deep in the page
+  - Interpret: the note could still look like a markdown-first viewer
+  - Act: earlier signals make `Open in Workbench` feel justified, not arbitrary
+  - Store: the route should be remembered as a research-review surface, not just a note page
+- Peak-End design notes:
+  - Peak is understanding the note's review readiness before scrolling.
+  - Pit was having to infer that from side panels and structured cards later in the flow.
+  - Transition is header -> review snapshot -> reading body -> workbench/artifact handoff.
+  - End is a stronger “this note is grounded and actionable” impression.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a careful reviewer would summarize note readiness before deeper discussion
+
+## 14) Direct Protocol Card Handoff Checkpoint (2026-03-30)
+- Screen/Flow:
+  - `/papers/:slug` detail header and mobile sticky actions
+- Goal action:
+  - users should be able to jump from a note directly into a prefilled protocol-card create lane without re-entering note context by hand.
+- Primary persona:
+  - researchers who have already reviewed a paper note and want to save one protocol snapshot as a downstream reusable artifact.
+- Current friction:
+  - note detail exposed `Open in Workbench`, but starting a protocol card still required a separate route change and manual note/paper context recovery.
+  - users could understand the note, yet still wonder where protocol capture begins.
+- Success metric:
+  - note detail includes a direct `Save protocol card` CTA that lands on `/protocol-cards` with the linked note slug and paper id already filled.
+- Quick Review:
+  - this is a handoff improvement, not a new protocol system.
+  - the smallest safe move is to reuse the existing protocol create form and only prefill note context.
+- Full Review:
+  - P0: add a direct `Save protocol card` CTA on note detail.
+  - P0: preserve `Open in Workbench` as the primary evidence-review action.
+  - P1: allow the CTA on mobile too, without hiding the existing workbench action.
+  - P2: do not invent a note-inline protocol editor.
+- BMAP diagnosis:
+  - Motivation: high
+  - Ability: improves when note context carries forward automatically
+  - Prompt: the new CTA answers “how do I turn this note into a protocol card?” directly
+- B.I.A.S diagnosis:
+  - Block: users had to remember or recover note context manually
+  - Interpret: the note now reads as a launch point for protocol capture, not only for workbench review
+  - Act: click once, then fill title and snapshot
+  - Store: the note surface should be remembered as connected to downstream artifacts
+- Peak-End design notes:
+  - Peak is seeing `Save protocol card` right where the note is already grounded.
+  - Pit was leaving the note and re-entering slug/paper context on another screen.
+  - Transition is note detail -> protocol create with prefilled context.
+  - End is a saved protocol detail that still points back to the note.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to a teammate saying “save this as a protocol card from here” instead of sending you to another form first
+
+## 15) Canonical Route Guard Checkpoint (2026-03-30)
+- Screen/Flow:
+  - `/papers/:slug` live note-detail route normalization
+- Goal action:
+  - users should stay on a stable note route slug, especially when downstream handoffs reuse that slug for protocol-card capture.
+- Primary persona:
+  - researchers opening a saved paper note from the browser and continuing into downstream actions from that exact route.
+- Current friction:
+  - the note detail route tried to canonicalize to `note.slug` after load.
+  - on the shared runtime, some real note payloads exposed a title-like `note.slug` with spaces, which rewrote the URL into a display string and polluted downstream handoffs.
+- Success metric:
+  - title-like `note.slug` values do not trigger a route rewrite, and downstream CTAs keep using the route-safe slug.
+- Quick Review:
+  - this is not a routing redesign.
+  - the smallest safe fix is to reject whitespace-bearing `note.slug` values as canonical route candidates.
+- Full Review:
+  - P0: keep note-detail URLs stable when payload slug looks like a title.
+  - P1: preserve existing canonicalization for real slug-shaped values.
+  - P2: leave backend payload contracts untouched for now.
+- BMAP diagnosis:
+  - Motivation: medium-high
+  - Ability: improves because downstream CTAs now inherit a stable route value
+  - Prompt: users should not have to notice routing drift to trust the next action
+- B.I.A.S diagnosis:
+  - Block: hidden route mutation
+  - Interpret: the note could look less trustworthy when the URL silently changed into a title
+  - Act: protocol/workbench handoffs become more reliable
+  - Store: the note surface should feel stable, not slippery
+- Peak-End design notes:
+  - Peak is staying on the same note route while opening downstream actions.
+  - Pit was the silent rewrite into a title-like path.
+  - Transition is note load -> route stability -> downstream handoff.
+  - End is a more trustworthy note-detail surface.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a careful tool should behave when stored metadata is messier than the active route
+
+## 16) Keyboard Focus Hygiene Checkpoint (2026-03-30)
+- Screen/Flow:
+  - `/papers/:slug` detail header and mobile sticky actions
+- Goal action:
+  - keyboard users should reach the primary note-detail actions once each, in a stable order, without duplicate focus stops caused by nested interactive elements.
+- Primary persona:
+  - repeat researchers moving through note detail with keyboard-first habits or mixed keyboard/mouse use on dense desktop layouts.
+- Current friction:
+  - several primary actions were implemented as `Link > Button`, which created duplicate focus stops and made the top action cluster feel rougher than the visual layout suggested.
+  - the route already had the right actions, but the tab sequence did not match the intended hierarchy cleanly.
+- Success metric:
+  - note detail keyboard order reaches `Back to list`, `Runtime checks`, `Save protocol card`, and `Open in Workbench` directly, without duplicate button/link stops.
+- Quick Review:
+  - this is a focus hygiene fix, not a new note-detail interaction model.
+  - the smallest safe change is to style `Link` directly with the shared button classes instead of nesting `Button` inside `Link`.
+- Full Review:
+  - P0: remove duplicate focus stops from primary header actions.
+  - P0: preserve the same CTA copy, destinations, and visual weight.
+  - P1: apply the same cleanup to the mobile sticky protocol/workbench actions.
+  - P2: leave the rest of the note-detail layout and route structure unchanged.
+- BMAP diagnosis:
+  - Motivation: medium-high
+  - Ability: improves when the first few tab stops align with the main decisions users actually need
+  - Prompt: a clean action sequence reinforces that note detail is a launch surface, not just a reading pane
+- B.I.A.S diagnosis:
+  - Block: nested interactive markup created extra keyboard friction
+  - Interpret: duplicate stops make the surface feel less finished than it looks
+  - Act: direct styled links keep keyboard flow aligned with the visible CTA hierarchy
+  - Store: note detail should feel dependable for repeated use, not slightly awkward
+- Peak-End design notes:
+  - Peak is moving from `Home` into the main note actions without extra noise.
+  - Pit was tabbing through duplicate link/button stops in the header cluster.
+  - Transition is `Home -> Back to list -> Runtime checks -> Save protocol card -> Open in Workbench`.
+  - End is a cleaner handoff into downstream protocol/workbench actions.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a keyboard-savvy teammate expects dense action bars to behave
+
+## 17) Primary Source Anchor Lift Checkpoint (2026-04-10)
+- Screen/Flow:
+  - `/papers/:slug` center-column `Review focus` bridge
+- Goal action:
+  - users should understand, while still reading in the center column, which saved source anchor needs attention before they trust or reuse the note downstream.
+- Primary persona:
+  - researchers scanning a saved note and deciding whether to keep reading, reopen evidence, or move into deeper review.
+- Current friction:
+  - the page already exposed `Trust state` and `Review focus`, but the actual provenance cue still sat below the claim text.
+  - users could read the claim before seeing which saved anchor it came from or why that anchor still mattered.
+- Success metric:
+  - the focus card leads with a `Primary source anchor` block and a short review hint before the claim/evidence excerpt.
+- Quick Review:
+  - this is a hierarchy correction, not a new provenance feature.
+  - the smallest safe change is to reorder existing saved-state cues so provenance and uncertainty read first.
+- Full Review:
+  - P0: move the primary source anchor location above the claim text inside `Review focus`.
+  - P0: add a short urgency-specific hint that explains whether the saved anchor is flagged, unresolved, or ready to reuse.
+  - P1: preserve the existing `Trust state`, saved anchor label, and deep links into saved evidence/claims.
+  - P2: avoid adding another panel, rail card, or citation system here.
+- BMAP diagnosis:
+  - Motivation: high
+  - Ability: improves when the saved anchor and next review step appear before the narrative claim excerpt
+  - Prompt: the bridge should answer “what source anchor is this grounded in?” before “what does the claim say?”
+- B.I.A.S diagnosis:
+  - Block: provenance existed, but it was easy to scan past while reading
+  - Interpret: the note could still feel slightly claim-first instead of source-first
+  - Act: users can jump into the right saved anchor faster
+  - Store: the route should reinforce that PaperPipe keeps notes tied to reviewable source anchors
+- Peak-End design notes:
+  - Peak is seeing the exact saved source anchor before deciding what to do with the note.
+  - Pit was having to read the claim first and only then discover the anchor context below.
+  - Transition is `Trust state -> Primary source anchor -> claim/evidence excerpt -> open saved evidence/open review`.
+  - End is a more trustworthy handoff from reading into evidence checking.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a careful reviewer points to the exact saved source anchor before summarizing a claim
+
+## 18) Optional Appraisal Lane Checkpoint (2026-04-17)
+- Screen/Flow:
+  - `/papers/:slug?view=builder_debug` right rail + mobile review sheet
+- Goal action:
+  - 사용자가 default reading mode를 해치지 않으면서, saved claim/evidence 위에 얹힌 optional reviewer lane만 별도로 검토한다.
+- Primary persona:
+  - 읽기 흐름은 유지하되, note를 재사용하기 전에 저장된 근거와 saved checks를 한 번 더 확인하려는 연구자/운영자
+- Current friction:
+  - 기존 `critical_appraisal`는 run history와 `last_appraisal` label만 남겨서, 왜 그런 판단이 나왔는지 UI에서 다시 복원하기 어려웠다.
+  - 반대로 이 정보를 읽기 기본 모드에 크게 올리면 제품이 paper-reading workspace에서 review generator처럼 느껴질 위험이 있었다.
+- Success metric:
+  - review mode에서만 `Appraisal` 카드가 보이고, concern/question/check가 모두 evidence-bounded wording으로 표시된다.
+- Quick Review:
+  - 새 agent나 mode family를 추가하지 않고, 기존 optional action 결과를 구조화된 sidecar로 읽는 방식이 가장 안전하다.
+  - `Read` mode는 그대로 두고 `Review` mode rail에서만 이 lane을 보여주는 것이 경계 보존에 맞다.
+- Full Review:
+  - P0: `critical_appraisal` 결과를 `appraisal_report` sidecar로 구조화해 source artifacts, checks, concerns, questions를 함께 보여준다.
+  - P0: 카드 안에 `non-canonical` 표식을 두어 review artifact가 system truth처럼 읽히지 않게 한다.
+  - P1: concern은 자유 생성 문장이 아니라 saved claim/evidence/stats artifact 기반의 bounded copy만 허용한다.
+  - P1: older saved states도 깨지지 않도록 legacy `appraisal`에서 minimal fallback view를 만든다.
+  - P2: learner mode에는 이 panel을 올리지 않고 기존 `Properties`의 compact appraisal row만 유지한다.
+- BMAP diagnosis:
+  - Motivation: 높음. 사용자는 reuse 직전에 “이 note가 얼마나 다시 써도 되는 상태인가”를 빠르게 알고 싶다.
+  - Ability: 기존 run label보다 structured checks/concerns/questions가 판단 비용을 크게 낮춘다.
+  - Prompt: `Review` mode의 action/run-history 근처가 가장 자연스럽고, reading 본문 옆 기본 rail은 과하다.
+- B.I.A.S diagnosis:
+  - Block: review artifact가 canonical truth처럼 읽히면 제품 방향이 흔들린다.
+  - Interpret: `non-canonical`, `source artifacts`, `evidence-bounded concerns` 문구로 additive lane임을 먼저 해석하게 만든다.
+  - Act: 사용자는 flagged concern을 보고 saved evidence/claim이나 Workbench로 넘어갈 수 있다.
+  - Store: “이 제품은 화려한 리뷰를 생성하는 대신, 저장된 근거에서만 조심스럽게 concern을 만든다”는 인상이 남는다.
+- Peak-End design notes:
+  - Peak는 review mode에서 concern/question가 source artifacts와 함께 바로 읽히는 순간이다.
+  - Pit는 기존처럼 appraisal label만 있고 이유가 보이지 않는 순간이었다.
+  - Transition은 `Actions -> Appraisal -> Run history -> Saved claims` 순서가 가장 자연스럽다.
+  - End는 review lane을 봐도 canonical note truth ownership은 그대로라는 확신이다.
+- Ethics check:
+  - Regret: 통과. 나중에 봐도 “optional downstream review aid”로 이해된다.
+  - Black Mirror: 통과. 사용자를 review workflow로 과도하게 몰지 않는다.
+  - In Real-Life: 통과. 실제 협업에서 “이건 참고용 review note고, 원본 claim state는 그대로야”라고 말해주는 방식에 가깝다.
+- Concrete change:
+  - `builder_debug` rail과 mobile review sheet에만 `Appraisal` panel을 추가한다.
+  - panel은 `source_artifacts`, `checks`, `concerns`, `questions`, `warnings`를 보여주고 `non-canonical` badge를 고정한다.
+  - `learner` mode는 그대로 유지하고, 기존 compact `appraisal` property만 남겨 reviewer lane을 implicit default로 만들지 않는다.
+
+## 19) Manual Import Landing Bridge Checkpoint (2026-04-17)
+- Screen/Flow:
+  - `/papers/:slug` header immediately after manual PDF import
+- Goal action:
+  - users who just imported one PDF should understand that they are already inside the saved note, and they should see the two most useful next steps without scanning the whole page.
+- Primary persona:
+  - first-time operators using the manual import path before they trust automatic pickup on the current machine.
+- Current friction:
+  - `/papers` now gets users into the first saved note much faster, but the landing detail still relied on users discovering the right next actions from the generic header and lower reference sections.
+  - the underlying markdown already said `Open PDF` and `Open in Workbench`, but that guidance was not promoted into the product chrome.
+- Success metric:
+  - an imported note detail shows a visible top-of-page bridge that says the note is saved and exposes direct `Open review` plus `Open saved PDF` actions.
+- Quick Review:
+  - this is a post-import orientation patch, not a new review or reference feature.
+  - the smallest safe change is an import-only guidance strip keyed off `pp.signals.import_mode=manual_pdf`.
+- Full Review:
+  - P0: show an import-specific bridge only on manually imported notes.
+  - P0: tell the user that the saved note already exists here, so they do not wonder whether another setup step is still missing.
+  - P0: surface `Open review` and `Open saved PDF` directly in the strip.
+  - P1: keep generic note detail hierarchy unchanged for all non-imported notes.
+  - P2: avoid inventing a new onboarding mode or wizard inside the viewer.
+- BMAP diagnosis:
+  - Motivation: high. a first-time importer wants reassurance that the PDF actually became a usable note.
+  - Ability: improves when the top of the page exposes the two obvious next actions immediately.
+  - Prompt: an import-only bridge is a stronger prompt than expecting users to infer intent from the generic header and references panel.
+- B.I.A.S diagnosis:
+  - Block: the first note detail still required some scanning to understand “what now?”
+  - Interpret: users could see the note but not instantly know whether the product considered the import complete.
+  - Act: the bridge now gives two clear actions without leaving the reading surface.
+  - Store: the import path should now teach a simple memory: import -> saved note -> review or reopen source PDF.
+- Peak-End design notes:
+  - Peak is landing on a saved note and immediately seeing that the note is already ready to use.
+  - Pit was reaching the note detail and still having to hunt for the best next action.
+  - Transition is import -> saved note detail -> `Open review` or `Open saved PDF`.
+  - End is a clearer handoff from first-run onboarding into real product use.
+- Ethics check:
+  - Regret: reduced
+  - Black Mirror: avoided
+  - In Real-Life: closer to how a supportive teammate would say “you’re in the note now; here are the two next things you probably want.”
+- Concrete change:
+  - add an import-only header bridge on manually imported notes
+  - reuse existing `manual_pdf` signal instead of creating a new onboarding state
+  - expose direct `Open review` and `Open saved PDF` actions in that bridge
+  - leave the generic viewer unchanged for non-imported notes
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper notes index can import a local PDF from the browser|paper notes detail renders properties, markdown, related papers, and references"`
+
+## 20) Mobile Side-Panel Naming Checkpoint (2026-04-20)
+- Screen/Flow:
+  - `/papers/:slug` mobile header trigger and side sheet title
+- Goal action:
+  - mobile readers should understand that the side sheet contains more than review state alone before they open it.
+- Primary persona:
+  - a mobile operator reading a saved note and deciding whether to open the side sheet for metadata, outline, references, or review actions.
+- Current friction:
+  - the sheet trigger and title both said `Review summary`, but the sheet also includes `Properties`, `Outline`, `Section navigator`, `Related Papers`, `References`, and in structured states `Actions` plus saved claims.
+  - that made the label narrower than the actual surface and slightly under-described the reading support panels.
+- Success metric:
+  - the mobile trigger and sheet title read as `Note panels`, while the sheet contents and action order remain unchanged.
+- Quick Review:
+  - this is a naming repair, not a layout or action-model change.
+  - the smallest safe fix is to retitle the mobile trigger and sheet without moving any panels or CTAs.
+- Full Review:
+  - P0: the mobile trigger should not imply the sheet is review-only when it also holds reading/navigation panels.
+  - P0: the sheet title should match the actual breadth of content.
+  - P1: keep `Open review` as the explicit downstream action so review remains discoverable.
+  - P2: preserve current panel ordering and structured-state additions.
+- Full Review Coverage:
+  - 6P storyboard context:
+    - Problem: a mobile user wants extra note context while reading.
+    - Emotion: they need confidence that opening the sheet will show all the useful supporting panels, not just review state.
+    - Action: they look at the single mobile trigger in the header.
+    - Struggle: `Review summary` sounds narrower than the actual contents.
+    - Attempt: rename the trigger and sheet title to `Note panels`.
+    - Happy Ending: the user opens the sheet expecting the full support surface and gets exactly that.
+  - BMAP:
+    - Motivation remains high; Ability improves when the trigger label is more truthful.
+  - B.I.A.S:
+    - the main gain is Interpret -> Act by aligning the label with the surface contents.
+  - Peak-End:
+    - the small peak is trusting the mobile trigger at first glance.
+  - Ethics:
+    - more honest labeling; no persuasion pressure or hidden tradeoff.
+- BMAP diagnosis:
+  - Motivation: high. the user wants more context while staying in the note.
+  - Ability: improves when the trigger name better predicts the sheet contents.
+  - Prompt: `Note panels` is a clearer prompt than `Review summary` for this mixed-content sheet.
+- B.I.A.S diagnosis:
+  - Block: a too-narrow label can make users ignore the sheet unless they already want review data.
+  - Interpret: `Note panels` better matches what opens.
+  - Act: users can open the sheet with a more accurate mental model.
+  - Store: the viewer feels more trustworthy when labels match the actual surface.
+- Peak-End design notes:
+  - Peak: one mobile trigger that honestly describes the support surface.
+  - Pit: a review-only label on a mixed-content sheet.
+  - Transition: reading view -> note panels -> deeper review or reference actions.
+  - End: a calmer, more legible mobile viewer.
+- Concrete changes:
+  - rename the mobile header trigger from `Review summary` to `Note panels`
+  - rename the sheet title to `Note panels`
+  - leave panel contents, ordering, and downstream `Open review` action unchanged
+- Ethics check results:
+  - Regret: improved. the trigger is more honest.
+  - Black Mirror: avoided. this is descriptive, not manipulative.
+  - In Real-Life: closer to a teammate saying “open the note panels” instead of overselling one slice of what is inside.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "mobile paper notes detail opens side panel sheet|mobile paper notes sheet includes structured actions and structured claims cards|mobile paper notes detail keeps builder debug mode in the sheet ordering"`
+
+## 21) Mobile Import Sticky CTA Alignment Checkpoint (2026-04-21)
+- Screen/Flow:
+  - `/papers/:slug` mobile sticky actions on manually imported notes
+- Goal action:
+  - first-time mobile importers should see the same next-step hierarchy in the sticky bar that they already saw in the import bridge: reopen the saved PDF or open review.
+- Primary persona:
+  - a mobile operator who just imported one local PDF and is deciding whether to keep reading, reopen the saved PDF, or move into review.
+- Current friction:
+  - the import bridge already gave the right two next actions, but the mobile sticky stack still reintroduced `Save protocol card` as a co-equal action.
+  - that made the bottom-most CTA cluster slightly more downstream than the import-origin mental model established at the top of the note.
+- Success metric:
+  - on manual-import notes, the mobile sticky actions repeat `Open saved PDF` and `Open review`, while general notes keep the existing `Save protocol card` plus `Open review` stack.
+- Quick Review:
+  - this is a sticky-action hierarchy patch, not a new mobile flow.
+  - the safest change is to branch only for manual-import notes that already expose a saved-PDF reference.
+- Full Review:
+  - P0: import-origin mobile sticky actions should reinforce the import bridge, not introduce a more downstream protocol-first choice.
+  - P0: keep `Open review` as the primary mobile CTA.
+  - P1: preserve the current `Save protocol card` mobile sticky action for non-import notes.
+  - P2: leave desktop header actions and the import bridge unchanged.
+- Full Review Coverage:
+  - 6P storyboard context:
+    - Problem: a first-time mobile importer needs one coherent next-step story after landing in the saved note.
+    - Emotion: they want reassurance that the imported PDF is real and that review is still one tap away.
+    - Action: they scan the sticky CTA cluster while reading.
+    - Struggle: the old sticky stack mixed a downstream protocol action into an import-origin flow that already had clearer next steps.
+    - Attempt: align the sticky stack with the import bridge on manual-import notes only.
+    - Happy Ending: the mobile sticky bar now repeats the same two actions the user already learned from the bridge.
+  - BMAP:
+    - Motivation is high; Ability improves when the same two next actions repeat consistently.
+  - B.I.A.S:
+    - the main gain is Interpret -> Act by reducing downstream lane competition on the import-origin state.
+  - Peak-End:
+    - the peak is a coherent import -> saved note -> saved PDF/review story even after the user scrolls.
+  - Ethics:
+    - factual alignment only; protocol capture is still available elsewhere and remains unchanged for non-import notes.
+- BMAP diagnosis:
+  - Motivation: high. the user has already completed the import and wants the clearest next move.
+  - Ability: improves when the sticky bar repeats the same two actions as the bridge instead of switching categories.
+  - Prompt: `Open saved PDF` + `Open review` is the strongest import-origin prompt pair.
+- B.I.A.S diagnosis:
+  - Block: a downstream protocol action can distract from the immediate paper-thread continuation.
+  - Interpret: matching the bridge and sticky actions makes the state feel more consistent.
+  - Act: the user can reopen the source PDF or move into review without re-evaluating the action hierarchy.
+  - Store: the import flow now teaches one stable mobile recovery story.
+- Peak-End design notes:
+  - Peak: the same import-origin actions remain available even after scrolling.
+  - Pit: a sticky CTA set that drifted into downstream artifact capture too early.
+  - Transition: import bridge -> reading -> mobile sticky repeat of the same next actions.
+  - End: a cleaner first-run mobile note experience.
+- Concrete changes:
+  - on manual-import notes with a saved-PDF reference, mobile sticky actions now show `Open saved PDF` and `Open review`
+  - non-import notes keep `Save protocol card` and `Open review`
+  - added targeted mobile regression coverage for the import-origin sticky state
+- Ethics check results:
+  - Regret: improved. the next-step hierarchy is clearer.
+  - Black Mirror: avoided. no action is hidden where it is safety-critical.
+  - In Real-Life: closer to a teammate repeating the same two next steps instead of changing the subject halfway through the task.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "mobile imported paper note keeps sticky actions aligned with the import bridge|mobile paper notes detail opens side panel sheet|backend paper notes index can import a local PDF from the browser"`
+
+## 22) First Paper Activation Documentation Checkpoint (2026-04-24)
+- Screen/Flow:
+  - README Quick Start -> `/ui/papers#import-pdf` -> imported note detail -> workbench
+- Goal action:
+  - first-time operators should reach the existing Import PDF path before they have to understand `paper_id`, automatic pickup, Research DNA, or Meeting Pack lanes.
+- Primary persona:
+  - a repo-first evaluator who has just run `lattice start` and wants to see one paper become a saved note.
+- Current friction:
+  - the Web import path is implemented and tested, but the README previously stopped at runtime startup.
+  - CLI docs listed `deepread <paper-id-or-doi>` without making the first local-PDF creation path explicit.
+- Success metric:
+  - README names `/ui/papers#import-pdf` as the first local-PDF path after `lattice start`, and CLI reference exposes `paperpipe import-pdf <path>` as the terminal bridge.
+- Quick Review:
+  - this is a discoverability fix, not a new ingestion implementation.
+  - the right first-session prompt is `Import PDF`, not a broad feature tour.
+- Full Review:
+  - P0: put the first-paper path immediately after Quick Start.
+  - P1: explain that imported papers get a generated `userpdf-*` id for job/API use.
+  - P2: keep Research DNA and Meeting Pack out of the first five-minute path.
+- Full Review Coverage:
+  - 6P storyboard context: user starts with a paper, feels blocked by missing next action, imports a PDF, lands on the saved note, and knows the generated paper id.
+  - BMAP: Motivation is high; Ability improves through one URL and one button; Prompt is the README section.
+  - B.I.A.S: removes the `paper_id` creation mystery from the first session.
+  - Peak-End: peak is the saved imported note; pit is server-start success with no next step.
+  - Ethics: sample/demo paths must not be overstated as evidence.
+- BMAP diagnosis:
+  - Motivation: high.
+  - Ability: improved by making the existing import path visible.
+  - Prompt: README now points directly to `/ui/papers#import-pdf`.
+- B.I.A.S diagnosis:
+  - Block: reduced by naming the first action.
+  - Interpret: Import PDF is framed as the first local-paper path.
+  - Act: user can import and continue to review.
+  - Store: first memory becomes paper -> saved note -> review.
+- Peak-End design notes:
+  - Peak: saved note confirms the import worked.
+  - Pit: hidden ingestion path.
+  - Transition: Quick Start -> import -> detail/workbench.
+  - End: user has a concrete `paper_id` for later jobs.
+- Concrete changes:
+  - added `docs/UX_REVIEW_REPORT_first-paper-activation.md`
+  - updated README with `First Paper in 5 Minutes`
+  - updated `docs/CLI_WORKFLOW_REFERENCE.md` with `paperpipe import-pdf <path>` and the current local-PDF entry boundary
+  - added the `paperpipe import-pdf <path>` CLI bridge using the same Paper Notes import contract
+  - added `paperpipe demo-first-paper` as a zero-choice sample import that uses the same Paper Notes import contract while staying clearly labeled as onboarding-only
+  - updated `paperpipe doctor` to repeat the first-paper web and CLI import paths, including a manual-import fallback when automatic pickup has boundary warnings
+  - surfaced the generated Paper ID and `Copy ID` affordance in the manual-import note detail guidance
+  - added a `Queue deep read` action to the same guidance, reusing the existing deep-read job API
+  - after queueing, surfaced the latest queued job status, run id, and job id inline before sending users to review
+  - added lightweight polling to that queued-status panel while the imported note remains open
+  - strengthened import E2E coverage to click `Queue deep read` and assert queued feedback plus inline queued status
+  - added a README first-paper docs smoke test that checks the documented URL/commands against the implemented CLI help surface
+  - added `./scripts/run_first_paper_smoke.sh` as the one-command smoke wrapper for first-paper docs, CLI, doctor, and API import coverage
+  - added `.github/workflows/first-paper-smoke.yml` so the wrapper can run manually and on first-paper surface changes
+- Ethics check results:
+  - Regret: improved by preventing wasted search for the local-PDF entry path.
+  - Black Mirror: low risk; no false scarcity or hidden data movement.
+  - In Real-Life: closer to a teammate pointing at the working first action.
+- Verification:
+  - `.venv/bin/python -m pytest -q tests/test_cli_import_pdf.py tests/test_paper_notes_api.py -k 'import_pdf'`
+  - `.venv/bin/python -m src.cli import-pdf --help`
+  - `git diff --check -- backend/routers/paper_notes.py src/cli.py tests/test_cli_import_pdf.py README.md docs/CLI_WORKFLOW_REFERENCE.md docs/UX_REVIEW_REPORT_first-paper-activation.md docs/UX_REVIEW_REPORT_paper-notes-viewer.md`
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper notes index can import a local PDF from the browser|mobile imported paper note keeps sticky actions aligned with the import bridge"`

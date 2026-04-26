@@ -37,8 +37,22 @@ These files are task-local working memory and should stay untracked in git.
 
 ### `plan.md`
 - keep the goal, scope, non-goals, current phase, and next 1-3 actions
+- include the smallest executable sprint contract for the current work slice
 - record decision points, blockers, and reopen conditions
 - re-read before major edits, architecture decisions, broad refactors, or after an interruption
+
+Recommended sprint-contract fields:
+
+- `Files likely affected`
+- `Expected outputs` or `Expected artifacts`
+- `Verification method`
+- `Hard fail conditions`
+
+Useful hard-fail examples:
+
+- the change creates or cites a second canonical doc instead of updating the current canonical path
+- a retired compatibility stub is reintroduced as the primary current reference
+- a task-local artifact starts behaving like repo SSOT
 
 Suggested shape:
 
@@ -48,6 +62,10 @@ Suggested shape:
 Goal:
 Scope:
 Non-goals:
+Files likely affected:
+Expected outputs:
+Verification method:
+Hard fail conditions:
 Current phase:
 
 Next:
@@ -110,13 +128,15 @@ Do not cite `.codex/work/...` files as SSOT.
 ## Operating loop
 1. Create the task folder only when the work is large enough to justify it.
 2. Write the first `plan.md` before deep implementation.
-3. Add findings as they appear instead of keeping them only in chat context.
-4. Append `progress.md` after meaningful verification, failure, or phase changes.
-5. Re-read `plan.md` before major decisions and when resuming after context loss.
-6. Promote durable outcomes into canonical docs, queues, reports, or archive before calling the work done.
+3. Record the smallest sprint contract that makes the current slice executable and reviewable.
+4. Add findings as they appear instead of keeping them only in chat context.
+5. Append `progress.md` after meaningful verification, failure, or phase changes.
+6. Re-read `plan.md` before major decisions and when resuming after context loss.
+7. Promote durable outcomes into canonical docs, queues, reports, or archive before calling the work done.
 
 ## Relationship to existing workflows
 - Use this alongside existing repo workflows, not instead of them.
 - UI and flow work still follows `docs/ux-review.md` and the required `UX_REVIEW_*` artifacts.
+- Optional task-level signoff can use `docs/INDEPENDENT_REVIEW_TEMPLATE.md` when a bounded non-UX change needs a compact independent review note.
 - Runtime and feature work still belongs to the current FastAPI-first and Pydantic-first contracts.
 - Queue, report, and archive documents remain the durable shared surfaces.

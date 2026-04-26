@@ -34,7 +34,7 @@ The current lane is intentionally:
 - version-first
 - evidence-linked
 - read-first
-- bounded around saved protocol-card bundles
+- bounded around saved protocol-card bundles plus reviewable paper-derived and attachment-derived drafts
 
 ## Current Implementation Status
 
@@ -43,12 +43,25 @@ Implemented in current runtime slice:
 - `src/protocol_cards/store.py`
 - `src/protocol_cards/service.py`
 - `src/protocol_cards/renderer.py`
+- `src/schemas/protocol_attachment.py`
+- `src/protocol_attachments/store.py`
+- `src/protocol_attachments/service.py`
 - `src/services/runtime_paths.py::protocol_cards_root()`
+- `src/services/runtime_paths.py::protocol_attachments_root()`
 - `backend/routers/protocol_cards.py`
+- note-context draft generation from:
+  - paper note markdown
+  - visible structured state
+  - selected `claimset.resolved.json` when available
+- attachment-context draft generation from:
+  - uploaded raw files saved as `raw_source`
+  - plain-text extraction by default
+  - optional MarkItDown conversion when installed
+  - mixed draft augmentation when `note_slug` is supplied
 - read-only frontend inspector:
   - `/protocol-cards`
   - `/protocol-cards/:protocolId`
-- targeted pytest coverage for schema/store/service/API/auth
+- targeted pytest coverage for schema/store/service/API/auth, including note-derived and attachment-derived draft generation
 - frontend mock Playwright coverage
 - frontend real-backend Playwright coverage
 - backend visual regression coverage for index/detail
@@ -56,7 +69,8 @@ Implemented in current runtime slice:
 Currently deferred:
 - append-only version-write endpoints
 - version activation/editor controls
-- source-loader expansion beyond explicit request payloads
+- automatic OCR/document conversion beyond plain text unless optional local converters are installed
+- frontend authoring/upload workflow UI for attachment drafts
 - execution/runtime semantics
 - protocol authoring workflow UI
 
@@ -129,17 +143,39 @@ Current rule:
 - whole-card upserts may rewrite the bundle deterministically
 - version snapshots remain inspectable on disk
 
+Current external draft-input raw-source root:
+
+```text
+storage/protocol_attachments/<attachment_bundle_id>/
+  attachment_bundle.json
+  source/<filename>
+  extracted.md          # optional
+```
+
+Current rule:
+- protocol attachment bundles are `raw_source`, not compiled knowledge and not canonical structured state
+- saving an attachment bundle must not silently materialize a protocol-card bundle
+- extracted markdown remains a reversible helper around the preserved uploaded file
+
 ### 5. API stays thin and bounded
 
 Current API surface:
 - `POST /protocol-cards`
+- `POST /protocol-cards/draft-from-note`
+- `POST /protocol-cards/draft-from-attachment`
+- `GET /protocol-cards/attachments/{attachment_bundle_id}`
+- `GET /protocol-cards/attachments/{attachment_bundle_id}/extracted-markdown`
 - `GET /protocol-cards`
 - `GET /protocol-cards/{protocol_id}`
+- `GET /protocol-cards/{protocol_id}/markdown`
 - `GET /protocol-cards/{protocol_id}/versions`
 - `GET /protocol-cards/{protocol_id}/versions/{version_id}`
 
 Current rule:
 - the API remains a thin wrapper over schema/service/store code
+- `protocol_card.md` may be handed off as bounded plain-text output, but version JSON stays on typed routes rather than a generic raw-file download surface
+- `POST /protocol-cards/draft-from-note` is a review-stage extraction helper; it does not silently materialize a saved protocol bundle
+- `POST /protocol-cards/draft-from-attachment` first persists a raw-source attachment bundle, then returns a review-stage draft; it does not silently materialize a saved protocol bundle
 - broad workflow controls such as activation consoles, edit sessions, or execution-state APIs are out of scope
 
 ### 6. Inspector stays read-only
