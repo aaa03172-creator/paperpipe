@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Protocol, Tuple
@@ -30,6 +31,8 @@ TABLE_FAIL_OCR_LOW_CONF = "OCR_LOW_CONF"
 TABLE_FAIL_BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
 TABLE_FAIL_CELL_OVERLAP_HIGH = "CELL_OVERLAP_HIGH"
 TABLE_FAIL_CELL_COVERAGE_LOW = "CELL_COVERAGE_LOW"
+TABLE_FAIL_FALLBACK_TABLE_SKIPPED_PRIMARY_PAGE_COVERED = "FALLBACK_TABLE_SKIPPED_PRIMARY_PAGE_COVERED"
+TABLE_FAIL_SAME_PAGE_TABLE_RESCUE_PATCHED_PREFIX_TRUNCATION = "SAME_PAGE_TABLE_RESCUE_PATCHED_PREFIX_TRUNCATION"
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]*[A-Z0-9]", re.IGNORECASE)
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi.org/", "doi:", "urn:doi:")
 _DOI_METADATA_KEYS = (
@@ -54,6 +57,9 @@ class TableExtractionDiagnostics:
     table_failure_taxonomy: List[str] = field(default_factory=list)
     fallback_used: bool = False
     fallback_pages: List[int] = field(default_factory=list)
+    same_page_table_rescue_actions: List[str] = field(default_factory=list)
+    same_page_table_rescue_pages: List[int] = field(default_factory=list)
+    same_page_table_rescue_patched_cells: List[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -532,6 +538,88 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
         )
         return sections
 
+    @staticmethod
+    def _covered_section_pages(sections: List[Section]) -> set[int]:
+        pages: set[int] = set()
+        for section in sections:
+            start_page = int(section.page_start or 0)
+            end_page = int(section.page_end or 0)
+            if start_page <= 0 and end_page <= 0:
+                continue
+            if start_page <= 0:
+                start_page = end_page
+            if end_page <= 0:
+                end_page = start_page
+            if end_page < start_page:
+                start_page, end_page = end_page, start_page
+            pages.update(range(start_page, end_page + 1))
+        return pages
+
+    @classmethod
+    def _internal_missing_section_pages(cls, sections: List[Section]) -> list[int]:
+        covered_pages = cls._covered_section_pages(sections)
+        if len(covered_pages) <= 1:
+            return []
+        return [page for page in range(min(covered_pages), max(covered_pages) + 1) if page not in covered_pages]
+
+    @staticmethod
+    def _copy_section_with_offsets(section: Section, *, name: str, char_start: int) -> Section:
+        text = str(section.text or "")
+        return Section(
+            name=name,
+            text=text,
+            char_start=char_start,
+            char_end=char_start + len(text),
+            page_start=section.page_start,
+            page_end=section.page_end,
+        )
+
+    @classmethod
+    def _merge_missing_page_sections(
+        cls,
+        primary_sections: List[Section],
+        fallback_sections: List[Section],
+        *,
+        missing_pages: list[int],
+        min_fallback_chars: int = 80,
+    ) -> List[Section]:
+        if not missing_pages:
+            return primary_sections
+
+        fallback_by_page: dict[int, Section] = {}
+        missing_page_set = set(missing_pages)
+        for section in fallback_sections:
+            page_start = int(section.page_start or 0)
+            page_end = int(section.page_end or 0)
+            if page_start != page_end or page_start not in missing_page_set:
+                continue
+            if len(str(section.text or "").strip()) < min_fallback_chars:
+                continue
+            fallback_by_page[page_start] = section
+
+        if not fallback_by_page:
+            return primary_sections
+
+        merged: list[tuple[int, int, Section, bool]] = []
+        for idx, section in enumerate(primary_sections):
+            page_start = int(section.page_start or 0)
+            merged.append((page_start if page_start > 0 else 10**9, idx, section, False))
+        for page in missing_pages:
+            fallback = fallback_by_page.get(page)
+            if fallback is None:
+                continue
+            merged.append((page, -1, fallback, True))
+
+        next_char = 0
+        output: List[Section] = []
+        for _page, _idx, section, is_fallback in sorted(merged, key=lambda item: (item[0], item[1])):
+            fallback_page = int(section.page_start or 0)
+            name = f"page_{fallback_page}_fitz_fallback" if is_fallback and fallback_page > 0 else section.name
+            copied = cls._copy_section_with_offsets(section, name=name, char_start=next_char)
+            output.append(copied)
+            next_char = copied.char_end + 1
+        return output
+
     def _read_pdf_metadata(self, path: Path) -> PaperMetadata:
         doc = fitz.open(path)
         try:
@@ -675,10 +763,169 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             )
         return tables
 
+    @staticmethod
+    def _normalize_table_cell(value: Any) -> str:
+        text = str(value or "").lower()
+        text = text.replace("–", "-").replace("—", "-")
+        text = re.sub(r"\s+", "", text)
+        return re.sub(r"[^a-z0-9*†-]", "", text)
+
+    @classmethod
+    def _table_cell_counter(cls, tables: List[TableData]) -> Counter[str]:
+        counter: Counter[str] = Counter()
+        for table in tables:
+            for row in list(table.data or []):
+                for cell in row:
+                    normalized = cls._normalize_table_cell(cell)
+                    if normalized:
+                        counter[normalized] += 1
+        return counter
+
+    @classmethod
+    def _first_cell_text_by_normalized(cls, tables: List[TableData]) -> dict[str, str]:
+        cells: dict[str, str] = {}
+        for table in tables:
+            for row in list(table.data or []):
+                for cell in row:
+                    normalized = cls._normalize_table_cell(cell)
+                    if normalized and normalized not in cells:
+                        cells[normalized] = str(cell or "")
+        return cells
+
+    @staticmethod
+    def _counter_overlap_ratio(left: Counter[str], right: Counter[str]) -> float:
+        left_total = sum(count for count in left.values() if count > 0)
+        right_total = sum(count for count in right.values() if count > 0)
+        denominator = min(left_total, right_total)
+        if denominator <= 0:
+            return 0.0
+        return round(sum((left & right).values()) / denominator, 4)
+
+    @classmethod
+    def _prefix_truncation_repairs(
+        cls,
+        *,
+        missing_counter: Counter[str],
+        candidate_counter: Counter[str],
+        fallback_cells: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        repairs: list[dict[str, Any]] = []
+        for missing_cell, missing_count in sorted(missing_counter.items()):
+            replacement_text = fallback_cells.get(missing_cell)
+            if not replacement_text:
+                continue
+            for candidate_cell, candidate_count in sorted(candidate_counter.items()):
+                if candidate_count <= 0:
+                    continue
+                if len(candidate_cell) < 4 or len(candidate_cell) >= len(missing_cell):
+                    continue
+                if not missing_cell.startswith(candidate_cell):
+                    continue
+                candidate_length_ratio = len(candidate_cell) / max(len(missing_cell), 1)
+                if candidate_length_ratio < 0.5:
+                    continue
+                repairs.append(
+                    {
+                        "candidate_cell": candidate_cell,
+                        "missing_cell": missing_cell,
+                        "missing_suffix": missing_cell[len(candidate_cell) :],
+                        "replacement_text": replacement_text,
+                        "missing_count": missing_count,
+                        "candidate_count": candidate_count,
+                        "candidate_length_ratio": round(candidate_length_ratio, 4),
+                    }
+                )
+        return repairs
+
+    @classmethod
+    def _patch_table_cell(cls, table: TableData, *, candidate_cell: str, replacement_text: str) -> tuple[TableData, bool]:
+        patched = False
+        patched_rows: List[List[str]] = []
+        for row in list(table.data or []):
+            patched_row: List[str] = []
+            for cell in row:
+                if not patched and cls._normalize_table_cell(cell) == candidate_cell:
+                    patched_row.append(replacement_text)
+                    patched = True
+                else:
+                    patched_row.append(str(cell or ""))
+            patched_rows.append(patched_row)
+
+        if not patched:
+            return table, False
+        return (
+            TableData(
+                table_id=table.table_id,
+                caption=table.caption,
+                data=patched_rows,
+                source_page=table.source_page,
+            ),
+            True,
+        )
+
+    @classmethod
+    def _patch_same_page_prefix_truncations(
+        cls,
+        primary_tables: List[TableData],
+        fallback_tables_by_page: dict[int, List[TableData]],
+        *,
+        min_overlap_ratio: float = 0.5,
+    ) -> tuple[List[TableData], List[int], List[dict[str, Any]]]:
+        patched_tables = list(primary_tables)
+        patched_pages: set[int] = set()
+        patched_cells: list[dict[str, Any]] = []
+
+        for page, fallback_tables in sorted(fallback_tables_by_page.items()):
+            primary_page_tables = [
+                table for table in patched_tables if int(getattr(table, "source_page", 0) or 0) == page
+            ]
+            if not primary_page_tables:
+                continue
+            candidate_counter = cls._table_cell_counter(primary_page_tables)
+            fallback_counter = cls._table_cell_counter(fallback_tables)
+            if cls._counter_overlap_ratio(candidate_counter, fallback_counter) < min_overlap_ratio:
+                continue
+
+            missing_counter = fallback_counter - candidate_counter
+            if not missing_counter:
+                continue
+            repairs = cls._prefix_truncation_repairs(
+                missing_counter=missing_counter,
+                candidate_counter=candidate_counter,
+                fallback_cells=cls._first_cell_text_by_normalized(fallback_tables),
+            )
+            for repair in repairs:
+                for idx, table in enumerate(patched_tables):
+                    if int(getattr(table, "source_page", 0) or 0) != page:
+                        continue
+                    replacement, patched = cls._patch_table_cell(
+                        table,
+                        candidate_cell=str(repair["candidate_cell"]),
+                        replacement_text=str(repair["replacement_text"]),
+                    )
+                    if not patched:
+                        continue
+                    patched_tables[idx] = replacement
+                    patched_pages.add(page)
+                    patched_cells.append(
+                        {
+                            "page": page,
+                            "action": "patch",
+                            "reason": "fallback_covers_candidate_prefix_truncation",
+                            "candidate_cell": repair["candidate_cell"],
+                            "replacement_cell": repair["missing_cell"],
+                            "missing_suffix": repair["missing_suffix"],
+                            "candidate_length_ratio": repair["candidate_length_ratio"],
+                        }
+                    )
+                    break
+
+        return patched_tables, sorted(patched_pages), patched_cells
+
     @classmethod
     def _merge_meaningful_fallback_tables(
         cls, primary_tables: List[TableData], fallback_tables: List[TableData]
-    ) -> Tuple[List[TableData], List[int]]:
+    ) -> Tuple[List[TableData], List[int], List[int], List[int], List[dict[str, Any]]]:
         merged_tables: List[TableData] = [
             TableData(
                 table_id=f"T{idx}",
@@ -694,12 +941,14 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             if isinstance(getattr(table, "source_page", None), int) and int(table.source_page) > 0
         }
         fallback_pages: List[int] = []
+        same_page_fallback_tables: dict[int, List[TableData]] = {}
 
         for table in fallback_tables:
             source_page = int(getattr(table, "source_page", 0) or 0)
-            if source_page in seen_pages:
-                continue
             if not cls._table_data_is_meaningful(list(table.data or [])):
+                continue
+            if source_page in seen_pages:
+                same_page_fallback_tables.setdefault(source_page, []).append(table)
                 continue
             merged_tables.append(
                 TableData(
@@ -713,7 +962,21 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                 seen_pages.add(source_page)
                 fallback_pages.append(source_page)
 
-        return merged_tables, sorted(fallback_pages)
+        patched_pages: List[int] = []
+        patched_cells: List[dict[str, Any]] = []
+        if same_page_fallback_tables:
+            merged_tables, patched_pages, patched_cells = cls._patch_same_page_prefix_truncations(
+                merged_tables,
+                same_page_fallback_tables,
+            )
+        skipped_primary_page_fallback_pages = sorted(set(same_page_fallback_tables) - set(patched_pages))
+        return (
+            merged_tables,
+            sorted(fallback_pages),
+            skipped_primary_page_fallback_pages,
+            patched_pages,
+            patched_cells,
+        )
 
     def extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         conversion = self._convert(path)
@@ -721,6 +984,14 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             return super().extract_text_and_meta(path)
 
         try:
+            fallback_text_result: tuple[PaperMetadata, List[Section], int] | None = None
+
+            def fallback_text() -> tuple[PaperMetadata, List[Section], int]:
+                nonlocal fallback_text_result
+                if fallback_text_result is None:
+                    fallback_text_result = super(DoclingParserBackend, self).extract_text_and_meta(path)
+                return fallback_text_result
+
             paper_meta = self._read_pdf_metadata(path)
             sections = self._build_sections_from_conversion(conversion)
             if not sections:
@@ -747,12 +1018,23 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             paper_doi = str(getattr(paper_meta, "doi", "") or "").strip()
             if not paper_doi:
                 try:
-                    fallback_meta, _fallback_sections, _fallback_len = super().extract_text_and_meta(path)
+                    fallback_meta, _fallback_sections, _fallback_len = fallback_text()
                     fallback_doi = str(getattr(fallback_meta, "doi", "") or "").strip()
                     if fallback_doi:
                         setattr(paper_meta, "doi", fallback_doi)
                 except Exception as exc:
                     logger.warning("Docling DOI fallback via fitz failed for %s: %s", path, exc)
+            missing_pages = self._internal_missing_section_pages(sections)
+            if missing_pages:
+                try:
+                    _fallback_meta, fallback_sections, _fallback_len = fallback_text()
+                    sections = self._merge_missing_page_sections(
+                        sections,
+                        fallback_sections,
+                        missing_pages=missing_pages,
+                    )
+                except Exception as exc:
+                    logger.warning("Docling missing-page text fallback failed for %s: %s", path, exc)
             total_len = sum(len(sec.text) for sec in sections)
             return paper_meta, sections, total_len
         except Exception as exc:
@@ -808,18 +1090,35 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             return TableExtractionResult(tables=tables, diagnostics=diagnostics)
 
         fallback_pages: List[int] = []
+        skipped_primary_page_fallback_pages: List[int] = []
+        same_page_table_rescue_pages: List[int] = []
+        same_page_table_rescue_patched_cells: List[dict[str, Any]] = []
         try:
             fallback_result = super().extract_tables(path)
             if fallback_result.tables:
-                tables, fallback_pages = self._merge_meaningful_fallback_tables(tables, fallback_result.tables)
+                (
+                    tables,
+                    fallback_pages,
+                    skipped_primary_page_fallback_pages,
+                    same_page_table_rescue_pages,
+                    same_page_table_rescue_patched_cells,
+                ) = self._merge_meaningful_fallback_tables(tables, fallback_result.tables)
         except Exception as exc:
             logger.warning("Docling table merge fallback failed for %s: %s", path, exc)
+
+        if skipped_primary_page_fallback_pages:
+            failures.add(TABLE_FAIL_FALLBACK_TABLE_SKIPPED_PRIMARY_PAGE_COVERED)
+        if same_page_table_rescue_pages:
+            failures.add(TABLE_FAIL_SAME_PAGE_TABLE_RESCUE_PATCHED_PREFIX_TRUNCATION)
 
         diagnostics = TableExtractionDiagnostics(
             table_extraction_pass="pass1",
             table_failure_taxonomy=sorted(failures),
             fallback_used=bool(fallback_pages),
             fallback_pages=fallback_pages,
+            same_page_table_rescue_actions=["patch"] if same_page_table_rescue_pages else [],
+            same_page_table_rescue_pages=same_page_table_rescue_pages,
+            same_page_table_rescue_patched_cells=same_page_table_rescue_patched_cells,
         )
         return TableExtractionResult(tables=tables, diagnostics=diagnostics)
 
