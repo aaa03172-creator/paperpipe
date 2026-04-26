@@ -2,6 +2,7 @@ import base64
 import importlib
 
 from fastapi.testclient import TestClient
+import pytest
 
 import src.db_utils as db_utils
 from backend import main as api_main
@@ -36,6 +37,13 @@ def _init_temp_db(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     return original_db_path
+
+
+@pytest.fixture(autouse=True)
+def _reset_request_limiters():
+    api_main._reset_request_limiters()
+    yield
+    api_main._reset_request_limiters()
 
 
 def test_beta_gate_requires_basic_auth_for_browser_surfaces(monkeypatch):
@@ -76,6 +84,45 @@ def test_beta_gate_requires_basic_auth_for_browser_surfaces(monkeypatch):
 
     allowed_root_papers = client.get("/papers", headers=headers)
     assert allowed_root_papers.status_code == 200
+
+
+def test_beta_gate_rate_limits_repeated_invalid_basic_auth(monkeypatch):
+    monkeypatch.setenv("LATTICE_BETA_PASSWORD", "beta-pass")
+    monkeypatch.setenv("LATTICE_BETA_AUTH_RATE_LIMIT_COUNT", "2")
+    monkeypatch.setenv("LATTICE_BETA_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60")
+
+    client = TestClient(api_main.app)
+    wrong_headers = _basic_auth_headers("wrong-pass")
+
+    first = client.get("/ui", headers=wrong_headers)
+    second = client.get("/ui", headers=wrong_headers)
+    third = client.get("/ui", headers=wrong_headers)
+
+    assert first.status_code == 401
+    assert second.status_code == 401
+    assert third.status_code == 429
+    payload = third.json()
+    assert payload["error_code"] == "BETA_AUTH_RATE_LIMITED"
+    assert payload["retry_after_seconds"] >= 1
+    assert third.headers["retry-after"] == str(payload["retry_after_seconds"])
+
+
+def test_beta_gate_missing_auth_does_not_consume_invalid_basic_auth_budget(monkeypatch):
+    monkeypatch.setenv("LATTICE_BETA_PASSWORD", "beta-pass")
+    monkeypatch.setenv("LATTICE_BETA_AUTH_RATE_LIMIT_COUNT", "1")
+    monkeypatch.setenv("LATTICE_BETA_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60")
+
+    client = TestClient(api_main.app)
+    wrong_headers = _basic_auth_headers("wrong-pass")
+
+    missing = client.get("/ui")
+    first_invalid = client.get("/ui", headers=wrong_headers)
+    second_invalid = client.get("/ui", headers=wrong_headers)
+
+    assert missing.status_code == 401
+    assert first_invalid.status_code == 401
+    assert second_invalid.status_code == 429
+    assert second_invalid.json()["error_code"] == "BETA_AUTH_RATE_LIMITED"
 
 
 def test_beta_gate_and_api_key_bridge_stack_cleanly(tmp_path, monkeypatch):
