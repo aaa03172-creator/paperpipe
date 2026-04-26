@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import src.db_utils as db_utils
 from backend import main as api_main
 from src.jobs.queue import JobQueue
+from src.services.path_masking import mask_local_path
 
 
 def _parse_sse_events(raw: str) -> list[dict]:
@@ -103,7 +104,7 @@ def test_jobs_events_stream_emits_artifact_ready_when_artifact_dir_exists(tmp_pa
         events = _parse_sse_events(response.text)
         artifact_evt = next(e for e in events if e.get("event") == "artifact_ready")
         payload = json.loads(artifact_evt["data"])
-        assert payload["artifact_dir"] == str(artifact_dir)
+        assert payload["artifact_dir"] == mask_local_path(str(artifact_dir))
         assert payload["paper_id"] == "paper_events_artifact_001"
     finally:
         db_utils.DB_PATH = original_db_path
@@ -371,7 +372,7 @@ def test_jobs_events_stream_status_includes_bootstrap_meta_fields(tmp_path, monk
         status_payload = json.loads(
             next(e["data"] for e in _parse_sse_events(response.text) if e.get("event") == "status")
         )
-        assert status_payload["bootstrap_meta_path"] == str(artifact_dir / "bootstrap_meta.json")
+        assert status_payload["bootstrap_meta_path"] == mask_local_path(str(artifact_dir / "bootstrap_meta.json"))
         assert status_payload["similar_feedback_count"] == 3
         assert status_payload["persona_applied"] is True
         assert status_payload["claimset_readiness"] == "ready"

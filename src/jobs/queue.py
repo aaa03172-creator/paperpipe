@@ -10,9 +10,15 @@ from src.db_utils import get_db_connection
 from src.jobs.schemas import JobStatus
 from src.persona_modes import normalize_persona_selection
 from src.services.identity import new_job_id, new_run_id
-from src.services.event_log import ensure_execution_run, log_job_event, update_execution_run
+from src.services.event_log import (
+    ensure_execution_run,
+    log_job_event,
+    sanitize_event_text_for_log,
+    update_execution_run,
+)
 
 logger = logging.getLogger(__name__)
+TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class DuplicateOpenJobError(Exception):
@@ -200,13 +206,16 @@ class JobQueue:
         Implements max concurrency guard for running jobs.
         """
         conn = get_db_connection()
-        cursor = conn.cursor()
         try:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+
             # 1. Check running jobs count
             cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
             running_count = cursor.fetchone()[0]
             max_concurrent_jobs = _resolve_max_concurrent_jobs()
             if running_count >= max_concurrent_jobs:
+                conn.rollback()
                 return None
             
             # 2. Find oldest queued job
@@ -218,6 +227,7 @@ class JobQueue:
             """)
             row = cursor.fetchone()
             if not row:
+                conn.rollback()
                 return None
                 
             job_id = row[0]
@@ -225,11 +235,14 @@ class JobQueue:
             # 3. Update to running
             cursor.execute("""
                 UPDATE jobs 
-                SET status = 'running', started_at = CURRENT_TIMESTAMP 
-                WHERE job_id = ?
+                SET status = 'running', started_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP
+                WHERE job_id = ? AND status = 'queued'
             """, (job_id,))
+            if cursor.rowcount == 0:
+                conn.rollback()
+                return None
             run_row = cursor.execute(
-                "SELECT run_id, paper_id FROM jobs WHERE job_id = ?",
+                "SELECT * FROM jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
             if run_row:
@@ -253,17 +266,43 @@ class JobQueue:
             conn.commit()
             
             # 4. Return full object
-            return self.get_job(job_id)
+            return JobStatus(**dict(run_row)) if run_row else None
             
         except sqlite3.OperationalError as e:
+            conn.rollback()
             logger.error(f"DB Error claiming job: {e}")
             return None
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
     def update_job(self, job_id: str, updates: Dict) -> None:
+        if "error_message" in updates:
+            updates = dict(updates)
+            updates["error_message"] = sanitize_event_text_for_log(
+                str(updates["error_message"]) if updates["error_message"] is not None else None
+            )
         conn = get_db_connection()
         try:
+            current = conn.execute(
+                "SELECT status, run_id FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if current is None:
+                return
+
+            current_status = str(current["status"] or "").strip().lower()
+            if current_status in TERMINAL_JOB_STATUSES:
+                logger.info(
+                    "Ignoring late update for terminal job %s (%s): %s",
+                    job_id,
+                    current_status,
+                    ",".join(sorted(str(key) for key in updates.keys())),
+                )
+                return
+
             fields = []
             params = []
             for k, v in updates.items():
@@ -276,17 +315,13 @@ class JobQueue:
             params.append(job_id)
             conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE job_id = ?", params)
             if "status" in updates:
-                row = conn.execute(
-                    "SELECT run_id FROM jobs WHERE job_id = ?",
-                    (job_id,),
-                ).fetchone()
-                if row and row["run_id"]:
+                if current["run_id"]:
                     finished_at = None
                     status = str(updates["status"])
-                    if status in {"completed", "failed", "cancelled"}:
+                    if status in TERMINAL_JOB_STATUSES:
                         finished_at = str(updates.get("finished_at") or datetime.now(timezone.utc).isoformat())
                     update_execution_run(
-                        run_id=str(row["run_id"]),
+                        run_id=str(current["run_id"]),
                         status=status,
                         finished_at=finished_at,
                         conn=conn,

@@ -11,7 +11,12 @@ from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, IndexArtifact, ScientificClaim
 
 
-def _make_doc(paper_id: str, pdf_path: str) -> DocumentArtifactV2:
+def _make_doc(
+    paper_id: str,
+    pdf_path: str,
+    *,
+    text: str = "Clinical abstract text describing a human oncology trial.",
+) -> DocumentArtifactV2:
     return DocumentArtifactV2(
         document_id=paper_id,
         meta=ArtifactMetaV2(title="Clinical Artifact Title", authors=["A"], source_ref=pdf_path),
@@ -26,8 +31,8 @@ def _make_doc(paper_id: str, pdf_path: str) -> DocumentArtifactV2:
                         lines=[
                             LineV2(
                                 line_id="l1",
-                                text="Clinical abstract text describing a human oncology trial.",
-                                spans=[SpanV2(span_id="s1", text="Clinical abstract text describing a human oncology trial.")],
+                                text=text,
+                                spans=[SpanV2(span_id="s1", text=text)],
                             )
                         ],
                     )
@@ -213,6 +218,7 @@ def test_run_deepread_job_uses_generic_clinical_extraction_across_biomedical_dom
 
 def test_run_deepread_job_writes_clinical_extraction_artifact_for_clinical_note(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_PRIVACY_PREFLIGHT_MODE", "report_only")
 
     paper_id = "paper_clinical_job_001"
     library_dir = tmp_path / "Library"
@@ -281,11 +287,14 @@ def test_run_deepread_job_writes_clinical_extraction_artifact_for_clinical_note(
                 claims=[ScientificClaim(claim_id="c1", type="efficacy", statement="claim", confidence=0.9)],
             )
 
+    seen_payloads: list[dict] = []
+
     class FakeClinicalProvider:
         def is_available(self):
             return True
 
-        def extract_biomedical_clinical_data(self, _paper_payload, _methods_snippet=""):
+        def extract_biomedical_clinical_data(self, paper_payload, _methods_snippet=""):
+            seen_payloads.append(dict(paper_payload))
             return BiomedicalClinicalExtraction(
                 paper_id=paper_id,
                 citation={
@@ -329,10 +338,242 @@ def test_run_deepread_job_writes_clinical_extraction_artifact_for_clinical_note(
     assert bootstrap["clinical_extraction_note_type"] == "clinical"
     assert run_meta["clinical_extraction_status"] == "completed"
     assert str(run_meta["clinical_extraction_artifact"]).endswith("clinical_extraction.json")
+    assert run_meta["selected_backend"] == "local"
+    assert run_meta["payload_class"] == "mixed"
+    assert run_meta["redaction_applied"] is True
+    assert run_meta["inference_lanes"]["clinical_extraction"]["selected_backend"] == "local"
+    assert run_meta["inference_lanes"]["clinical_extraction"]["payload_class"] == "external_allowed"
+    assert run_meta["inference_lanes"]["clinical_extraction"]["redaction_applied"] is True
+    assert seen_payloads[0]["link"] is None
+    privacy_preflight = run_meta["inference_lanes"]["clinical_extraction"]["privacy_preflight"]
+    assert privacy_preflight["mode"] == "report_only"
+    assert privacy_preflight["status"] == "pass"
+    assert privacy_preflight["mutation_applied"] is False
+    assert run_meta["inference_lanes"]["reader"]["selected_backend"] == "local"
+    assert run_meta["inference_lanes"]["reader"]["payload_class"] == "local_only"
     assert "## 🤖 Agent Deep Read" in updated_note
     assert "### 🏥 Clinical Extraction" in updated_note
     assert "Metastatic non-small cell lung cancer, n=50" in updated_note
     assert "Targeted therapy, Small Molecule" in updated_note
+
+
+def test_run_deepread_job_blocks_clinical_extraction_when_privacy_preflight_blocks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_PRIVACY_PREFLIGHT_MODE", "block_on_review")
+
+    paper_id = "paper_clinical_privacy_block_001"
+    library_dir = tmp_path / "Library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+    (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+    vault_dir = tmp_path / "Vault"
+    (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+    (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+    note_path = vault_dir / "Inbox" / f"{paper_id}.md"
+    note_path.write_text(
+        "---\n"
+        "type: clinical_paper\n"
+        "slot: clinical\n"
+        "---\n\n"
+        "# Paper\n",
+        encoding="utf-8",
+    )
+    (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+        f"Paper_ID,DOI,Title,Note_Path\n{paper_id},10.1000/test,Clinical Artifact Title,Inbox/{paper_id}.md\n",
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        paths=SimpleNamespace(
+            library_dir=library_dir,
+            obsidian_vault=vault_dir,
+            index_all=Path("00_Index/paper_collection.csv"),
+        ),
+        llm=SimpleNamespace(
+            features=SimpleNamespace(clinical_extraction=SimpleNamespace(enabled=True)),
+            timeout_seconds=15,
+            max_retries=0,
+            mode="local",
+            local=SimpleNamespace(provider="ollama", models={}),
+            cloud=SimpleNamespace(provider="openai"),
+        ),
+        entity_aliases={},
+        agents=SimpleNamespace(main_model="unit-test-model"),
+    )
+    monkeypatch.setattr(job_runner, "load_config", lambda: fake_config)
+    monkeypatch.setattr(job_runner, "_resolve_pdf_path_from_db", lambda _: None)
+    monkeypatch.setattr(job_runner, "_resolve_persona_hint", lambda _persona_id: None)
+    monkeypatch.setattr(job_runner, "_load_similar_feedback_top3", lambda **_kwargs: [])
+
+    class FakeIngestAgent:
+        def __init__(self, **_kwargs):
+            self.last_table_extraction_meta = {}
+
+        def process_v2(self, pdf_path: str):
+            return _make_doc(
+                paper_id,
+                pdf_path,
+                text="Reminder: Maya's lumbar puncture appointment is scheduled tomorrow.",
+            )
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class FakeReaderAgent:
+        def __init__(self, model_name: str = "llama3:latest", persona_hint: str | None = None):
+            self.model_name = model_name
+
+        def analyze(self, doc):
+            return ClaimSet(
+                doc_id=doc.document_id,
+                claims=[ScientificClaim(claim_id="c1", type="efficacy", statement="claim", confidence=0.9)],
+            )
+
+    calls = {"clinical": 0}
+
+    class FakeClinicalProvider:
+        def is_available(self):
+            return True
+
+        def extract_biomedical_clinical_data(self, _paper_payload, _methods_snippet=""):
+            calls["clinical"] += 1
+            raise AssertionError("privacy preflight should block before calling provider")
+
+    monkeypatch.setattr(job_runner, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner, "ReaderAgent", FakeReaderAgent)
+    monkeypatch.setattr(job_runner, "get_llm_provider", lambda *_args, **_kwargs: FakeClinicalProvider())
+
+    result = asyncio.run(
+        job_runner.run_deepread_job(
+            job_id="job_privacy_block",
+            paper_id=paper_id,
+            persona_id="default",
+            run_verify=False,
+            run_id="run_privacy_block",
+            progress_callback=lambda _event: asyncio.sleep(0),
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    artifact_dir = Path(result["artifact_dir"])
+    run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+    bootstrap = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+
+    assert calls["clinical"] == 0
+    assert not (artifact_dir / "clinical_extraction.json").exists()
+    assert bootstrap["clinical_extraction_status"] == "privacy_preflight_blocked"
+    assert run_meta["clinical_extraction_status"] == "privacy_preflight_blocked"
+    privacy_preflight = run_meta["inference_lanes"]["clinical_extraction"]["privacy_preflight"]
+    assert privacy_preflight["mode"] == "block_on_review"
+    assert privacy_preflight["status"] == "blocked"
+    assert privacy_preflight["summary"]["manual_review_records"] == 1
+    assert privacy_preflight["findings"][0]["text_preview"] == "<short_private_name>"
+
+
+def test_run_deepread_job_reports_invalid_privacy_preflight_mode(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LATTICE_PRIVACY_PREFLIGHT_MODE", "surprise")
+
+    paper_id = "paper_clinical_privacy_bad_mode_001"
+    library_dir = tmp_path / "Library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+    (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+    vault_dir = tmp_path / "Vault"
+    (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+    (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+    note_path = vault_dir / "Inbox" / f"{paper_id}.md"
+    note_path.write_text(
+        "---\n"
+        "type: clinical_paper\n"
+        "slot: clinical\n"
+        "---\n\n"
+        "# Paper\n",
+        encoding="utf-8",
+    )
+    (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+        f"Paper_ID,DOI,Title,Note_Path\n{paper_id},10.1000/test,Clinical Artifact Title,Inbox/{paper_id}.md\n",
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        paths=SimpleNamespace(
+            library_dir=library_dir,
+            obsidian_vault=vault_dir,
+            index_all=Path("00_Index/paper_collection.csv"),
+        ),
+        llm=SimpleNamespace(
+            features=SimpleNamespace(clinical_extraction=SimpleNamespace(enabled=True)),
+            timeout_seconds=15,
+            max_retries=0,
+            mode="local",
+            local=SimpleNamespace(provider="ollama", models={}),
+            cloud=SimpleNamespace(provider="openai"),
+        ),
+        entity_aliases={},
+        agents=SimpleNamespace(main_model="unit-test-model"),
+    )
+    monkeypatch.setattr(job_runner, "load_config", lambda: fake_config)
+    monkeypatch.setattr(job_runner, "_resolve_pdf_path_from_db", lambda _: None)
+    monkeypatch.setattr(job_runner, "_resolve_persona_hint", lambda _persona_id: None)
+    monkeypatch.setattr(job_runner, "_load_similar_feedback_top3", lambda **_kwargs: [])
+
+    class FakeIngestAgent:
+        def __init__(self, **_kwargs):
+            self.last_table_extraction_meta = {}
+
+        def process_v2(self, pdf_path: str):
+            return _make_doc(paper_id, pdf_path)
+
+    class FakeIndexerAgent:
+        def process(self, doc):
+            return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+
+    class FakeReaderAgent:
+        def __init__(self, model_name: str = "llama3:latest", persona_hint: str | None = None):
+            self.model_name = model_name
+
+        def analyze(self, doc):
+            return ClaimSet(
+                doc_id=doc.document_id,
+                claims=[ScientificClaim(claim_id="c1", type="efficacy", statement="claim", confidence=0.9)],
+            )
+
+    calls = {"clinical": 0}
+
+    class FakeClinicalProvider:
+        def is_available(self):
+            return True
+
+        def extract_biomedical_clinical_data(self, _paper_payload, _methods_snippet=""):
+            calls["clinical"] += 1
+            raise AssertionError("invalid privacy preflight mode should skip provider call")
+
+    monkeypatch.setattr(job_runner, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner, "IndexerAgent", FakeIndexerAgent)
+    monkeypatch.setattr(job_runner, "ReaderAgent", FakeReaderAgent)
+    monkeypatch.setattr(job_runner, "get_llm_provider", lambda *_args, **_kwargs: FakeClinicalProvider())
+
+    result = asyncio.run(
+        job_runner.run_deepread_job(
+            job_id="job_privacy_bad_mode",
+            paper_id=paper_id,
+            persona_id="default",
+            run_verify=False,
+            run_id="run_privacy_bad_mode",
+            progress_callback=lambda _event: asyncio.sleep(0),
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    artifact_dir = Path(result["artifact_dir"])
+    run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+    bootstrap = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+
+    assert calls["clinical"] == 0
+    assert bootstrap["clinical_extraction_status"] == "failed:invalid_privacy_preflight_mode"
+    assert run_meta["clinical_extraction_status"] == "failed:invalid_privacy_preflight_mode"
+    assert "LATTICE_PRIVACY_PREFLIGHT_MODE" in run_meta["privacy_preflight_error"]
 
 
 def test_run_deepread_job_skips_clinical_extraction_for_non_clinical_note(tmp_path, monkeypatch):
@@ -437,4 +678,10 @@ def test_run_deepread_job_skips_clinical_extraction_for_non_clinical_note(tmp_pa
     assert bootstrap["clinical_extraction_status"] == "not_clinical_note"
     assert bootstrap["clinical_extraction_note_type"] == "non_clinical"
     assert run_meta["clinical_extraction_status"] == "not_clinical_note"
+    assert run_meta["selected_backend"] == "local"
+    assert run_meta["payload_class"] == "local_only"
+    assert run_meta["redaction_applied"] is False
+    assert "clinical_extraction" not in run_meta["inference_lanes"]
+    assert run_meta["inference_lanes"]["reader"]["selected_backend"] == "local"
+    assert run_meta["inference_lanes"]["reader"]["payload_class"] == "local_only"
     assert "### 🏥 Clinical Extraction" not in updated_note
