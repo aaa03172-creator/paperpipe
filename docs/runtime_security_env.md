@@ -30,6 +30,21 @@ When `LATTICE_API_KEY` is set, these endpoints require `X-API-Key`:
 - `POST /jobs/{id}/cancel`
 - `POST /feedback`
 - `POST /obsidian/sync`
+- `POST /ops/repair-stats`
+- `POST /ops/jobs/{id}/stale-incident-snapshot`
+- `POST /ops/jobs/{id}/reclaim-stale`
+- `POST /ops/jobs/{id}/requeue-reclaimed`
+
+## Read API Authentication Scope
+
+When `LATTICE_API_KEY` is set, private runtime reads also require `X-API-Key`:
+
+- `GET /jobs*`
+- `GET /ops*`
+- `GET /paper-notes*`
+- `GET /paper-syntheses*`
+- `GET /papers*`
+- `GET /workspace-summary`
 
 Error contract:
 

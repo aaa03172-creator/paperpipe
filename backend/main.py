@@ -33,6 +33,11 @@ from src.schemas.ops import (
     ArtifactFileEntry,
     DownloaderOpsMetricsResponse,
     HomeWorkspaceSummaryResponse,
+    StaleJobDiagnosticsResponse,
+    StaleJobIncidentListResponse,
+    StaleJobIncidentSnapshotResponse,
+    StaleJobReclaimResponse,
+    StaleJobRequeueResponse,
     RuntimeReadinessCheck,
     RuntimeReadinessResponse,
     PersonaListResponse,
@@ -126,6 +131,13 @@ from src.services.paper_ops_summary import (
 )
 from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
 from src.services.runtime_readiness import collect_runtime_readiness, summarize_browser_runtime_readiness
+from src.services.stale_jobs import (
+    capture_stale_running_incident_snapshot,
+    collect_stale_jobs,
+    collect_stale_running_incidents,
+    reclaim_stale_running_job,
+    requeue_reclaimed_job,
+)
 from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
 from src.services.stats_repair import seed_stats_reports_from_claimset
 from starlette.datastructures import MutableHeaders
@@ -395,6 +407,7 @@ def _path_matches(normalized_path: str, prefix: str) -> bool:
 
 _PRIVATE_DATA_ROUTE_PREFIXES: tuple[str, ...] = (
     "/jobs",
+    "/ops",
     "/paper-notes",
     "/paper-syntheses",
     "/papers",
@@ -411,6 +424,13 @@ def _requires_api_key(method: str, path: str) -> bool:
         return False
 
     if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
+        return True
+    if bool(
+        re.match(
+            r"^/ops/jobs/[^/]+/(reclaim-stale|requeue-reclaimed|stale-incident-snapshot)$",
+            normalized,
+        )
+    ):
         return True
     if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
@@ -1961,6 +1981,7 @@ def health_ready():
                 status=check.status,
                 detail=check.detail,
                 path=_public_path(check.path),
+                metadata=dict(check.metadata or {}),
             )
             for check in readiness.checks
         ],
@@ -2688,6 +2709,102 @@ def get_downloader_metrics(
     metrics = collect_metrics(db_utils.get_db_path(), hours)
     alerts = evaluate_alerts(metrics, thresholds)
     return DownloaderOpsMetricsResponse(metrics=metrics, alerts=alerts)
+
+
+@app.get("/ops/stale-jobs", response_model=StaleJobDiagnosticsResponse)
+def get_stale_jobs(
+    stale_after_seconds: int = Query(default=900, ge=60, le=60 * 60 * 24 * 30),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    payload = collect_stale_jobs(
+        db_path=db_utils.get_db_path(),
+        stale_after_seconds=int(stale_after_seconds),
+        limit=int(limit),
+    )
+    return StaleJobDiagnosticsResponse(**payload)
+
+
+@app.get("/ops/stale-incidents", response_model=StaleJobIncidentListResponse)
+def get_stale_running_incidents(limit: int = Query(default=50, ge=1, le=500)):
+    payload = collect_stale_running_incidents(limit=int(limit))
+    return StaleJobIncidentListResponse(**payload)
+
+
+@app.post("/ops/jobs/{job_id}/reclaim-stale", response_model=StaleJobReclaimResponse)
+def reclaim_stale_job(
+    job_id: str,
+    stale_after_seconds: int = Query(default=900, ge=60, le=60 * 60 * 24 * 30),
+):
+    result = reclaim_stale_running_job(
+        db_path=db_utils.get_db_path(),
+        job_id=job_id,
+        stale_after_seconds=int(stale_after_seconds),
+    )
+    outcome = str(result.get("outcome") or "")
+    if outcome == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    if outcome == "not_running":
+        raise HTTPException(status_code=409, detail="Job is not currently running")
+    if outcome == "not_stale":
+        raise HTTPException(status_code=409, detail="Job is not stale enough to reclaim")
+    return StaleJobReclaimResponse(**result)
+
+
+@app.post("/ops/jobs/{job_id}/requeue-reclaimed", response_model=StaleJobRequeueResponse)
+def requeue_reclaimed_stale_job(job_id: str):
+    result = requeue_reclaimed_job(
+        db_path=db_utils.get_db_path(),
+        job_id=job_id,
+    )
+    outcome = str(result.get("outcome") or "")
+    if outcome == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    if outcome == "not_reclaimed":
+        raise HTTPException(status_code=409, detail="Job is not a reclaimed stale-running failure")
+    if outcome == "missing_paper":
+        raise HTTPException(status_code=409, detail="Reclaimed job has no paper_id to requeue")
+    if outcome == "duplicate_open":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "JOB_ALREADY_OPEN",
+                "message": f"Open job already exists for paper_id={result.get('paper_id')}",
+                "paper_id": result.get("paper_id"),
+                "job_id": result.get("job_id"),
+                "run_id": result.get("run_id"),
+                "status": result.get("status"),
+            },
+        )
+    if outcome == "queue_full":
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error_code": "QUEUE_FULL",
+                "message": "Queued jobs limit reached",
+                "queued_count": result.get("queued_count"),
+                "limit": result.get("limit"),
+            },
+        )
+    return StaleJobRequeueResponse(**result)
+
+
+@app.post(
+    "/ops/jobs/{job_id}/stale-incident-snapshot",
+    response_model=StaleJobIncidentSnapshotResponse,
+)
+def capture_stale_job_incident_snapshot(
+    job_id: str,
+    stale_after_seconds: int = Query(default=900, ge=60, le=60 * 60 * 24 * 30),
+):
+    result = capture_stale_running_incident_snapshot(
+        db_path=db_utils.get_db_path(),
+        job_id=job_id,
+        stale_after_seconds=int(stale_after_seconds),
+    )
+    if str(result.get("outcome") or "") == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    return StaleJobIncidentSnapshotResponse(**result)
+
 
 @app.get("/papers")
 def list_papers(
