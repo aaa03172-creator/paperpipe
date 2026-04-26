@@ -173,6 +173,8 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 ### 6. Runtime and ops runbooks
 - `docs/CLI_WORKFLOW_REFERENCE.md`
   - Current implemented CLI surface grouped into operator-facing workflows, secondary utilities, and retained legacy/diagnostic commands.
+- `docs/STALE_RUNNING_RECOVERY.md`
+  - Canonical operator runbook for stale `running` job diagnosis, incident snapshots, manual reclaim, and explicit replacement requeue.
 - `docs/runtime_security_env.md`
 - `docs/downloader_monitoring.md`
 - `docs/institutional_access.md`
