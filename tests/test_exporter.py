@@ -15,10 +15,15 @@ def _sample_paper():
     }
 
 
+def _exported_target(vault_path: Path, paper: dict) -> Path:
+    return vault_path / str(paper["obsidian_path"])
+
+
 def test_exporter_writes_markdown_file(tmp_path):
-    ok = export_paper_to_markdown(_sample_paper(), tmp_path, overwrite=True)
+    paper = _sample_paper()
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
-    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    target = _exported_target(tmp_path, paper)
     assert target.exists()
     content = target.read_text(encoding="utf-8")
     assert "Sample Paper" in content
@@ -26,13 +31,38 @@ def test_exporter_writes_markdown_file(tmp_path):
     assert "Consensus" in content
 
 
+def test_exporter_humanizes_deterministic_design_values_and_falls_back_to_study_type(tmp_path):
+    paper = _sample_paper()
+    paper["feedback_json"] = (
+        '{"hard_tags":{"study_type":"Preclinical Study","design":"parallel_rct"},"soft_tags":["#A/B"],"evidence_span":"evidence"}'
+    )
+
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
+    assert ok is True
+
+    target = _exported_target(tmp_path, paper)
+    content = target.read_text(encoding="utf-8")
+    assert "Parallel RCT" in content
+    assert "parallel_rct" not in content
+
+    paper["feedback_json"] = (
+        '{"hard_tags":{"study_type":"Preclinical Study","design":null},"soft_tags":["#A/B"],"evidence_span":"evidence"}'
+    )
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
+    assert ok is True
+
+    content = target.read_text(encoding="utf-8")
+    assert "Preclinical Study" in content
+
+
 def test_exporter_skips_when_exists_and_no_overwrite(tmp_path):
     target = tmp_path / "Inbox" / "PaperPipe"
     target.mkdir(parents=True, exist_ok=True)
-    f = target / "paper_001.md"
+    f = target / "Sample Paper.md"
     f.write_text("old", encoding="utf-8")
 
-    ok = export_paper_to_markdown(_sample_paper(), tmp_path, overwrite=False)
+    paper = _sample_paper()
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=False)
     assert ok is False
     assert f.read_text(encoding="utf-8") == "old"
 
@@ -51,7 +81,7 @@ def test_exporter_includes_zotero_and_pdf_deep_links(tmp_path):
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
 
-    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    target = _exported_target(tmp_path, paper)
     content = target.read_text(encoding="utf-8")
 
     assert "zotero://select/library/items/ABCD1234" in content
@@ -68,7 +98,7 @@ def test_exporter_omits_link_sections_when_values_missing(tmp_path):
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
 
-    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    target = _exported_target(tmp_path, paper)
     content = target.read_text(encoding="utf-8")
     assert "zotero://select/library/items/" not in content
     assert "zotero://open-pdf/library/items/" not in content
@@ -86,8 +116,23 @@ def test_exporter_includes_institutional_link_block_for_manual_required(tmp_path
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
 
-    target = tmp_path / "Inbox" / "PaperPipe" / "paper_001.md"
+    target = _exported_target(tmp_path, paper)
     content = target.read_text(encoding="utf-8")
     assert "## Download (Institutional)" in content
     assert "Institutional Link" in content
     assert "Login once, download PDF, it will be auto-collected." in content
+
+
+def test_exporter_includes_missing_pdf_block_when_pdf_unavailable(tmp_path):
+    paper = _sample_paper()
+    paper["pdf_status"] = "missing"
+    paper["feedback_json"] = "{}"
+
+    ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
+    assert ok is True
+
+    target = _exported_target(tmp_path, paper)
+    content = target.read_text(encoding="utf-8")
+    assert "## PDF Status" in content
+    assert "PDF is currently unavailable." in content
+    assert "No institutional access link is stored for this paper yet." in content

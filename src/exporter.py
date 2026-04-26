@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import yaml
 
 from src.config import load_config
 from src.db_utils import get_db_connection
@@ -23,6 +24,9 @@ REVIEW_NEEDS_READER = "NEEDS_READER"
 REVIEW_NEEDS_EVIDENCE_LINK = "NEEDS_EVIDENCE_LINK"
 REVIEW_NEEDS_STATS_CHECK = "NEEDS_STATS_CHECK"
 TEST_FIXTURE_OWNER = "TEST_FIXTURE"
+_NOTE_STEM_ALLOWED_RE = re.compile(r"[^A-Za-z0-9 _-]+")
+_WHITESPACE_RE = re.compile(r"\s+")
+_PREFIXED_PAPER_ID_RE = re.compile(r"^(zotero|pmid):(.+)$", re.IGNORECASE)
 
 def _build_zotero_links(paper: Dict[str, Any]) -> List[str]:
     links: List[str] = []
@@ -74,6 +78,17 @@ def _build_institutional_download_block(paper: Dict[str, Any], feedback: Dict[st
         "- Login once, download PDF, it will be auto-collected.\n"
     )
 
+
+def _build_missing_pdf_block(paper: Dict[str, Any]) -> str:
+    status = str(paper.get("pdf_status") or "").strip().lower()
+    if status != "missing":
+        return ""
+    return (
+        "## PDF Status\n"
+        "- PDF is currently unavailable.\n"
+        "- No institutional access link is stored for this paper yet.\n"
+    )
+
 def _sanitize_frontmatter_tag(tag: Any) -> Optional[str]:
     if tag is None:
         return None
@@ -86,6 +101,36 @@ def _sanitize_frontmatter_tag(tag: Any) -> Optional[str]:
     value = re.sub(r"[^A-Za-z0-9_/-]", "_", value)
     value = re.sub(r"_+", "_", value).strip("_")
     return value or None
+
+def _humanize_study_design(value: Any) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.lower()
+    explicit = {
+        "parallel_rct": "Parallel RCT",
+        "crossover_rct": "Crossover RCT",
+        "nonrandomized": "Nonrandomized",
+        "observational": "Observational",
+        "systematic_review": "Systematic Review",
+        "meta_analysis": "Meta-analysis",
+        "unknown": "Unknown",
+    }
+    if normalized in explicit:
+        return explicit[normalized]
+    text = raw.replace("_", " ").strip()
+    return text or None
+
+def _resolve_study_design_display(hard_tags: Dict[str, Any]) -> str:
+    if not isinstance(hard_tags, dict):
+        return "Unknown"
+    design = _humanize_study_design(hard_tags.get("design"))
+    if design and design != "Unknown":
+        return design
+    study_type = _humanize_study_design(hard_tags.get("study_type"))
+    if study_type:
+        return study_type
+    return "Unknown"
 
 def _parse_feedback_payload(raw_feedback: Any) -> Dict[str, Any]:
     if isinstance(raw_feedback, dict):
@@ -118,10 +163,93 @@ def _candidate_obsidian_relpath(candidate: Dict[str, Any]) -> str:
     relpath = str(candidate.get("obsidian_path") or "").strip()
     if relpath:
         return relpath.replace("\\", "/")
-    paper_id = str(candidate.get("paper_id") or "").strip()
-    if not paper_id:
+    if not isinstance(candidate, dict):
         return "Inbox/PaperPipe/paper.md"
-    return _expected_obsidian_relpath_for_paper_id(paper_id)
+    return _expected_obsidian_relpath_for_candidate(candidate)
+
+
+def _clean_note_stem_component(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = _NOTE_STEM_ALLOWED_RE.sub(" ", text)
+    text = _WHITESPACE_RE.sub(" ", text).strip()
+    return text
+
+
+def _default_obsidian_stem_for_paper_id(paper_id: str) -> str:
+    paper_text = str(paper_id or "").strip()
+    if not paper_text:
+        return "paper"
+    match = _PREFIXED_PAPER_ID_RE.match(paper_text)
+    if match:
+        suffix = _clean_note_stem_component(match.group(2).replace(":", " "))
+        if suffix:
+            return suffix
+    cleaned = _clean_note_stem_component(paper_text.replace(":", " "))
+    return cleaned or "paper"
+
+
+def _preferred_obsidian_stem(candidate: Dict[str, Any]) -> str:
+    title = _clean_note_stem_component(str(candidate.get("title") or ""))
+    if title:
+        return title[:120].rstrip()
+    return _default_obsidian_stem_for_paper_id(str(candidate.get("paper_id") or ""))
+
+
+def _expected_obsidian_relpath_for_candidate(candidate: Dict[str, Any]) -> str:
+    return f"Inbox/PaperPipe/{_preferred_obsidian_stem(candidate)}.md"
+
+
+def _note_frontmatter_id(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    if not content.startswith("---"):
+        return None
+    lines = content.splitlines()
+    end_index = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            end_index = idx
+            break
+    if end_index is None:
+        return None
+    try:
+        frontmatter = yaml.safe_load("\n".join(lines[1:end_index])) or {}
+    except Exception:
+        return None
+    if not isinstance(frontmatter, dict):
+        return None
+    text = str(frontmatter.get("id") or "").strip()
+    return text or None
+
+
+def _resolve_export_target_file(paper: Dict[str, Any], vault_path: Path) -> Path:
+    existing_relpath = str(paper.get("obsidian_path") or "").strip()
+    if existing_relpath:
+        return vault_path / existing_relpath
+
+    inbox_dir = vault_path / "Inbox/PaperPipe"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+
+    preferred = inbox_dir / f"{_preferred_obsidian_stem(paper) or 'paper'}.md"
+    paper_id = str(paper.get("paper_id") or "").strip()
+    existing_id = _note_frontmatter_id(preferred)
+    if not preferred.exists() or not existing_id or existing_id == paper_id:
+        return preferred
+
+    fallback_stem = _default_obsidian_stem_for_paper_id(paper_id) or "paper"
+    fallback = inbox_dir / f"{fallback_stem}.md"
+    fallback_existing_id = _note_frontmatter_id(fallback)
+    if not fallback.exists() or not fallback_existing_id or fallback_existing_id == paper_id:
+        return fallback
+
+    suffix = re.sub(r"[^A-Za-z0-9_-]+", "", paper_id.replace(":", "-"))[:24] or "paper"
+    return inbox_dir / f"{(_preferred_obsidian_stem(paper) or 'paper')} - {suffix}.md"
 
 def _build_related_papers_block(
     paper: Dict[str, Any],
@@ -521,7 +649,7 @@ def export_paper_to_markdown(
         pass
 
     # Design Tag
-    design_tag = hard_tags.get('design', 'Unknown')
+    design_tag = _resolve_study_design_display(hard_tags)
     
     # Key Findings (Simulation if not structured)
     # The snippet doesn't explicitly have 'key_findings' in feedback usually, 
@@ -547,6 +675,7 @@ def export_paper_to_markdown(
     links.extend(_build_pdf_links(paper, vault_path))
     references_block = "\n".join([f"* {link}" for link in links]) if links else "*No external links available.*"
     institutional_block = _build_institutional_download_block(paper, feedback)
+    missing_pdf_block = _build_missing_pdf_block(paper)
     claimset_claims = resolve_claimset_claims(paper, feedback)
     claimset_block = _format_claimset_section(paper, claimset_claims)
     related_papers_block = _build_related_papers_block(paper, feedback, related_candidates)
@@ -584,21 +713,17 @@ status: {paper['status']}
 {references_block}
 
 {institutional_block}
+{missing_pdf_block}
 """
 
     # --- 3. Save File ---
-    # Safe filename
-    safe_filename = "".join([c for c in pid if c.isalnum() or c in (' ', '-', '_')]).strip()
-    if not safe_filename: safe_filename = "paper"
+    target_file = _resolve_export_target_file(paper, vault_path)
     
-    # Check Inbox (or target folder)
-    # Config might just say "obsidian_vault". We'll put in Inbox/PaperPipe per convention or root.
-    # User said "OBSIDIAN_VAULT_PATH/Inbox (또는 지정된 폴더)"
-    inbox_dir = vault_path / "Inbox/PaperPipe"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
-    
-    target_file = inbox_dir / f"{safe_filename}.md"
-    
+    try:
+        paper["obsidian_path"] = target_file.relative_to(vault_path).as_posix()
+    except ValueError:
+        paper["obsidian_path"] = str(target_file)
+
     # [Smart Overwrite Logic]
     # If overwrite=True, we always write.
     # If overwrite=False, we check if DB is newer than File.
@@ -642,10 +767,7 @@ status: {paper['status']}
 
 
 def _expected_obsidian_relpath_for_paper_id(paper_id: str) -> str:
-    safe_filename = "".join([c for c in paper_id if c.isalnum() or c in (" ", "-", "_")]).strip()
-    if not safe_filename:
-        safe_filename = "paper"
-    return f"Inbox/PaperPipe/{safe_filename}.md"
+    return f"Inbox/PaperPipe/{_default_obsidian_stem_for_paper_id(paper_id)}.md"
 
 def run_export(overwrite: bool = True):
     """
@@ -702,7 +824,7 @@ def run_export(overwrite: bool = True):
                     SET obsidian_path = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE paper_id = ?
                     """,
-                    (_expected_obsidian_relpath_for_paper_id(str(p["paper_id"])), p["paper_id"]),
+                    (str(p.get("obsidian_path") or _expected_obsidian_relpath_for_candidate(p)), p["paper_id"]),
                 )
             except sqlite3.OperationalError:
                 # Backward compatibility: some test/local DBs may not have this column.

@@ -21,6 +21,7 @@ from src.schemas.ops import (
 from src.services.event_log import log_user_action
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.runtime_paths import artifact_run_dir
+import yaml
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/obsidian", tags=["obsidian"])
@@ -31,6 +32,26 @@ def _best_effort_log_user_action(*, paper_id: str | None, action_type: str, sour
         log_user_action(paper_id=paper_id, action_type=action_type, source=source, payload=payload)
     except Exception:
         pass
+
+
+def _paper_route_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    _append(text)
+    if text.startswith("zotero:"):
+        _append(text.split(":", 1)[1].strip())
+    elif ":" not in text:
+        _append(f"zotero:{text}")
+    return candidates
 
 class SyncRequest(BaseModel):
     paper_id: str
@@ -49,11 +70,13 @@ except Exception:  # pragma: no cover - non-POSIX fallback
     fcntl = None
 
 def _load_artifact(paper_id: str, run_id: str, filename: str):
-    path = artifact_run_dir(paper_id, run_id) / filename
-    if not path.exists():
-        return None
-    with open(path, "r") as f:
-        return json.load(f)
+    for candidate_id in _paper_route_candidate_ids(paper_id):
+        path = artifact_run_dir(candidate_id, run_id) / filename
+        if not path.exists():
+            continue
+        with open(path, "r") as f:
+            return json.load(f)
+    return None
 
 
 def _public_path(path_value: str | None) -> str | None:
@@ -79,16 +102,49 @@ def _display_page(page: int | None) -> int | None:
 
 
 def _find_note_candidates(vault_path: Path, paper_id: str) -> list[Path]:
-    candidates = list(vault_path.rglob(f"*{paper_id}*.md"))
-    if not candidates and "/" in paper_id:
-        clean_id = paper_id.replace("/", "_")
-        candidates = list(vault_path.rglob(f"*{clean_id}*.md"))
-    return sorted(candidates)
+    candidate_paths: list[Path] = []
+    seen: set[Path] = set()
+    for candidate_id in _paper_route_candidate_ids(paper_id):
+        matches = list(vault_path.rglob(f"*{candidate_id}*.md"))
+        if not matches and "/" in candidate_id:
+            clean_id = candidate_id.replace("/", "_")
+            matches = list(vault_path.rglob(f"*{clean_id}*.md"))
+        for match in sorted(matches):
+            if match not in seen:
+                seen.add(match)
+                candidate_paths.append(match)
+    return candidate_paths
 
 
 def _find_existing_note_path(vault_path: Path, paper_id: str) -> Path | None:
     candidates = _find_note_candidates(vault_path, paper_id)
     if not candidates:
+        candidate_ids = set(_paper_route_candidate_ids(paper_id))
+        for note_path in sorted(vault_path.rglob("*.md")):
+            if not note_path.is_file():
+                continue
+            try:
+                content = note_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if not content.startswith("---"):
+                continue
+            lines = content.splitlines()
+            end_index = None
+            for idx in range(1, len(lines)):
+                if lines[idx].strip() == "---":
+                    end_index = idx
+                    break
+            if end_index is None:
+                continue
+            try:
+                frontmatter = yaml.safe_load("\n".join(lines[1:end_index])) or {}
+            except Exception:
+                continue
+            if not isinstance(frontmatter, dict):
+                continue
+            if str(frontmatter.get("id") or "").strip() in candidate_ids:
+                return note_path
         return None
     return candidates[0]
 
@@ -168,8 +224,13 @@ async def get_obsidian_artifacts(
     paper_id: str = Query(..., min_length=1),
     run_id: str = Query(..., min_length=1),
 ):
-    run_dir = artifact_run_dir(paper_id, run_id)
-    if not run_dir.exists():
+    run_dir: Path | None = None
+    for candidate_id in _paper_route_candidate_ids(paper_id):
+        candidate_run_dir = artifact_run_dir(candidate_id, run_id)
+        if candidate_run_dir.exists():
+            run_dir = candidate_run_dir
+            break
+    if run_dir is None:
         raise HTTPException(status_code=404, detail=f"Artifacts not found for paper_id={paper_id}, run_id={run_id}")
 
     resolved_path = run_dir / "claimset.resolved.json"
