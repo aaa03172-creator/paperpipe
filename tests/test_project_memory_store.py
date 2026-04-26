@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -73,6 +74,91 @@ def test_project_memory_store_roundtrip_creates_expected_layout(tmp_path) -> Non
     assert all(item.layer == "raw_memory" for item in loaded_items)
     assert all(item.canonical_status == "non_canonical" for item in loaded_items)
     assert list_project_memory_ids(root) == [workspace.project_id]
+
+
+def test_project_memory_store_sanitizes_workspace_and_items_before_write(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+    workspace = _sample_workspace(title="Project Authorization: Bearer pmtitletoken123")
+    workspace.objective = "Investigate sk-proj-pmobjectivesecret123456."
+    workspace.notes = "DB is postgres://ctx_user:ctx_password@example.test:5432/paperpipe"
+    item = _sample_item(
+        item_id="pmitem_alpha_secret_note",
+        item_type="note",
+        content="Memory item uses Authorization: Bearer pmitemtoken123 and sk-proj-pmitemsecret123456.",
+    )
+    item.linked_entities[0].note = "Linked via mysql://ctx_user:ctx_password@example.test:3306/paperpipe"
+
+    save_project_memory_bundle(workspace, [item], root=root)
+
+    raw_workspace = project_workspace_json_path(workspace.project_id, root).read_text(encoding="utf-8")
+    raw_items = project_memory_jsonl_path(workspace.project_id, root).read_text(encoding="utf-8")
+    raw_payload = raw_workspace + raw_items
+    assert "pmtitletoken123" not in raw_payload
+    assert "sk-proj-pmobjectivesecret123456" not in raw_payload
+    assert "ctx_password" not in raw_payload
+    assert "pmitemtoken123" not in raw_payload
+    assert "sk-proj-pmitemsecret123456" not in raw_payload
+
+    loaded_workspace = load_project_memory_workspace(workspace.project_id, root)
+    loaded_items = load_project_memory_items(workspace.project_id, root)
+    assert loaded_workspace.title == "Project Authorization: <redacted>"
+    assert loaded_workspace.objective == "Investigate <redacted>."
+    assert loaded_workspace.notes == "DB is <redacted>"
+    assert loaded_items[0].content == "Memory item uses Authorization: <redacted> and <redacted>."
+    assert loaded_items[0].linked_entities[0].note == "Linked via <redacted>"
+
+
+def test_project_memory_store_sanitizes_legacy_rows_on_read(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+    project_dir = root / "pmproj_alpha"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "project_id": "pmproj_alpha",
+                "title": "Legacy Authorization: Bearer pmlegacytoken123",
+                "objective": "Use sk-proj-pmlegacysecret123456.",
+                "status": "active",
+                "notes": "Legacy postgres://ctx_user:ctx_password@example.test:5432/paperpipe",
+                "linked_paper_ids": [],
+                "linked_research_dna_ids": [],
+                "linked_meeting_pack_ids": [],
+                "created_at": "2026-03-23T02:00:00Z",
+                "updated_at": "2026-03-23T02:05:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "memory.jsonl").write_text(
+        json.dumps(
+            {
+                "item_id": "pmitem_alpha_legacy_note",
+                "project_id": "pmproj_alpha",
+                "item_type": "note",
+                "content": "Legacy item Authorization: Bearer pmlegacyitemtoken123.",
+                "linked_entities": [
+                    {
+                        "entity_type": "paper",
+                        "entity_id": "paper-001",
+                        "relationship_type": "references",
+                        "note": "Legacy sk-proj-pmlinksecret123456.",
+                    }
+                ],
+                "created_at": "2026-03-23T02:10:00Z",
+                "updated_at": "2026-03-23T02:10:00Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded_workspace = load_project_memory_workspace("pmproj_alpha", root)
+    loaded_items = load_project_memory_items("pmproj_alpha", root)
+    assert loaded_workspace.title == "Legacy Authorization: <redacted>"
+    assert loaded_workspace.objective == "Use <redacted>."
+    assert loaded_workspace.notes == "Legacy <redacted>"
+    assert loaded_items[0].content == "Legacy item Authorization: <redacted>"
+    assert loaded_items[0].linked_entities[0].note == "Legacy <redacted>."
 
 
 def test_project_memory_store_append_item_preserves_order(tmp_path) -> None:

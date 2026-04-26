@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 import yaml
 from pydantic import BaseModel
@@ -17,6 +17,7 @@ from src.profiles.research_dna_schema import (
     RunLogEntry,
     ScreeningLogEntry,
 )
+from src.services.event_log import sanitize_event_payload_for_log
 from src.services.runtime_paths import research_dna_root as default_research_dna_root
 
 
@@ -159,6 +160,18 @@ def append_approval_audit(dna_id: str, entry: ApprovalAuditEntry, root: Path | N
     return _append_jsonl_model(research_dna_log_path(dna_id, "approval_audit", root), entry)
 
 
+def sanitize_research_dna_log_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = sanitize_event_payload_for_log(payload)
+    if isinstance(sanitized, dict):
+        return sanitized
+    return {}
+
+
+def sanitize_research_dna_log_model(model: TModel) -> TModel:
+    payload = sanitize_research_dna_log_payload(model.model_dump(mode="json", exclude_none=True))
+    return cast(TModel, model.__class__.model_validate(payload))
+
+
 def _sync_query_version_snapshots(dna: ResearchDNA, root: Path | None = None) -> None:
     versions_dir = research_dna_versions_dir(dna.id, root)
     versions_dir.mkdir(parents=True, exist_ok=True)
@@ -176,8 +189,9 @@ def _sync_query_version_snapshots(dna: ResearchDNA, root: Path | None = None) ->
 
 def _append_jsonl_model(path: Path, model: TModel) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = sanitize_research_dna_log_payload(model.model_dump(mode="json", exclude_none=True))
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(model.model_dump(mode="json", exclude_none=True), ensure_ascii=False))
+        handle.write(json.dumps(payload, ensure_ascii=False))
         handle.write("\n")
     return path
 

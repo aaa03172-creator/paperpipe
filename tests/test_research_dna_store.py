@@ -159,6 +159,74 @@ def test_research_dna_store_appends_typed_logs(tmp_path):
     assert approval_rows[0]["action"] == "approve_pilot"
 
 
+def test_research_dna_store_sanitizes_log_text_before_append(tmp_path):
+    root = tmp_path / "research_dna"
+    dna = _sample_dna()
+    save_research_dna(dna, root)
+
+    ts = datetime(2026, 3, 11, 1, 0, tzinfo=timezone.utc)
+    append_interview_log(
+        dna.id,
+        InterviewLogEntry(
+            ts=ts,
+            dna_id=dna.id,
+            round="researcher",
+            question_id="researcher_secret",
+            question="Which endpoint should we use?",
+            answer="Use Authorization: Bearer dnainterviewtoken123 and sk-proj-dnainterviewsecret123456.",
+            actor_type="human_cli",
+            actor_id="tester",
+        ),
+        root,
+    )
+    append_screening_log(
+        dna.id,
+        ScreeningLogEntry(
+            ts=ts,
+            dna_id=dna.id,
+            run_id="pilot_secret_001",
+            candidate_id="pmid:123",
+            decision="exclude",
+            reason_code="wrong_population",
+            note="Screening note mysql://ctx_user:ctx_password@example.test:3306/paperpipe",
+            actor_type="human_cli",
+            actor_id="tester",
+        ),
+        root,
+    )
+    append_approval_audit(
+        dna.id,
+        ApprovalAuditEntry(
+            ts=ts,
+            dna_id=dna.id,
+            action="approve_pilot",
+            actor_type="human_cli",
+            actor_id="tester",
+            reason="Approving with postgres://ctx_user:ctx_password@example.test:5432/paperpipe",
+            after_version="v1",
+        ),
+        root,
+    )
+
+    raw_logs = "\n".join(
+        [
+            research_dna_log_path(dna.id, "interview", root).read_text(encoding="utf-8"),
+            research_dna_log_path(dna.id, "screening", root).read_text(encoding="utf-8"),
+            research_dna_log_path(dna.id, "approval_audit", root).read_text(encoding="utf-8"),
+        ]
+    )
+    assert "dnainterviewtoken123" not in raw_logs
+    assert "sk-proj-dnainterviewsecret123456" not in raw_logs
+    assert "ctx_password" not in raw_logs
+
+    interview_rows = _read_jsonl(research_dna_log_path(dna.id, "interview", root))
+    screening_rows = _read_jsonl(research_dna_log_path(dna.id, "screening", root))
+    approval_rows = _read_jsonl(research_dna_log_path(dna.id, "approval_audit", root))
+    assert interview_rows[0]["answer"] == "Use Authorization: <redacted> and <redacted>."
+    assert screening_rows[0]["note"] == "Screening note <redacted>"
+    assert approval_rows[0]["reason"] == "Approving with <redacted>"
+
+
 def test_research_dna_store_rejects_stale_revision_save(tmp_path):
     root = tmp_path / "research_dna"
     dna = _sample_dna()

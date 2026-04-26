@@ -4,9 +4,14 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any, TypeVar, cast
 
 from src.schemas.project_memory import ProjectMemoryItem, ProjectMemoryWorkspace
+from src.services.event_log import sanitize_event_payload_for_log
 from src.services.runtime_paths import project_memory_root as default_project_memory_root
+
+
+TProjectMemoryModel = TypeVar("TProjectMemoryModel", ProjectMemoryItem, ProjectMemoryWorkspace)
 
 
 def project_memory_dir(project_id: str, root: Path | None = None) -> Path:
@@ -23,6 +28,7 @@ def project_memory_jsonl_path(project_id: str, root: Path | None = None) -> Path
 
 
 def save_project_memory_workspace(workspace: ProjectMemoryWorkspace, root: Path | None = None) -> Path:
+    workspace = sanitize_project_memory_model(workspace)
     path = project_workspace_json_path(workspace.project_id, root)
     payload = json.dumps(workspace.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2)
     _atomic_write_text(path, payload)
@@ -35,7 +41,7 @@ def load_project_memory_workspace(project_id: str, root: Path | None = None) -> 
         raise FileNotFoundError(f"Project Memory workspace JSON not found: {path}")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        return ProjectMemoryWorkspace(**payload)
+        return sanitize_project_memory_model(ProjectMemoryWorkspace(**payload))
     except Exception as exc:
         raise ValueError(f"Failed to load Project Memory workspace from {path}: {exc}") from exc
 
@@ -46,6 +52,7 @@ def save_project_memory_items(
     root: Path | None = None,
 ) -> Path:
     _require_workspace_exists(project_id, root)
+    items = [sanitize_project_memory_model(item) for item in items]
     _validate_project_items(project_id, items)
     path = project_memory_jsonl_path(project_id, root)
     lines = [
@@ -77,7 +84,7 @@ def load_project_memory_items(project_id: str, root: Path | None = None) -> list
             line = raw_line.strip()
             if not line:
                 continue
-            items.append(ProjectMemoryItem(**json.loads(line)))
+            items.append(sanitize_project_memory_model(ProjectMemoryItem(**json.loads(line))))
         return items
     except Exception as exc:
         raise ValueError(f"Failed to load Project Memory items from {path}: {exc}") from exc
@@ -88,6 +95,8 @@ def save_project_memory_bundle(
     items: list[ProjectMemoryItem],
     root: Path | None = None,
 ) -> tuple[Path, Path]:
+    workspace = sanitize_project_memory_model(workspace)
+    items = [sanitize_project_memory_model(item) for item in items]
     _validate_project_items(workspace.project_id, items)
     json_path = project_workspace_json_path(workspace.project_id, root)
     jsonl_path = project_memory_jsonl_path(workspace.project_id, root)
@@ -123,6 +132,18 @@ def list_project_memory_ids(root: Path | None = None) -> list[str]:
         for entry in base.iterdir()
         if entry.is_dir() and project_workspace_json_path(entry.name, root).exists()
     )
+
+
+def sanitize_project_memory_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = sanitize_event_payload_for_log(payload)
+    if isinstance(sanitized, dict):
+        return sanitized
+    return {}
+
+
+def sanitize_project_memory_model(model: TProjectMemoryModel) -> TProjectMemoryModel:
+    payload = sanitize_project_memory_payload(model.model_dump(mode="json", exclude_none=True))
+    return cast(TProjectMemoryModel, model.__class__.model_validate(payload))
 
 
 def _validate_project_items(project_id: str, items: list[ProjectMemoryItem]) -> None:
