@@ -152,6 +152,8 @@ def _sample_pack() -> MeetingPack:
 def test_meeting_pack_schema_accepts_valid_example():
     pack = _sample_pack()
     assert pack.mode == "journal_club"
+    assert pack.layer == "user_facing_artifact"
+    assert pack.canonical_status == "non_canonical"
     assert pack.output_mode_family == "lab_meeting"
     assert pack.readiness == "evidence_backed"
     assert pack.slides[0].evidence_refs == ["evref_01"]

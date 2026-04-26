@@ -3,13 +3,20 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 from hashlib import sha1
+import json
 import logging
 from pathlib import Path
 import re
 from typing import Any
 
-from src.meeting_packs.handoff_artifacts import write_meeting_pack_handoff_artifacts
+from src.meeting_packs.handoff_artifacts import (
+    build_meeting_pack_acceptance_contract,
+    build_meeting_pack_quality_gate,
+    meeting_pack_content_risk_warnings,
+    write_meeting_pack_handoff_artifacts,
+)
 from src.output_modes import resolve_meeting_pack_output_mode_family
+from src.services.artifact_planning import build_meeting_pack_artifact_brief
 from src.meeting_packs.evidence import build_meeting_pack_evidence_ledger
 from src.meeting_packs.renderer import render_meeting_pack_markdown
 from src.meeting_packs.source_resolver import (
@@ -22,10 +29,13 @@ from src.meeting_packs.store import (
     list_meeting_pack_ids,
     load_meeting_pack,
     load_meeting_pack_markdown,
+    meeting_pack_artifact_path,
     save_meeting_pack_markdown,
     save_meeting_pack_bundle,
 )
 from src.services.fixture_visibility import is_test_fixture_meeting_pack, prefer_non_fixture_items
+from src.services.listing_resilience import load_available_items
+from src.services.runtime_paths import meeting_packs_root as default_meeting_packs_root
 from src.schemas.meeting_pack import (
     MeetingPack,
     MeetingPackConsensus,
@@ -54,6 +64,8 @@ from src.schemas.meeting_pack import (
 )
 
 logger = logging.getLogger(__name__)
+
+GENERIC_BROWSER_MEETING_PACK_TITLE = "Browser generated meeting draft"
 
 MODE_SLIDE_TEMPLATES = {
     "journal_club": {
@@ -260,7 +272,12 @@ def get_meeting_pack(pack_id: str, *, root: Path | None = None) -> MeetingPackRe
 
 
 def list_meeting_packs(*, root: Path | None = None) -> MeetingPackListResponse:
-    packs = [load_meeting_pack(pack_id, root) for pack_id in list_meeting_pack_ids(root)]
+    packs = load_available_items(
+        list_meeting_pack_ids(root),
+        lambda pack_id: load_meeting_pack(pack_id, root),
+        item_kind="meeting pack",
+        logger=logger,
+    )
     visible_packs = prefer_non_fixture_items(packs, is_test_fixture_meeting_pack)
     items = [_meeting_pack_list_item(pack) for pack in visible_packs]
     items.sort(key=lambda item: (item.created_at, item.pack_id), reverse=True)
@@ -269,6 +286,130 @@ def list_meeting_packs(*, root: Path | None = None) -> MeetingPackListResponse:
         total=len(items),
         items=items,
     )
+
+
+def backfill_meeting_pack_titles(*, root: Path | None = None, apply: bool = False) -> dict[str, Any]:
+    resolved_root = (root or default_meeting_packs_root()).expanduser().resolve()
+    results: list[dict[str, Any]] = []
+    updated_count = 0
+    for pack_id in list_meeting_pack_ids(resolved_root):
+        pack = load_meeting_pack(pack_id, resolved_root)
+        normalized_title = _normalized_historical_pack_title(pack)
+        if not normalized_title:
+            continue
+
+        update_generation_request = bool(
+            pack.generation_request and _is_generic_browser_meeting_pack_title(pack.generation_request.title)
+        )
+        results.append(
+            {
+                "pack_id": pack.id,
+                "from_title": pack.title,
+                "to_title": normalized_title,
+                "updated_generation_request_title": update_generation_request,
+            }
+        )
+        if not apply:
+            continue
+
+        next_pack = pack.model_copy(deep=True)
+        next_pack.title = normalized_title
+        if next_pack.generation_request and update_generation_request:
+            next_pack.generation_request.title = normalized_title
+
+        markdown = render_meeting_pack_markdown(next_pack)
+        save_meeting_pack_bundle(next_pack, markdown, resolved_root)
+        _write_meeting_pack_handoff_artifacts(pack=next_pack, root=resolved_root, markdown=markdown)
+        updated_count += 1
+
+    return {
+        "root": str(resolved_root),
+        "candidate_count": len(results),
+        "updated_count": updated_count,
+        "dry_run": not apply,
+        "results": results,
+    }
+
+
+def backfill_meeting_pack_handoff_artifacts(
+    *,
+    root: Path | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    resolved_root = (root or default_meeting_packs_root()).expanduser().resolve()
+    results: list[dict[str, Any]] = []
+    updated_count = 0
+
+    for pack_id in list_meeting_pack_ids(resolved_root):
+        pack = load_meeting_pack(pack_id, resolved_root)
+        stored_markdown = load_meeting_pack_markdown(pack_id, resolved_root)
+        rendered_markdown = render_meeting_pack_markdown(pack)
+        markdown_sync = _markdown_sync(stored_markdown, rendered_markdown)
+        request, strategy, _warnings = _resolved_generation_request(pack)
+        regenerate_strategy = strategy if request is not None else "unavailable"
+
+        contract = build_meeting_pack_acceptance_contract(
+            pack=pack,
+            regenerate_strategy=regenerate_strategy,
+        )
+        quality_gate = build_meeting_pack_quality_gate(
+            pack=pack,
+            regenerate_strategy=regenerate_strategy,
+            markdown_sync_status=markdown_sync.status,
+            root=resolved_root,
+        )
+        contract_payload = contract.model_dump(mode="json", exclude_none=True)
+        quality_gate_payload = quality_gate.model_dump(mode="json", exclude_none=True)
+
+        stored_contract_payload = _optional_json_dict(
+            meeting_pack_artifact_path(pack.id, "acceptance_contract.json", resolved_root)
+        )
+        stored_quality_gate_payload = _optional_json_dict(
+            meeting_pack_artifact_path(pack.id, "quality_gate.json", resolved_root)
+        )
+        acceptance_contract_changed = stored_contract_payload != contract_payload
+        quality_gate_changed = stored_quality_gate_payload != quality_gate_payload
+        if not (acceptance_contract_changed or quality_gate_changed):
+            continue
+
+        results.append(
+            {
+                "pack_id": pack.id,
+                "acceptance_contract_changed": acceptance_contract_changed,
+                "quality_gate_changed": quality_gate_changed,
+                "markdown_sync_status": markdown_sync.status,
+                "quality_gate_status_before": (
+                    stored_quality_gate_payload.get("overall_status")
+                    if isinstance(stored_quality_gate_payload, dict)
+                    else None
+                ),
+                "quality_gate_status_after": quality_gate_payload.get("overall_status"),
+                "quality_gate_reason_codes_before": (
+                    stored_quality_gate_payload.get("reason_codes")
+                    if isinstance(stored_quality_gate_payload, dict)
+                    else None
+                ),
+                "quality_gate_reason_codes_after": quality_gate_payload.get("reason_codes"),
+            }
+        )
+        if not apply:
+            continue
+
+        write_meeting_pack_handoff_artifacts(
+            pack=pack,
+            root=resolved_root,
+            regenerate_strategy=regenerate_strategy,
+            markdown_sync_status=markdown_sync.status,
+        )
+        updated_count += 1
+
+    return {
+        "root": str(resolved_root),
+        "candidate_count": len(results),
+        "updated_count": updated_count,
+        "dry_run": not apply,
+        "results": results,
+    }
 
 
 def get_meeting_pack_trace(pack_id: str, *, root: Path | None = None) -> MeetingPackTraceResponse:
@@ -300,6 +441,8 @@ def validate_meeting_pack(
         vault_path=vault_path,
         profiles_path=profiles_path,
     )
+    content_warnings = meeting_pack_content_risk_warnings(pack=pack, root=root)
+    brief_warnings = list(pack.artifact_brief_review.warnings) if pack.artifact_brief_review is not None else []
     return MeetingPackValidationResponse(
         validation=MeetingPackValidation(
             pack_id=pack.id,
@@ -307,7 +450,7 @@ def validate_meeting_pack(
             markdown_sync=markdown_sync,
             can_regenerate=can_regenerate,
             regenerate_strategy=strategy,
-            warnings=[*warnings, *availability_warnings],
+            warnings=_dedupe_warning_strings([*warnings, *availability_warnings, *brief_warnings, *content_warnings]),
         )
     )
 
@@ -408,24 +551,28 @@ def _build_meeting_pack(
         conflicts=conflicts,
     )
     slides = [opening_slide, context_slide, *claim_slides, limits_slide, closing_slide][: request.max_slides]
-    speaker_notes = [
-        MeetingPackSpeakerNote(
-            slide_index=slide_index,
-            text=_speaker_note_text(request.mode, slide.slide_title),
-            evidence_refs=list(slide.evidence_refs),
-        )
-        for slide_index, slide in enumerate(slides, start=1)
-    ]
+    speaker_notes = _build_speaker_notes(
+        request.mode,
+        slides,
+        key_points,
+    )
 
-    return MeetingPack(
+    normalized_request_title = _normalized_requested_title(request.title, selected_ref_titles[0])
+
+    pack = MeetingPack(
         id=pack_id,
         mode=request.mode,
         output_mode_family=resolve_meeting_pack_output_mode_family(request.mode),
-        title=request.title or _default_title(request.mode, selected_ref_titles[0]),
+        title=normalized_request_title or _default_title(request.mode, selected_ref_titles[0]),
         created_at=created_at,
         status="draft",
         readiness=_meeting_pack_readiness(claim_rows, ledger.evidence_ref_map),
-        generation_request=MeetingPackRequestSnapshot(**request.model_dump()),
+        generation_request=MeetingPackRequestSnapshot(
+            **{
+                **request.model_dump(),
+                "title": normalized_request_title,
+            }
+        ),
         regenerated_from_pack_id=regenerated_from_pack_id,
         source_items=_pack_source_items(bundle),
         retrieval_trace=list(bundle.retrieval_trace),
@@ -458,6 +605,14 @@ def _build_meeting_pack(
         ),
         evidence_refs=ledger.evidence_refs,
     )
+    artifact_brief, artifact_brief_review = build_meeting_pack_artifact_brief(
+        request=request,
+        bundle=bundle,
+        pack=pack,
+    )
+    pack.artifact_brief = artifact_brief
+    pack.artifact_brief_review = artifact_brief_review
+    return pack
 
 
 def _build_key_points(
@@ -751,6 +906,18 @@ def _write_meeting_pack_handoff_artifacts(
         logger.warning("Failed to write Meeting Pack handoff artifacts for %s: %s", pack.id, exc)
 
 
+def _dedupe_warning_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        value = str(raw_value or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
 def _pack_source_items(bundle: ResolvedMeetingPackBundle) -> list[MeetingPackSourceItem]:
     seen: set[tuple[str, str]] = set()
     merged: list[MeetingPackSourceItem] = []
@@ -822,27 +989,43 @@ def _build_uncertainties(
     else:
         uncertainties = []
 
-    if any(not claim.evidence for _, _, claim in claim_rows):
+    missing_evidence_claim = next((claim for _, _, claim in claim_rows if not claim.evidence), None)
+    if missing_evidence_claim is not None:
         uncertainties.append(
-            "One or more claims lacked explicit evidence refs and should be reviewed before presentation."
+            f"{_claim_reference(missing_evidence_claim, fallback='At least one highlighted claim')} lacked explicit evidence refs and should be reviewed before presentation."
         )
-    if any(
-        getattr(claim, "confidence", None) is not None and float(claim.confidence) < 0.6
-        for _, _, claim in claim_rows
-    ):
-        uncertainties.append(
-            "At least one highlighted claim carries mixed confidence and should be framed cautiously."
-        )
-    if any(
-        _claim_grounding_uncertainty_note(claim, _claim_ref_ids(paper_slug, claim, evidence_ref_map))
-        for _, paper_slug, claim in claim_rows
-    ):
-        uncertainties.append(
-            "At least one evidence-linked claim is still missing or unresolved citation-grounding metadata; re-check citation linkage before presentation."
-        )
-    uncertainties.append(
-        "Numeric effect sizes and figure choices should still be re-verified from source text before presenting."
+    mixed_confidence_claim = next(
+        (
+            claim
+            for _, _, claim in claim_rows
+            if getattr(claim, "confidence", None) is not None and float(claim.confidence) < 0.6
+        ),
+        None,
     )
+    if mixed_confidence_claim is not None:
+        uncertainties.append(
+            f"{_claim_reference(mixed_confidence_claim, fallback='At least one highlighted claim')} carries mixed confidence and should be framed cautiously."
+        )
+    grounding_claim = next(
+        (
+            claim
+            for _, paper_slug, claim in claim_rows
+            if _claim_grounding_uncertainty_note(claim, _claim_ref_ids(paper_slug, claim, evidence_ref_map))
+        ),
+        None,
+    )
+    if grounding_claim is not None:
+        uncertainties.append(
+            f"{_claim_reference(grounding_claim, fallback='At least one evidence-linked claim')} still has missing or unresolved citation-grounding metadata; re-check citation linkage before presentation."
+        )
+    if claim_rows:
+        uncertainties.append(
+            f"If you restate {_claim_reference(claim_rows[0][2], fallback='the highlighted claim')}, re-verify any numeric effect sizes or figure choices against source text before presenting."
+        )
+    else:
+        uncertainties.append(
+            "Numeric effect sizes and figure choices should still be re-verified from source text before presenting."
+        )
     if secondary_note_items:
         note_titles = ", ".join(item.title for item in secondary_note_items)
         uncertainties.append(
@@ -1103,14 +1286,41 @@ def _dedupe_consensus_points(
     return deduped
 
 
-def _speaker_note_text(mode: str, slide_title: str) -> str:
-    if mode == "experiment_proposal":
-        return f"Use '{slide_title}' to justify the next experiment without over-claiming mechanism."
-    if mode == "project_progress_update":
-        return f"Use '{slide_title}' to separate current evidence from next operational decision."
-    if mode == "literature_update":
-        return f"Use '{slide_title}' to explain what has changed in the evidence landscape."
-    return f"Use '{slide_title}' to frame the discussion around evidence, not polished narrative."
+def _build_speaker_notes(
+    mode: str,
+    slides: list[MeetingPackSlide],
+    key_points: list[MeetingPackKeyPoint],
+) -> list[MeetingPackSpeakerNote]:
+    primary_point = _key_point_at(key_points, 0)
+    secondary_point = _key_point_at(key_points, 1)
+    primary_ref = _key_point_reference(primary_point, fallback="the main point")
+    secondary_ref = _key_point_reference(secondary_point, fallback=primary_ref)
+
+    notes: list[MeetingPackSpeakerNote] = []
+    for slide_index, slide in enumerate(slides, start=1):
+        matching_point = _matching_key_point_for_slide(slide, key_points) or primary_point
+        point_ref = _key_point_reference(matching_point, fallback=primary_ref)
+        uncertainty = _key_point_uncertainty_brief(matching_point)
+
+        if slide_index == 1:
+            text = _opening_speaker_note_text(mode, primary_ref)
+        elif slide_index == 2:
+            text = _context_speaker_note_text(mode, primary_ref)
+        elif slide_index == len(slides) - 1:
+            text = _limits_speaker_note_text(mode, primary_ref, uncertainty)
+        elif slide_index == len(slides):
+            text = _closing_speaker_note_text(mode, primary_ref, secondary_ref)
+        else:
+            text = _claim_speaker_note_text(point_ref, uncertainty)
+
+        notes.append(
+            MeetingPackSpeakerNote(
+                slide_index=slide_index,
+                text=text,
+                evidence_refs=list(slide.evidence_refs),
+            )
+        )
+    return notes
 
 
 def _build_discussion_questions(
@@ -1119,56 +1329,60 @@ def _build_discussion_questions(
     secondary_note_items: list[MeetingPackSourceItem],
     screening_contexts: list[ResolvedMeetingPackScreeningContext],
 ) -> list[MeetingPackQuestion]:
-    primary_refs = list(key_points[0].evidence_refs) if key_points else []
+    primary_point = _key_point_at(key_points, 0)
+    secondary_point = _key_point_at(key_points, 1)
+    primary_ref = _key_point_reference(primary_point, fallback="the main point")
+    secondary_ref = _key_point_reference(secondary_point, fallback="the rest of the selected evidence")
+    primary_refs = list(primary_point.evidence_refs) if primary_point else []
     if mode == "experiment_proposal":
         questions = [
             MeetingPackQuestion(
-                question="Which uncertainty most threatens the proposed experiment design?",
-                rationale="The proposal should be driven by the weakest defended evidence link.",
+                question=f"Which part of {primary_ref} actually justifies the proposed experiment?",
+                rationale="The proposal should point back to the specific prior-evidence claim doing the most design work.",
                 evidence_refs=primary_refs,
             ),
             MeetingPackQuestion(
-                question="What would we need to observe to decide not to run this experiment?",
-                rationale="The pack should expose stop conditions before effort is spent.",
+                question=f"Which uncertainty around {primary_ref} most threatens the design?",
+                rationale="The pack should expose the exact evidence weakness that could stop the experiment before effort is spent.",
                 evidence_refs=primary_refs,
             ),
         ]
     elif mode == "project_progress_update":
         questions = [
             MeetingPackQuestion(
-                question="Which blocker matters most for the next project decision?",
-                rationale="Progress updates should separate evidence state from execution state.",
+                question=f"Which next project decision depends most on {primary_ref}?",
+                rationale="Progress updates should tie the next action to the most decision-sensitive evidence point.",
                 evidence_refs=primary_refs,
             ),
             MeetingPackQuestion(
-                question="Which current claim would change our next action if it were wrong?",
-                rationale="This identifies the most decision-sensitive evidence link.",
+                question=f"If {primary_ref} is weaker than it looks, what changes first?",
+                rationale="This surfaces the most fragile evidence assumption behind the current project direction.",
                 evidence_refs=primary_refs,
             ),
         ]
     elif mode == "literature_update":
         questions = [
             MeetingPackQuestion(
-                question="Where do the selected sources actually agree, and where do they diverge?",
-                rationale="Literature updates should make convergence and disagreement explicit.",
+                question=f"Does {primary_ref} still look like a real pattern once we compare it with {secondary_ref}?",
+                rationale="Literature updates should make convergence and disagreement explicit at the claim level, not only at the topic label.",
                 evidence_refs=primary_refs,
             ),
             MeetingPackQuestion(
-                question="What is still missing before we can claim a trend with confidence?",
-                rationale="Trend summaries should stay bounded by the current evidence base.",
+                question=f"What is still missing before we summarize {primary_ref} as a stable direction?",
+                rationale="Trend summaries should stay bounded by the current evidence base instead of sounding settled too early.",
                 evidence_refs=primary_refs,
             ),
         ]
     else:
         questions = [
             MeetingPackQuestion(
-                question="Which claim is most decision-relevant, and how strong is its evidence support?",
-                rationale="The pack should drive discussion from evidence-backed claims instead of presentation polish.",
+                question=f"How much discussion weight should we give to {primary_ref}?",
+                rationale="Journal club discussion is stronger when the room names the main defended point explicitly instead of speaking in generic takeaways.",
                 evidence_refs=primary_refs,
             ),
             MeetingPackQuestion(
-                question="What is the strongest limitation we should surface before anyone asks?",
-                rationale="Journal club drafts should lead with defensible limits, not only findings.",
+                question=f"What is the safest way to present {primary_ref} without overstating it?",
+                rationale="Journal club drafts should tie limitations to the actual highlighted claim, not to a generic caution bucket.",
                 evidence_refs=primary_refs,
             ),
         ]
@@ -1204,56 +1418,85 @@ def _build_expected_questions(
     secondary_note_items: list[MeetingPackSourceItem],
     screening_contexts: list[ResolvedMeetingPackScreeningContext],
 ) -> list[MeetingPackExpectedQuestion]:
-    primary_refs = list(key_points[0].evidence_refs) if key_points else []
+    primary_point = _key_point_at(key_points, 0)
+    primary_ref = _key_point_reference(primary_point, fallback="the main point")
+    primary_uncertainty = _key_point_uncertainty_brief(
+        primary_point,
+        fallback="the conclusion should not outrun the quoted support.",
+    )
+    primary_refs = list(primary_point.evidence_refs) if primary_point else []
     if mode == "experiment_proposal":
         questions = [
             MeetingPackExpectedQuestion(
-                question="What is the strongest reason not to run this experiment yet?",
-                suggested_response="The limiting factor is the weakest evidence-backed assumption, not the attractiveness of the idea.",
+                question=f"Why does {primary_ref} justify this experiment at all?",
+                suggested_response=(
+                    f"Keep the answer tied to the linked evidence for {primary_ref}, "
+                    "then name the assumption that still needs direct checking."
+                ),
                 evidence_refs=primary_refs,
             ),
             MeetingPackExpectedQuestion(
-                question="Which assumption is still carrying too much uncertainty?",
-                suggested_response="Point to the assumption with the thinnest direct support and make that the first follow-up check.",
+                question=f"What would make us narrow or delay the design built on {primary_ref}?",
+                suggested_response=(
+                    f"Say explicitly that {primary_uncertainty} "
+                    "and treat that as a design constraint rather than a footnote."
+                ),
                 evidence_refs=primary_refs,
             ),
         ]
     elif mode == "project_progress_update":
         questions = [
             MeetingPackExpectedQuestion(
-                question="What changed since the last update in a way that matters?",
-                suggested_response="Answer with the most decision-relevant evidence delta, not with presentation polish.",
+                question=f"Why does {primary_ref} change what we do next?",
+                suggested_response=(
+                    f"Answer with the decision implication of {primary_ref}, "
+                    "not with a generic progress summary."
+                ),
                 evidence_refs=primary_refs,
             ),
             MeetingPackExpectedQuestion(
-                question="Why are we not acting faster on this yet?",
-                suggested_response="Lead with the blocker that is directly tied to uncertain or missing evidence.",
+                question=f"What would make us soften or defer the update around {primary_ref}?",
+                suggested_response=(
+                    f"Lead with the uncertainty around {primary_ref} "
+                    "that is still strong enough to slow the next action."
+                ),
                 evidence_refs=primary_refs,
             ),
         ]
     elif mode == "literature_update":
         questions = [
             MeetingPackExpectedQuestion(
-                question="Is this a real trend or just a selective snapshot?",
-                suggested_response="Describe the visible pattern, then explicitly state the current evidence limits and omissions.",
+                question=f"Why does {primary_ref} count as movement rather than noise?",
+                suggested_response=(
+                    f"Describe the visible support behind {primary_ref}, "
+                    "then state the missing evidence that keeps it from being a settled trend."
+                ),
                 evidence_refs=primary_refs,
             ),
             MeetingPackExpectedQuestion(
-                question="Which paper would you trust least in this set?",
-                suggested_response="Start from study design or evidence limitations that are directly traceable in source material.",
+                question=f"What would stop us from generalizing {primary_ref} across the set?",
+                suggested_response=(
+                    f"Start from the evidence limits around {primary_ref} "
+                    "that are directly traceable in source material."
+                ),
                 evidence_refs=primary_refs,
             ),
         ]
     else:
         questions = [
             MeetingPackExpectedQuestion(
-                question="What is the most defensible limitation to say first?",
-                suggested_response="Lead with the limitation that is directly supported by source evidence instead of speculating beyond it.",
+                question=f"Why is {primary_ref} the right point to foreground?",
+                suggested_response=(
+                    f"Because it is directly evidence-linked in the current pack; "
+                    f"still say that {primary_uncertainty}"
+                ),
                 evidence_refs=primary_refs,
             ),
             MeetingPackExpectedQuestion(
-                question="Which result should we avoid overstating?",
-                suggested_response="Avoid overstating any point whose support is indirect, mixed-confidence, or not numerically re-verified.",
+                question=f"How cautiously should we phrase {primary_ref}?",
+                suggested_response=(
+                    f"Use the linked evidence first, then say that {primary_uncertainty}"
+                ),
                 evidence_refs=primary_refs,
             ),
         ]
@@ -1289,18 +1532,22 @@ def _build_next_steps(
     secondary_note_items: list[MeetingPackSourceItem],
     screening_contexts: list[ResolvedMeetingPackScreeningContext],
 ) -> list[MeetingPackNextStep]:
-    primary_refs = list(key_points[0].evidence_refs) if key_points else []
+    primary_point = _key_point_at(key_points, 0)
+    secondary_point = _key_point_at(key_points, 1)
+    primary_ref = _key_point_reference(primary_point, fallback="the main point")
+    secondary_ref = _key_point_reference(secondary_point, fallback=primary_ref)
+    primary_refs = list(primary_point.evidence_refs) if primary_point else []
     if mode == "experiment_proposal":
         steps = [
             MeetingPackNextStep(
-                action="Re-check the strongest prior-evidence claim before finalizing the proposal.",
-                why="Proposal credibility depends on the cleanest supported evidence link.",
+                action=f"Turn {primary_ref} into one explicit design premise before finalizing the proposal.",
+                why="Proposal credibility depends on naming exactly which prior-evidence point is carrying the design logic.",
                 priority="high",
                 evidence_refs=primary_refs,
             ),
             MeetingPackNextStep(
-                action="Define the first failure criterion before discussing resourcing.",
-                why="The proposal should be bounded by what would invalidate it early.",
+                action=f"Write the first failure criterion for the design built on {primary_ref}.",
+                why="The proposal should be bounded by what would invalidate its main premise early.",
                 priority="medium",
                 evidence_refs=primary_refs,
             ),
@@ -1308,14 +1555,14 @@ def _build_next_steps(
     elif mode == "project_progress_update":
         steps = [
             MeetingPackNextStep(
-                action="Re-read the most decision-sensitive source section before the meeting.",
-                why="Project updates should lead with the cleanest evidence-backed delta.",
+                action=f"State the decision implication of {primary_ref} in one sentence before the meeting.",
+                why="Project updates land better when the evidence point and the decision consequence are already connected.",
                 priority="high",
                 evidence_refs=primary_refs,
             ),
             MeetingPackNextStep(
-                action="Turn the main blocker into an explicit owner/question after discussion.",
-                why="The meeting should end with a tractable next action rather than a vague blocker.",
+                action=f"Decide whether {secondary_ref} strengthens the update or becomes the main blocker.",
+                why="The meeting should end with one tractable interpretation of the next-most-important evidence point.",
                 priority="medium",
                 evidence_refs=primary_refs,
             ),
@@ -1323,14 +1570,14 @@ def _build_next_steps(
     elif mode == "literature_update":
         steps = [
             MeetingPackNextStep(
-                action="Verify whether the apparent trend still holds after re-checking the outlier paper.",
-                why="Trend summaries are weakest at the disagreement boundary.",
+                action=f"Compare {primary_ref} against the strongest non-matching claim before calling it a trend.",
+                why="Trend summaries are weakest at the disagreement boundary, not at the headline level.",
                 priority="high",
                 evidence_refs=primary_refs,
             ),
             MeetingPackNextStep(
-                action="Capture the open question that most changes how we read the set.",
-                why="A useful literature update should leave the team with one sharper question.",
+                action=f"Write down the missing evidence that would make {primary_ref} feel stable across the set.",
+                why="A useful literature update should end with one sharper evidence gap, not only a general takeaway.",
                 priority="medium",
                 evidence_refs=primary_refs,
             ),
@@ -1338,14 +1585,14 @@ def _build_next_steps(
     else:
         steps = [
             MeetingPackNextStep(
-                action="Re-read the source methods/results before presenting the main claim verbally.",
-                why="Presentation confidence should stay bounded by the strongest linked evidence.",
+                action=f"Re-check the source passage behind {primary_ref} before presenting it verbally.",
+                why="Presentation confidence should stay bounded by the strongest linked evidence instead of by a remembered paraphrase.",
                 priority="high",
                 evidence_refs=primary_refs,
             ),
             MeetingPackNextStep(
-                action="Pick one strength and one limitation to say before open discussion.",
-                why="Journal club discussion is clearer when the framing is balanced from the start.",
+                action=f"Decide whether {secondary_ref} strengthens the headline takeaway or complicates it.",
+                why="Journal club discussion is clearer when the first two highlighted points are related explicitly before open debate.",
                 priority="medium",
                 evidence_refs=primary_refs,
             ),
@@ -1448,8 +1695,153 @@ def _screening_context_next_step(mode: str) -> str:
     return "Re-check screening reason codes before presenting this set as a balanced discussion sample."
 
 
+def _opening_speaker_note_text(mode: str, primary_ref: str) -> str:
+    if mode == "experiment_proposal":
+        return f"Open by explaining why {primary_ref} is the prior-evidence point doing the most design work."
+    if mode == "project_progress_update":
+        return f"Open by stating how {primary_ref} changes the current project picture before discussing operations."
+    if mode == "literature_update":
+        return f"Open by telling the room why {primary_ref} matters for the current evidence movement."
+    return f"Open by telling the room why {primary_ref} is worth discussing before broadening out."
+
+
+def _context_speaker_note_text(mode: str, primary_ref: str) -> str:
+    if mode == "experiment_proposal":
+        return f"Use this slide to show what kind of support sits behind {primary_ref} and where the design risk begins."
+    if mode == "project_progress_update":
+        return f"Use this slide to separate the support behind {primary_ref} from project framing or blockers."
+    if mode == "literature_update":
+        return f"Use this slide to show what kind of support sits behind {primary_ref} before calling it a trend."
+    return f"Use this slide to show what kind of support sits behind {primary_ref} before interpretation."
+
+
+def _claim_speaker_note_text(point_ref: str, uncertainty: str) -> str:
+    return f"State {point_ref}, point to the linked evidence, then say that {uncertainty}"
+
+
+def _limits_speaker_note_text(mode: str, primary_ref: str, uncertainty: str) -> str:
+    if mode == "experiment_proposal":
+        return f"Use this slide to name the design risk around {primary_ref}; say that {uncertainty}"
+    if mode == "project_progress_update":
+        return f"Use this slide to name the blocker around {primary_ref}; say that {uncertainty}"
+    if mode == "literature_update":
+        return f"Use this slide to name the evidence limit around {primary_ref}; say that {uncertainty}"
+    return f"Use this slide to name the remaining uncertainty around {primary_ref}; say that {uncertainty}"
+
+
+def _closing_speaker_note_text(mode: str, primary_ref: str, secondary_ref: str) -> str:
+    if mode == "experiment_proposal":
+        return f"Close by asking whether {primary_ref} is strong enough to anchor the next experiment and whether {secondary_ref} changes the design."
+    if mode == "project_progress_update":
+        return f"Close by asking whether {primary_ref} changes the next action and whether {secondary_ref} becomes the real blocker."
+    if mode == "literature_update":
+        return f"Close by asking whether {primary_ref} still holds once the room weighs it against {secondary_ref}."
+    return f"Close by asking whether {primary_ref} should remain the headline point once the room considers {secondary_ref}."
+
+
+def _key_point_at(key_points: list[MeetingPackKeyPoint], index: int) -> MeetingPackKeyPoint | None:
+    if 0 <= index < len(key_points):
+        return key_points[index]
+    return None
+
+
+def _key_point_reference(
+    point: MeetingPackKeyPoint | None,
+    *,
+    fallback: str,
+) -> str:
+    if point is None or not point.text.strip():
+        return fallback
+    return f'the point "{_short_text_snippet(point.text, max_words=12)}"'
+
+
+def _claim_reference(
+    claim: Any | None,
+    *,
+    fallback: str,
+) -> str:
+    claim_text = str(getattr(claim, "claim", "") or "").strip() if claim is not None else ""
+    if not claim_text:
+        return fallback
+    return f'the point "{_short_text_snippet(claim_text, max_words=12)}"'
+
+
+def _key_point_uncertainty_brief(
+    point: MeetingPackKeyPoint | None,
+    *,
+    fallback: str = "the conclusion should not outrun the quoted support.",
+) -> str:
+    if point is None or not (point.uncertainty_note or "").strip():
+        return fallback
+    return _sentence_continuation(_short_text_snippet(point.uncertainty_note, max_words=14))
+
+
+def _matching_key_point_for_slide(
+    slide: MeetingPackSlide,
+    key_points: list[MeetingPackKeyPoint],
+) -> MeetingPackKeyPoint | None:
+    for point in key_points:
+        if point.evidence_refs and any(ref in slide.evidence_refs for ref in point.evidence_refs):
+            return point
+    return None
+
+
+def _short_text_snippet(text: str, *, max_words: int) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    words = cleaned.split()
+    if len(words) <= max_words:
+        return cleaned
+    return " ".join(words[:max_words]) + "..."
+
+
+def _sentence_continuation(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    return cleaned[0].lower() + cleaned[1:] if len(cleaned) > 1 else cleaned.lower()
+
+
 def _default_title(mode: str, ref: str) -> str:
     return f"{ref} {mode.replace('_', ' ')} draft"
+
+
+def _normalized_requested_title(title: str | None, ref: str) -> str | None:
+    normalized_title = title.strip() if title else None
+    if not normalized_title:
+        return None
+    if _is_generic_browser_meeting_pack_title(normalized_title):
+        return ref
+    return normalized_title
+
+
+def _is_generic_browser_meeting_pack_title(title: str | None) -> bool:
+    normalized_title = title.strip() if title else None
+    if not normalized_title:
+        return False
+    return normalized_title.lower() == GENERIC_BROWSER_MEETING_PACK_TITLE.lower()
+
+
+def _preferred_historical_source_title(pack: MeetingPack) -> str | None:
+    for item in pack.source_items:
+        normalized_title = item.title.strip() if item.title else None
+        if normalized_title:
+            return normalized_title
+    for item in pack.source_items:
+        normalized_ref = item.ref.strip() if item.ref else None
+        if normalized_ref:
+            return normalized_ref
+    return None
+
+
+def _normalized_historical_pack_title(pack: MeetingPack) -> str | None:
+    if not _is_generic_browser_meeting_pack_title(pack.title):
+        return None
+    preferred_title = _preferred_historical_source_title(pack)
+    if not preferred_title:
+        return None
+    return preferred_title
 
 
 def _overview_context_suffix(
@@ -2086,6 +2478,16 @@ def _focus_family_orientation(rows: list[dict[str, Any]]) -> str | None:
     ):
         return "focus_relative"
     return None
+
+
+def _optional_json_dict(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _family_directions(rows: list[dict[str, Any]], orientation: str | None) -> set[str]:

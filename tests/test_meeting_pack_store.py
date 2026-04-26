@@ -76,6 +76,8 @@ def test_meeting_pack_store_roundtrip_creates_expected_layout(tmp_path):
     assert md_path == meeting_pack_markdown_path(pack.id, root)
     assert loaded.id == pack.id
     assert loaded.title == pack.title
+    assert loaded.layer == "user_facing_artifact"
+    assert loaded.canonical_status == "non_canonical"
     assert loaded.output_mode_family == "lab_meeting"
     assert loaded.generation_request is not None
     assert loaded.generation_request.max_slides == 6

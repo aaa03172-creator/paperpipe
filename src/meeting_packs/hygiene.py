@@ -11,6 +11,7 @@ from src.meeting_packs.service import validate_meeting_pack
 from src.meeting_packs.store import list_meeting_pack_ids, load_meeting_pack
 from src.schemas.meeting_pack import MeetingPack, MeetingPackValidation
 from src.services.fixture_visibility import is_test_fixture_meeting_pack
+from src.skills.storage import atomic_write_text
 
 
 @dataclass(frozen=True)
@@ -148,7 +149,8 @@ def apply_archive(
         )
 
     manifest_path = resolved_archive_root / "manifest.json"
-    manifest_path.write_text(
+    atomic_write_text(
+        manifest_path,
         json.dumps(
             {
                 "schema_version": "meeting_pack_archive.v1",
@@ -159,6 +161,5 @@ def apply_archive(
             ensure_ascii=False,
             indent=2,
         ),
-        encoding="utf-8",
     )
     return moved

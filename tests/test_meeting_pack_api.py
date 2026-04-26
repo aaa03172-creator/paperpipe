@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,7 @@ def _write_config(path: Path, vault_path: Path) -> None:
                 "llm:",
                 "  mode: local",
                 "  features:",
-                "    trial_extraction:",
+                "    specialty_trial_extraction:",
                 "      enabled: false",
                 "    slot_classification:",
                 "      enabled: false",
@@ -101,6 +102,14 @@ def _write_note(vault_path: Path, relative_path: str, body: str) -> None:
     note_path = vault_path / relative_path
     note_path.parent.mkdir(parents=True, exist_ok=True)
     note_path.write_text(body, encoding="utf-8")
+
+
+def _read_jsonl_rows(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _write_screening_log(research_dna_root: Path, *, dna_id: str, run_id: str) -> None:
@@ -225,6 +234,8 @@ def test_meeting_pack_api_generate_and_fetch_roundtrip(tmp_path: Path, monkeypat
 
     assert generate.status_code == 200
     assert generate.json()["pack"]["readiness"] == "evidence_backed"
+    assert generate.json()["pack"]["layer"] == "user_facing_artifact"
+    assert generate.json()["pack"]["canonical_status"] == "non_canonical"
     assert generate.json()["pack"]["output_mode_family"] == "lab_meeting"
     assert generate.json()["markdown_sync"]["status"] == "in_sync"
     pack_id = generate.json()["pack"]["id"]
@@ -235,9 +246,97 @@ def test_meeting_pack_api_generate_and_fetch_roundtrip(tmp_path: Path, monkeypat
     assert fetched.status_code == 200
     assert markdown.status_code == 200
     assert fetched.json()["pack"]["id"] == pack_id
+    assert fetched.json()["pack"]["layer"] == "user_facing_artifact"
     assert fetched.json()["pack"]["output_mode_family"] == "lab_meeting"
     assert fetched.json()["markdown_sync"]["status"] == "in_sync"
+    assert "## Promotion guardrail" in markdown.text
     assert "## Slide Outline" in markdown.text
+
+
+def test_meeting_pack_api_records_generation_outcome(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir(parents=True, exist_ok=True)
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_path, slug)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, vault_path)
+    _configure_env(monkeypatch, config_path=config_path, tmp_path=tmp_path)
+    outcome_path = tmp_path / "storage" / "artifact_generation_outcomes.jsonl"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACT_GENERATION_OUTCOME_LOG_PATH", str(outcome_path))
+
+    client = TestClient(api_main.app)
+    generate = client.post(
+        "/meeting-packs/generate",
+        json={"mode": "journal_club", "source_items": [{"type": "paper_slug", "ref": slug}]},
+    )
+    assert generate.status_code == 200
+    pack_id = generate.json()["pack"]["id"]
+
+    response = client.post(
+        f"/meeting-packs/{pack_id}/outcome",
+        json={
+            "run_id": "run_meeting_pack_outcome_001",
+            "decision": "reused_after_correction",
+            "downstream_use": "final_deliverable",
+            "actor_id": "reviewer_001",
+            "note": "Used after tightening the discussion framing.",
+            "metadata": {"surface": "journal_club"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "saved"
+    assert isinstance(response.json()["outcome_id"], str)
+
+    rows = _read_jsonl_rows(outcome_path)
+    assert len(rows) == 1
+    assert rows[0]["artifact_type"] == "meeting_pack"
+    assert rows[0]["artifact_id"] == pack_id
+    assert rows[0]["decision"] == "reused_after_correction"
+    assert rows[0]["downstream_use"] == "final_deliverable"
+
+
+def test_meeting_pack_api_records_review_feedback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir(parents=True, exist_ok=True)
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_path, slug)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, vault_path)
+    _configure_env(monkeypatch, config_path=config_path, tmp_path=tmp_path)
+    feedback_path = tmp_path / "storage" / "artifact_review_feedback.jsonl"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACT_REVIEW_FEEDBACK_LOG_PATH", str(feedback_path))
+
+    client = TestClient(api_main.app)
+    generate = client.post(
+        "/meeting-packs/generate",
+        json={"mode": "journal_club", "source_items": [{"type": "paper_slug", "ref": slug}]},
+    )
+    assert generate.status_code == 200
+    pack_id = generate.json()["pack"]["id"]
+
+    response = client.post(
+        f"/meeting-packs/{pack_id}/review",
+        json={
+            "run_id": "run_meeting_pack_review_001",
+            "decision": "correct",
+            "reason_code": "missing_context",
+            "actor_id": "reviewer_001",
+            "note": "Needs stronger context in the opening section.",
+            "metadata": {"surface": "journal_club"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "saved"
+    assert isinstance(response.json()["feedback_id"], str)
+
+    rows = _read_jsonl_rows(feedback_path)
+    assert len(rows) == 1
+    assert rows[0]["artifact_type"] == "meeting_pack"
+    assert rows[0]["artifact_id"] == pack_id
+    assert rows[0]["decision"] == "correct"
+    assert rows[0]["reason_code"] == "missing_context"
 
 
 def test_meeting_pack_api_supports_project_note_context_only(

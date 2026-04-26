@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from src.schemas.image_evidence import (
     ImageEvidence,
@@ -42,6 +43,10 @@ def image_evidence_derivative_path(
 ) -> Path:
     normalized_extension = str(extension or "png").strip().lstrip(".") or "png"
     return image_evidence_derivatives_dir(image_evidence_id, root) / f"{derived_output_id}.{normalized_extension}"
+
+
+def image_evidence_artifact_path(image_evidence_id: str, relative_path: str, root: Path | None = None) -> Path:
+    return image_evidence_dir(image_evidence_id, root) / _normalize_bundle_relative_path(relative_path)
 
 
 def save_image_evidence(image_evidence: ImageEvidence, root: Path | None = None) -> Path:
@@ -132,23 +137,49 @@ def load_image_derivative_bytes(
     return path.read_bytes()
 
 
+def load_image_evidence_artifact_bytes(
+    image_evidence_id: str,
+    relative_path: str,
+    root: Path | None = None,
+) -> bytes:
+    path = image_evidence_artifact_path(image_evidence_id, relative_path, root)
+    if not path.exists():
+        raise FileNotFoundError(f"Image Evidence artifact file not found: {path}")
+    return path.read_bytes()
+
+
 def save_image_evidence_bundle(
     image_evidence: ImageEvidence,
     *,
     view_state: ImageViewState | None = None,
     handoff_targets: list[ImageHandoffTarget] | None = None,
+    derivative_artifacts: dict[str, bytes] | None = None,
     root: Path | None = None,
 ) -> dict[str, Path]:
+    derivative_artifacts = {
+        _normalize_bundle_relative_path(path): content
+        for path, content in dict(derivative_artifacts or {}).items()
+    }
+    _validate_declared_bundle_members(
+        image_evidence,
+        view_state=view_state,
+        handoff_targets=handoff_targets,
+        derivative_artifacts=derivative_artifacts,
+    )
     json_path = image_evidence_json_path(image_evidence.image_evidence_id, root)
     view_state_path = image_evidence_view_state_path(image_evidence.image_evidence_id, root)
     handoff_path = image_evidence_handoff_path(image_evidence.image_evidence_id, root)
+    derivative_paths = {
+        relative_path: image_evidence_dir(image_evidence.image_evidence_id, root) / relative_path
+        for relative_path in sorted(derivative_artifacts)
+    }
     expected_paths = {
         json_path,
-        *_expected_derivative_paths(image_evidence, root),
+        *derivative_paths.values(),
     }
-    if view_state is not None:
+    if image_evidence.view_state_ref is not None:
         expected_paths.add(view_state_path)
-    if handoff_targets is not None:
+    if image_evidence.handoff_ref is not None:
         expected_paths.add(handoff_path)
     tracked_paths = {
         path: _optional_bytes(path)
@@ -168,6 +199,8 @@ def save_image_evidence_bundle(
             save_image_view_state(image_evidence.image_evidence_id, view_state, root)
         if handoff_targets is not None:
             save_image_handoff_targets(image_evidence.image_evidence_id, handoff_targets, root)
+        for relative_path, path in derivative_paths.items():
+            _atomic_write_bytes(path, derivative_artifacts[relative_path])
         for stale_path in sorted(set(tracked_paths) - expected_paths, key=lambda item: str(item)):
             if stale_path.exists():
                 os.remove(stale_path)
@@ -179,10 +212,11 @@ def save_image_evidence_bundle(
         raise
 
     result: dict[str, Path] = {"json": json_path}
-    if view_state is not None:
+    if image_evidence.view_state_ref is not None:
         result["view_state"] = view_state_path
-    if handoff_targets is not None:
+    if image_evidence.handoff_ref is not None:
         result["handoff"] = handoff_path
+    result.update({f"derivative:{relative_path}": path for relative_path, path in derivative_paths.items()})
     return result
 
 
@@ -213,8 +247,95 @@ def _expected_derivative_paths(image_evidence: ImageEvidence, root: Path | None 
     for derived_output in image_evidence.derived_outputs:
         if derived_output.bundle_ref is None:
             continue
-        expected.add(image_evidence_dir(image_evidence.image_evidence_id, root) / derived_output.bundle_ref.path)
+        expected.add(
+            image_evidence_dir(image_evidence.image_evidence_id, root)
+            / _normalize_bundle_relative_path(derived_output.bundle_ref.path)
+        )
     return expected
+
+
+def _declared_derivative_paths(image_evidence: ImageEvidence) -> set[str]:
+    declared: set[str] = set()
+    for derived_output in image_evidence.derived_outputs:
+        if derived_output.bundle_ref is None:
+            continue
+        declared.add(_normalize_bundle_relative_path(derived_output.bundle_ref.path))
+    return declared
+
+
+def _validate_declared_bundle_members(
+    image_evidence: ImageEvidence,
+    *,
+    view_state: ImageViewState | None,
+    handoff_targets: list[ImageHandoffTarget] | None,
+    derivative_artifacts: dict[str, bytes],
+) -> None:
+    declared_view_state_path = (
+        _normalize_bundle_relative_path(image_evidence.view_state_ref.path)
+        if image_evidence.view_state_ref is not None
+        else None
+    )
+    declared_handoff_path = (
+        _normalize_bundle_relative_path(image_evidence.handoff_ref.path)
+        if image_evidence.handoff_ref is not None
+        else None
+    )
+    if declared_view_state_path not in (None, "view_state.json"):
+        raise ValueError("Image Evidence bundle view-state ref must use view_state.json.")
+    if declared_handoff_path not in (None, "handoff.json"):
+        raise ValueError("Image Evidence bundle handoff ref must use handoff.json.")
+
+    if image_evidence.view_state_ref is not None and view_state is None:
+        raise ValueError("Image Evidence bundle is missing declared view-state payload.")
+    if image_evidence.view_state_ref is None and view_state is not None:
+        raise ValueError("Image Evidence bundle includes undeclared view-state payload.")
+
+    if image_evidence.handoff_ref is not None and handoff_targets is None:
+        raise ValueError("Image Evidence bundle is missing declared handoff payload.")
+    if image_evidence.handoff_ref is None and handoff_targets is not None:
+        raise ValueError("Image Evidence bundle includes undeclared handoff payload.")
+
+    nested_view_state_paths = {
+        _normalize_bundle_relative_path(output.view_state_ref.path)
+        for output in image_evidence.derived_outputs
+        if output.view_state_ref is not None
+    }
+    nested_view_state_paths.update(
+        _normalize_bundle_relative_path(target.view_state_ref.path)
+        for target in (handoff_targets or [])
+        if target.view_state_ref is not None
+    )
+    if nested_view_state_paths and declared_view_state_path is None:
+        raise ValueError("Image Evidence bundle nested view-state refs require declared view-state payload.")
+    if declared_view_state_path is not None and nested_view_state_paths not in (set(), {declared_view_state_path}):
+        raise ValueError("Image Evidence bundle nested view-state refs must match declared view-state path.")
+
+    declared_paths = _declared_derivative_paths(image_evidence)
+    provided_paths = set(derivative_artifacts)
+
+    missing_paths = sorted(declared_paths - provided_paths)
+    if missing_paths:
+        raise ValueError(
+            "Image Evidence bundle is missing declared derivative artifact payloads for: "
+            + ", ".join(missing_paths)
+        )
+
+    unexpected_paths = sorted(provided_paths - declared_paths)
+    if unexpected_paths:
+        raise ValueError(
+            "Image Evidence bundle includes undeclared derivative artifact payloads: "
+            + ", ".join(unexpected_paths)
+        )
+
+
+def _normalize_bundle_relative_path(path: str) -> str:
+    raw = str(path or "").strip()
+    if not raw:
+        raise ValueError("Image Evidence bundle-relative path must be non-empty")
+    pure = PurePosixPath(raw)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ValueError(f"Image Evidence bundle-relative path is invalid: {path}")
+    return pure.as_posix()
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
