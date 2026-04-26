@@ -1,0 +1,32 @@
+{
+  "schema_version": "bc5cdr.document.v1",
+  "doc_id": "repo-bc5cdr-ibuprofen-rash",
+  "title": "Ibuprofen and rash",
+  "abstract": "Ibuprofen caused rash after treatment.",
+  "mentions": [
+    {
+      "mention_id": "chem-1",
+      "entity_type": "chemical",
+      "text": "Ibuprofen",
+      "char_start": 0,
+      "char_end": 9,
+      "normalized_id": "MESH:C0020740"
+    },
+    {
+      "mention_id": "disease-1",
+      "entity_type": "disease",
+      "text": "rash",
+      "char_start": 17,
+      "char_end": 21,
+      "normalized_id": "MESH:D012871"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel-1",
+      "relation_type": "chemical_induced_disease",
+      "chemical_mention_id": "chem-1",
+      "disease_mention_id": "disease-1"
+    }
+  ]
+}

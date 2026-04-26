@@ -1,0 +1,35 @@
+{
+  "paper_id": "zotero:karikariBloodPhosphorylatedTau2020",
+  "citation": {
+    "title": "Blood phosphorylated tau 181 as a biomarker for Alzheimer's disease: a diagnostic performance and prediction modelling study using data from four prospective cohorts",
+    "authors_first": "Karikari",
+    "year": 2020,
+    "journal_or_server": "Lancet Neurology"
+  },
+  "study_design": {
+    "design": "observational",
+    "control_type": "none",
+    "duration_weeks": 52
+  },
+  "population": {
+    "mci_only": false,
+    "n_total": 1131
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "Blood p-tau181 diagnostic performance and prediction modelling"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false,
+    "reason_if_excluded": "Prospective biomarker cohort study rather than an MCI-only intervention cohort."
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention"
+    ]
+  }
+}
