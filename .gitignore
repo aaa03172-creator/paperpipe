@@ -77,3 +77,11 @@ tmp_*.png
 tmp_*.jpg
 tmp_*.jpeg
 tmp_*.webp
+.playwright-cli/
+
+# Local runtime output stores
+storage/_quarantine/
+storage/chart_packs/
+storage/image_evidence/
+storage/protocol_attachments/
+storage/protocol_cards/
