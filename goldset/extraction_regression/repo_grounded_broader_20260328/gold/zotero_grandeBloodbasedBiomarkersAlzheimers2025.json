@@ -1,0 +1,35 @@
+{
+  "paper_id": "zotero:grandeBloodbasedBiomarkersAlzheimers2025",
+  "citation": {
+    "title": "Blood-based biomarkers of Alzheimer's disease and incident dementia in the community",
+    "authors_first": "Grande",
+    "year": 2025,
+    "journal_or_server": "Nature Medicine"
+  },
+  "study_design": {
+    "design": "observational",
+    "control_type": "none",
+    "duration_weeks": 832
+  },
+  "population": {
+    "mci_only": false,
+    "n_total": 2148
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "Incident dementia"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false,
+    "reason_if_excluded": "Community dementia-risk cohort rather than an MCI-only intervention cohort."
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention"
+    ]
+  }
+}
