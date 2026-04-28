@@ -50,6 +50,19 @@ def _paper_lookup_conditions(columns: set[str]) -> list[str]:
         conditions.append("doi = ?")
     return conditions
 
+
+def _ensure_runs_table(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+            date TEXT PRIMARY KEY,
+            status TEXT,
+            processed_count INTEGER,
+            last_run_at TIMESTAMP
+        )
+        """
+    )
+
 def init_db():
     """데이터베이스 및 테이블 초기화"""
     from scripts import init_db as init_core_module
@@ -72,14 +85,7 @@ def init_db():
     conn = _connect()
     c = conn.cursor()
     # 실행 기록 테이블
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS runs (
-            date TEXT PRIMARY KEY,
-            status TEXT,
-            processed_count INTEGER,
-            last_run_at TIMESTAMP
-        )
-    ''')
+    _ensure_runs_table(c)
     # [NEW] Vector Embeddings Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS embeddings (
@@ -155,10 +161,64 @@ def check_run_exists(target_date: str) -> bool:
     """특정 날짜에 이미 실행했는지 확인"""
     conn = _connect()
     c = conn.cursor()
-    c.execute("SELECT status FROM runs WHERE date = ? AND status = 'SUCCESS'", (target_date,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
+    try:
+        _ensure_runs_table(c)
+        c.execute("SELECT 1 FROM runs WHERE date = ? AND status = 'SUCCESS' LIMIT 1", (target_date,))
+        if c.fetchone() is not None:
+            return True
+        try:
+            c.execute(
+                """
+                SELECT 1
+                FROM execution_runs
+                WHERE trigger_source = 'cli_run'
+                  AND pipeline_profile = 'legacy_daily_slots'
+                  AND status IN ('completed', 'SUCCESS')
+                  AND substr(COALESCE(finished_at, started_at, created_at), 1, 10) = ?
+                LIMIT 1
+                """,
+                (target_date,),
+            )
+            return c.fetchone() is not None
+        except sqlite3.OperationalError:
+            return False
+    finally:
+        conn.close()
+
+
+def record_run_status(
+    target_date: str,
+    status: str,
+    *,
+    processed_count: int | None = None,
+    last_run_at: str | None = None,
+) -> None:
+    """Compatibility helper for legacy daily-run status tracking."""
+    conn = _connect()
+    c = conn.cursor()
+    try:
+        _ensure_runs_table(c)
+        normalized_status = str(status or "").strip().upper()
+        resolved_last_run_at = last_run_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            """
+            INSERT INTO runs (date, status, processed_count, last_run_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                status = excluded.status,
+                processed_count = COALESCE(excluded.processed_count, runs.processed_count),
+                last_run_at = excluded.last_run_at
+            """,
+            (
+                target_date,
+                normalized_status,
+                processed_count,
+                resolved_last_run_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 def is_paper_processed(identifier: str) -> bool:
     """이미 처리된 논문인지(중복) 확인"""

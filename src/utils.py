@@ -27,7 +27,7 @@ def generate_filename(paper: Paper) -> str:
     """
     Generate a standardized filename based on Paper metadata.
     Schema: {Year}_{FirstAuthor}_{ShortTitle}.pdf
-    e.g. 2024_Kim_DeepLearningForMCI.pdf
+    e.g. 2024_Kim_CirculatingTumorDNAMonitoring.pdf
     """
     # 1. Year
     today = datetime.now().strftime("%Y-%m-%d")

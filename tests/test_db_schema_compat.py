@@ -97,3 +97,68 @@ def test_init_db_bootstraps_canonical_tables(tmp_path: Path):
         assert "embeddings" in tables
     finally:
         legacy_db.DB_PATH = original_db_path
+
+
+def test_record_run_status_and_check_run_exists_work_with_runs_table(tmp_path: Path):
+    original_db_path = legacy_db.DB_PATH
+    legacy_db.DB_PATH = tmp_path / "state.db"
+    try:
+        legacy_db.record_run_status("2026-04-20", "SUCCESS", processed_count=3, last_run_at="2026-04-20 10:00:00")
+
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        row = conn.execute(
+            "SELECT date, status, processed_count, last_run_at FROM runs WHERE date = ?",
+            ("2026-04-20",),
+        ).fetchone()
+        conn.close()
+
+        assert row == ("2026-04-20", "SUCCESS", 3, "2026-04-20 10:00:00")
+        assert legacy_db.check_run_exists("2026-04-20") is True
+    finally:
+        legacy_db.DB_PATH = original_db_path
+
+
+def test_check_run_exists_falls_back_to_execution_runs(tmp_path: Path):
+    original_db_path = legacy_db.DB_PATH
+    legacy_db.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE execution_runs (
+                run_id TEXT PRIMARY KEY,
+                paper_id TEXT,
+                trigger_source TEXT,
+                pipeline_profile TEXT,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                params_json TEXT,
+                metrics_json TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO execution_runs (
+                run_id, paper_id, trigger_source, pipeline_profile, status, created_at, started_at, finished_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "run_20260420_100000",
+                None,
+                "cli_run",
+                "legacy_daily_slots",
+                "completed",
+                "2026-04-20T01:00:00+00:00",
+                "2026-04-20T01:00:00+00:00",
+                "2026-04-20T01:05:00+00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        assert legacy_db.check_run_exists("2026-04-20") is True
+    finally:
+        legacy_db.DB_PATH = original_db_path
