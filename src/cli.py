@@ -24,6 +24,7 @@ from src.logger import setup_logging
 from src.services.event_log import ensure_execution_run, update_execution_run
 from src.services.identity import new_run_id
 from src.services.runtime_paths import logs_root, meeting_packs_root as default_meeting_packs_root
+from src.services.runtime_paths import config_file_path, paperpipe_home
 from src.services.runtime_readiness import (
     LATEST_INTAKE_OVERRIDE_AUDIT_MIN_AUDITED_DOCS,
     LATEST_INTAKE_OVERRIDE_AUDIT_WARN_RATE,
@@ -913,15 +914,102 @@ def _print_first_paper_doctor_guidance(readiness_checks: dict[str, object]) -> N
     console.print("   - After import: open review, or run paperpipe deepread <paper_id>.")
 
 
+def _starter_config_payload() -> dict:
+    example_path = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    with example_path.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle) or {}
+    paths = payload.setdefault("paths", {})
+    paths.update(
+        {
+            "zotero_base_dir": "storage/zotero",
+            "obsidian_vault": "storage/obsidian_vault",
+            "upload_dir": "storage/uploads",
+            "export_dir": "export",
+            "watch_folder": "storage/watch",
+            "library_dir": "Library",
+            "downloads_watch_dir": "~/Downloads",
+            "pdf_storage_dir": "storage/pdfs",
+        }
+    )
+    payload.setdefault("system", {})["log_level"] = "INFO"
+    return payload
+
+
+def _ensure_starter_config() -> list[str]:
+    target = config_file_path("config.yaml")
+    if target.exists():
+        return [f"Config already exists: {target}"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(yaml.safe_dump(_starter_config_payload(), sort_keys=False), encoding="utf-8")
+    return [f"Created starter config: {target}"]
+
+
+def _safe_to_create_doctor_path(path: Path) -> bool:
+    raw = Path(path).expanduser()
+    if not raw.is_absolute():
+        return True
+    resolved = raw.resolve(strict=False)
+    allowed_roots = {Path.cwd().resolve(), paperpipe_home().resolve()}
+    for root in allowed_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _ensure_first_run_directories(config) -> list[str]:
+    path_specs = [
+        ("Zotero Dir", getattr(config.paths, "zotero_base_dir", None)),
+        ("Obsidian Vault", getattr(config.paths, "obsidian_vault", None)),
+        ("Upload Dir", getattr(config.paths, "upload_dir", None)),
+        ("Export Dir", getattr(config.paths, "export_dir", None)),
+        ("Watch Folder", getattr(config.paths, "watch_folder", None)),
+        ("Library Dir", getattr(config.paths, "library_dir", None)),
+        ("PDF Storage", getattr(config.paths, "pdf_storage_dir", None)),
+    ]
+    messages: list[str] = []
+    for label, raw_path in path_specs:
+        if raw_path is None:
+            continue
+        path = Path(raw_path).expanduser()
+        if path.exists():
+            continue
+        if not _safe_to_create_doctor_path(path):
+            messages.append(f"Skipped {label}: outside project-managed paths ({path})")
+            continue
+        path.mkdir(parents=True, exist_ok=True)
+        messages.append(f"Created {label}: {path}")
+    return messages
+
+
 # 1. Environment Doctor
 @app.command()
-def doctor():
+def doctor(
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Create a starter config and safe local first-run directories before reporting.",
+    )
+):
     """Check environment, config, and dependencies."""
     console.print("[bold blue]🩺 Checking Environment...[/bold blue]")
     llm_mode = "local"
+    if fix:
+        console.print("[bold]Applying safe first-run fixes...[/bold]")
+        for message in _ensure_starter_config():
+            console.print(f"   - {message}")
     
     try:
         config = load_config()
+        if fix:
+            directory_messages = _ensure_first_run_directories(config)
+            if directory_messages:
+                for message in directory_messages:
+                    console.print(f"   - {message}")
+            else:
+                console.print("   - First-run directories already present or externally managed.")
         console.print("✅ Config loaded successfully.")
         zotero_status = "✅ Found" if config.paths.zotero_base_dir.exists() else "⚠️ Missing"
         vault_status = "✅ Found" if config.paths.obsidian_vault.exists() else "⚠️ Missing"
