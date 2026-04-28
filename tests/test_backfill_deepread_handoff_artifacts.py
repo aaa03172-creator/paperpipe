@@ -18,6 +18,11 @@ def _stale_run_payloads(*, paper_id: str, run_id: str) -> tuple[dict, dict]:
         "parser_backend": "fitz_pdfplumber",
         "status": "succeeded",
         "finished_at": "2026-04-08T13:00:00+00:00",
+        "section_count": 2,
+        "section_summary": [
+            {"key": "results", "label": "Results"},
+            {"key": "discussion", "label": "Discussion"},
+        ],
         "reader_timeout_triggered": False,
         "reader_analysis": {
             "configured_attempt_order": "current",
@@ -57,6 +62,7 @@ def _stale_run_payloads(*, paper_id: str, run_id: str) -> tuple[dict, dict]:
         "artifact_claimset_resolved_written": True,
         "artifact_reader_eval_written": True,
         "verifier_status": "failed",
+        "claimset_section_count": 2,
         "reader_eval_bbox_span_count": 1,
         "reader_eval_text_match_span_count": 0,
         "reader_eval_approx_span_count": 0,
@@ -146,6 +152,11 @@ def test_run_backfill_deepread_handoff_dry_run_and_apply(tmp_path: Path) -> None
         },
     ]
     assert quality_gate["schema_version"] == "2026-04-08.deepread-handoff.v2"
+    section_signal = next(
+        check for check in quality_gate["checks"] if check["name"] == "section_navigation_signal"
+    )
+    assert section_signal["status"] == "pass"
+    assert "claimset_section_count=2" in section_signal["detail"]
     assert quality_gate["step_stability_summary"]["status"] == "warn"
     assert quality_gate["step_stability_summary"]["reason_codes"] == ["VERIFIER_FAILED"]
     assert quality_gate["failure_recovery_summary"]["status"] == "pass"

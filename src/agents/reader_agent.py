@@ -5,7 +5,8 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from time import perf_counter
+from typing import Any, Literal, Optional
 
 from pydantic import ValidationError
 
@@ -32,6 +33,7 @@ _RESULT_CUE_RE = re.compile(
     r"compared|versus|associated|correlated|higher|lower|effect)\b",
     re.IGNORECASE,
 )
+_METHOD_SECTION_KEYWORDS = ("method", "design", "protocol", "materials", "participant", "intervention")
 READER_CHUNK_SIZE = 1000
 READER_CHUNK_OVERLAP = 200
 _LIMITATION_STOPWORDS = {
@@ -68,6 +70,9 @@ _EVIDENCE_STOPWORDS = _LIMITATION_STOPWORDS | {
     "activities",
     "treatment",
 }
+_CHUNK_HEADER_RE = re.compile(r"\[CHUNK [^\]]+ \| section=([^|\]]+) \| page=([^\]]+)\]")
+_SENTENCE_FOCUS_RE = re.compile(r"^\d+\.\s+\[chunk_id=([^,\]]+), section=([^,\]]+), page=([^\]]+)\]", re.MULTILINE)
+_BASE_ATTEMPT_LABELS = ("primary", "focused", "sentence_focus")
 
 
 @dataclass(frozen=True)
@@ -99,11 +104,14 @@ class ReaderAgent:
         persona_hint: Optional[str] = None,
         min_claims: int = 1,
         max_context_chars: int = 16000,
+        attempt_order: Literal["current", "focused_first"] = "current",
     ):
         self.model_name = model_name
         self.adapter = OllamaModelAdapter(model_name=model_name)
         self.min_claims = max(1, int(min_claims))
         self.max_context_chars = max(6000, int(max_context_chars))
+        self.attempt_order = attempt_order if attempt_order in {"current", "focused_first"} else "current"
+        self.last_analysis_metrics: dict[str, Any] = {}
 
         self.output_schema = ClaimSet.model_json_schema()
         self.system_prompt = """You are PaperPipe's evidence-grounded Deep Read analyst.
@@ -129,10 +137,12 @@ Follow these strict directives:
         """
         Analyzes the DocumentArtifact and returns a ClaimSet.
         """
+        analysis_started = perf_counter()
         header = get_artifact_header(doc)
         sections = self._collect_sections(doc)
         chunks = self._collect_chunks(sections)
         table_context = self._build_table_context(doc)
+        focused_sections = [s for s in sections if self._is_priority_section(s.name)]
 
         example_claim = ScientificClaim(
             claim_id="CLM-001",
@@ -157,11 +167,41 @@ Follow these strict directives:
 
         logger.info("Reader Agent analyzing: %s", header.title)
         attempts = self._build_attempt_contexts(sections=sections)
+        attempt_contexts = {
+            label: attempts[idx]
+            for idx, label in enumerate(_BASE_ATTEMPT_LABELS)
+            if idx < len(attempts)
+        }
+        execution_labels = [
+            label for label in self._resolve_attempt_order_labels() if label in attempt_contexts
+        ]
+        metrics: dict[str, Any] = {
+            "model_name": self.model_name,
+            "doc_id": header.doc_id,
+            "configured_max_context_chars": int(self.max_context_chars),
+            "configured_min_claims": int(self.min_claims),
+            "configured_attempt_order": self.attempt_order,
+            "effective_attempt_order": execution_labels,
+            "source_section_count": len(sections),
+            "source_chunk_count": len(chunks),
+            "source_table_count": len(list(getattr(doc, "tables", []) or [])),
+            "priority_section_count": len(focused_sections),
+            "attempt_count": 0,
+            "attempts": [],
+            "return_mode": "unknown",
+            "selected_attempt": None,
+            "selected_attempt_label": None,
+            "final_claim_count": 0,
+            "used_heuristic_fallback": False,
+            "analysis_wall_seconds": None,
+        }
         best_claimset: ClaimSet | None = None
 
-        for attempt_idx, context in enumerate(attempts, start=1):
+        for attempt_idx, label in enumerate(execution_labels, start=1):
+            context = attempt_contexts.get(label, "")
             if not context.strip():
                 continue
+            attempt_started = perf_counter()
             prompt = self._build_extraction_prompt(
                 doc_id=header.doc_id,
                 title=header.title,
@@ -172,41 +212,180 @@ Follow these strict directives:
                 min_claims=self.min_claims,
                 attempt_idx=attempt_idx,
             )
+            attempt_metric: dict[str, Any] = {
+                "attempt_idx": attempt_idx,
+                "label": label,
+                "context_chars": len(context),
+                "prompt_chars": len(prompt),
+                "estimated_prompt_tokens": self._estimate_token_count(prompt),
+                "status": "started",
+                "generate_wall_seconds": None,
+                "parse_wall_seconds": None,
+                "attempt_wall_seconds": None,
+            }
+            attempt_metric.update(self._collect_context_composition_metrics(context))
+            metrics["attempt_count"] = int(metrics["attempt_count"]) + 1
 
+            generate_started = perf_counter()
             try:
                 result = self.adapter.generate(prompt, format="json")
             except Exception as exc:
+                elapsed = round(perf_counter() - attempt_started, 3)
+                attempt_metric["generate_wall_seconds"] = elapsed
+                attempt_metric["attempt_wall_seconds"] = elapsed
+                attempt_metric.update(self._collect_provider_request_metrics())
                 if is_timeout_exception(exc):
+                    attempt_metric["status"] = "timeout"
+                    attempt_metric["error_type"] = type(exc).__name__
+                    metrics["attempts"].append(attempt_metric)
+                    metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+                    self.last_analysis_metrics = metrics
                     raise
                 logger.error("Reader attempt %s failed: %s", attempt_idx, exc)
+                attempt_metric["status"] = "error"
+                attempt_metric["error_type"] = type(exc).__name__
+                metrics["attempts"].append(attempt_metric)
                 continue
+            attempt_metric["generate_wall_seconds"] = round(perf_counter() - generate_started, 3)
+            attempt_metric.update(self._collect_provider_request_metrics())
 
-            parsed = self._parse_claimset_payload(result.text, expected_doc_id=header.doc_id, chunks=chunks)
+            parse_started = perf_counter()
+            raw_text = str(getattr(result, "text", "") or "")
+            attempt_metric["response_chars"] = len(raw_text)
+            attempt_metric["estimated_response_tokens"] = self._estimate_token_count(raw_text)
+            parsed = self._parse_claimset_payload(raw_text, expected_doc_id=header.doc_id, chunks=chunks)
+            attempt_metric["parse_wall_seconds"] = round(perf_counter() - parse_started, 3)
+            attempt_metric["attempt_wall_seconds"] = round(perf_counter() - attempt_started, 3)
             if parsed is None:
                 logger.warning("Reader attempt %s: JSON/schema parse failed", attempt_idx)
+                attempt_metric["status"] = "parse_failed"
+                attempt_metric["parsed_claim_count"] = 0
+                metrics["attempts"].append(attempt_metric)
                 continue
 
             parsed = enforce_claimset_evidence_policy(parsed)
+            attempt_metric["status"] = "parsed"
+            attempt_metric["parsed_claim_count"] = len(parsed.claims)
+            metrics["attempts"].append(attempt_metric)
             if best_claimset is None or len(parsed.claims) > len(best_claimset.claims):
                 best_claimset = parsed
 
             if len(parsed.claims) >= self.min_claims:
                 logger.info("Reader attempt %s succeeded with %s claims", attempt_idx, len(parsed.claims))
+                metrics["return_mode"] = "success"
+                metrics["selected_attempt"] = attempt_idx
+                metrics["selected_attempt_label"] = label
+                metrics["final_claim_count"] = len(parsed.claims)
+                metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+                self.last_analysis_metrics = metrics
                 return parsed
 
         if best_claimset is not None and best_claimset.claims:
             logger.info("Reader returning best non-empty claimset from retries: %s claims", len(best_claimset.claims))
+            metrics["return_mode"] = "best_nonempty"
+            metrics["final_claim_count"] = len(best_claimset.claims)
+            metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+            self.last_analysis_metrics = metrics
             return best_claimset
 
         heuristic_claims = self._build_heuristic_claims(chunks=chunks, max_claims=max(3, self.min_claims))
         if heuristic_claims:
             logger.warning("Reader fallback heuristic applied: %s claims", len(heuristic_claims))
             fallback = ClaimSet(doc_id=header.doc_id, claims=heuristic_claims)
+            metrics["return_mode"] = "heuristic_fallback"
+            metrics["used_heuristic_fallback"] = True
+            metrics["final_claim_count"] = len(heuristic_claims)
+            metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+            self.last_analysis_metrics = metrics
             return enforce_claimset_evidence_policy(fallback)
 
         if best_claimset is not None:
+            metrics["return_mode"] = "best_empty"
+            metrics["final_claim_count"] = len(best_claimset.claims)
+            metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+            self.last_analysis_metrics = metrics
             return best_claimset
+        metrics["return_mode"] = "empty"
+        metrics["analysis_wall_seconds"] = round(perf_counter() - analysis_started, 3)
+        self.last_analysis_metrics = metrics
         return ClaimSet(doc_id=header.doc_id, claims=[])
+
+    def _resolve_attempt_order_labels(self) -> list[str]:
+        if self.attempt_order == "focused_first":
+            return ["focused", "primary", "sentence_focus"]
+        return list(_BASE_ATTEMPT_LABELS)
+
+    def _collect_provider_request_metrics(self) -> dict[str, Any]:
+        meta = getattr(self.adapter, "last_request_meta", None)
+        if not isinstance(meta, dict) or not meta:
+            return {}
+        return {
+            "provider_status": str(meta.get("status") or "") or None,
+            "provider_name": str(meta.get("provider") or "") or None,
+            "provider_host": str(meta.get("host") or "") or None,
+            "provider_model": str(meta.get("model") or "") or None,
+            "provider_timeout_seconds": int(meta.get("timeout_seconds")) if meta.get("timeout_seconds") is not None else None,
+            "provider_request_wall_seconds": float(meta.get("request_wall_seconds")) if meta.get("request_wall_seconds") is not None else None,
+            "provider_done_reason": str(meta.get("done_reason") or "") or None,
+            "provider_prompt_eval_count": int(meta.get("prompt_eval_count")) if meta.get("prompt_eval_count") is not None else None,
+            "provider_eval_count": int(meta.get("eval_count")) if meta.get("eval_count") is not None else None,
+            "provider_load_duration_seconds": float(meta.get("load_duration_seconds")) if meta.get("load_duration_seconds") is not None else None,
+            "provider_prompt_eval_duration_seconds": float(meta.get("prompt_eval_duration_seconds")) if meta.get("prompt_eval_duration_seconds") is not None else None,
+            "provider_eval_duration_seconds": float(meta.get("eval_duration_seconds")) if meta.get("eval_duration_seconds") is not None else None,
+            "provider_total_duration_seconds": float(meta.get("total_duration_seconds")) if meta.get("total_duration_seconds") is not None else None,
+            "provider_error_type": str(meta.get("error_type") or "") or None,
+        }
+
+    def _estimate_token_count(self, text: str) -> int | None:
+        raw = str(text or "")
+        if not raw:
+            return 0
+        try:
+            counted = self.adapter.count_tokens(raw)
+        except Exception:
+            return max(1, len(raw) // 4)
+        for attr in ("total_tokens", "count"):
+            value = getattr(counted, attr, None)
+            if isinstance(value, int):
+                return value
+        try:
+            return int(counted)
+        except Exception:
+            return max(1, len(raw) // 4)
+
+    def _collect_context_composition_metrics(self, context: str) -> dict[str, Any]:
+        raw = str(context or "")
+        nonempty_lines = [line for line in raw.splitlines() if line.strip()]
+        chunk_headers = _CHUNK_HEADER_RE.findall(raw)
+        sentence_headers = _SENTENCE_FOCUS_RE.findall(raw)
+
+        section_names: set[str] = set()
+        pages: set[str] = set()
+        for section, page in ((section, page) for section, page in chunk_headers):
+            section_names.add(str(section).strip())
+            if str(page).strip() and str(page).strip() != "unknown":
+                pages.add(str(page).strip())
+        for _chunk_id, section, page in sentence_headers:
+            section_names.add(str(section).strip())
+            if str(page).strip() and str(page).strip() != "unknown":
+                pages.add(str(page).strip())
+
+        if sentence_headers:
+            mode = "sentence_focus"
+        elif chunk_headers:
+            mode = "chunk_context"
+        else:
+            mode = "free_text"
+
+        return {
+            "context_mode": mode,
+            "context_nonempty_line_count": len(nonempty_lines),
+            "included_chunk_count": len(chunk_headers),
+            "sentence_focus_count": len(sentence_headers),
+            "unique_section_count": len(section_names),
+            "unique_page_hint_count": len(pages),
+            "truncated_chunk_count": raw.count("...[truncated]"),
+        }
 
     def _collect_sections(self, doc: DocumentArtifact | DocumentArtifactV2) -> list[_SectionRecord]:
         records: list[_SectionRecord] = []
@@ -252,7 +431,7 @@ Follow these strict directives:
     @staticmethod
     def _is_priority_section(name: str) -> bool:
         lowered = (name or "").strip().lower()
-        keywords = ("abstract", "result", "discussion", "conclusion", "finding")
+        keywords = ("abstract", "result", "discussion", "conclusion", "finding", *_METHOD_SECTION_KEYWORDS)
         return any(k in lowered for k in keywords)
 
     def _render_chunk_context(self, chunks: list[_ChunkRecord], *, char_budget: int) -> str:
@@ -267,7 +446,7 @@ Follow these strict directives:
                 return (1, 0)
             if "discussion" in name or "conclusion" in name:
                 return (2, 0)
-            if "method" in name:
+            if any(keyword in name for keyword in _METHOD_SECTION_KEYWORDS):
                 return (3, 0)
             return (4, 0)
 

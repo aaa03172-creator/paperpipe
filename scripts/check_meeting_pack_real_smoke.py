@@ -10,6 +10,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.meeting_packs.service import generate_meeting_pack
+from src.meeting_packs.store import meeting_pack_artifact_path
 from src.schemas.meeting_pack import MeetingPackGenerateRequest, MeetingPackSourceSelector
 
 
@@ -31,6 +32,16 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--max-slides", type=int, default=5)
     parser.add_argument(
+        "--expect-key-point-substring",
+        default=None,
+        help="Optional lowercase/substring check applied to generated key-point text for each mode.",
+    )
+    parser.add_argument(
+        "--require-quality-pass",
+        action="store_true",
+        help="Require the generated quality_gate.json to report overall_status=pass for each mode.",
+    )
+    parser.add_argument(
         "--modes",
         nargs="+",
         default=list(DEFAULT_MODES),
@@ -46,6 +57,7 @@ def main() -> int:
         raise SystemExit(f"Structured state not found: {state_path}")
 
     args.root.mkdir(parents=True, exist_ok=True)
+    expected_key_point = (args.expect_key_point_substring or "").strip().lower()
 
     results: list[dict[str, object]] = []
     for mode in args.modes:
@@ -68,6 +80,23 @@ def main() -> int:
             raise SystemExit(f"{mode}: expected evidence refs")
         if response.markdown_sync is None or response.markdown_sync.status != "in_sync":
             raise SystemExit(f"{mode}: expected in_sync markdown status")
+        if expected_key_point and not any(
+            expected_key_point in (key_point.text or "").lower()
+            for key_point in pack.one_page_summary.key_points
+        ):
+            raise SystemExit(
+                f"{mode}: expected key point containing substring {expected_key_point!r}"
+            )
+
+        quality_status = None
+        if args.require_quality_pass:
+            quality_gate_path = meeting_pack_artifact_path(pack.id, "quality_gate.json", args.root)
+            quality_payload = json.loads(quality_gate_path.read_text(encoding="utf-8"))
+            quality_status = str(quality_payload.get("overall_status") or "")
+            if quality_status != "pass":
+                raise SystemExit(
+                    f"{mode}: expected quality_gate overall_status=pass, got {quality_status or 'missing'}"
+                )
 
         results.append(
             {
@@ -77,6 +106,7 @@ def main() -> int:
                 "evidence_refs": len(pack.evidence_refs),
                 "readiness": pack.readiness,
                 "markdown_sync": response.markdown_sync.status,
+                "quality_gate_status": quality_status,
             }
         )
 

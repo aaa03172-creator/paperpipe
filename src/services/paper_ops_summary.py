@@ -34,6 +34,29 @@ def load_stats_check_count(stats_path: Path) -> int:
     return len(checks) if isinstance(checks, list) else 0
 
 
+def artifact_snapshot_from_run_dir(
+    paper_id: str,
+    run_dir: Path,
+) -> ArtifactOperationalSnapshot | None:
+    if not run_dir.exists() or not run_dir.is_dir():
+        return None
+
+    claimset_path = run_dir / "claimset.resolved.json"
+    if not claimset_path.exists():
+        claimset_path = run_dir / "claimset.json"
+    stats_path = run_dir / "stats_report.json"
+    mtime = run_dir.stat().st_mtime
+    return ArtifactOperationalSnapshot(
+        paper_id=paper_id,
+        run_id=run_dir.name,
+        updated_at=datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+        mtime=mtime,
+        has_claimset=claimset_path.exists(),
+        has_stats_report=stats_path.exists(),
+        stats_check_count=load_stats_check_count(stats_path),
+    )
+
+
 def artifact_snapshot_for_paper_id(
     artifacts_path: Path,
     paper_id: str,
@@ -57,20 +80,7 @@ def artifact_snapshot_for_paper_id(
 
     run_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     run_dir = run_dirs[0]
-    claimset_path = run_dir / "claimset.resolved.json"
-    if not claimset_path.exists():
-        claimset_path = run_dir / "claimset.json"
-    stats_path = run_dir / "stats_report.json"
-    mtime = run_dir.stat().st_mtime
-    snapshot = ArtifactOperationalSnapshot(
-        paper_id=paper_id,
-        run_id=run_dir.name,
-        updated_at=datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
-        mtime=mtime,
-        has_claimset=claimset_path.exists(),
-        has_stats_report=stats_path.exists(),
-        stats_check_count=load_stats_check_count(stats_path),
-    )
+    snapshot = artifact_snapshot_from_run_dir(paper_id, run_dir)
     cache[paper_id] = snapshot
     return snapshot
 

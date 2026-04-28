@@ -62,6 +62,13 @@ def _evaluate_case(provider: Any, case: dict[str, Any]) -> dict[str, Any]:
     raw = provider.evaluate_escalation(paper)
     approved = raw.get("approved")
     reason = str(raw.get("reason") or "").strip()
+    in_scope_raw = raw.get("in_biomedical_scope")
+    final_route = str(raw.get("final_route") or "").strip() or None
+    raw_reason_codes = raw.get("reason_codes")
+    if isinstance(raw_reason_codes, list):
+        reason_codes = [str(code).strip() for code in raw_reason_codes if str(code).strip()]
+    else:
+        reason_codes = []
     valid = isinstance(approved, bool) and _is_valid_judge_reason(reason)
     expected = bool(case.get("expected_approved"))
     matched = bool(valid and approved == expected)
@@ -72,6 +79,9 @@ def _evaluate_case(provider: Any, case: dict[str, Any]) -> dict[str, Any]:
         "matched": matched,
         "valid_output": valid,
         "reason": reason,
+        "in_biomedical_scope": in_scope_raw if isinstance(in_scope_raw, bool) else None,
+        "final_route": final_route,
+        "reason_codes": reason_codes,
     }
 
 
@@ -80,6 +90,29 @@ def _summarize(results: list[dict[str, Any]], *, model_name: str | None) -> dict
     invalid = [item for item in results if not item.get("valid_output")]
     mismatches = [item for item in results if item.get("valid_output") and not item.get("matched")]
     approvals = [item for item in results if item.get("approved") is True]
+    route_counts: dict[str, int] = {}
+    reason_code_counts: dict[str, int] = {}
+    in_scope_true = 0
+    in_scope_false = 0
+
+    for item in results:
+        route = item.get("final_route")
+        if isinstance(route, str) and route:
+            route_counts[route] = route_counts.get(route, 0) + 1
+
+        in_scope = item.get("in_biomedical_scope")
+        if in_scope is True:
+            in_scope_true += 1
+        elif in_scope is False:
+            in_scope_false += 1
+
+        for code in item.get("reason_codes") or []:
+            reason_code_counts[code] = reason_code_counts.get(code, 0) + 1
+
+    top_reason_codes = [
+        code for code, _ in sorted(reason_code_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    ]
+
     return {
         "schema_version": "escalation_judge_smoke_result.v1",
         "model": model_name,
@@ -89,6 +122,12 @@ def _summarize(results: list[dict[str, Any]], *, model_name: str | None) -> dict
         "match_count": total - len(invalid) - len(mismatches),
         "mismatch_count": len(mismatches),
         "approved_count": len(approvals),
+        "route_counts": route_counts,
+        "biomedical_scope_counts": {
+            "in_scope": in_scope_true,
+            "out_of_scope": in_scope_false,
+        },
+        "top_reason_codes": top_reason_codes,
         "results": results,
     }
 

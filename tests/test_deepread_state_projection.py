@@ -90,7 +90,13 @@ def test_build_deepread_structured_state_candidate_from_modern_bundle(tmp_path):
             "overall_status": "pass",
             "current_promotion_candidate": True,
             "review_ready": True,
-            "checks": [],
+            "checks": [
+                {
+                    "name": "section_navigation_signal",
+                    "status": "pass",
+                    "detail": "claimset_section_count=1, summary_present=true",
+                }
+            ],
             "reason_codes": [],
         },
     )
@@ -192,11 +198,14 @@ def test_build_deepread_structured_state_candidate_from_modern_bundle(tmp_path):
     assert state.signals["clinical_followup_tag"] == "therapeutic"
     assert state.signals["quality_gate_status"] == "pass"
     assert state.signals["quality_gate_review_ready"] is True
+    assert state.signals["quality_gate_section_navigation_signal"] == "pass"
     assert len(state.claimset) == 1
     assert state.claimset[0].run_id == "run-123"
     assert state.claimset[0].evidence[0].run_id == "run-123"
     assert state.runs[0].data["quality_gate_status"] == "pass"
     assert state.runs[0].data["review_ready"] is True
+    assert state.runs[0].data["section_navigation_signal_status"] == "pass"
+    assert state.runs[0].data["section_navigation_signal_detail"] == "claimset_section_count=1, summary_present=true"
     assert state.runs[0].artifacts["clinical_extraction_path"].endswith("clinical_extraction.json")
     assert state.runs[0].artifacts["context_manifest_path"].endswith("context_manifest.json")
     assert state.runs[0].data["clinical_extraction_status"] == "completed"

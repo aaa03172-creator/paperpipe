@@ -14,6 +14,7 @@ from src.llm_provider import LLMProvider, get_llm_provider
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.schemas.agent_artifacts import ClaimSet, EvidenceSpan, ScientificClaim
 from src.services.citation_grounding import find_text_location
+from src.skills.storage import atomic_write_text
 
 
 SYSTEM_PROMPT = """You are a conservative teacher reviewer for scientific claim extraction.
@@ -150,11 +151,11 @@ def review_teacher_bundle(
     meta_path = bundle.bundle_dir / meta_name
     raw_path = bundle.bundle_dir / "teacher_output.raw.txt"
 
-    raw_path.write_text(raw_response, encoding="utf-8")
+    atomic_write_text(raw_path, raw_response)
     if claimset is None:
         raise RuntimeError(f"teacher_review_failed={last_error}")
 
-    output_path.write_text(json.dumps(claimset.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(output_path, json.dumps(claimset.model_dump(), ensure_ascii=False, indent=2))
 
     model_name = "unknown"
     if provider_obj is not None and hasattr(provider_obj, "_get_model"):
@@ -179,7 +180,7 @@ def review_teacher_bundle(
         "claim_count": len(claimset.claims),
         "prompt_version": "teacher_local_v1",
     }
-    meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(meta_path, json.dumps(meta_payload, ensure_ascii=False, indent=2))
 
     return {
         "bundle": bundle,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.skills.storage import atomic_write_text
 from src.schemas.deepread_handoff import (
     DeepReadAcceptanceCheck,
     DeepReadAcceptanceContract,
@@ -122,6 +123,12 @@ def build_deepread_quality_gate(
     reader_eval_approx_span_count = int(bootstrap_meta.get("reader_eval_approx_span_count") or 0)
     reader_eval_unresolved_span_count = int(bootstrap_meta.get("reader_eval_unresolved_span_count") or 0)
     reader_eval_ambiguous_span_count = int(bootstrap_meta.get("reader_eval_ambiguous_span_count") or 0)
+    claimset_section_count = int(
+        bootstrap_meta.get("claimset_section_count")
+        or run_meta.get("section_count")
+        or 0
+    )
+    has_section_navigation_signal = bool(claimset_section_count > 0 or run_meta.get("section_summary"))
     used_heuristic_fallback = bool(raw_analysis.get("used_heuristic_fallback"))
     return_mode = str(raw_analysis.get("return_mode") or "").strip().lower() or None
     reader_timeout_triggered = bool(
@@ -234,6 +241,14 @@ def build_deepread_quality_gate(
                     f"unresolved={reader_eval_unresolved_span_count}, "
                     f"ambiguous={reader_eval_ambiguous_span_count}"
                 )
+            ),
+        ),
+        DeepReadQualityGateCheck(
+            name="section_navigation_signal",
+            status="pass" if has_section_navigation_signal else "warn",
+            detail=(
+                f"claimset_section_count={claimset_section_count}, "
+                f"summary_present={str(bool(run_meta.get('section_summary'))).lower()}"
             ),
         ),
         DeepReadQualityGateCheck(
@@ -421,15 +436,15 @@ def write_deepread_handoff_artifacts(
 
     contract_path = artifact_dir / "acceptance_contract.json"
     quality_gate_path = artifact_dir / "quality_gate.json"
-    contract_path.write_text(contract.model_dump_json(indent=2), encoding="utf-8")
-    quality_gate_path.write_text(quality_gate.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write_text(contract_path, contract.model_dump_json(indent=2))
+    atomic_write_text(quality_gate_path, quality_gate.model_dump_json(indent=2))
     written_paths = {
         "acceptance_contract_path": str(contract_path),
         "quality_gate_path": str(quality_gate_path),
     }
     if context_manifest is not None:
         context_manifest_path = artifact_dir / "context_manifest.json"
-        context_manifest_path.write_text(context_manifest.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(context_manifest_path, context_manifest.model_dump_json(indent=2))
         written_paths["context_manifest_path"] = str(context_manifest_path)
     return written_paths
 
