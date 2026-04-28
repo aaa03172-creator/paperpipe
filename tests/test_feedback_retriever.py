@@ -1,3 +1,4 @@
+import json
 import pytest
 import os
 import shutil
@@ -78,3 +79,24 @@ def test_add_and_retrieve_feedback(retriever):
     results = retriever.query_relevant_feedback("safety error handling", limit=2)
     assert len(results) == 1
     assert results[0]["paper_id"] == "paper_2"
+
+
+def test_add_feedback_sanitizes_secret_like_text_before_index(retriever):
+    case = FeedbackCase(
+        paper_id="paper_secret_feedback",
+        run_id="run_secret_feedback",
+        accepted=True,
+        user_correction=(
+            "Correct extraction, but never reuse Authorization: Bearer index-feedback-token-123 "
+            "or sk-proj-index-feedback-secret-abcdef."
+        ),
+    )
+
+    assert retriever.add_feedback(case) is True
+
+    rows = [line for line in retriever._index_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    saved = json.loads(rows[-1])
+    assert "index-feedback-token-123" not in saved["document"]
+    assert "sk-proj-index-feedback-secret-abcdef" not in saved["document"]
+    assert saved["document"] == "Correct extraction, but never reuse Authorization: <redacted> or <redacted>."
+    assert saved["metadata"]["preview"] == saved["document"]

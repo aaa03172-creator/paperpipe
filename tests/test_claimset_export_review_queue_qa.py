@@ -62,7 +62,7 @@ def test_exporter_renders_claimset_section(tmp_path: Path):
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
 
-    target = tmp_path / "Inbox" / "PaperPipe" / "claimset_001.md"
+    target = tmp_path / "Inbox" / "PaperPipe" / "ClaimSet Paper.md"
     content = target.read_text(encoding="utf-8")
 
     assert "## Critical Review (ClaimSet)" in content
@@ -87,7 +87,7 @@ def test_exporter_invalid_json_falls_back_to_unavailable(tmp_path: Path):
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
     assert ok is True
 
-    target = tmp_path / "Inbox" / "PaperPipe" / "bad_json_001.md"
+    target = tmp_path / "Inbox" / "PaperPipe" / "Broken.md"
     content = target.read_text(encoding="utf-8")
     assert "## Critical Review (ClaimSet)" in content
     assert "ClaimSet: unavailable" in content
@@ -195,21 +195,22 @@ def test_qa_counts_missing_claimset_correctly(tmp_path: Path, monkeypatch):
             summary TEXT,
             feedback_json TEXT,
             pdf_path TEXT,
+            obsidian_path TEXT,
             gate_reason TEXT
         )
         """
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("p_claims", "Has claims", "APPROVED", "s", '{"claims":[{"statement":"ok"}]}', "/tmp/a.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("p_claims", "Has claims", "APPROVED", "s", '{"claims":[{"statement":"ok"}]}', "/tmp/a.pdf", "Inbox/PaperPipe/p_claims.md"),
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("p_missing", "Missing claims", "APPROVED", "s", '{"soft_tags":["#A"]}', "/tmp/b.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("p_missing", "Missing claims", "APPROVED", "s", '{"soft_tags":["#A"]}', "/tmp/b.pdf", "Inbox/PaperPipe/p_missing.md"),
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("p_invalid", "Invalid json", "INDEXED", "s", "{bad json", "/tmp/c.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("p_invalid", "Invalid json", "INDEXED", "s", "{bad json", "/tmp/c.pdf", "Inbox/PaperPipe/p_invalid.md"),
     )
     conn.commit()
     conn.close()
@@ -247,17 +248,18 @@ def test_qa_excludes_test_fixture_records_from_operational_claimset_count(tmp_pa
             summary TEXT,
             feedback_json TEXT,
             pdf_path TEXT,
+            obsidian_path TEXT,
             gate_reason TEXT
         )
         """
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("local--x", "fixture", "APPROVED", "s", '{"soft_tags":["#A"]}', "tests/integration_env/watch_folder/test_paper.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("local--x", "fixture", "APPROVED", "s", '{"soft_tags":["#A"]}', "tests/integration_env/watch_folder/test_paper.pdf", "Inbox/PaperPipe/local--x.md"),
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("real_missing", "real", "APPROVED", "s", '{"soft_tags":["#A"]}', "/tmp/real.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("real_missing", "real", "APPROVED", "s", '{"soft_tags":["#A"]}', "/tmp/real.pdf", "Inbox/PaperPipe/real_missing.md"),
     )
     conn.commit()
     conn.close()
@@ -289,17 +291,18 @@ def test_qa_excludes_test_fixture_from_summary_and_file_counts(tmp_path: Path, m
             summary TEXT,
             feedback_json TEXT,
             pdf_path TEXT,
+            obsidian_path TEXT,
             gate_reason TEXT
         )
         """
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("local--fixture", "fixture", "APPROVED", None, '{"claims":[{"statement":"x"}]}', "tests/integration_env/watch_folder/test_paper.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("local--fixture", "fixture", "APPROVED", None, '{"claims":[{"statement":"x"}]}', "tests/integration_env/watch_folder/test_paper.pdf", "Inbox/PaperPipe/local--fixture.md"),
     )
     conn.execute(
-        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path) VALUES (?, ?, ?, ?, ?, ?)",
-        ("real_ok", "real", "APPROVED", "summary", '{"claims":[{"statement":"x"}]}', "/tmp/real.pdf"),
+        "INSERT INTO papers (paper_id, title, status, summary, feedback_json, pdf_path, obsidian_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("real_ok", "real", "APPROVED", "summary", '{"claims":[{"statement":"x"}]}', "/tmp/real.pdf", "Inbox/PaperPipe/real_ok.md"),
     )
     conn.commit()
     conn.close()
