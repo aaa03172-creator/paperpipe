@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from scripts.backfill_deepread_handoff_artifacts import resolve_run_dirs, run_backfill
@@ -129,11 +131,20 @@ def test_run_backfill_deepread_handoff_dry_run_and_apply(tmp_path: Path) -> None
     quality_gate_after_dry = json.loads((run_dir / "quality_gate.json").read_text(encoding="utf-8"))
     assert quality_gate_after_dry["schema_version"] == "2026-03-27.deepread-handoff.v1"
 
-    applied = run_backfill(run_dirs=[run_dir], apply_changes=True)
+    backup_dir = tmp_path / "backups"
+    applied = run_backfill(
+        run_dirs=[run_dir],
+        apply_changes=True,
+        artifacts_root=tmp_path / "artifacts",
+        backup_dir=backup_dir,
+    )
     assert applied.runs_updated == 1
+    assert applied.files_backed_up == 3
     assert applied.acceptance_contract_updated == 1
     assert applied.quality_gate_updated == 1
     assert applied.context_manifest_updated == 1
+    backup_quality_gate = json.loads((backup_dir / "paper-a" / "run-1" / "quality_gate.json").read_text(encoding="utf-8"))
+    assert backup_quality_gate["schema_version"] == "2026-03-27.deepread-handoff.v1"
 
     acceptance_contract = json.loads((run_dir / "acceptance_contract.json").read_text(encoding="utf-8"))
     quality_gate = json.loads((run_dir / "quality_gate.json").read_text(encoding="utf-8"))
@@ -194,3 +205,26 @@ def test_resolve_run_dirs_supports_manifest_and_filters(tmp_path: Path) -> None:
     )
 
     assert resolved == [run_a.resolve()]
+
+
+def test_cli_reports_missing_run_files_without_traceback(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    missing_run = tmp_path / "missing-run"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "backfill_deepread_handoff_artifacts.py"),
+            "--run-dir",
+            str(missing_run),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["error"] == "missing_run_files"
