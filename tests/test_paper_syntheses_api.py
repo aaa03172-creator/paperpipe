@@ -2,17 +2,46 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+import src.db_utils as db_utils
 from backend import main as api_main
 from backend.routers import paper_syntheses as paper_syntheses_router
+from src.services.event_log import list_request_audits
 
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _init_temp_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    db_utils.init_db()
+    conn = sqlite3.connect(db_utils.DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'NEW',
+            pdf_path TEXT,
+            summary TEXT,
+            feedback_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+    return original_db_path
 
 
 def _write_note(vault_path: Path, slug: str, *, note_id: str, title: str) -> None:
@@ -150,67 +179,81 @@ def _write_run(artifacts_root: Path, paper_id: str, run_id: str, *, statement: s
 
 
 def test_paper_syntheses_api_generate_roundtrip_with_note_id_artifact_resolution(tmp_path, monkeypatch):
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
     vault_dir = tmp_path / "vault"
     artifacts_root = tmp_path / "artifacts"
     output_root = tmp_path / "paper_syntheses"
     vault_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_note(vault_dir, "paper-alpha", note_id="doi:10.1000/a", title="Alpha Trial")
+        _write_run(artifacts_root, "doi:10.1000/a", "run-current")
 
-    _write_note(vault_dir, "paper-alpha", note_id="doi:10.1000/a", title="Alpha Trial")
-    _write_run(artifacts_root, "doi:10.1000/a", "run-current")
+        monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("PAPERPIPE_PAPER_SYNTHESES_DIR", str(output_root))
+        monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+        monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+        config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+        monkeypatch.setattr(paper_syntheses_router, "load_config", lambda: config)
 
-    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
-    monkeypatch.setenv("PAPERPIPE_PAPER_SYNTHESES_DIR", str(output_root))
-    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
-    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
-    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
-    monkeypatch.setattr(paper_syntheses_router, "load_config", lambda: config)
+        client = TestClient(api_main.app)
+        created = client.post("/paper-syntheses/generate", json={"paper_slug": "paper-alpha"})
+        assert created.status_code == 200
+        payload = created.json()
+        synthesis_id = payload["synthesis"]["synthesis_id"]
 
-    client = TestClient(api_main.app)
-    created = client.post("/paper-syntheses/generate", json={"paper_slug": "paper-alpha"})
-    assert created.status_code == 200
-    payload = created.json()
-    synthesis_id = payload["synthesis"]["synthesis_id"]
+        assert payload["synthesis"]["paper_slug"] == "paper-alpha"
+        assert payload["synthesis"]["artifact_family"] == "paper_synthesis"
+        assert payload["synthesis"]["template_kind"] == "paper"
+        assert payload["synthesis"]["readiness"] == "evidence_backed"
+        assert payload["synthesis"]["canonical_status"] == "non_canonical"
+        assert payload["synthesis"]["lineage_summary"]["minimum_required_source_kinds"] == [
+            "structured_state",
+            "claimset_resolved",
+            "run_meta",
+        ]
+        assert payload["synthesis"]["lineage_summary"]["present_required_source_kinds"] == [
+            "structured_state",
+            "claimset_resolved",
+            "run_meta",
+        ]
+        assert payload["synthesis"]["lineage_summary"]["answer_route"] == "canonical_state_then_upstream_evidence"
+        assert payload["synthesis"]["lineage_summary"]["review_artifact_kinds"] == []
+        assert {item["kind"] for item in payload["synthesis"]["source_refs"]} >= {
+            "structured_state",
+            "claimset_resolved",
+            "run_meta",
+        }
+        assert "Promoted biomedical answers must jump back" in payload["markdown"]
+        assert (output_root / synthesis_id / "paper_synthesis.json").exists()
+        assert (output_root / synthesis_id / "paper_synthesis.md").exists()
 
-    assert payload["synthesis"]["paper_slug"] == "paper-alpha"
-    assert payload["synthesis"]["artifact_family"] == "paper_synthesis"
-    assert payload["synthesis"]["template_kind"] == "paper"
-    assert payload["synthesis"]["readiness"] == "evidence_backed"
-    assert payload["synthesis"]["canonical_status"] == "non_canonical"
-    assert payload["synthesis"]["lineage_summary"]["minimum_required_source_kinds"] == [
-        "structured_state",
-        "claimset_resolved",
-        "run_meta",
-    ]
-    assert payload["synthesis"]["lineage_summary"]["present_required_source_kinds"] == [
-        "structured_state",
-        "claimset_resolved",
-        "run_meta",
-    ]
-    assert payload["synthesis"]["lineage_summary"]["answer_route"] == "canonical_state_then_upstream_evidence"
-    assert payload["synthesis"]["lineage_summary"]["review_artifact_kinds"] == []
-    assert {item["kind"] for item in payload["synthesis"]["source_refs"]} >= {
-        "structured_state",
-        "claimset_resolved",
-        "run_meta",
-    }
-    assert "Promoted biomedical answers must jump back" in payload["markdown"]
-    assert (output_root / synthesis_id / "paper_synthesis.json").exists()
-    assert (output_root / synthesis_id / "paper_synthesis.md").exists()
+        fetched = client.get(f"/paper-syntheses/{synthesis_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["synthesis"]["synthesis_id"] == synthesis_id
+        assert fetched.headers.get("PaperPipe-Compatibility-Route") == "paper_synthesis_bundle"
+        assert fetched.headers.get("PaperPipe-Preferred-Manifest-Route") == f"/paper-syntheses/{synthesis_id}/manifest"
+        assert fetched.headers.get("PaperPipe-Preferred-Markdown-Route") == f"/paper-syntheses/{synthesis_id}/markdown"
+        audits = list_request_audits(
+            path=f"/paper-syntheses/{synthesis_id}",
+            source="compatibility_route",
+            limit=10,
+        )
+        assert len(audits) == 1
+        assert audits[0]["outcome"] == "deprecated_bundle_read"
+        assert audits[0]["payload"]["synthesis_id"] == synthesis_id
+        assert audits[0]["payload"]["preferred_manifest_route"] == f"/paper-syntheses/{synthesis_id}/manifest"
+        assert audits[0]["payload"]["preferred_markdown_route"] == f"/paper-syntheses/{synthesis_id}/markdown"
 
-    fetched = client.get(f"/paper-syntheses/{synthesis_id}")
-    assert fetched.status_code == 200
-    assert fetched.json()["synthesis"]["synthesis_id"] == synthesis_id
-    assert fetched.headers.get("PaperPipe-Compatibility-Route") == "paper_synthesis_bundle"
-    assert fetched.headers.get("PaperPipe-Preferred-Manifest-Route") == f"/paper-syntheses/{synthesis_id}/manifest"
-    assert fetched.headers.get("PaperPipe-Preferred-Markdown-Route") == f"/paper-syntheses/{synthesis_id}/markdown"
-    manifest = client.get(f"/paper-syntheses/{synthesis_id}/manifest")
-    assert manifest.status_code == 200
-    assert manifest.json()["synthesis_id"] == synthesis_id
-    assert manifest.json()["lineage_summary"]["answer_route"] == "canonical_state_then_upstream_evidence"
+        manifest = client.get(f"/paper-syntheses/{synthesis_id}/manifest")
+        assert manifest.status_code == 200
+        assert manifest.json()["synthesis_id"] == synthesis_id
+        assert manifest.json()["lineage_summary"]["answer_route"] == "canonical_state_then_upstream_evidence"
 
-    markdown = client.get(f"/paper-syntheses/{synthesis_id}/markdown")
-    assert markdown.status_code == 200
-    assert markdown.text.startswith("---\nartifact_family: paper_synthesis\n")
+        markdown = client.get(f"/paper-syntheses/{synthesis_id}/markdown")
+        assert markdown.status_code == 200
+        assert markdown.text.startswith("---\nartifact_family: paper_synthesis\n")
+    finally:
+        db_utils.DB_PATH = original_db_path
 
 
 def test_paper_syntheses_openapi_marks_bundle_route_as_compatibility_fetch(tmp_path, monkeypatch):
@@ -311,14 +354,24 @@ def test_paper_syntheses_api_can_filter_by_paper_slug(tmp_path, monkeypatch):
 
 def test_paper_syntheses_api_returns_404_when_missing(tmp_path, monkeypatch):
     output_root = tmp_path / "paper_syntheses"
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("PAPERPIPE_PAPER_SYNTHESES_DIR", str(output_root))
     monkeypatch.delenv("LATTICE_API_KEY", raising=False)
     monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
 
-    client = TestClient(api_main.app)
-    response = client.get("/paper-syntheses/papersynth_missing")
+    try:
+        client = TestClient(api_main.app)
+        response = client.get("/paper-syntheses/papersynth_missing")
 
-    assert response.status_code == 404
+        assert response.status_code == 404
+        audits = list_request_audits(
+            path="/paper-syntheses/papersynth_missing",
+            source="compatibility_route",
+            limit=10,
+        )
+        assert audits == []
+    finally:
+        db_utils.DB_PATH = original_db_path
 
 
 def test_paper_syntheses_api_generate_rejects_fixture_structured_state_by_default(tmp_path, monkeypatch):

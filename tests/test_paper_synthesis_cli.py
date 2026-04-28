@@ -170,3 +170,53 @@ def test_paper_synthesis_cli_markdown_flag_prints_frontmatter(tmp_path, monkeypa
     result = runner.invoke(cli.app, ["paper-synthesis-generate", "paper-alpha", "--markdown"])
     assert result.exit_code == 0
     assert result.output.startswith("---\nartifact_family: paper_synthesis\n")
+
+
+def test_paper_synthesis_cli_manifest_flag_prints_structured_manifest_only(tmp_path, monkeypatch):
+    runner = CliRunner()
+    vault_dir = tmp_path / "vault"
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "paper_syntheses"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_note(vault_dir, "paper-alpha", note_id="paper-alpha", title="Alpha Trial")
+    _write_run(artifacts_root, "paper-alpha", "run-current")
+
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+    monkeypatch.setenv("PAPERPIPE_PAPER_SYNTHESES_DIR", str(output_root))
+    monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)))
+
+    generated_result = runner.invoke(cli.app, ["paper-synthesis-generate", "paper-alpha", "--manifest"])
+    assert generated_result.exit_code == 0
+    generated = _last_json_block(generated_result.output)
+    assert generated["artifact_family"] == "paper_synthesis"
+    assert generated["canonical_status"] == "non_canonical"
+    assert "source_refs" in generated
+    assert "markdown" not in generated
+
+    synthesis_id = generated["synthesis_id"]
+    shown_result = runner.invoke(cli.app, ["paper-synthesis-show", synthesis_id, "--manifest"])
+    assert shown_result.exit_code == 0
+    shown = _last_json_block(shown_result.output)
+    assert shown["synthesis_id"] == synthesis_id
+    assert shown["lineage_summary"]["answer_route"] == "canonical_state_then_upstream_evidence"
+    assert "markdown" not in shown
+
+
+def test_paper_synthesis_cli_rejects_manifest_and_markdown_together(tmp_path, monkeypatch):
+    runner = CliRunner()
+    vault_dir = tmp_path / "vault"
+    artifacts_root = tmp_path / "artifacts"
+    output_root = tmp_path / "paper_syntheses"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_note(vault_dir, "paper-alpha", note_id="paper-alpha", title="Alpha Trial")
+    _write_run(artifacts_root, "paper-alpha", "run-current")
+
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+    monkeypatch.setenv("PAPERPIPE_PAPER_SYNTHESES_DIR", str(output_root))
+    monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)))
+
+    result = runner.invoke(cli.app, ["paper-synthesis-generate", "paper-alpha", "--manifest", "--markdown"])
+    assert result.exit_code != 0
+    assert "Choose only one of --manifest or --markdown" in result.output

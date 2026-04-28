@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from src.services.fixture_visibility import (
     fixture_structured_state_allowed,
     is_test_fixture_structured_state,
 )
+from src.services.listing_resilience import load_available_items
 from src.services.runtime_paths import artifacts_root as default_artifacts_root
 from src.services.runtime_paths import preferred_artifact_paper_dir
 from src.skills.storage import (
@@ -43,6 +45,9 @@ from src.skills.storage import (
     split_frontmatter,
     structured_state_path,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -291,7 +296,12 @@ def list_paper_synthesis_summaries(
     root: Path | None = None,
     paper_slug: str | None = None,
 ) -> list[PaperSynthesis]:
-    items = [load_paper_synthesis(synthesis_id, root) for synthesis_id in list_paper_synthesis_ids(root)]
+    items = load_available_items(
+        list_paper_synthesis_ids(root),
+        lambda synthesis_id: load_paper_synthesis(synthesis_id, root),
+        item_kind="paper synthesis",
+        logger=logger,
+    )
     normalized_slug = str(paper_slug or "").strip()
     if normalized_slug:
         items = [item for item in items if item.paper_slug == normalized_slug]

@@ -117,6 +117,11 @@ def test_method_comparisons_api_generate_roundtrip_and_csv_export(tmp_path, monk
     assert fetched.status_code == 200
     assert fetched.json()["comparison"]["comparison_id"] == "methodcmp_api_demo"
 
+    markdown = client.get("/method-comparisons/methodcmp_api_demo/markdown")
+    assert markdown.status_code == 200
+    assert markdown.headers["content-type"].startswith("text/plain")
+    assert "## Comparison" in markdown.text
+
     exported = client.get("/method-comparisons/methodcmp_api_demo/export.csv")
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith("text/csv")
@@ -198,3 +203,4 @@ def test_method_comparisons_api_returns_404_when_comparison_missing(tmp_path, mo
     response = client.get("/method-comparisons/methodcmp_missing")
 
     assert response.status_code == 404
+    assert client.get("/method-comparisons/methodcmp_missing/markdown").status_code == 404
