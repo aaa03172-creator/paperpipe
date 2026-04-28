@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 from src.meeting_packs.service import generate_meeting_pack
 from src.meeting_packs.store import meeting_pack_markdown_path
@@ -56,7 +57,7 @@ def _write_state(vault_path: Path, slug: str) -> None:
 
 def _run_storage_sync(*, root: Path, vault_path: Path, require_regenerable: bool = True) -> subprocess.CompletedProcess[str]:
     command = [
-        "python3",
+        sys.executable,
         "scripts/check_meeting_pack_storage_sync.py",
         "--root",
         str(root),

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from src.image_evidence.service import get_image_evidence_bundle, register_image_evidence
-from src.image_evidence.store import load_image_derivative_bytes, save_image_derivative_bytes
+from src.image_evidence.store import load_image_derivative_bytes
 from src.schemas.image_evidence import ImageEvidenceRequest
 
 
@@ -33,10 +33,19 @@ def test_image_evidence_fixture_hardening_replays_recorded_cases(tmp_path) -> No
     mismatch_request = _load_request("checksum_mismatch", raw_path=local_raw)
 
     fixed_now = datetime(2026, 3, 22, 18, 0, 0, tzinfo=timezone.utc)
-    local_first = register_image_evidence(request=local_request, root=output_root, now=fixed_now)
-    save_image_derivative_bytes("img_fixture_local", "thumb_local", local_thumb, root=output_root)
-    local_second = register_image_evidence(request=local_request, root=output_root, now=fixed_now)
-    save_image_derivative_bytes("img_fixture_local", "thumb_local", local_thumb, root=output_root)
+    local_derivative_artifacts = {"derivatives/thumb_local.png": local_thumb}
+    local_first = register_image_evidence(
+        request=local_request,
+        derivative_artifacts=local_derivative_artifacts,
+        root=output_root,
+        now=fixed_now,
+    )
+    local_second = register_image_evidence(
+        request=local_request,
+        derivative_artifacts=local_derivative_artifacts,
+        root=output_root,
+        now=fixed_now,
+    )
     external_result = register_image_evidence(
         request=external_request,
         root=output_root,
