@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -13,6 +15,7 @@ VALID_HIGHLIGHT_SOURCES = {"bbox", "text_match", "approx"}
 class BackfillStats:
     files_scanned: int
     files_updated: int
+    files_backed_up: int
     claims_scanned: int
     spans_scanned: int
     spans_updated: int
@@ -91,15 +94,33 @@ def collect_claimset_files(
     return candidates
 
 
+def _default_backup_dir(artifacts_root: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return artifacts_root.parent / "_artifact_backups" / f"highlight_source_{stamp}"
+
+
+def _backup_file(file_path: Path, *, artifacts_root: Path, backup_dir: Path) -> Path:
+    try:
+        relative_path = file_path.resolve().relative_to(artifacts_root.resolve())
+    except ValueError:
+        relative_path = Path(file_path.name)
+    target = backup_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(file_path, target)
+    return target
+
+
 def run_backfill(
     artifacts_root: Path,
     *,
     apply_changes: bool,
     include_legacy: bool,
     paper_ids: set[str] | None = None,
+    backup_dir: Path | None = None,
 ) -> BackfillStats:
     files_scanned = 0
     files_updated = 0
+    files_backed_up = 0
     claims_scanned = 0
     spans_scanned = 0
     spans_updated = 0
@@ -124,11 +145,16 @@ def run_backfill(
             files_updated += 1
             print(f"[UPDATE] {file_path} spans_updated={file_updated_spans}")
             if apply_changes:
+                if backup_dir is not None:
+                    backup_path = _backup_file(file_path, artifacts_root=artifacts_root, backup_dir=backup_dir)
+                    files_backed_up += 1
+                    print(f"[BACKUP] {backup_path}")
                 file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     return BackfillStats(
         files_scanned=files_scanned,
         files_updated=files_updated,
+        files_backed_up=files_backed_up,
         claims_scanned=claims_scanned,
         spans_scanned=spans_scanned,
         spans_updated=spans_updated,
@@ -154,22 +180,37 @@ def main() -> int:
         default=[],
         help="Optional paper_id filter. Can be passed multiple times.",
     )
+    parser.add_argument(
+        "--backup-dir",
+        default="",
+        help=(
+            "Backup directory for original artifact JSON files when --apply is used. "
+            "Auto-generated under the artifacts parent when omitted."
+        ),
+    )
     args = parser.parse_args()
 
     artifacts_root = Path(args.artifacts_root).expanduser()
     paper_ids = {item.strip() for item in args.paper_id if item.strip()} or None
+    backup_dir = None
+    if args.apply:
+        backup_dir = Path(args.backup_dir).expanduser() if args.backup_dir else _default_backup_dir(artifacts_root)
     stats = run_backfill(
         artifacts_root,
         apply_changes=bool(args.apply),
         include_legacy=bool(args.include_legacy),
         paper_ids=paper_ids,
+        backup_dir=backup_dir,
     )
 
     print(f"[SUMMARY] files_scanned={stats.files_scanned}")
     print(f"[SUMMARY] files_updated={stats.files_updated}")
+    print(f"[SUMMARY] files_backed_up={stats.files_backed_up}")
     print(f"[SUMMARY] claims_scanned={stats.claims_scanned}")
     print(f"[SUMMARY] spans_scanned={stats.spans_scanned}")
     print(f"[SUMMARY] spans_updated={stats.spans_updated}")
+    if backup_dir is not None:
+        print(f"[SUMMARY] backup_dir={backup_dir}")
     if not args.apply:
         print("[SUMMARY] dry-run complete (no files written)")
     return 0
