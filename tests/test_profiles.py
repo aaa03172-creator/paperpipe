@@ -77,6 +77,38 @@ class TestProfileSystem(unittest.TestCase):
         errors = validate_profile(risky)
         self.assertEqual(len(errors), 1)
         self.assertIn("RISK", errors[0])
+        self.assertIn("fibrosis", errors[0])
+        self.assertNotIn("microglia", errors[0])
+
+    def test_risk_rules_accepts_oncology_anchor(self):
+        oncology = Profile(
+            id="oncology_test",
+            title="Oncology Test",
+            query=QuerySpec(
+                must=["mouse", "tumor"]
+            )
+        )
+        self.assertEqual(validate_profile(oncology), [])
+
+    def test_risk_rules_accepts_immunology_anchor(self):
+        immunology = Profile(
+            id="immunology_test",
+            title="Immunology Test",
+            query=QuerySpec(
+                must=["therapy", "t cell"]
+            )
+        )
+        self.assertEqual(validate_profile(immunology), [])
+
+    def test_risk_rules_accepts_biomaterials_anchor(self):
+        biomaterials = Profile(
+            id="biomaterials_test",
+            title="Biomaterials Test",
+            query=QuerySpec(
+                must=["drug", "biomaterial"]
+            )
+        )
+        self.assertEqual(validate_profile(biomaterials), [])
 
     def test_store_io(self):
         """Test save and load."""

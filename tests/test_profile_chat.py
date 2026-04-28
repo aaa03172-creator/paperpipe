@@ -34,10 +34,14 @@ class TestProfileChat(unittest.TestCase):
         
         agent = ProfileChatAgent()
         patch = agent.generate_patch(self.profile, "Add neuron")
+        prompt = mock_instance.generate.call_args[0][0]
         
         self.assertEqual(patch.target_profile_id, "test_profile")
         self.assertEqual(len(patch.ops), 1)
         self.assertEqual(patch.ops[0].value, "neuron")
+        self.assertIn("biomaterial scaffold", prompt)
+        self.assertIn("fibrosis", prompt)
+        self.assertNotIn("microglia", prompt)
 
     @patch("src.agents.profile_chat_agent.load_config")
     @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
