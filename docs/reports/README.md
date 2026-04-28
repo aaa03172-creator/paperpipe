@@ -52,6 +52,7 @@ Then use the older 2026-03 notes only as baseline, release-gate, or packaging co
   - `Slot_Classification_Runtime_Boundary_Clarification_Patch_2026-04-24.md`
   - `Slot_Classification_Post_Promotion_Stability_2026-04-25.md`
   - `Slot_Classification_Review_Resource_Boundary_Companion_2026-04-26.md`
+  - `Slot_Classification_Real_Paper_Review_Resource_Followup_2026-04-29.md`
   - `Slot_Classification_Prompt_Candidate_Review_Checklist_2026-04-24.md`
   - `Slot_Classification_Hard_Case_Adjudication_Rule_2026-04-24.md`
   - `Slot_Classification_Rerun_Stability_Followup_2026-04-24.md`
