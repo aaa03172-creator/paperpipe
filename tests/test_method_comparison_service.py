@@ -86,6 +86,10 @@ def test_generate_method_comparison_saves_json_csv_and_markdown(tmp_path, monkey
     )
 
     assert result.comparison.comparison_id == "methodcmp_service_demo"
+    assert result.comparison.layer == "user_facing_artifact"
+    assert result.comparison.canonical_status == "non_canonical"
+    assert result.comparison.readiness == "evidence_backed"
+    assert result.comparison.freshness == "unknown"
     assert [row.paper_slug for row in result.comparison.rows] == ["paper-alpha", "paper-beta"]
     assert [row.title for row in result.comparison.rows] == ["Alpha Trial", "Beta Trial"]
     assert [column.field_id for column in result.comparison.columns] == [
@@ -96,7 +100,11 @@ def test_generate_method_comparison_saves_json_csv_and_markdown(tmp_path, monkey
     ]
     assert "paper_id,paper_slug,citekey,title,intervention,intervention__status,intervention__refs" in result.csv_text
     assert "Alpha Trial" in result.markdown
+    assert "- Layer: user_facing_artifact" in result.markdown
+    assert "- Readiness: evidence_backed" in result.markdown
+    assert "- Freshness: unknown" in result.markdown
     assert "Ketone ester (explicit)" in result.markdown
+    assert "Promoted biomedical answers must jump back" in result.markdown
 
     loaded = get_method_comparison("methodcmp_service_demo", root=output_root)
     assert loaded.comparison.model_dump(mode="json") == result.comparison.model_dump(mode="json")
@@ -283,6 +291,7 @@ def test_generate_method_comparison_allows_explicit_slug_fallback_with_warning(t
 
     assert result.comparison.rows[0].paper_slug == "paper-001"
     assert result.comparison.warnings == ["paper_slug unresolved for paper-001; using paper_id as fallback."]
+    assert result.comparison.readiness == "mixed"
 
 
 def test_generate_method_comparison_is_deterministic_for_row_and_column_order(tmp_path) -> None:

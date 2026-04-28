@@ -72,6 +72,16 @@ def get_method_comparison_route(comparison_id: str) -> MethodComparisonResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/{comparison_id}/markdown", response_class=PlainTextResponse)
+def get_method_comparison_markdown_route(comparison_id: str) -> PlainTextResponse:
+    try:
+        return PlainTextResponse(get_method_comparison(comparison_id).markdown)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{comparison_id}/export.csv", response_class=PlainTextResponse)
 def get_method_comparison_csv_route(comparison_id: str) -> PlainTextResponse:
     try:

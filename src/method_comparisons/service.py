@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,11 @@ from src.schemas.method_comparison import (
     MethodComparisonRequest,
     build_method_comparison_columns,
 )
+from src.services.listing_resilience import load_available_items
 from src.skills.storage import resolve_note_path, resolve_note_slug_by_paper_id, safe_read_text, split_frontmatter
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,11 +88,15 @@ def generate_method_comparison(
             )
         )
 
+    warnings = _dedupe_non_empty_strings([*warnings, *_build_row_warnings(rows)])
+
     comparison = MethodComparison(
         comparison_id=request.comparison_id or _new_method_comparison_id(request.paper_ids, request.field_ids, now),
         title=request.title or _default_comparison_title(rows),
         created_at=request.created_at or now,
         generated_at=now,
+        readiness=_resolve_readiness(rows=rows, warnings=warnings),
+        freshness=_resolve_freshness(rows),
         paper_ids=list(request.paper_ids),
         columns=build_method_comparison_columns(request.field_ids),
         rows=rows,
@@ -114,7 +123,12 @@ def get_method_comparison(comparison_id: str, *, root: Path | None = None) -> Me
 
 
 def list_method_comparison_summaries(*, root: Path | None = None) -> list[MethodComparison]:
-    items = [load_method_comparison(comparison_id, root) for comparison_id in list_method_comparison_ids(root)]
+    items = load_available_items(
+        list_method_comparison_ids(root),
+        lambda comparison_id: load_method_comparison(comparison_id, root),
+        item_kind="method comparison",
+        logger=logger,
+    )
     return sorted(
         items,
         key=lambda item: (item.generated_at or item.created_at, item.comparison_id),
@@ -219,6 +233,51 @@ def _new_method_comparison_id(
 ) -> str:
     digest = sha1("|".join([*paper_ids, *field_ids]).encode("utf-8")).hexdigest()[:8]
     return f"methodcmp_{now.strftime('%Y%m%dT%H%M%SZ')}_{digest}"
+
+
+def _build_row_warnings(rows: list[Any]) -> list[str]:
+    warnings: list[str] = []
+    conflict_count = sum(
+        1
+        for row in rows
+        for cell in row.cells
+        if cell.status == "conflict"
+    )
+    if conflict_count:
+        warnings.append(
+            f"Comparison includes {conflict_count} conflict cell(s); keep disagreements explicit before promotion."
+        )
+    return warnings
+
+
+def _resolve_readiness(*, rows: list[Any], warnings: list[str]) -> str:
+    evidence_ref_count = sum(
+        len(cell.evidence_refs)
+        for row in rows
+        for cell in row.cells
+    )
+    if evidence_ref_count == 0:
+        return "background_only"
+    if warnings:
+        return "mixed"
+    return "evidence_backed"
+
+
+def _resolve_freshness(rows: list[Any]) -> str:
+    return "unknown"
+
+
+def _dedupe_non_empty_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        text = str(raw or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return deduped
+
 
 def _paper_title(vault_path: Path, slug: str) -> str:
     note_path = resolve_note_path(vault_path, slug)

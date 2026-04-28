@@ -19,6 +19,7 @@ class PaperAccessSummary(BaseModel):
 
 class PaperSummaryResponse(BaseModel):
     paper_id: str
+    note_slug: str | None = None
     title: str
     authors: str | None = None
     year: int | None = None
@@ -37,6 +38,20 @@ class PaperSummaryResponse(BaseModel):
     escalation_final_route: str | None = None
     escalation_in_biomedical_scope: bool | None = None
     escalation_reason_codes: list[str] = []
+    ops_summary: PaperNoteOpsSummary | None = None
+    access_summary: PaperAccessSummary | None = None
+
+
+class PaperRailSummaryResponse(BaseModel):
+    paper_id: str
+    note_slug: str | None = None
+    title: str
+    authors: str | None = None
+    status: str | None = None
+    issues: int | None = None
+    issues_label: str | None = None
+    issues_state: PaperIssueState | None = None
+    updated_at: str | None = None
     ops_summary: PaperNoteOpsSummary | None = None
     access_summary: PaperAccessSummary | None = None
 
