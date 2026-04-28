@@ -2,15 +2,32 @@ from fastapi import APIRouter, HTTPException, Query
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from src.schemas.agent_artifacts import FeedbackCase
 from src.agents.feedback_retriever import FeedbackRetriever
+from src.services.event_log import sanitize_event_text_for_log
+from src.services.runtime_paths import feedback_log_path
 
 logger = logging.getLogger("paperpipe.backend")
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
-FEEDBACK_FILE = Path("storage/feedback.jsonl")
+FEEDBACK_FILE = None
+
+
+def _feedback_file():
+    return FEEDBACK_FILE or feedback_log_path()
+
+
+def _sanitize_feedback_case_for_runtime(case: FeedbackCase) -> FeedbackCase:
+    updates = {}
+    for field_name in ("paper_id", "run_id", "original_claim_id", "user_correction"):
+        value = getattr(case, field_name)
+        sanitized = sanitize_event_text_for_log(value)
+        if sanitized != value:
+            updates[field_name] = sanitized
+    if not updates:
+        return case
+    return case.model_copy(update=updates)
 
 # Singleton or instantiated per request
 feedback_retriever = FeedbackRetriever()
@@ -21,12 +38,14 @@ async def submit_feedback(feedback: FeedbackCase):
         # timestamp
         if not feedback.timestamp:
             feedback.timestamp = datetime.now(timezone.utc).isoformat()
+        feedback = _sanitize_feedback_case_for_runtime(feedback)
             
         # Ensure directory
-        FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        feedback_file = _feedback_file()
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Append to JSONL (Golden Data Backup)
-        with open(FEEDBACK_FILE, "a") as f:
+        with open(feedback_file, "a", encoding="utf-8") as f:
             f.write(feedback.model_dump_json() + "\n")
             
         logger.info(f"Feedback saved for run {feedback.run_id}")
@@ -52,13 +71,14 @@ async def list_feedback(
     run_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
 ):
-    if not FEEDBACK_FILE.exists():
+    feedback_file = _feedback_file()
+    if not feedback_file.exists():
         return []
 
     try:
         rows = [
             line.strip()
-            for line in FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
+            for line in feedback_file.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
     except Exception as e:
@@ -72,6 +92,7 @@ async def list_feedback(
             case = FeedbackCase.model_validate(payload)
         except Exception:
             continue
+        case = _sanitize_feedback_case_for_runtime(case)
 
         if paper_id and case.paper_id != paper_id:
             continue
