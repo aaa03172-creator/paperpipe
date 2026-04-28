@@ -86,7 +86,7 @@ paperpipe self-test --json
 lattice start
 ```
 
-If setup looks ambiguous, run `paperpipe doctor` for a human-readable diagnosis and the same first-paper import path.
+If setup looks ambiguous, run `paperpipe doctor` for a human-readable diagnosis and the same first-paper import path. On a fresh checkout with no local config yet, `paperpipe doctor --fix` creates a starter `config.yaml` plus safe project-local runtime folders, then runs the same diagnosis.
 
 ## First Paper in 5 Minutes
 
@@ -115,7 +115,7 @@ paperpipe demo-first-paper
 
 This imports the bundled sample PDF through the same Paper Notes path. Treat it as an onboarding check, not biomedical evidence.
 
-If the UI says automatic pickup is not ready, keep using `Import PDF` for the first run. Run `paperpipe doctor` or open `/ready` when you want the machine-level setup checklist.
+If the UI says automatic pickup is not ready, keep using `Import PDF` for the first run. Run `paperpipe doctor`, `paperpipe doctor --fix`, or open `/ready` when you want the machine-level setup checklist.
 
 First-paper smoke check:
 

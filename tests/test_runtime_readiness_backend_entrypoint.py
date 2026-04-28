@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from src.services import runtime_readiness
@@ -522,6 +523,15 @@ def test_latest_processor_gate_threshold_review_check_reports_latest_run(monkeyp
         "threshold_change_proposal_available": False,
         "threshold_change_proposal_markdown_available": False,
         "threshold_change_validation_replay_command_available": False,
+        "threshold_change_decision_available": False,
+        "threshold_change_preflight_available": False,
+        "threshold_change_preflight_required": False,
+        "threshold_change_preflight_ready": False,
+        "threshold_change_preflight_status": "not_applicable",
+        "threshold_change_preflight_blocker": None,
+        "threshold_change_preflight_validation_replay_status": None,
+        "threshold_change_preflight_validation_replay_matches_proposal": False,
+        "threshold_change_preflight_text": None,
         "threshold_change_validation_replay_available": False,
         "threshold_change_validation_replay_matches_proposal": False,
         "threshold_change_validation_replay_needs_rerun": False,
@@ -606,6 +616,72 @@ def test_latest_processor_gate_threshold_review_check_reports_latest_run(monkeyp
         "manual_review_basis_text": "call=mid_confidence_policy_only, policy=21, high=0",
         "manual_review_basis_summary": "All 21 threshold-relevant row(s) are mid-confidence legacy approvals replaying to pending review; none support a high-threshold boundary change from this evidence alone.",
     }
+
+
+def test_latest_processor_gate_threshold_review_check_surfaces_threshold_change_preflight(
+    monkeypatch,
+    tmp_path,
+):
+    run_root = tmp_path / "processor_gate_threshold_review_preflight"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-29T00:00:00+00:00",
+                "inputs": {"high_threshold": 0.9, "low_threshold": 0.7},
+                "decision": {
+                    "recommended_action": "manual_gate_threshold_review",
+                    "review_ready": True,
+                    "threshold_change_ready": True,
+                    "threshold_change_status": "candidate_boundary_review",
+                },
+                "signal_summary": {"candidate_count": 1, "drift_count": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "threshold_change_decision.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "processor_gate_threshold_change_decision.v1",
+                "threshold_change_preflight": {
+                    "required": True,
+                    "ready": False,
+                    "status": "missing_threshold_change_proposal",
+                    "blocker": "missing_threshold_change_proposal",
+                    "validation_replay_status": "not_applicable",
+                    "validation_replay_matches_proposal": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runtime_readiness,
+        "latest_processor_gate_threshold_review_run",
+        lambda: run_root,
+    )
+
+    check = runtime_readiness._latest_processor_gate_threshold_review_check()
+
+    assert check.metadata["threshold_change_decision_available"] is True
+    assert check.metadata["threshold_change_preflight_available"] is True
+    assert check.metadata["threshold_change_preflight_required"] is True
+    assert check.metadata["threshold_change_preflight_ready"] is False
+    assert check.metadata["threshold_change_preflight_status"] == "missing_threshold_change_proposal"
+    assert check.metadata["threshold_change_preflight_blocker"] == "missing_threshold_change_proposal"
+    assert (
+        check.metadata["threshold_change_preflight_validation_replay_status"]
+        == "not_applicable"
+    )
+    assert (
+        check.metadata["threshold_change_preflight_validation_replay_matches_proposal"]
+        is False
+    )
+    assert check.metadata["threshold_change_preflight_text"] == (
+        "required=yes, ready=no, status=missing_threshold_change_proposal, "
+        "blocker=missing_threshold_change_proposal"
+    )
 
 
 def test_latest_processor_gate_threshold_review_check_reports_empty_root(monkeypatch):

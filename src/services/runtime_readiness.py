@@ -151,6 +151,25 @@ def _processor_gate_threshold_change_compact_text(decision: object) -> str | Non
     return ", ".join(parts) or None
 
 
+def _processor_gate_threshold_change_preflight_compact_text(preflight: object) -> str | None:
+    if not isinstance(preflight, dict):
+        return None
+
+    status = str(preflight.get("status") or "").strip()
+    if not status or status == "not_applicable":
+        return None
+
+    parts = [
+        "required=yes" if bool(preflight.get("required")) else "required=no",
+        "ready=yes" if bool(preflight.get("ready")) else "ready=no",
+        f"status={status}",
+    ]
+    blocker = str(preflight.get("blocker") or "").strip()
+    if blocker:
+        parts.append(f"blocker={blocker}")
+    return ", ".join(parts)
+
+
 def _processor_gate_manual_review_scope_compact_text(
     *,
     threshold_relevant_count: int | None,
@@ -449,10 +468,26 @@ def _browser_safe_processor_gate_threshold_review_metadata(
     raw_validation_replay_command = str(
         browser_metadata.pop("validation_replay_command_template", "") or ""
     ).strip()
+    raw_threshold_change_decision_path = str(
+        browser_metadata.pop("threshold_change_decision_path", "") or ""
+    ).strip()
+    raw_threshold_change_decision_markdown_path = str(
+        browser_metadata.pop("threshold_change_decision_markdown_path", "") or ""
+    ).strip()
+    raw_threshold_change_preflight_path = str(
+        browser_metadata.pop("threshold_change_preflight_path", "") or ""
+    ).strip()
+    raw_threshold_change_preflight_markdown_path = str(
+        browser_metadata.pop("threshold_change_preflight_markdown_path", "") or ""
+    ).strip()
     if raw_replay_review_command or raw_threshold_review_command:
         browser_metadata["threshold_replay_review_command_available"] = True
     if raw_threshold_change_validation_command or raw_validation_replay_command:
         browser_metadata["threshold_change_validation_replay_command_available"] = True
+    if raw_threshold_change_decision_path or raw_threshold_change_decision_markdown_path:
+        browser_metadata["threshold_change_decision_available"] = True
+    if raw_threshold_change_preflight_path or raw_threshold_change_preflight_markdown_path:
+        browser_metadata["threshold_change_preflight_available"] = True
     return browser_metadata
 
 
@@ -957,6 +992,62 @@ def _latest_processor_gate_threshold_review_check() -> RuntimeReadinessCheck:
             threshold_change_validation_replay_command_available
         ),
     }
+    threshold_change_decision_path = latest_run / "threshold_change_decision.json"
+    threshold_change_preflight: dict[str, object] = {}
+    threshold_change_decision_available = bool(threshold_change_decision_path.exists())
+    threshold_change_preflight_status = "not_applicable"
+    threshold_change_preflight_blocker: str | None = None
+    if threshold_change_decision_available:
+        try:
+            threshold_change_decision = json.loads(
+                threshold_change_decision_path.read_text(encoding="utf-8")
+            )
+            if isinstance(threshold_change_decision, dict) and isinstance(
+                threshold_change_decision.get("threshold_change_preflight"), dict
+            ):
+                threshold_change_preflight = threshold_change_decision[
+                    "threshold_change_preflight"
+                ]
+                threshold_change_preflight_status = (
+                    str(threshold_change_preflight.get("status") or "").strip()
+                    or "not_applicable"
+                )
+                threshold_change_preflight_blocker = (
+                    str(threshold_change_preflight.get("blocker") or "").strip()
+                    or None
+                )
+        except Exception:
+            threshold_change_preflight_status = "threshold_change_decision_unreadable"
+            threshold_change_preflight_blocker = "threshold_change_decision_unreadable"
+    metadata.update(
+        {
+            "threshold_change_decision_available": threshold_change_decision_available,
+            "threshold_change_preflight_available": bool(threshold_change_preflight),
+            "threshold_change_preflight_required": bool(
+                threshold_change_preflight.get("required")
+            ),
+            "threshold_change_preflight_ready": bool(
+                threshold_change_preflight.get("ready")
+            ),
+            "threshold_change_preflight_status": threshold_change_preflight_status,
+            "threshold_change_preflight_blocker": threshold_change_preflight_blocker,
+            "threshold_change_preflight_validation_replay_status": (
+                str(
+                    threshold_change_preflight.get("validation_replay_status")
+                    or ""
+                ).strip()
+                or None
+            ),
+            "threshold_change_preflight_validation_replay_matches_proposal": bool(
+                threshold_change_preflight.get("validation_replay_matches_proposal")
+            ),
+            "threshold_change_preflight_text": (
+                _processor_gate_threshold_change_preflight_compact_text(
+                    threshold_change_preflight
+                )
+            ),
+        }
+    )
     try:
         summary = load_processor_gate_threshold_review_summary(latest_run)
     except Exception:

@@ -99,6 +99,42 @@ def test_health_ready_reports_runtime_checks():
             "threshold_change_manual_decision_blocker"
             in latest_processor_gate_threshold_review["metadata"]
         )
+        assert (
+            "threshold_change_decision_available"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_available"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_required"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_ready"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_status"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_blocker"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_validation_replay_status"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_validation_replay_matches_proposal"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
+        assert (
+            "threshold_change_preflight_text"
+            in latest_processor_gate_threshold_review["metadata"]
+        )
         assert "drift_summary_available" in latest_processor_gate_threshold_review["metadata"]
         assert "drift_details_available" in latest_processor_gate_threshold_review["metadata"]
         assert "drift_markdown_available" in latest_processor_gate_threshold_review["metadata"]

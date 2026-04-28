@@ -890,6 +890,18 @@ def test_browser_summary_preserves_latest_processor_gate_threshold_review_adviso
                     "threshold_change_validation_replay_matches_proposal": False,
                     "threshold_change_validation_replay_needs_rerun": False,
                     "threshold_change_validation_replay_status": "not_applicable",
+                    "threshold_change_decision_available": True,
+                    "threshold_change_preflight_available": True,
+                    "threshold_change_preflight_required": True,
+                    "threshold_change_preflight_ready": False,
+                    "threshold_change_preflight_status": "missing_threshold_change_proposal",
+                    "threshold_change_preflight_blocker": "missing_threshold_change_proposal",
+                    "threshold_change_preflight_validation_replay_status": "not_applicable",
+                    "threshold_change_preflight_validation_replay_matches_proposal": False,
+                    "threshold_change_preflight_text": (
+                        "required=yes, ready=no, status=missing_threshold_change_proposal, "
+                        "blocker=missing_threshold_change_proposal"
+                    ),
                     "threshold_replay_available": False,
                     "threshold_replay_markdown_available": False,
                     "threshold_replay_review_command_available": False,
@@ -993,6 +1005,18 @@ def test_browser_summary_preserves_latest_processor_gate_threshold_review_adviso
         "threshold_change_validation_replay_matches_proposal": False,
         "threshold_change_validation_replay_needs_rerun": False,
         "threshold_change_validation_replay_status": "not_applicable",
+        "threshold_change_decision_available": True,
+        "threshold_change_preflight_available": True,
+        "threshold_change_preflight_required": True,
+        "threshold_change_preflight_ready": False,
+        "threshold_change_preflight_status": "missing_threshold_change_proposal",
+        "threshold_change_preflight_blocker": "missing_threshold_change_proposal",
+        "threshold_change_preflight_validation_replay_status": "not_applicable",
+        "threshold_change_preflight_validation_replay_matches_proposal": False,
+        "threshold_change_preflight_text": (
+            "required=yes, ready=no, status=missing_threshold_change_proposal, "
+            "blocker=missing_threshold_change_proposal"
+        ),
         "threshold_replay_available": False,
         "threshold_replay_markdown_available": False,
         "threshold_replay_review_command_available": True,

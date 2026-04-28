@@ -34,6 +34,7 @@ These are the commands most aligned with the current first-product boundary.
 - `lattice start`
 - `paperpipe start`
 - `paperpipe doctor`
+- `paperpipe doctor --fix`
 
 Use these when the operator needs to boot the local runtime or confirm the environment is healthy.
 Current default behavior starts both the FastAPI backend and the background job worker; use `--no-worker` only for an intentional backend-only shell.
@@ -41,11 +42,12 @@ Current default behavior starts both the FastAPI backend and the background job 
 ### Runtime hygiene
 
 - `paperpipe doctor`
+- `paperpipe doctor --fix`
 - `paperpipe self-test`
 - `paperpipe quarantine-fixture-states`
 - `paperpipe archive-meeting-pack-noise`
 
-Use these when the operator needs a human-readable setup diagnosis, a bounded readiness check, needs to quarantine hidden fixture structured states from the current vault, or needs to archive low-value Meeting Pack storage noise into a reversible quarantine path instead of deleting artifacts in place.
+Use these when the operator needs a human-readable setup diagnosis, a safe first-run config/local-folder bootstrap, a bounded readiness check, needs to quarantine hidden fixture structured states from the current vault, or needs to archive low-value Meeting Pack storage noise into a reversible quarantine path instead of deleting artifacts in place.
 
 ### Paper workflow
 
