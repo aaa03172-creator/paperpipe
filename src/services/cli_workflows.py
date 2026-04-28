@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+from typing import Any
 from pathlib import Path
 from rich.console import Console
 
-from src.config import load_config
+from src.config import load_config, resolve_clinical_extraction_feature
+from src.contracts.artifact_views import get_artifact_header, iter_text_sections
 from src.db_utils import get_paper_by_id, update_reading_status
+from src.llm_provider import get_llm_provider
 from src.services.deepread_note_writer import (
+    build_clinical_extraction_markdown,
     build_deepread_markdown,
     build_stats_markdown,
     upsert_deepread_section,
 )
+from src.skills.storage import atomic_write_text, split_frontmatter
 from src.timeout_policy import (
     default_reader_timeout_base_seconds,
     default_stats_timeout_base_seconds,
@@ -18,6 +23,50 @@ from src.timeout_policy import (
     is_timeout_exception,
     time_limit,
 )
+
+
+def _is_clinical_note(note_path: Path | None) -> bool:
+    if note_path is None or not note_path.exists():
+        return False
+    try:
+        frontmatter, _body = split_frontmatter(note_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    slot_value = str(frontmatter.get("slot") or "").strip().lower()
+    type_value = str(frontmatter.get("type") or "").strip().lower()
+    return slot_value == "clinical" or type_value in {"clinical_paper", "clinical_trial"}
+
+
+def _build_biomedical_clinical_extraction_inputs(doc, paper_id: str) -> tuple[dict[str, Any], str]:
+    header = get_artifact_header(doc)
+    sections = list(iter_text_sections(doc))
+
+    summary_candidates: list[str] = []
+    methods_candidates: list[str] = []
+    for section in sections:
+        lowered = (section.name or "").strip().lower()
+        text = (section.text or "").strip()
+        if not text:
+            continue
+        if any(token in lowered for token in ("abstract", "summary", "result", "discussion", "conclusion")):
+            summary_candidates.append(text)
+        if any(token in lowered for token in ("method", "design", "materials", "participant", "intervention", "protocol")):
+            methods_candidates.append(text)
+
+    if not summary_candidates:
+        summary_candidates = [section.text for section in sections[:2] if (section.text or "").strip()]
+    summary = "\n\n".join(summary_candidates)[:4000]
+    methods_snippet = "\n\n".join(methods_candidates)[:3000]
+
+    paper_payload = {
+        "title": header.title or paper_id,
+        "summary": summary,
+        "link": header.source_ref,
+        "doi": paper_id if str(paper_id).startswith("10.") or str(paper_id).startswith("doi:") else None,
+        "authors": header.authors,
+        "source": "cli_deepread",
+    }
+    return paper_payload, methods_snippet
 
 
 def update_reading_status_workflow(identifier: str, status: str, console: Console) -> None:
@@ -151,6 +200,9 @@ def run_deepread_workflow(
             console.print(f"   [yellow]⚠️ Similar feedback injected: {len(similar_feedback)}[/yellow]")
 
         console.print("[bold]3️⃣  Deep Reading (Agentic Analysis)...[/bold]")
+        # Keep the main deep-read lane on the artifact-aware ReaderAgent path.
+        # The legacy llm_provider.generate_deep_read() helper is for older
+        # metadata/full-text callers and should not own this workflow.
         reader = ReaderAgent(model_name=config.agents.main_model, persona_hint=persona_hint)
         page_count = len(getattr(doc, "pages", []) or [])
         table_count = len(getattr(doc, "tables", []) or [])
@@ -184,6 +236,32 @@ def run_deepread_workflow(
             return
 
         console.print(f"   ✅ Extracted {len(claims_set.claims)} claims.")
+
+        clinical_md = ""
+        is_clinical_target = _is_clinical_note(target_note_path)
+        llm_conf = getattr(config, "llm", None)
+        clinical_extraction_feature = resolve_clinical_extraction_feature(
+            getattr(llm_conf, "features", None)
+        )
+        clinical_extraction_enabled = bool(getattr(clinical_extraction_feature, "enabled", False))
+        if is_clinical_target and clinical_extraction_enabled and llm_conf is not None:
+            # llm_provider stays additive here for the bounded clinical
+            # extraction block only; it is not part of the main deep-read pass.
+            try:
+                llm_provider = get_llm_provider(llm_conf, getattr(config, "entity_aliases", None))
+                extract_clinical = (
+                    getattr(llm_provider, "extract_biomedical_clinical_data", None)
+                    if llm_provider and llm_provider.is_available()
+                    else None
+                )
+                if callable(extract_clinical):
+                    paper_payload, methods_snippet = _build_biomedical_clinical_extraction_inputs(doc, identifier)
+                    clinical_extraction = extract_clinical(paper_payload, methods_snippet)
+                    if clinical_extraction is not None:
+                        clinical_md = build_clinical_extraction_markdown(clinical_extraction)
+                        console.print("   🏥 Clinical extraction summary prepared.")
+            except Exception as exc:
+                console.print(f"[yellow]⚠️ Clinical extraction skipped: {type(exc).__name__}[/yellow]")
 
         stats_md = ""
         if verify:
@@ -220,11 +298,12 @@ def run_deepread_workflow(
             model_name=reader.model_name,
             claims_set=claims_set,
             stats_md=stats_md if verify else "",
+            clinical_md=clinical_md,
         )
         if target_note_path:
             content = target_note_path.read_text(encoding="utf-8")
             updated = upsert_deepread_section(content, md_output)
-            target_note_path.write_text(updated, encoding="utf-8")
+            atomic_write_text(target_note_path, updated)
             console.print("[bold green]✨ Deep Read section upserted in note.[/bold green]")
         else:
             console.print(md_output)
