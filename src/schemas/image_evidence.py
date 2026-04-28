@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -139,9 +139,10 @@ class ImageArtifactRef(BaseModel):
         normalized = self.path.strip()
         if not normalized:
             raise ValueError("ImageArtifactRef.path must be non-empty")
-        if Path(normalized).is_absolute():
+        pure = PurePosixPath(normalized)
+        if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
             raise ValueError("ImageArtifactRef.path must be image-evidence-relative")
-        self.path = normalized
+        self.path = pure.as_posix()
         if self.mime_type is not None:
             self.mime_type = self.mime_type.strip() or None
         return self
@@ -246,6 +247,7 @@ class ImageEvidenceRequest(BaseModel):
     checksum: ImageChecksum | None = None
     metadata: ImageMetadata = Field(default_factory=ImageMetadata)
     view_state: ImageViewState | None = None
+    derivative_artifacts: dict[str, str] = Field(default_factory=dict)
     linked_claim_refs: list[ImageClaimLink] = Field(default_factory=list)
     linked_artifact_refs: list[ImageArtifactLink] = Field(default_factory=list)
     derived_outputs: list[ImageDerivedOutput] = Field(default_factory=list)
@@ -263,6 +265,11 @@ class ImageEvidenceRequest(BaseModel):
         if self.paper_slug is not None:
             self.paper_slug = self.paper_slug.strip() or None
         self.content_format = self.content_format.strip()
+        self.derivative_artifacts = {
+            path.strip(): value.strip()
+            for path, value in self.derivative_artifacts.items()
+            if path.strip() and value.strip()
+        }
         return self
 
 
@@ -294,11 +301,26 @@ class ImageEvidence(BaseModel):
             self.paper_slug = self.paper_slug.strip() or None
         if self.view_state_ref is not None and self.view_state_ref.kind != "view_state_json":
             raise ValueError("ImageEvidence.view_state_ref must use kind=view_state_json")
+        if self.view_state_ref is not None and self.view_state_ref.path != "view_state.json":
+            raise ValueError("ImageEvidence.view_state_ref.path must be view_state.json")
         if self.handoff_ref is not None and self.handoff_ref.kind != "handoff_json":
             raise ValueError("ImageEvidence.handoff_ref must use kind=handoff_json")
+        if self.handoff_ref is not None and self.handoff_ref.path != "handoff.json":
+            raise ValueError("ImageEvidence.handoff_ref.path must be handoff.json")
         derived_output_ids = [output.derived_output_id for output in self.derived_outputs]
         if len(set(derived_output_ids)) != len(derived_output_ids):
             raise ValueError("ImageEvidence.derived_outputs must not contain duplicate derived_output_id values")
+        nested_view_state_paths = {
+            output.view_state_ref.path
+            for output in self.derived_outputs
+            if output.view_state_ref is not None
+        }
+        if nested_view_state_paths and self.view_state_ref is None:
+            raise ValueError("ImageEvidence derived_outputs.view_state_ref requires top-level view_state_ref")
+        if self.view_state_ref is not None and nested_view_state_paths not in (set(), {self.view_state_ref.path}):
+            raise ValueError(
+                "ImageEvidence derived_outputs.view_state_ref values must match ImageEvidence.view_state_ref.path"
+            )
         return self
 
 

@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from src.output_modes import OutputModeFamily, resolve_meeting_pack_output_mode_family
+from .artifact_brief import ArtifactBrief, ArtifactPlanReview
 from .chat import ChatLocator
 
 
@@ -219,6 +220,8 @@ class MeetingPack(BaseModel):
     output_mode_family: OutputModeFamily | None = None
     title: str = Field(..., min_length=1)
     created_at: datetime
+    layer: Literal["user_facing_artifact"] = "user_facing_artifact"
+    canonical_status: Literal["non_canonical"] = "non_canonical"
     status: MeetingPackStatus = "draft"
     readiness: MeetingPackReadiness = "evidence_backed"
     generation_request: MeetingPackRequestSnapshot | None = None
@@ -232,6 +235,8 @@ class MeetingPack(BaseModel):
     expected_questions: list[MeetingPackExpectedQuestion] = Field(default_factory=list)
     next_steps: list[MeetingPackNextStep] = Field(default_factory=list)
     evidence_refs: list[MeetingPackEvidenceRef] = Field(default_factory=list)
+    artifact_brief: ArtifactBrief | None = None
+    artifact_brief_review: ArtifactPlanReview | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -219,6 +219,64 @@ class ProtocolCardRequest(BaseModel):
         return self
 
 
+class ProtocolCardDraftRequest(BaseModel):
+    note_slug: str = Field(..., min_length=1)
+    paper_id: str | None = None
+    run_id: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_request(self):
+        self.note_slug = self.note_slug.strip()
+        if self.paper_id is not None:
+            self.paper_id = self.paper_id.strip() or None
+        if self.run_id is not None:
+            self.run_id = self.run_id.strip() or None
+        return self
+
+
+class ProtocolDraftWarning(BaseModel):
+    code: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def normalize_warning(self):
+        self.code = self.code.strip()
+        self.message = self.message.strip()
+        return self
+
+
+class ProtocolDraftSourceSummary(BaseModel):
+    note_slug: str = Field(..., min_length=1)
+    paper_id: str | None = None
+    note_path: str | None = None
+    structured_state_path: str | None = None
+    run_id: str | None = None
+    claim_count: int = Field(default=0, ge=0)
+    evidence_count: int = Field(default=0, ge=0)
+    used_note_body: bool = False
+    used_structured_state: bool = False
+    used_claimset: bool = False
+
+    @model_validator(mode="after")
+    def normalize_summary(self):
+        self.note_slug = self.note_slug.strip()
+        if self.paper_id is not None:
+            self.paper_id = self.paper_id.strip() or None
+        if self.note_path is not None:
+            self.note_path = self.note_path.strip() or None
+        if self.structured_state_path is not None:
+            self.structured_state_path = self.structured_state_path.strip() or None
+        if self.run_id is not None:
+            self.run_id = self.run_id.strip() or None
+        return self
+
+
+class ProtocolCardDraftResponse(BaseModel):
+    draft: ProtocolCardRequest
+    source_summary: ProtocolDraftSourceSummary
+    warnings: list[ProtocolDraftWarning] = Field(default_factory=list)
+
+
 class ProtocolCardResponse(BaseModel):
     protocol_card: ProtocolCard
     versions: list[ProtocolVersion] = Field(default_factory=list)
