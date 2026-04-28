@@ -7,6 +7,7 @@ from pathlib import Path
 from src.schemas.agent_artifacts import ClaimSet, IndexArtifact, ScientificClaim
 from src.schemas.reader_eval import ReaderEvalClaimEntry, ReaderEvalMetrics, ReaderEvalSidecar
 from src.services.citation_grounding import find_text_location
+from src.skills.storage import atomic_write_text
 
 _POLICY_UNSUPPORTED_REASONS = {"EVIDENCE_MISSING", "EVIDENCE_LOCATION_MISSING"}
 _STOPWORDS = {
@@ -88,7 +89,7 @@ def build_reader_eval_sidecar(
 
 def write_reader_eval_sidecar(sidecar: ReaderEvalSidecar, artifact_dir: Path) -> Path:
     path = artifact_dir / "reader_eval.json"
-    path.write_text(sidecar.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write_text(path, sidecar.model_dump_json(indent=2))
     return path
 
 
