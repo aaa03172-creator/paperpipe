@@ -49,8 +49,10 @@ def export_to_ris(paper_data: Dict[str, Any], export_dir: Path) -> Path:
         if pub_date:
             year = pub_date.split("-")[0]
             ris_lines.append(f"PY  - {year}")
-            
-        ris_lines.append(f"DO  - {data.get('id', '').replace('PMID:', '')}") # Simple ID/DOI handling
+
+        doi = str(data.get("doi") or "").strip()
+        if doi:
+            ris_lines.append(f"DO  - {doi}")
         ris_lines.append(f"UR  - {data.get('link', '')}")
         ris_lines.append(f"AB  - {data.get('summary', '')}")
         

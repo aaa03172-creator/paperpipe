@@ -1,9 +1,13 @@
-import docker
 import os
 import tarfile
 import io
 import logging
 from typing import Tuple
+
+try:
+    import docker  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    docker = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +17,11 @@ class DockerSandbox:
     Enforces strict isolation: No network, Read-only root, Memory limits.
     """
     def __init__(self, job_id: str, work_dir: str):
+        if docker is None:
+            raise RuntimeError(
+                "Docker sandbox requires the optional 'docker' Python package. "
+                "Install the sandbox dependency before running sandbox-backed actions."
+            )
         self.job_id = job_id
         self.host_work_dir = os.path.abspath(work_dir)
         self.client = docker.from_env()
