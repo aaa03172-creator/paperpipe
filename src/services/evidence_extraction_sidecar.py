@@ -15,6 +15,7 @@ from src.schemas.evidence_extraction import (
     EvidenceExtractionRecord,
     EvidenceExtractionRef,
 )
+from src.skills.storage import atomic_write_text
 
 _SKIP_CLINICAL_TOP_LEVEL_FIELDS = {"paper_id", "citation"}
 
@@ -69,7 +70,7 @@ def build_evidence_extraction_bundle(
 def write_evidence_extraction_bundle(bundle: EvidenceExtractionBundle, artifact_dir: Path) -> Path:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / "evidence_extraction_bundle.json"
-    path.write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write_text(path, bundle.model_dump_json(indent=2))
     return path
 
 
