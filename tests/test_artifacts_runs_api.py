@@ -12,6 +12,56 @@ def _set_artifacts_root(monkeypatch, root):
     monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(root))
 
 
+def _privacy_preflight_payload() -> dict:
+    return {
+        "schema_version": "privacy_preflight.v1",
+        "mode": "report_only",
+        "status": "review_required",
+        "rollback_flag": "LATTICE_PRIVACY_PREFLIGHT_MODE",
+        "payload_class": "external_allowed",
+        "scope": "clinical_extraction_external_payload",
+        "redaction_applied": True,
+        "mutation_applied": False,
+        "findings": [
+            {
+                "finding_id": "privacy-preflight-001",
+                "kind": "false_negative_risk",
+                "severity": "high",
+                "action": "manual_review",
+                "message": "Short possessive names near clinical or personal event cues require review.",
+                "label": "private_person",
+                "source_surface": "methods_snippet",
+                "detector": "paperpipe-runtime-privacy-preflight",
+                "reason": "short_private_name_context",
+                "text_preview": "<short_private_name>",
+            }
+        ],
+        "manual_review": [
+            {
+                "review_id": "privacy-review-001",
+                "severity": "high",
+                "reason": "short_private_name_context",
+                "message": "Short possessive names near clinical or personal event cues require review.",
+                "source_surface": "methods_snippet",
+                "finding_ids": ["privacy-preflight-001"],
+                "recommended_action": "manual_review",
+            }
+        ],
+        "summary": {
+            "detector_spans": 0,
+            "deterministic_spans": 0,
+            "preserve_conflicts": 0,
+            "false_negative_risks": 1,
+            "unexpected_predictions": 0,
+            "manual_review_records": 1,
+            "manual_review_reasons": 1,
+        },
+        "input_refs": ["paper:paper_artifacts_001", "run:run_new"],
+        "source_surfaces": ["methods_snippet", "paper_metadata"],
+        "metadata": {},
+    }
+
+
 def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
@@ -69,7 +119,41 @@ def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
         (new_dir / "document_artifact.json").write_text(json.dumps({"doc_id": "new"}), encoding="utf-8")
         (new_dir / "claimset.json").write_text(json.dumps({"claims": []}), encoding="utf-8")
         (new_dir / "bootstrap_meta.json").write_text(
-            json.dumps({"claimset_readiness_badge": "READY"}), encoding="utf-8"
+            json.dumps(
+                {
+                    "claimset_readiness_badge": "READY",
+                    "operator_note": "Authorization: Bearer bootstrap-token-123",
+                    "OPENAI_API_KEY": "sk-proj-bootstrap-secret-abcdef",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (new_dir / "run_meta.json").write_text(
+            json.dumps(
+                {
+                    "selected_backend": "mixed",
+                    "payload_class": "mixed",
+                    "redaction_applied": True,
+                    "error": "Provider failed with Bearer artifact-token-123",
+                    "verification_error": "Authorization: Basic beta:wrong-pass",
+                    "inference_lanes": {
+                        "reader": {
+                            "selected_backend": "local",
+                            "payload_class": "local_only",
+                            "redaction_applied": False,
+                        },
+                        "clinical_extraction": {
+                            "selected_backend": "commercial",
+                            "payload_class": "external_allowed",
+                            "redaction_applied": True,
+                            "provider_name": "openai",
+                            "provider_model": "gpt-5.4-mini",
+                            "privacy_preflight": _privacy_preflight_payload(),
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
         )
 
         client = TestClient(api_main.app)
@@ -78,6 +162,24 @@ def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
         assert latest.status_code == 200
         latest_payload = latest.json()
         assert latest_payload["run_id"] == "run_new"
+        assert latest_payload["inference_summary"]["selected_backend"] == "mixed"
+        assert latest_payload["inference_summary"]["payload_class"] == "mixed"
+        assert latest_payload["inference_summary"]["redaction_applied"] is True
+        assert latest_payload["inference_summary"]["lanes"]["reader"]["selected_backend"] == "local"
+        assert latest_payload["inference_summary"]["lanes"]["clinical_extraction"]["provider_name"] == "openai"
+        assert "artifact-token-123" not in json.dumps(latest_payload)
+        assert "bootstrap-token-123" not in json.dumps(latest_payload)
+        assert "sk-proj-bootstrap-secret-abcdef" not in json.dumps(latest_payload)
+        assert "Basic beta:wrong-pass" not in json.dumps(latest_payload)
+        assert latest_payload["files"]["bootstrap_meta"]["data"]["operator_note"] == "Authorization: <redacted>"
+        assert latest_payload["files"]["bootstrap_meta"]["data"]["OPENAI_API_KEY"] == "<redacted>"
+        assert latest_payload["files"]["run_meta"]["data"]["error"] == "Provider failed with <redacted>"
+        assert latest_payload["files"]["run_meta"]["data"]["verification_error"] == "Authorization: <redacted>"
+        privacy_preflight = latest_payload["inference_summary"]["lanes"]["clinical_extraction"]["privacy_preflight"]
+        assert privacy_preflight["mode"] == "report_only"
+        assert privacy_preflight["status"] == "review_required"
+        assert privacy_preflight["summary"]["manual_review_records"] == 1
+        assert privacy_preflight["findings"][0]["text_preview"] == "<short_private_name>"
         assert latest_payload["files"]["document_artifact"]["exists"] is True
         assert latest_payload["files"]["document_artifact"]["data"]["doc_id"] == "new"
 
@@ -85,6 +187,7 @@ def test_artifacts_latest_and_run_bundle(tmp_path, monkeypatch):
         assert old.status_code == 200
         old_payload = old.json()
         assert old_payload["run_id"] == "run_old"
+        assert old_payload["inference_summary"] is None
         assert old_payload["files"]["document_artifact"]["data"]["doc_id"] == "old"
 
         claimset = client.get("/artifacts/paper_artifacts_001/run_new/claimset")
@@ -150,12 +253,39 @@ def test_artifacts_latest_honors_artifacts_root_override(tmp_path, monkeypatch):
             ),
             encoding="utf-8",
         )
+        (run_dir / "run_meta.json").write_text(
+            json.dumps(
+                {
+                    "inference_lanes": {
+                        "reader": {
+                            "selected_backend": "local",
+                            "payload_class": "local_only",
+                            "redaction_applied": False,
+                        },
+                        "clinical_extraction": {
+                            "selected_backend": "commercial",
+                            "payload_class": "external_allowed",
+                            "redaction_applied": True,
+                            "provider_name": "openai",
+                            "provider_model": "gpt-5.4",
+                            "privacy_preflight": {"mode": "not-a-valid-mode"},
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
 
         client = TestClient(api_main.app)
         latest = client.get("/artifacts/paper_override_001/latest")
         assert latest.status_code == 200
         payload = latest.json()
         assert payload["run_id"] == "run_override"
+        assert payload["inference_summary"]["selected_backend"] == "mixed"
+        assert payload["inference_summary"]["payload_class"] == "mixed"
+        assert payload["inference_summary"]["redaction_applied"] is True
+        assert payload["inference_summary"]["lanes"]["clinical_extraction"]["provider_model"] == "gpt-5.4"
+        assert payload["inference_summary"]["lanes"]["clinical_extraction"]["privacy_preflight"] is None
         assert payload["files"]["document_artifact"]["data"]["doc_id"] == "override"
         assert payload["files"]["claimset_resolved"]["exists"] is True
     finally:
@@ -261,5 +391,21 @@ def test_runs_status_and_timeline_from_job_log(tmp_path, monkeypatch):
         assert no_run.status_code == 404
         no_timeline = client.get("/runs/no_such_run/timeline")
         assert no_timeline.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_run_status_returns_not_found_when_jobs_table_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        client = TestClient(api_main.app)
+
+        response = client.get("/runs/run_missing_jobs_table")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Run not found"
     finally:
         db_utils.DB_PATH = original_db_path

@@ -384,6 +384,14 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
                             "secret-validation-command"
                         ),
                         "validation_replay_command_template": "secret-validation-alias",
+                        "threshold_change_decision_path": "secret-decision-path",
+                        "threshold_change_decision_markdown_path": (
+                            "secret-decision-markdown-path"
+                        ),
+                        "threshold_change_preflight_path": "secret-preflight-path",
+                        "threshold_change_preflight_markdown_path": (
+                            "secret-preflight-markdown-path"
+                        ),
                     },
                 )
             ],
@@ -403,6 +411,10 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     assert "secret-threshold-command" not in resp.text
     assert "secret-validation-command" not in resp.text
     assert "secret-validation-alias" not in resp.text
+    assert "secret-decision-path" not in resp.text
+    assert "secret-decision-markdown-path" not in resp.text
+    assert "secret-preflight-path" not in resp.text
+    assert "secret-preflight-markdown-path" not in resp.text
     payload = resp.json()
     check = next(
         entry
@@ -415,10 +427,16 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
         check["metadata"]["threshold_change_validation_replay_command_available"]
         is True
     )
+    assert check["metadata"]["threshold_change_decision_available"] is True
+    assert check["metadata"]["threshold_change_preflight_available"] is True
     assert "threshold_replay_review_command" not in check["metadata"]
     assert "threshold_review_command" not in check["metadata"]
     assert "threshold_change_validation_replay_command_template" not in check["metadata"]
     assert "validation_replay_command_template" not in check["metadata"]
+    assert "threshold_change_decision_path" not in check["metadata"]
+    assert "threshold_change_decision_markdown_path" not in check["metadata"]
+    assert "threshold_change_preflight_path" not in check["metadata"]
+    assert "threshold_change_preflight_markdown_path" not in check["metadata"]
 
 
 def test_health_ready_can_opt_back_into_detailed_mode_under_beta_gate(monkeypatch):

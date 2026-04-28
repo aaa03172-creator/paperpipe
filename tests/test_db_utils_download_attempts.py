@@ -46,6 +46,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
                 title TEXT,
                 source TEXT,
                 status TEXT,
+                pdf_status TEXT,
                 issues_state TEXT,
                 processed_date TEXT,
                 processed_at TIMESTAMP,
@@ -71,6 +72,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
             "Example Paper",
             "pubmed",
             "2026-02-24",
+            pdf_status="downloaded",
             local_pdf_path="/tmp/example.pdf",
             feedback_json='{"decision":"APPROVED"}',
             download_attempts=attempts,
@@ -87,6 +89,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
         assert row is not None
         assert "download_attempts" in cols
         assert row["status"] == "APPROVED"
+        assert row["pdf_status"] == "downloaded"
         assert row["issues_state"] == "clear"
         assert row["pdf_path"] == "/tmp/example.pdf"
         assert row["feedback_json"] == '{"decision":"APPROVED"}'
