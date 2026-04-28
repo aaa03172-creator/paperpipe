@@ -41,11 +41,32 @@ def _load_deepread_handoff_artifacts_module() -> types.ModuleType:
     _ensure_package("src", REPO_ROOT / "src")
     schemas_pkg = _ensure_package("src.schemas", REPO_ROOT / "src" / "schemas")
     services_pkg = _ensure_package("src.services", REPO_ROOT / "src" / "services")
+    skills_pkg = _ensure_package("src.skills", REPO_ROOT / "src" / "skills")
     deepread_schema = _load_module(
         "src.schemas.deepread_handoff",
         REPO_ROOT / "src" / "schemas" / "deepread_handoff.py",
     )
+    skills_schema = _load_module(
+        "src.schemas.skills",
+        REPO_ROOT / "src" / "schemas" / "skills.py",
+    )
+    meeting_pack_schema = _load_module(
+        "src.schemas.meeting_pack",
+        REPO_ROOT / "src" / "schemas" / "meeting_pack.py",
+    )
+    fixture_visibility = _load_module(
+        "src.services.fixture_visibility",
+        REPO_ROOT / "src" / "services" / "fixture_visibility.py",
+    )
+    storage_module = _load_module(
+        "src.skills.storage",
+        REPO_ROOT / "src" / "skills" / "storage.py",
+    )
     setattr(schemas_pkg, "deepread_handoff", deepread_schema)
+    setattr(schemas_pkg, "skills", skills_schema)
+    setattr(schemas_pkg, "meeting_pack", meeting_pack_schema)
+    setattr(services_pkg, "fixture_visibility", fixture_visibility)
+    setattr(skills_pkg, "storage", storage_module)
     service_module = _load_module(
         "src.services.deepread_handoff_artifacts",
         REPO_ROOT / "src" / "services" / "deepread_handoff_artifacts.py",

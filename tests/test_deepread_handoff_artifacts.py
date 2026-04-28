@@ -11,6 +11,11 @@ def test_build_deepread_handoff_artifacts_for_review_ready_bundle():
     run_meta = {
         "status": "succeeded",
         "parser_backend": "fitz_pdfplumber",
+        "section_count": 2,
+        "section_summary": [
+            {"key": "results", "label": "Results"},
+            {"key": "discussion", "label": "Discussion"},
+        ],
     }
     bootstrap_meta = {
         "run_verify": True,
@@ -91,6 +96,8 @@ def test_build_deepread_handoff_artifacts_for_review_ready_bundle():
     check_map = {check.name: check for check in quality_gate.checks}
     assert check_map["evidence_locator_quality"].status == "pass"
     assert "bbox=1" in check_map["evidence_locator_quality"].detail
+    assert check_map["section_navigation_signal"].status == "pass"
+    assert "claimset_section_count=2" in check_map["section_navigation_signal"].detail
     assert check_map["step_stability"].status == "pass"
     assert quality_gate.step_stability_summary is not None
     assert quality_gate.step_stability_summary.reason_codes == []
@@ -123,6 +130,7 @@ def test_build_deepread_handoff_artifacts_warn_for_not_ready_claimset():
         "reader_eval_ambiguous_span_count": 0,
         "claimset_ready": False,
         "claimset_readiness": "not_ready",
+        "claimset_section_count": 0,
         "verifier_status": "not_run",
     }
 
@@ -141,6 +149,7 @@ def test_build_deepread_handoff_artifacts_warn_for_not_ready_claimset():
     check_map = {check.name: check for check in quality_gate.checks}
     assert check_map["claimset_ready"].status == "warn"
     assert check_map["evidence_locator_quality"].status == "warn"
+    assert check_map["section_navigation_signal"].status == "warn"
     assert check_map["step_stability"].status == "pass"
     assert check_map["failure_recovery"].status == "pass"
     assert check_map["verification_completed"].status == "not_run"

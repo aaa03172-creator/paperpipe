@@ -12,6 +12,7 @@ from src.schemas.teacher_review_eval import (
     TeacherReviewEvalMetrics,
     TeacherReviewEvalSidecar,
 )
+from src.skills.storage import atomic_write_text
 
 
 def load_teacher_review_rows(review_jsonl_path: Path) -> list[dict[str, Any]]:
@@ -120,7 +121,7 @@ def build_teacher_review_eval_sidecar(
 def write_teacher_review_eval_sidecar(sidecar: TeacherReviewEvalSidecar, bundle_dir: Path) -> Path:
     bundle_dir = bundle_dir.expanduser().resolve()
     path = bundle_dir / "teacher_review_eval.json"
-    path.write_text(sidecar.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write_text(path, sidecar.model_dump_json(indent=2))
     return path
 
 

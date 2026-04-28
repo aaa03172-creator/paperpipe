@@ -14,7 +14,7 @@ from scripts.backfill_operational_outputs import (
 def test_collect_backfill_candidates_detects_missing_markdown_and_claimset(tmp_path: Path, monkeypatch):
     vault = tmp_path / "vault"
     (vault / "Inbox/PaperPipe").mkdir(parents=True, exist_ok=True)
-    existing = vault / "Inbox/PaperPipe/doi101000ok.md"
+    existing = vault / "Inbox/PaperPipe/OK.md"
     existing.write_text("# ok", encoding="utf-8")
 
     artifacts = tmp_path / "artifacts"
@@ -29,18 +29,21 @@ def test_collect_backfill_candidates_detects_missing_markdown_and_claimset(tmp_p
         {
             "paper_id": "doi:10.1000/missing",
             "title": "Missing",
+            "obsidian_path": "Inbox/PaperPipe/Missing.md",
             "feedback_json": "{}",
             "pdf_path": None,
         },
         {
             "paper_id": "doi:10.1000/ok",
             "title": "OK",
+            "obsidian_path": "Inbox/PaperPipe/OK.md",
             "feedback_json": json.dumps({"claims": [{"statement": "x"}]}),
             "pdf_path": None,
         },
         {
             "paper_id": "local--fixture",
             "title": "Fixture",
+            "obsidian_path": "Inbox/PaperPipe/Fixture.md",
             "feedback_json": "{}",
             "pdf_path": None,
         },

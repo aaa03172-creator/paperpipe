@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+RESOLVER_RUNNER="$(command -v python3 || command -v python)"
+if [[ -z "${RESOLVER_RUNNER}" ]]; then
+  echo "python3/python not found" >&2
+  exit 127
+fi
+PYTHON_BIN="$("${RESOLVER_RUNNER}" "${ROOT_DIR}/scripts/resolve_verification_python.py" --require-module pytest --require-module langgraph)"
 
 if ! command -v ruff >/dev/null 2>&1; then
   echo "ruff is required. Install it with: python3 -m pip install ruff" >&2
@@ -35,4 +41,4 @@ PYTEST_TARGETS=(
 )
 
 ruff check "${RUFF_TARGETS[@]}" --select F,E701,E9,F541
-pytest -q "${PYTEST_TARGETS[@]}"
+"${PYTHON_BIN}" -m pytest -q "${PYTEST_TARGETS[@]}"

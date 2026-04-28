@@ -13,9 +13,14 @@ if str(ROOT) not in sys.path:
 
 from src.config import load_config
 from src.db_utils import get_db_connection
-from src.exporter import _expected_obsidian_relpath_for_paper_id, run_export
+from src.exporter import run_export
 from src.jobs.queue import JobQueue
-from scripts.qa_report import _has_claimset_artifact, _has_valid_claimset, _is_test_fixture_record
+from scripts.qa_report import (
+    _expected_obsidian_relpath_for_candidate,
+    _has_claimset_artifact,
+    _has_valid_claimset,
+    _is_test_fixture_record,
+)
 
 
 @dataclass(frozen=True)
@@ -40,8 +45,10 @@ def _paper_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def _note_exists(vault_path: Path, paper_id: str) -> bool:
-    rel_path = _expected_obsidian_relpath_for_paper_id(paper_id)
+def _note_exists(vault_path: Path, row: dict[str, Any]) -> bool:
+    rel_path = str(row.get("obsidian_path") or "").strip().replace("\\", "/")
+    if not rel_path:
+        rel_path = _expected_obsidian_relpath_for_candidate(row)
     target = vault_path / rel_path
     return target.exists()
 
@@ -64,7 +71,7 @@ def collect_backfill_candidates(
         feedback_json = row.get("feedback_json")
         pdf_path_raw = str(row.get("pdf_path") or "").strip()
         pdf_ready = bool(pdf_path_raw and Path(pdf_path_raw).expanduser().exists())
-        markdown_missing = not _note_exists(vault_path, paper_id)
+        markdown_missing = not _note_exists(vault_path, row)
         claimset_missing = (not _has_valid_claimset(feedback_json)) and (not _has_claimset_artifact(paper_id))
         if not markdown_missing and not claimset_missing:
             continue

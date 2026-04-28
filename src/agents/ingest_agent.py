@@ -14,6 +14,7 @@ from src.ingest.parser_backends import (
     create_parser_backend,
 )
 from src.schemas.agent_artifacts import DocumentArtifact, PaperMetadata, Section, SourceInfo, TableData
+from src.services.runtime_paths import ocr_cache_root
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,9 @@ DEFAULT_TABLE_EXTRACTION_META = {
     "table_failure_taxonomy": [],
     "fallback_used": False,
     "fallback_pages": [],
+    "same_page_table_rescue_actions": [],
+    "same_page_table_rescue_pages": [],
+    "same_page_table_rescue_patched_cells": [],
 }
 
 
@@ -165,7 +169,7 @@ class IngestAgent:
 
         try:
             if enable_ocr_fallback_resolved and detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved):
-                ocr_cache_path = build_ocr_cache_path(path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved)
+                ocr_cache_path = build_ocr_cache_path(path, cache_dir=ocr_cache_root(), lang=ocr_lang_resolved)
                 ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
                 if ocr_meta.get("ocr_applied") and ocr_meta.get("ocr_output_path"):
                     candidate = Path(str(ocr_meta["ocr_output_path"]))
@@ -179,6 +183,9 @@ class IngestAgent:
             table_failure_taxonomy = set(pass1.diagnostics.table_failure_taxonomy or [])
             fallback_used = bool(pass1.diagnostics.fallback_used)
             fallback_pages = list(pass1.diagnostics.fallback_pages or [])
+            same_page_table_rescue_actions = list(pass1.diagnostics.same_page_table_rescue_actions or [])
+            same_page_table_rescue_pages = list(pass1.diagnostics.same_page_table_rescue_pages or [])
+            same_page_table_rescue_patched_cells = list(pass1.diagnostics.same_page_table_rescue_patched_cells or [])
 
             # Pass2: OCR-based table recovery if pass1 produced no tables.
             if not tables and enable_table_pass2_ocr_resolved:
@@ -191,7 +198,7 @@ class IngestAgent:
                     need_ocr_for_tables = detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved)
                     if need_ocr_for_tables:
                         ocr_cache_path = build_ocr_cache_path(
-                            path, cache_dir=Path("storage/ocr_cache"), lang=ocr_lang_resolved
+                            path, cache_dir=ocr_cache_root(), lang=ocr_lang_resolved
                         )
                         pass2_ocr_meta = run_ocr(path, ocr_cache_path, lang=ocr_lang_resolved)
                         if pass2_ocr_meta.get("ocr_applied") and pass2_ocr_meta.get("ocr_output_path"):
@@ -259,6 +266,11 @@ class IngestAgent:
                 "table_failure_taxonomy": sorted(table_failure_taxonomy),
                 "fallback_used": bool(fallback_used),
                 "fallback_pages": sorted({int(p) for p in fallback_pages if isinstance(p, int)}),
+                "same_page_table_rescue_actions": same_page_table_rescue_actions,
+                "same_page_table_rescue_pages": sorted(
+                    {int(p) for p in same_page_table_rescue_pages if isinstance(p, int)}
+                ),
+                "same_page_table_rescue_patched_cells": same_page_table_rescue_patched_cells,
             }
 
             artifact = DocumentArtifact(
@@ -305,6 +317,13 @@ class IngestAgent:
             "table_failure_taxonomy": list(table_result.diagnostics.table_failure_taxonomy or []),
             "fallback_used": bool(table_result.diagnostics.fallback_used),
             "fallback_pages": [int(p) for p in (table_result.diagnostics.fallback_pages or [])],
+            "same_page_table_rescue_actions": list(table_result.diagnostics.same_page_table_rescue_actions or []),
+            "same_page_table_rescue_pages": [
+                int(p) for p in (table_result.diagnostics.same_page_table_rescue_pages or [])
+            ],
+            "same_page_table_rescue_patched_cells": list(
+                table_result.diagnostics.same_page_table_rescue_patched_cells or []
+            ),
         }
         return table_result.tables
 
