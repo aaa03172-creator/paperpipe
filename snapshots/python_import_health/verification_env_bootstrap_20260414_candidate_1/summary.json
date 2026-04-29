@@ -1,0 +1,30 @@
+{
+  "run_id": "verification_env_bootstrap_20260414_candidate_1",
+  "generated_at": "2026-04-14T07:43:52.457660+00:00",
+  "python_bin": "/opt/homebrew/bin/python3.14",
+  "timeout_seconds": 5,
+  "probe_count": 2,
+  "ok_count": 2,
+  "error_count": 0,
+  "timeout_count": 0,
+  "results": [
+    {
+      "mode": "no-site",
+      "module": "select",
+      "status": "ok",
+      "elapsed_seconds": 0.018,
+      "returncode": 0,
+      "stdout": "ok",
+      "stderr_tail": ""
+    },
+    {
+      "mode": "no-site",
+      "module": "subprocess",
+      "status": "ok",
+      "elapsed_seconds": 0.03,
+      "returncode": 0,
+      "stdout": "ok",
+      "stderr_tail": ""
+    }
+  ]
+}
