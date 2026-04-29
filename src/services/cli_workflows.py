@@ -37,6 +37,31 @@ def _is_clinical_note(note_path: Path | None) -> bool:
     return slot_value == "clinical" or type_value in {"clinical_paper", "clinical_trial"}
 
 
+def _resolve_note_path_from_paper_row(config: Any, paper_row: dict[str, Any] | None) -> Path | None:
+    if not paper_row:
+        return None
+    raw = str(paper_row.get("obsidian_path") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        vault_path = Path(config.paths.obsidian_vault).expanduser().resolve(strict=False)
+    except Exception:
+        return None
+
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = vault_path / candidate
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(vault_path)
+    except Exception:
+        return None
+    if not resolved.exists():
+        return None
+    return resolved
+
+
 def _build_biomedical_clinical_extraction_inputs(doc, paper_id: str) -> tuple[dict[str, Any], str]:
     header = get_artifact_header(doc)
     sections = list(iter_text_sections(doc))
@@ -144,6 +169,9 @@ def run_deepread_workflow(
             pass
         if target_note_path:
             break
+
+    if not target_note_path or not target_note_path.exists():
+        target_note_path = _resolve_note_path_from_paper_row(config, paper_row)
 
     if not target_note_path or not target_note_path.exists():
         console.print("[yellow]⚠️ Note not found. Will just print output.[/yellow]")
