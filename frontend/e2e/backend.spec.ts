@@ -2011,6 +2011,9 @@ test("backend paper notes index can import a local PDF from the browser", async 
   await expect(queuedStatus).toContainText("Status Queued");
   await expect(queuedStatus).toContainText("Stage queued");
   await expect(queuedStatus).toContainText("Progress 0%");
+  await expect(importGuidance.getByTestId("paper-note-import-guidance-deepread-status-guidance")).toContainText(
+    "Queued on the local worker",
+  );
   await expect(queuedStatus).toContainText(/Run run[-_]/);
   await expect(queuedStatus).toContainText(/Job [0-9a-f-]{36}/);
   await expect(importGuidance.getByTestId("paper-note-import-guidance-open-pdf")).toHaveAttribute(
