@@ -392,6 +392,12 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
                         "threshold_change_preflight_markdown_path": (
                             "secret-preflight-markdown-path"
                         ),
+                        "threshold_change_proposal": {
+                            "validation_replay_command_template": (
+                                "secret-proposal-validation-command"
+                            ),
+                            "operator_note": "secret-proposal-note",
+                        },
                         "threshold_change_decision": {
                             "final_status": "threshold_change_validation_replay_required",
                             "recommended_action": (
@@ -446,6 +452,8 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     assert "secret-decision-markdown-path" not in resp.text
     assert "secret-preflight-path" not in resp.text
     assert "secret-preflight-markdown-path" not in resp.text
+    assert "secret-proposal-validation-command" not in resp.text
+    assert "secret-proposal-note" not in resp.text
     assert "secret-paper-id" not in resp.text
     assert "secret-decision-note" not in resp.text
     assert "secret-preflight-field" not in resp.text
@@ -462,6 +470,7 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
         check["metadata"]["threshold_change_validation_replay_command_available"]
         is True
     )
+    assert check["metadata"]["threshold_change_proposal_available"] is True
     assert check["metadata"]["threshold_change_decision_available"] is True
     assert check["metadata"]["threshold_change_preflight_available"] is True
     assert check["metadata"]["threshold_change_decision_text"] == (
@@ -482,6 +491,7 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     assert "threshold_change_decision_markdown_path" not in check["metadata"]
     assert "threshold_change_preflight_path" not in check["metadata"]
     assert "threshold_change_preflight_markdown_path" not in check["metadata"]
+    assert "threshold_change_proposal" not in check["metadata"]
     assert "threshold_change_decision" not in check["metadata"]
     assert "threshold_change_preflight" not in check["metadata"]
 
