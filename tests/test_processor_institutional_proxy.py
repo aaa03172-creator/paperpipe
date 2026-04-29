@@ -610,6 +610,22 @@ def test_process_daily_slots_limits_all_source_candidates_by_constraints(monkeyp
     assert len(rows) == 1
     assert rows[0]["id"] == "pmid:constraint-1"
     assert rows[0]["manual_rank_score"] is not None
+    payload = json.loads(rows[0]["feedback_json"])
+    assert payload["selection"]["candidate_count"] == 3
+    assert payload["selection"]["source_counts"] == {"pubmed": 2, "arxiv": 1}
+    assert payload["selection"]["constraints"]["slot_source"] == "all"
+    assert payload["selection"]["constraints"]["applied_pubmed_budget"] == 2
+    assert payload["selection"]["constraints"]["applied_preprint_budget"] == 1
+    assert [candidate["source"] for candidate in payload["selection"]["top_candidates"]] == [
+        "PubMed",
+        "PubMed",
+        "ArXiv",
+    ]
+    top_candidate = payload["selection"]["top_candidates"][0]
+    assert top_candidate["title"] == "PubMed Candidate 1"
+    assert top_candidate["score_breakdown"]["final_score"] == top_candidate["score"]
+    assert top_candidate["score_breakdown"]["source_bonus"] == 0.25
+    assert top_candidate["score_breakdown"]["metadata_components"]["doi_bonus"] == 0.08
 
 
 def test_process_daily_slots_selects_top_ranked_slot_representative(monkeypatch):
