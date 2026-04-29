@@ -326,7 +326,7 @@ def test_run_processor_gate_manual_review_outcome_blocks_threshold_change_withou
         encoding="utf-8",
     )
 
-    run_processor_gate_manual_review_outcome(
+    payload = run_processor_gate_manual_review_outcome(
         review_run=run_root,
         worksheet=worksheet_path,
     )
@@ -341,6 +341,9 @@ def test_run_processor_gate_manual_review_outcome_blocks_threshold_change_withou
     assert threshold_decision["recommended_action"] == "run_threshold_change_validation_replay_before_decision"
     assert threshold_decision["threshold_change_ready"] is False
     assert threshold_decision["threshold_change_next_step"] == "run_threshold_change_validation_replay"
+    assert payload["threshold_change_ready"] is False
+    assert payload["threshold_change_status"] == "threshold_change_validation_replay_required"
+    assert payload["threshold_change_next_step"] == "run_threshold_change_validation_replay"
     assert threshold_decision["threshold_change_preflight"] == {
         "required": True,
         "ready": False,
@@ -349,6 +352,11 @@ def test_run_processor_gate_manual_review_outcome_blocks_threshold_change_withou
         "validation_replay_status": "not_applicable",
         "validation_replay_matches_proposal": False,
     }
+    assert payload["threshold_change_preflight"] == threshold_decision["threshold_change_preflight"]
+    assert payload["threshold_change_preflight_text"] == (
+        "required=yes, ready=no, status=missing_threshold_change_proposal, "
+        "blocker=missing_threshold_change_proposal"
+    )
     assert "Threshold Change Preflight: required=yes, ready=no" in threshold_decision_markdown
     assert "missing_threshold_change_proposal" in threshold_decision_markdown
 
@@ -395,7 +403,7 @@ def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_
         encoding="utf-8",
     )
 
-    run_processor_gate_manual_review_outcome(
+    payload = run_processor_gate_manual_review_outcome(
         review_run=run_root,
         worksheet=worksheet_path,
     )
@@ -409,6 +417,8 @@ def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_
     assert threshold_decision["final_status"] == "high_threshold_boundary_review_needed"
     assert threshold_decision["recommended_action"] == "review_high_threshold_boundary_candidates"
     assert threshold_decision["threshold_change_ready"] is True
+    assert payload["threshold_change_ready"] is True
+    assert payload["threshold_change_status"] == "high_threshold_boundary_review_needed"
     assert threshold_decision["threshold_change_preflight"] == {
         "required": True,
         "ready": True,
@@ -417,5 +427,7 @@ def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_
         "validation_replay_status": "matched",
         "validation_replay_matches_proposal": True,
     }
+    assert payload["threshold_change_preflight"] == threshold_decision["threshold_change_preflight"]
+    assert payload["threshold_change_preflight_text"] == "required=yes, ready=yes, status=ready"
     assert "validation replay matched the proposal" in threshold_decision["summary"]
     assert "Threshold Change Preflight: required=yes, ready=yes, status=ready" in threshold_decision_markdown

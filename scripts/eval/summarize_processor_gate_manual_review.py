@@ -1162,6 +1162,23 @@ def build_processor_gate_threshold_change_preflight(
     }
 
 
+def _threshold_change_preflight_compact_text(preflight: object) -> str | None:
+    if not isinstance(preflight, dict):
+        return None
+    status = str(preflight.get("status") or "").strip()
+    if not status or status == "not_applicable":
+        return None
+    parts = [
+        "required=yes" if bool(preflight.get("required")) else "required=no",
+        "ready=yes" if bool(preflight.get("ready")) else "ready=no",
+        f"status={status}",
+    ]
+    blocker = str(preflight.get("blocker") or "").strip()
+    if blocker:
+        parts.append(f"blocker={blocker}")
+    return ", ".join(parts)
+
+
 def run_processor_gate_manual_review_outcome(
     *,
     review_run: Path,
@@ -1323,6 +1340,13 @@ def run_processor_gate_manual_review_outcome(
         "review_ready": outcome.get("review_ready"),
         "summary": outcome.get("summary"),
         "next_step": outcome.get("next_step"),
+        "threshold_change_ready": threshold_change_decision.get("threshold_change_ready"),
+        "threshold_change_status": threshold_change_decision.get("threshold_change_status"),
+        "threshold_change_next_step": threshold_change_decision.get("threshold_change_next_step"),
+        "threshold_change_preflight": threshold_change_decision.get("threshold_change_preflight"),
+        "threshold_change_preflight_text": _threshold_change_preflight_compact_text(
+            threshold_change_decision.get("threshold_change_preflight")
+        ),
     }
 
 
