@@ -20,7 +20,7 @@ export default defineConfig({
     reuseExistingServer: false,
     cwd: ".",
     env: {
-      VITE_API_BASE_URL: "http://127.0.0.1:8999",
+      LATTICE_UI_BACKEND_URL: "http://127.0.0.1:8999",
       VITE_FORCE_MOCK: "1",
     },
   },

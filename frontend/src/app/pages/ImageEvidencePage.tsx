@@ -14,6 +14,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { ArtifactHeaderContext } from "../components/ArtifactHeaderContext";
 
 interface ApiLikeResult {
   isMock: boolean;
@@ -69,6 +70,25 @@ function warningBadgeClassName(count: number): string {
   return "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]";
 }
 
+function buildImageEvidenceHeaderWhenToUse(routeImageEvidenceId?: string): string {
+  if (routeImageEvidenceId) {
+    return "Use this bundle when you need to review image provenance, warnings, and derived outputs before note reuse or external viewer handoff.";
+  }
+  return "Use this lane when you want to inspect saved image-evidence bundles before carrying them into notes, packs, or local imaging tools.";
+}
+
+function buildImageEvidenceHeaderDerivedFrom(imageEvidence: ImageEvidence | null): string {
+  if (!imageEvidence) {
+    return "Derived from one saved image source plus any derived outputs and handoff state once a bundle is registered.";
+  }
+  const sourceLabel =
+    imageEvidence.source_ref.source_label ??
+    imageEvidence.source_ref.external_ref ??
+    imageEvidence.source_ref.local_path ??
+    imageEvidence.source_ref.source_kind;
+  return `Derived from ${imageEvidence.source_ref.source_kind} source ${sourceLabel} with ${imageEvidence.derived_outputs.length} derived output${imageEvidence.derived_outputs.length === 1 ? "" : "s"}.`;
+}
+
 function warningToneClassName(severity: ImageWarningSeverity): string {
   if (severity === "warning" || severity === "error") {
     return "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]";
@@ -113,6 +133,61 @@ function dimensionText(imageEvidence: ImageEvidence): string {
     return "-";
   }
   return `${width} × ${height}`;
+}
+
+function linkedArtifactLaneLabel(kind: string): string {
+  if (kind === "meeting_pack") {
+    return "Meeting packs";
+  }
+  if (kind === "chart_pack") {
+    return "Chart packs";
+  }
+  if (kind === "method_comparison") {
+    return "Method comparisons";
+  }
+  if (kind === "protocol_card") {
+    return "Protocol cards";
+  }
+  return kind.replaceAll("_", " ");
+}
+
+function linkedArtifactLaneHref(kind: string): string | null {
+  if (kind === "meeting_pack") {
+    return "/meeting-packs";
+  }
+  if (kind === "chart_pack") {
+    return "/chart-packs";
+  }
+  if (kind === "method_comparison") {
+    return "/method-comparisons";
+  }
+  if (kind === "protocol_card") {
+    return "/protocol-cards";
+  }
+  return null;
+}
+
+function linkedArtifactLaneHint(kind: string): string | null {
+  if (kind === "meeting_pack") {
+    return "Reopen the meeting draft when this image needs discussion-ready framing, trace review, or slide-safe recap.";
+  }
+  if (kind === "chart_pack") {
+    return "Reopen charts when this bundle changes what should be plotted, compared, or exported as a figure-ready snapshot.";
+  }
+  if (kind === "method_comparison") {
+    return "Reopen the comparison when this image changes how two methods or evidence paths should be contrasted.";
+  }
+  if (kind === "protocol_card") {
+    return "Reopen the protocol card when this bundle changes a saved protocol snapshot or procedure note.";
+  }
+  return null;
+}
+
+function buildImageEvidenceHeaderContinuity(hasPaperNote: boolean): string {
+  if (hasPaperNote) {
+    return "Canonical evidence lives upstream in the linked paper note. Continue in note before reusing this bundle in packs, charts, or downstream review.";
+  }
+  return "Canonical evidence lives upstream in linked note review context. Re-open upstream note review before reusing this bundle in packs, charts, or downstream review.";
 }
 
 export function ImageEvidencePage() {
@@ -205,6 +280,16 @@ export function ImageEvidencePage() {
   const viewState = detailResponse?.view_state ?? null;
   const handoffTargets = detailResponse?.handoff_targets ?? [];
   const paperNoteHref = imageEvidence?.paper_slug ? `/papers/${encodeURIComponent(imageEvidence.paper_slug)}` : null;
+  const linkedArtifactFollowUps = useMemo(
+    () =>
+      (imageEvidence?.linked_artifact_refs ?? []).map((link) => ({
+        ...link,
+        laneLabel: linkedArtifactLaneLabel(link.artifact_kind),
+        laneHref: linkedArtifactLaneHref(link.artifact_kind),
+        laneHint: linkedArtifactLaneHint(link.artifact_kind),
+      })),
+    [imageEvidence],
+  );
 
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
@@ -257,6 +342,15 @@ export function ImageEvidencePage() {
             ) : null}
           </div>
         </div>
+        <ArtifactHeaderContext
+          testId="image-evidence-header-context"
+          emphasizeFirstItem={Boolean(routeImageEvidenceId)}
+          items={[
+            routeImageEvidenceId ? { label: "Derived artifact", value: buildImageEvidenceHeaderContinuity(Boolean(paperNoteHref)) } : null,
+            { label: "When to use", value: buildImageEvidenceHeaderWhenToUse(routeImageEvidenceId) },
+            { label: "Derived from", value: buildImageEvidenceHeaderDerivedFrom(imageEvidence) },
+          ].filter((item): item is { label: string; value: string } => item !== null)}
+        />
         {mockReasons.length > 0 ? (
           <p className="mt-3 text-xs text-[var(--pp-text-dim)]">{mockReasons.join(" / ")}</p>
         ) : null}
@@ -333,7 +427,10 @@ export function ImageEvidencePage() {
                       </div>
                       <div className="md:col-span-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Raw Source Ref</div>
-                        <pre className="mt-1 overflow-x-auto rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                        <pre
+                          tabIndex={-1}
+                          className="mt-1 overflow-x-auto rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]"
+                        >
 {describeSourceRef(imageEvidence)}
                         </pre>
                       </div>
@@ -595,6 +692,73 @@ export function ImageEvidencePage() {
                     <CardDescription>Structured viewer handoff metadata only. This surface does not launch external tools.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {paperNoteHref ? (
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                          Continue in note
+                        </div>
+                        <p className="mt-1">
+                          Use the linked paper note first when you need canonical paper context, then return to saved viewer targets for imaging-specific follow-up.
+                        </p>
+                      </div>
+                    ) : null}
+                    {linkedArtifactFollowUps.length > 0 ? (
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                          Continue after note review
+                        </div>
+                        <p className="mt-1">
+                          These downstream artifact lanes already reference this bundle. Re-open the lane after you check the canonical note.
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {linkedArtifactFollowUps.slice(0, 3).map((link) =>
+                            link.laneHref ? (
+                              <Link
+                                key={`${link.artifact_kind}-${link.artifact_id}`}
+                                to={link.laneHref}
+                                className="flex items-center justify-between rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-sm text-[var(--pp-text-secondary)] transition-colors hover:bg-[var(--pp-surface)]"
+                              >
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                                    {link.laneLabel}
+                                  </div>
+                                  <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-primary)]">
+                                    {link.artifact_kind} / {link.artifact_id}
+                                  </div>
+                                  {link.laneHint ? <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">{link.laneHint}</p> : null}
+                                  {link.note ? <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">{link.note}</p> : null}
+                                </div>
+                                <ArrowRight className="h-3.5 w-3.5 text-[var(--pp-text-dim)]" />
+                              </Link>
+                            ) : (
+                              <div
+                                key={`${link.artifact_kind}-${link.artifact_id}`}
+                                className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2"
+                              >
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                                  {link.laneLabel}
+                                </div>
+                                <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-primary)]">
+                                  {link.artifact_kind} / {link.artifact_id}
+                                </div>
+                                {link.laneHint ? <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">{link.laneHint}</p> : null}
+                                {link.note ? <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">{link.note}</p> : null}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                        {linkedArtifactFollowUps.length > 3 ? (
+                          <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
+                            Showing 3 of {linkedArtifactFollowUps.length} linked artifact follow-ups.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {handoffTargets.length > 0 ? (
+                      <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                        Saved targets preserve viewer context after note review. Treat them as navigation aids, not validated evidence.
+                      </p>
+                    ) : null}
                     {handoffTargets.length > 0 ? handoffTargets.map((target) => (
                       <div
                         key={`${target.target}-${target.openable_ref}`}
@@ -604,7 +768,10 @@ export function ImageEvidencePage() {
                           <Link2 className="h-4 w-4 text-[var(--pp-text-dim)]" />
                           <span className="font-medium text-[var(--pp-text-primary)]">{target.target}</span>
                         </div>
-                        <pre className="mt-2 overflow-x-auto rounded-md bg-[var(--pp-surface)] p-2 text-xs text-[var(--pp-text-secondary)]">
+                        <pre
+                          tabIndex={-1}
+                          className="mt-2 overflow-x-auto rounded-md bg-[var(--pp-surface)] p-2 text-xs text-[var(--pp-text-secondary)]"
+                        >
 {target.openable_ref}
                         </pre>
                         {target.view_state_ref?.path ? (
@@ -641,7 +808,7 @@ export function ImageEvidencePage() {
                 <Search className="h-4 w-4" />
                 Search image bundles
               </CardTitle>
-              <CardDescription>Find saved image-evidence bundles by title, bundle id, paper id, or slug.</CardDescription>
+              <CardDescription>Find saved derived image bundles by title, bundle id, paper id, or slug.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Input
@@ -649,8 +816,13 @@ export function ImageEvidencePage() {
                 onChange={(event) => setIndexSearchQuery(event.target.value)}
                 placeholder="Search title or image evidence id"
               />
+              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                Image bundles stay downstream of raw source refs, saved viewer state, and paper-note review. Use this index to calibrate trust, not to promote canonical evidence.
+              </div>
               <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-xs text-[var(--pp-text-dim)]">
-                Image evidence stays metadata-first in v0. This index is for trust calibration, not image interpretation.
+                {(indexResponse?.total ?? 0) > 0
+                  ? "Image evidence stays metadata-first in v0. This index is for trust calibration, not image interpretation."
+                  : "No saved image bundles yet. Save image evidence from a paper or viewer to inspect trust metadata here."}
               </div>
             </CardContent>
           </Card>
@@ -659,7 +831,7 @@ export function ImageEvidencePage() {
             <Card>
               <CardHeader>
                 <CardTitle>Saved image bundles</CardTitle>
-                <CardDescription>Open a saved bundle to inspect warnings, derived-output lineage, and handoff metadata.</CardDescription>
+                <CardDescription>Open a saved derived bundle to inspect warnings, lineage, and note handoff before downstream reuse.</CardDescription>
               </CardHeader>
               <CardContent>
                 {loading && !indexResponse ? (
@@ -710,7 +882,11 @@ export function ImageEvidencePage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-[var(--pp-text-dim)]">No saved bundles matched this query.</p>
+                    <p className="text-sm text-[var(--pp-text-dim)]">
+                      {(indexResponse?.total ?? 0) > 0
+                        ? "No saved bundles matched this query."
+                        : "No saved derived image bundles yet. Save one to review warnings, lineage, and derived outputs here."}
+                    </p>
                   )
                 ) : null}
               </CardContent>

@@ -2,12 +2,37 @@ export type PaperUiStatus = "not_started" | "processing" | "completed" | "failed
 
 export type JobLifecycle = "queued" | "running" | "completed" | "failed" | "cancelled";
 
+export interface JobCancelResponse {
+  status: "cancelled";
+}
+
+export interface RuntimeReadinessCheck {
+  name: string;
+  status: "ok" | "warn" | "error";
+  detail: string;
+  path?: string | null;
+}
+
+export interface RuntimeReadinessResponse {
+  status: "ok" | "degraded" | "error";
+  checks: RuntimeReadinessCheck[];
+}
+
 export type PipelineStage = "ingest" | "index" | "read" | "verify" | "completed";
 
 export type ReasoningPersonaId = "librarian" | "researcher" | "extractor_reviewer";
+export type PaperAccessStatusLabel = "open" | "institution_required" | "user_imported_pdf" | "unavailable";
+
+export interface PaperAccessSummary {
+  status_label: PaperAccessStatusLabel;
+  open_access_url?: string | null;
+  institution_access_url?: string | null;
+  local_pdf_url?: string | null;
+}
 
 export interface PaperSummary {
   paper_id: string;
+  note_slug?: string | null;
   title: string;
   authors?: string;
   year?: number;
@@ -21,6 +46,7 @@ export interface PaperSummary {
   latest_run_id?: string;
   updated_at?: string;
   ops_summary?: PaperNoteOpsSummary | null;
+  access_summary?: PaperAccessSummary | null;
 }
 
 export interface PaperDetail extends PaperSummary {
@@ -32,6 +58,8 @@ export interface PaperNoteSummary {
   title: string;
   note_path: string;
   structured_state_present?: boolean;
+  reading_assist_available?: boolean;
+  reading_assist_locales?: string[];
   id?: string | null;
   aliases: string[];
   tags: string[];
@@ -47,6 +75,9 @@ export interface PaperNoteSummary {
   mesh?: string[];
   outcomes?: string[];
   ops_summary?: PaperNoteOpsSummary | null;
+  starred?: boolean;
+  has_operator_note?: boolean;
+  triage_labels?: PaperNoteOperatorTriageLabel[];
 }
 
 export interface PaperNoteOpsSummary {
@@ -69,7 +100,42 @@ export interface PaperNoteListResponse {
   total_pages: number;
   available_tags: string[];
   available_statuses: string[];
+  available_reading_assist_note_count: number;
+  available_reading_assist_locales: string[];
   items: PaperNoteSummary[];
+}
+
+export interface PaperNotesHomeContext {
+  saved_notes: number;
+  structured_notes: number;
+  latest_note_updated_at?: string | null;
+  note_context_limited: boolean;
+  note_slug_by_paper_id: Record<string, string>;
+  marker_summary: PaperNotesHomeMarkerSummary;
+}
+
+export interface HomeWorkspaceSummary {
+  saved_notes: number;
+  structured_notes: number;
+  needs_review: number;
+  blocked: number;
+  latest_note_updated_at?: string | null;
+  note_context_limited: boolean;
+}
+
+export interface PaperNotesHomeMarkerSummary {
+  marked_papers: number;
+  note_backed_papers: number;
+  starred: number;
+  triage_counts: Record<PaperNoteOperatorTriageLabel, number>;
+}
+
+export interface PaperNoteImportResponse {
+  paper_id: string;
+  slug: string;
+  title: string;
+  note_path: string;
+  pdf_url: string;
 }
 
 export interface PaperNoteRelated {
@@ -83,6 +149,20 @@ export interface PaperNoteReference {
   label: string;
   url: string;
   source: "pdf" | "doi" | "zotero" | "external";
+}
+
+export interface PaperNoteSectionNavigatorItem {
+  key: string;
+  label: string;
+  outline_id?: string | null;
+  outline_order?: number | null;
+  claim_count: number;
+  evidence_count: number;
+  representative_claim_id?: string | null;
+  representative_evidence_id?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  matched_to_outline: boolean;
 }
 
 export interface PaperNoteContextTraceEntry {
@@ -162,6 +242,77 @@ export interface SkillRunRecord {
   data: Record<string, unknown>;
 }
 
+export type AppraisalCheckStatus = "pass" | "warn" | "fail" | "not_run";
+export type AppraisalConcernSeverity = "info" | "warn" | "fail";
+
+export interface CriticalAppraisalCheck {
+  code: string;
+  label: string;
+  status: AppraisalCheckStatus;
+  detail: string;
+}
+
+export interface CriticalAppraisalConcern {
+  code: string;
+  title: string;
+  detail: string;
+  severity: AppraisalConcernSeverity;
+  claim_ids: string[];
+  evidence_ids: string[];
+  source_artifacts: string[];
+}
+
+export interface CriticalAppraisalQuestion {
+  code: string;
+  question: string;
+  rationale: string;
+  claim_ids: string[];
+  evidence_ids: string[];
+}
+
+export interface CriticalAppraisalReport {
+  schema_version: string;
+  layer: "review_gate";
+  canonical_status: "non_canonical";
+  label: string;
+  summary: string;
+  claim_count: number;
+  evidence_count: number;
+  avg_confidence: number;
+  verified_checks: number;
+  inconsistent_checks: number;
+  checks: CriticalAppraisalCheck[];
+  concerns: CriticalAppraisalConcern[];
+  questions: CriticalAppraisalQuestion[];
+  warnings: string[];
+  source_artifacts: string[];
+}
+
+export type ReadingAssistBlockKind = "one_line_summary" | "abstract" | "critical_analysis";
+
+export interface ReadingAssistProvenance {
+  source_field: string;
+  source_locale: string;
+  translator?: string | null;
+  model?: string | null;
+  version?: string | null;
+}
+
+export interface ReadingAssistBlock {
+  kind: ReadingAssistBlockKind;
+  text: string;
+  source_heading?: string | null;
+  provenance?: ReadingAssistProvenance | null;
+}
+
+export interface ReadingAssistPayload {
+  locale: string;
+  canonical_locale: string;
+  machine_translated: boolean;
+  partial: boolean;
+  blocks: ReadingAssistBlock[];
+}
+
 export interface StructuredPaperState {
   schema_version: string;
   paper_slug: string;
@@ -172,6 +323,7 @@ export interface StructuredPaperState {
   entities: string[];
   mesh: string[];
   outcomes: string[];
+  reading_assists?: ReadingAssistPayload[];
 }
 
 export type MeetingPackMode =
@@ -486,6 +638,15 @@ export interface MethodComparisonListResponse {
   total: number;
 }
 
+export interface MethodComparisonCreateRequest {
+  comparison_id?: string;
+  title?: string;
+  paper_ids: string[];
+  field_ids: MethodComparisonFieldId[];
+  notes?: string | null;
+  created_at?: string | null;
+}
+
 export type ChartSourceKind = "stats_report" | "document_table";
 
 export type ChartTemplateId =
@@ -602,11 +763,31 @@ export interface ChartPack {
   warnings: ChartWarning[];
 }
 
+export type ChartPackGateStatus = "pass" | "warn" | "fail";
+
+export interface ChartPackQualityGateCheck {
+  name: string;
+  status: ChartPackGateStatus;
+  detail: string;
+}
+
+export interface ChartPackQualityGate {
+  schema_version: string;
+  workflow: "chart_pack";
+  chart_pack_id: string;
+  overall_status: ChartPackGateStatus;
+  bundle_ready: boolean;
+  handoff_ready: boolean;
+  reason_codes: string[];
+  checks: ChartPackQualityGateCheck[];
+}
+
 export interface ChartPackResponse {
   chart_pack: ChartPack;
   markdown: string;
   data_snapshots: Record<string, string>;
   specs: Record<string, Record<string, unknown>>;
+  quality_gate?: ChartPackQualityGate | null;
 }
 
 export interface ChartPackListItem {
@@ -633,6 +814,39 @@ export type ProtocolValidationStatus =
   | "deprecated";
 
 export type ProtocolVersionStatus = "draft" | "active" | "deprecated";
+
+export interface ProtocolDraftSourceSummary {
+  note_slug: string;
+  paper_id?: string | null;
+  note_path?: string | null;
+  structured_state_path?: string | null;
+  run_id?: string | null;
+  claim_count: number;
+  evidence_count: number;
+  used_note_body: boolean;
+  used_structured_state: boolean;
+  used_claimset: boolean;
+}
+
+export type ProtocolAttachmentArtifactFamily = "protocol_attachment";
+
+export type ProtocolAttachmentLayer = "raw_source";
+
+export type ProtocolAttachmentSourceKind = "uploaded_file";
+
+export type ProtocolAttachmentExtractionStatus = "succeeded" | "failed";
+
+export type ProtocolAttachmentArtifactKind = "source_file" | "extracted_markdown";
+
+export interface ProtocolAttachmentArtifactRef {
+  kind: ProtocolAttachmentArtifactKind;
+  path: string;
+}
+
+export interface ProtocolAttachmentWarning {
+  code: string;
+  message: string;
+}
 
 export interface ProtocolEvidenceRef {
   paper_slug: string;
@@ -706,6 +920,144 @@ export interface ProtocolCardListItem {
 export interface ProtocolCardListResponse {
   items: ProtocolCardListItem[];
   total: number;
+}
+
+export interface ProtocolVersionRequestSnapshot {
+  version_id?: string | null;
+  version_number: number;
+  key_steps_summary: string[];
+  materials: string[];
+  equipment: string[];
+  critical_conditions: string[];
+  readouts: string[];
+  cautions: string[];
+  content_snapshot: string;
+  change_reason?: string | null;
+  status: ProtocolVersionStatus;
+  created_by: string;
+  created_at?: string | null;
+  source_refs: ProtocolEvidenceRef[];
+  note?: string | null;
+}
+
+export interface ProtocolCardRequestSnapshot {
+  protocol_id?: string | null;
+  title: string;
+  purpose?: string | null;
+  context?: string | null;
+  source_kind: ProtocolSourceKind;
+  linked_paper_ids: string[];
+  linked_note_slugs: string[];
+  current_version_id?: string | null;
+  validation_status: ProtocolValidationStatus;
+  versions: ProtocolVersionRequestSnapshot[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProtocolAttachmentBundle {
+  attachment_bundle_id: string;
+  artifact_family: ProtocolAttachmentArtifactFamily;
+  layer: ProtocolAttachmentLayer;
+  source_kind: ProtocolAttachmentSourceKind;
+  title: string;
+  source_filename: string;
+  media_type?: string | null;
+  byte_size: number;
+  sha1: string;
+  note_slug?: string | null;
+  paper_id?: string | null;
+  run_id?: string | null;
+  created_at: string;
+  source_ref: ProtocolAttachmentArtifactRef;
+  extracted_markdown_ref?: ProtocolAttachmentArtifactRef | null;
+  extraction_engine?: string | null;
+  extraction_status: ProtocolAttachmentExtractionStatus;
+  extracted_markdown_excerpt?: string | null;
+  warnings: ProtocolAttachmentWarning[];
+}
+
+export interface ProtocolAttachmentDraftResponse {
+  attachment_bundle: ProtocolAttachmentBundle;
+  draft: ProtocolCardRequestSnapshot;
+  paper_source_summary?: ProtocolDraftSourceSummary | null;
+  warnings: ProtocolAttachmentWarning[];
+}
+
+export type PaperSynthesisCanonicalStatus = "non_canonical";
+
+export type PaperSynthesisReadiness = "evidence_backed" | "background_only" | "mixed";
+
+export type PaperSynthesisFreshness = "current" | "stale" | "unknown";
+
+export type PaperSynthesisLineageSourceKind = "structured_state" | "claimset_resolved" | "run_meta";
+
+export type PaperSynthesisReviewArtifactKind = "quality_gate" | "acceptance_contract";
+
+export interface PaperSynthesisLineageSummary {
+  minimum_required_source_kinds: PaperSynthesisLineageSourceKind[];
+  present_required_source_kinds: PaperSynthesisLineageSourceKind[];
+  review_artifact_kinds: PaperSynthesisReviewArtifactKind[];
+  answer_route: "canonical_state_then_upstream_evidence";
+}
+
+export type PaperSynthesisSourceKind =
+  | PaperSynthesisLineageSourceKind
+  | PaperSynthesisReviewArtifactKind
+  | "document_artifact"
+  | "paper_note_state";
+
+export interface PaperSynthesisSourceRef {
+  kind: PaperSynthesisSourceKind;
+  paper_slug: string;
+  run_id?: string | null;
+  path?: string | null;
+  note?: string | null;
+}
+
+export interface PaperSynthesisListItem {
+  synthesis_id: string;
+  paper_slug: string;
+  title: string;
+  updated_at: string;
+  artifact_family: "paper_synthesis";
+  template_kind: "paper" | "project" | "meeting" | "decision" | "concept";
+  canonical_status: PaperSynthesisCanonicalStatus;
+  readiness: PaperSynthesisReadiness;
+  freshness: PaperSynthesisFreshness;
+  warning_count: number;
+  source_ref_count: number;
+  evidence_ref_count: number;
+  lineage_summary: PaperSynthesisLineageSummary;
+}
+
+export interface PaperSynthesisListResponse {
+  items: PaperSynthesisListItem[];
+  total: number;
+}
+
+export interface PaperSynthesisManifest {
+  synthesis_id: string;
+  paper_slug: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  artifact_family: "paper_synthesis";
+  template_kind: "paper" | "project" | "meeting" | "decision" | "concept";
+  layer: "compiled_knowledge";
+  canonical_status: PaperSynthesisCanonicalStatus;
+  readiness: PaperSynthesisReadiness;
+  freshness: PaperSynthesisFreshness;
+  summary?: string | null;
+  source_refs: PaperSynthesisSourceRef[];
+  warnings: string[];
+  uncertainty_notes: string[];
+  lineage_summary: PaperSynthesisLineageSummary;
+}
+
+export interface PaperSynthesisResponse {
+  synthesis: PaperSynthesisManifest;
+  markdown: string;
 }
 
 export type ImageSourceKind = "local_file" | "external_image_ref";
@@ -869,14 +1221,65 @@ export interface PaperNoteDetailResponse {
   references: PaperNoteReference[];
   context_trace?: PaperNoteContextTrace | null;
   structured_state?: StructuredPaperState | null;
+  section_navigator?: PaperNoteSectionNavigatorItem[];
+  reading_assist?: PaperNoteReadingAssist | null;
+  operator_state: PaperNoteOperatorState;
   available_actions: SkillActionInfo[];
+}
+
+export type PaperNoteOperatorTriageLabel =
+  | "revisit"
+  | "needs_verification"
+  | "experiment_relevant";
+
+export interface PaperNoteOperatorState {
+  note_slug: string;
+  paper_id: string;
+  layer: "raw_memory";
+  canonical_status: "non_canonical";
+  paper_note_text?: string | null;
+  starred: boolean;
+  triage_labels: PaperNoteOperatorTriageLabel[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PaperNoteOperatorStateUpdateRequest {
+  paper_note_text?: string | null;
+  starred: boolean;
+  triage_labels: PaperNoteOperatorTriageLabel[];
+}
+
+export interface PaperNoteReadingAssistBlock {
+  kind: ReadingAssistBlockKind;
+  label: string;
+  canonical_text?: string | null;
+  translated_text: string;
+  source_field: string;
+  source_heading?: string | null;
+  source_locale: string;
+  translator?: string | null;
+  model?: string | null;
+  version?: string | null;
+}
+
+export interface PaperNoteReadingAssist {
+  locale: string;
+  canonical_locale: string;
+  machine_translated: boolean;
+  partial: boolean;
+  blocks: PaperNoteReadingAssistBlock[];
 }
 
 export interface PaperNoteStructuredStateLookupResponse {
   paper_id: string;
   slug: string;
   note_path: string;
+  note?: PaperNoteSummary | null;
+  pdf_url?: string | null;
+  doi_url?: string | null;
   structured_state?: StructuredPaperState | null;
+  operator_state?: PaperNoteOperatorState | null;
 }
 
 export interface SkillRunResponse {
@@ -952,9 +1355,79 @@ export interface ArtifactFileEntry {
   data?: unknown;
 }
 
+export interface PrivacyPreflightFinding {
+  finding_id: string;
+  kind: string;
+  severity: string;
+  action: string;
+  message: string;
+  label?: string | null;
+  source_surface?: string | null;
+  detector?: string | null;
+  reason?: string | null;
+  text_preview?: string | null;
+  start?: number | null;
+  end?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PrivacyPreflightManualReviewItem {
+  review_id: string;
+  severity: string;
+  reason: string;
+  message: string;
+  source_surface?: string | null;
+  finding_ids: string[];
+  recommended_action: string;
+}
+
+export interface PrivacyPreflightSummary {
+  detector_spans: number;
+  deterministic_spans: number;
+  preserve_conflicts: number;
+  false_negative_risks: number;
+  unexpected_predictions: number;
+  manual_review_records: number;
+  manual_review_reasons: number;
+}
+
+export interface PrivacyPreflightResponse {
+  schema_version: string;
+  mode: string;
+  status: string;
+  rollback_flag: string;
+  payload_class: string;
+  scope: string;
+  redaction_applied: boolean;
+  mutation_applied: boolean;
+  findings: PrivacyPreflightFinding[];
+  manual_review: PrivacyPreflightManualReviewItem[];
+  summary: PrivacyPreflightSummary;
+  input_refs: string[];
+  source_surfaces: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface RunInferenceLaneSummary {
+  selected_backend: string;
+  payload_class: string;
+  redaction_applied: boolean;
+  provider_name?: string | null;
+  provider_model?: string | null;
+  privacy_preflight?: PrivacyPreflightResponse | null;
+}
+
+export interface RunInferenceSummary {
+  selected_backend: string;
+  payload_class: string;
+  redaction_applied: boolean;
+  lanes: Record<string, RunInferenceLaneSummary>;
+}
+
 export interface ArtifactBundle {
   paper_id: string;
   run_id: string;
+  inference_summary?: RunInferenceSummary | null;
   files: Record<string, ArtifactFileEntry>;
 }
 

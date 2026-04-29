@@ -1,21 +1,32 @@
 import { expect, test, Page } from "@playwright/test";
 
+const REVIEW_WORKBENCH_SUBTITLE =
+  "Review evidence, saved checks, and claim flags before regenerating or exporting downstream artifacts.";
+
 async function openMockWorkbenchAndSelectSecondClaim(page: Page) {
   await page.goto("/workbench/paper-2023-imaging");
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(REVIEW_WORKBENCH_SUBTITLE)).toBeVisible();
   await expect(page.getByText(/^Mock mode$/)).toBeVisible();
-  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
+  await expect(viewer).toBeVisible();
 
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await claimsPanel.getByRole("button").nth(1).click();
-  await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
+  await viewer.scrollIntoViewIfNeeded();
+  await expect(viewer.locator('[data-testid="claim-highlight"]')).toHaveCount(1);
+}
+
+async function getStablePdfPage(page: Page) {
+  const pdfPage = page.getByRole("region", { name: /^Page 1$/ }).first();
+  await expect(pdfPage).toBeVisible();
+  return pdfPage;
 }
 
 test("visual regression (mock, desktop): claim highlight in pdf viewer", async ({ page }) => {
   await openMockWorkbenchAndSelectSecondClaim(page);
 
-  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
-  await expect(viewer).toHaveScreenshot("mock-desktop-claim-highlight.png", {
+  const pdfPage = await getStablePdfPage(page);
+  await expect(pdfPage).toHaveScreenshot("mock-desktop-claim-highlight.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixels: 1200,
@@ -28,8 +39,8 @@ test.describe("mobile visual regression (mock)", () => {
   test("claim highlight in pdf viewer", async ({ page }) => {
     await openMockWorkbenchAndSelectSecondClaim(page);
 
-    const viewer = page.locator('[data-testid="pdf-viewer"]').first();
-    await expect(viewer).toHaveScreenshot("mock-mobile-claim-highlight.png", {
+    const pdfPage = await getStablePdfPage(page);
+    await expect(pdfPage).toHaveScreenshot("mock-mobile-claim-highlight.png", {
       animations: "disabled",
       caret: "hide",
       maxDiffPixels: 1200,

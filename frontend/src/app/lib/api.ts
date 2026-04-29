@@ -3,14 +3,18 @@ import {
   ApiResult,
   ArtifactBundle,
   ChartPackListResponse,
+  ChartPackRequestSnapshot,
   ChartPackResponse,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
   JobEnqueueResponse,
+  JobCancelResponse,
   JobStatus,
+  MethodComparisonCreateRequest,
   MethodComparisonListResponse,
   MethodComparisonResponse,
   MeetingPackListResponse,
+  MeetingPackRequestSnapshot,
   MeetingPackResponse,
   MeetingPackTraceResponse,
   MeetingPackValidationResponse,
@@ -18,31 +22,51 @@ import {
   ObsidianSyncResponse,
   PaperDetail,
   PaperNoteDetailResponse,
+  PaperNotesHomeContext,
+  PaperNoteImportResponse,
   PaperNoteListResponse,
+  PaperNoteOperatorState,
+  PaperNoteOperatorStateUpdateRequest,
   PaperNoteStructuredStateLookupResponse,
+  PaperSynthesisManifest,
+  PaperSynthesisListItem,
+  PaperSynthesisListResponse,
   PaperSummary,
   PersonaListResponse,
   ProtocolCardListResponse,
+  ProtocolAttachmentBundle,
+  ProtocolAttachmentDraftResponse,
+  ProtocolCardRequestSnapshot,
   ProtocolCardResponse,
   ReasoningPersonaId,
+  RuntimeReadinessResponse,
   SkillRunResponse,
   TimelineResponse,
   StatsRepairResponse,
 } from "./types";
 import {
   createMockJob,
+  createMockChartPack,
+  createMockProtocolCard,
   getMockChartPack,
   getMockChartPackIndex,
   getMockImageEvidence,
   getMockImageEvidenceIndex,
   getMockArtifactsLatest,
   getMockHealth,
+  getMockPaperNoteDetail,
+  getMockPaperNotesHomeContext,
+  getMockPaperNotesIndex,
+  getMockPaperNoteOperatorState,
+  getMockPaperNoteStructuredStateByPaperId,
   getMockMethodComparison,
   getMockMethodComparisonIndex,
+  createMockMeetingPack,
   getMockMeetingPackIndex,
   getMockMeetingPack,
   getMockMeetingPackTrace,
   getMockMeetingPackValidation,
+  createMockMethodComparison,
   getMockJob,
   getMockJobs,
   getMockObsidianMirror,
@@ -52,10 +76,14 @@ import {
   getMockProtocolCard,
   getMockProtocolCardIndex,
   getMockTimeline,
+  MockPaperNoteQuery,
+  updateMockPaperNoteOperatorState,
   SAMPLE_PDF,
 } from "./mock";
 
 const FORCE_MOCK_REASON = "mock mode forced by VITE_FORCE_MOCK";
+const LIVE_PAPERS_CACHE_TTL_MS = 15_000;
+const PAPER_NOTE_STRUCTURED_LOOKUP_CACHE_TTL_MS = 5_000;
 
 interface DeepReadRequest {
   paper_id: string;
@@ -84,6 +112,156 @@ interface SkillRunRequest {
   force?: boolean;
 }
 
+interface ProtocolAttachmentDraftCreateRequest {
+  file: File;
+  noteSlug?: string;
+  paperId?: string;
+  runId?: string;
+  title?: string;
+  purpose?: string;
+  signal?: AbortSignal;
+}
+
+const livePapersCache: {
+  items: PaperSummary[];
+  reusable: boolean;
+  updatedAt: number;
+} = {
+  items: [],
+  reusable: false,
+  updatedAt: 0,
+};
+
+const paperNoteStructuredLookupCache = new Map<
+  string,
+  {
+    value: PaperNoteStructuredStateLookupResponse;
+    updatedAt: number;
+  }
+>();
+
+function snapshotPaperList(items: PaperSummary[]): PaperSummary[] {
+  return items.map((item) => ({ ...item }));
+}
+
+function snapshotPaperNoteStructuredLookup(
+  value: PaperNoteStructuredStateLookupResponse,
+): PaperNoteStructuredStateLookupResponse {
+  return JSON.parse(JSON.stringify(value)) as PaperNoteStructuredStateLookupResponse;
+}
+
+function getCachedPaperNoteStructuredLookup(paperId: string): PaperNoteStructuredStateLookupResponse | null {
+  for (const candidate of buildPaperIdCandidates(paperId)) {
+    const cached = paperNoteStructuredLookupCache.get(candidate);
+    if (!cached) {
+      continue;
+    }
+    if (Date.now() - cached.updatedAt > PAPER_NOTE_STRUCTURED_LOOKUP_CACHE_TTL_MS) {
+      paperNoteStructuredLookupCache.delete(candidate);
+      continue;
+    }
+    return snapshotPaperNoteStructuredLookup(cached.value);
+  }
+  return null;
+}
+
+function replaceCachedPaperNoteStructuredLookup(
+  value: PaperNoteStructuredStateLookupResponse,
+  options?: { paperIds?: string[] },
+): void {
+  const keys = new Set<string>();
+  for (const candidate of buildPaperIdCandidates(value.paper_id)) {
+    keys.add(candidate);
+  }
+  const slug = String(value.slug ?? "").trim();
+  if (slug) {
+    keys.add(slug);
+  }
+  for (const paperId of options?.paperIds ?? []) {
+    for (const candidate of buildPaperIdCandidates(paperId)) {
+      keys.add(candidate);
+    }
+  }
+  if (keys.size === 0) {
+    return;
+  }
+  const snapshot = snapshotPaperNoteStructuredLookup(value);
+  const updatedAt = Date.now();
+  for (const key of keys) {
+    paperNoteStructuredLookupCache.set(key, { value: snapshot, updatedAt });
+  }
+}
+
+function clearCachedPaperNoteStructuredLookup(keys: Array<string | null | undefined>): void {
+  for (const rawKey of keys) {
+    const trimmed = String(rawKey ?? "").trim();
+    if (!trimmed) {
+      continue;
+    }
+    paperNoteStructuredLookupCache.delete(trimmed);
+    for (const candidate of buildPaperIdCandidates(trimmed)) {
+      paperNoteStructuredLookupCache.delete(candidate);
+    }
+  }
+}
+
+function buildStructuredLookupFromNoteDetail(
+  noteDetail: PaperNoteDetailResponse,
+): PaperNoteStructuredStateLookupResponse | null {
+  const slug = String(noteDetail.note.slug ?? "").trim();
+  const notePath = String(noteDetail.note.note_path ?? "").trim();
+  if (!slug || !notePath) {
+    return null;
+  }
+  return {
+    paper_id:
+      normalizeNoteDetailPaperId(noteDetail.note.id) ??
+      normalizeNoteDetailPaperId(noteDetail.operator_state.paper_id) ??
+      slug,
+    slug,
+    note_path: notePath,
+    note: noteDetail.note,
+    pdf_url: getNoteDetailLocalPdfUrl(noteDetail) ?? getNoteDetailOpenPdfUrl(noteDetail),
+    doi_url: getNoteDetailDoiUrl(noteDetail),
+    structured_state: noteDetail.structured_state ?? null,
+    operator_state: noteDetail.operator_state ?? null,
+  };
+}
+
+function primeStructuredLookupCacheFromNoteDetail(
+  noteDetail: PaperNoteDetailResponse,
+  options?: { paperIds?: string[] },
+): void {
+  const lookup = buildStructuredLookupFromNoteDetail(noteDetail);
+  if (!lookup) {
+    return;
+  }
+  replaceCachedPaperNoteStructuredLookup(lookup, options);
+}
+
+export function getCachedLivePapers(): PaperSummary[] | null {
+  if (!livePapersCache.reusable || livePapersCache.items.length === 0) {
+    return null;
+  }
+  if (Date.now() - livePapersCache.updatedAt > LIVE_PAPERS_CACHE_TTL_MS) {
+    livePapersCache.reusable = false;
+    return null;
+  }
+  return snapshotPaperList(livePapersCache.items);
+}
+
+export function isCachedLivePapersReusable(): boolean {
+  return livePapersCache.reusable;
+}
+
+export function replaceCachedLivePapers(items: PaperSummary[], options?: { reusable?: boolean }): void {
+  livePapersCache.items = snapshotPaperList(items);
+  livePapersCache.updatedAt = Date.now();
+  if (typeof options?.reusable === "boolean") {
+    livePapersCache.reusable = options.reusable;
+  }
+}
+
 interface ClientUserActionRequest {
   paper_id?: string | null;
   action_type: string;
@@ -95,17 +273,55 @@ class ApiHttpError extends Error {
   status: number;
   path: string;
   responseBody?: string;
+  responseHeaders?: Record<string, string>;
 
-  constructor(path: string, status: number, statusText: string, responseBody?: string) {
+  constructor(
+    path: string,
+    status: number,
+    statusText: string,
+    responseBody?: string,
+    responseHeaders?: Record<string, string>,
+  ) {
     super(`${path} -> ${status} ${statusText}`);
     this.path = path;
     this.status = status;
     this.responseBody = responseBody;
+    this.responseHeaders = responseHeaders;
   }
 }
 
 function isApiHttpError(error: unknown): error is ApiHttpError {
   return error instanceof ApiHttpError;
+}
+
+function isProxyAvailabilityHttpError(error: unknown): error is ApiHttpError {
+  if (!import.meta.env.DEV || !isApiHttpError(error) || error.status !== 500) {
+    return false;
+  }
+  if ((error.responseBody ?? "").trim().length > 0) {
+    return false;
+  }
+
+  const contentType = (error.responseHeaders?.["content-type"] ?? "").toLowerCase();
+  if (!contentType.startsWith("text/plain")) {
+    return false;
+  }
+
+  const backendOnlyHeaders = [
+    "server",
+    "x-content-type-options",
+    "x-frame-options",
+    "referrer-policy",
+    "permissions-policy",
+  ];
+  return !backendOnlyHeaders.some((headerName) => {
+    const value = error.responseHeaders?.[headerName];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+function readResponseHeaders(response: Response): Record<string, string> {
+  return Object.fromEntries(Array.from(response.headers.entries(), ([key, value]) => [key.toLowerCase(), value]));
 }
 
 function canUseAutoMockFallback(): boolean {
@@ -116,9 +332,6 @@ function requestHeaders(init?: RequestInit, includeJsonContentType = true): Head
   const headers = new Headers(init?.headers ?? undefined);
   if (includeJsonContentType && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
-  }
-  if (APP_CONFIG.apiKey && !headers.has("X-API-Key")) {
-    headers.set("X-API-Key", APP_CONFIG.apiKey);
   }
   return headers;
 }
@@ -137,9 +350,12 @@ function normalizePaperStatus(raw?: string): PaperSummary["status"] {
   return "not_started";
 }
 
-function withTimeout(signal?: AbortSignal | null): { signal: AbortSignal; cancel: () => void } {
+function withTimeout(
+  signal?: AbortSignal | null,
+  timeoutMs: number = APP_CONFIG.requestTimeoutMs,
+): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), APP_CONFIG.requestTimeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
   if (signal) {
     signal.addEventListener("abort", onAbort, { once: true });
@@ -155,8 +371,8 @@ function withTimeout(signal?: AbortSignal | null): { signal: AbortSignal; cancel
   };
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const timeout = withTimeout(init?.signal);
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+  const timeout = withTimeout(init?.signal, timeoutMs);
   try {
     const response = await fetch(apiPath(path), {
       ...init,
@@ -166,7 +382,29 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(path, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(path, response.status, response.statusText, responseBody, readResponseHeaders(response));
+    }
+
+    return (await response.json()) as T;
+  } finally {
+    timeout.cancel();
+  }
+}
+
+async function postForm<T>(path: string, formData: FormData, init?: RequestInit): Promise<T> {
+  const timeout = withTimeout(init?.signal);
+  try {
+    const response = await fetch(apiPath(path), {
+      ...init,
+      method: init?.method ?? "POST",
+      body: formData,
+      signal: timeout.signal,
+      headers: requestHeaders(init, false),
+    });
+
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => "");
+      throw new ApiHttpError(path, response.status, response.statusText, responseBody, readResponseHeaders(response));
     }
 
     return (await response.json()) as T;
@@ -186,7 +424,7 @@ async function fetchBlobFromUrl(url: string, init?: RequestInit): Promise<Blob> 
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => "");
-      throw new ApiHttpError(url, response.status, response.statusText, responseBody);
+      throw new ApiHttpError(url, response.status, response.statusText, responseBody, readResponseHeaders(response));
     }
 
     return await response.blob();
@@ -223,6 +461,170 @@ async function firstSuccess<T>(paths: string[], init?: RequestInit): Promise<T> 
     }
   }
   throw lastError instanceof Error ? lastError : new Error("request failed");
+}
+
+function buildPaperIdCandidates(paperId: string): string[] {
+  const raw = String(paperId ?? "").trim();
+  if (!raw) {
+    return [];
+  }
+  const stripped = raw.startsWith("zotero:") ? raw.slice("zotero:".length).trim() : "";
+  const candidates = stripped ? [raw, stripped] : [raw];
+  if (stripped && !candidates.includes(stripped)) {
+    candidates.push(stripped);
+  }
+  return candidates;
+}
+
+async function tryResolvePaperNoteLookupByPaperIdCandidates(
+  paperIds: string[],
+): Promise<PaperNoteStructuredStateLookupResponse | null> {
+  for (const candidate of paperIds) {
+    try {
+      const lookup = await fetchJson<PaperNoteStructuredStateLookupResponse>(
+        `/paper-notes/resolve-by-paper-id?paper_id=${encodeURIComponent(candidate)}`,
+      );
+      replaceCachedPaperNoteStructuredLookup(lookup, { paperIds: [candidate, ...paperIds] });
+      return lookup;
+    } catch (error) {
+      if (isApiHttpError(error) && error.status === 404) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
+async function tryLoadCanonicalPaperDetailFromLookup(
+  lookup: PaperNoteStructuredStateLookupResponse,
+  originalCandidates: string[],
+): Promise<PaperDetail | null> {
+  const seenCandidates = new Set(originalCandidates);
+  for (const candidate of buildPaperIdCandidates(lookup.paper_id)) {
+    if (seenCandidates.has(candidate)) {
+      continue;
+    }
+    try {
+      const row = await fetchJson<Record<string, unknown>>(`/papers/${encodeURIComponent(candidate)}`);
+      return normalizePaper(row) as PaperDetail;
+    } catch (error) {
+      if (isApiHttpError(error) && error.status === 404) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
+function synthesizePaperDetailFromStructuredLookup(
+  requestedPaperId: string,
+  lookup: PaperNoteStructuredStateLookupResponse,
+): PaperDetail | null {
+  const note = lookup.note;
+  if (!note) {
+    return null;
+  }
+
+  const canonicalPaperId =
+    normalizeNoteDetailPaperId(note.id) ??
+    normalizeNoteDetailPaperId(lookup.operator_state?.paper_id) ??
+    requestedPaperId;
+  const pdfUrl = String(lookup.pdf_url ?? "").trim();
+  const doiUrl = String(lookup.doi_url ?? "").trim();
+  const localPdfUrl = pdfUrl.startsWith("/papers/") ? pdfUrl : null;
+  const openPdfUrl = /^https?:\/\//i.test(pdfUrl) ? pdfUrl : null;
+
+  return {
+    paper_id: canonicalPaperId,
+    note_slug: normalizeNoteDetailPaperId(note.slug),
+    title: note.title || note.slug || canonicalPaperId,
+    status:
+      note.structured_state_present || String(note.status ?? "").trim().toUpperCase() === "INDEXED"
+        ? "completed"
+        : normalizePaperStatus(note.status ?? undefined),
+    issues: 0,
+    issues_label: "No critical issues",
+    issues_state: "unavailable",
+    pdf_exists: Boolean(localPdfUrl),
+    updated_at: note.updated_at ?? undefined,
+    latest_run_id: note.ops_summary?.latest_run_id ?? undefined,
+    ops_summary: note.ops_summary ?? null,
+    access_summary: localPdfUrl
+      ? {
+          status_label: "user_imported_pdf",
+          local_pdf_url: localPdfUrl,
+          open_access_url: openPdfUrl,
+          institution_access_url: doiUrl || null,
+        }
+      : openPdfUrl
+        ? {
+            status_label: "open",
+            open_access_url: openPdfUrl,
+            institution_access_url: doiUrl || null,
+            local_pdf_url: null,
+          }
+        : doiUrl
+          ? {
+              status_label: "institution_required",
+              open_access_url: null,
+              institution_access_url: doiUrl,
+              local_pdf_url: null,
+            }
+          : null,
+  };
+}
+
+function normalizeNoteDetailPaperId(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function getFrontmatterString(frontmatter: Record<string, unknown>, key: string): string | null {
+  const raw = frontmatter[key];
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const value = raw.trim();
+  return value.length > 0 ? value : null;
+}
+
+function getNoteDetailLocalPdfUrl(noteDetail: PaperNoteDetailResponse): string | null {
+  const frontmatterPdfUrl = getFrontmatterString(noteDetail.frontmatter, "pdf_url");
+  if (frontmatterPdfUrl?.startsWith("/papers/")) {
+    return frontmatterPdfUrl;
+  }
+  const pdfReference = noteDetail.references.find((reference) => reference.source === "pdf");
+  if (pdfReference?.url?.startsWith("/papers/")) {
+    return pdfReference.url;
+  }
+  return null;
+}
+
+function getNoteDetailOpenPdfUrl(noteDetail: PaperNoteDetailResponse): string | null {
+  const frontmatterPdfUrl = getFrontmatterString(noteDetail.frontmatter, "pdf_url");
+  if (frontmatterPdfUrl && /^https?:\/\//i.test(frontmatterPdfUrl)) {
+    return frontmatterPdfUrl;
+  }
+  const pdfReference = noteDetail.references.find((reference) => reference.source === "pdf");
+  if (pdfReference?.url && /^https?:\/\//i.test(pdfReference.url)) {
+    return pdfReference.url;
+  }
+  return null;
+}
+
+function getNoteDetailDoiUrl(noteDetail: PaperNoteDetailResponse): string | null {
+  const doiReference = noteDetail.references.find((reference) => reference.source === "doi");
+  if (doiReference?.url) {
+    return doiReference.url;
+  }
+  const doi = getFrontmatterString(noteDetail.frontmatter, "doi");
+  if (!doi) {
+    return null;
+  }
+  const normalized = doi.replace(/^doi:/i, "").trim();
+  return normalized ? `https://doi.org/${normalized}` : null;
 }
 
 async function withMockFallback<T>(
@@ -273,13 +675,22 @@ function normalizePaper(raw: Record<string, unknown>): PaperSummary {
     raw.ops_summary && typeof raw.ops_summary === "object" && !Array.isArray(raw.ops_summary)
       ? (raw.ops_summary as Record<string, unknown>)
       : null;
+  const rawAccessSummary =
+    raw.access_summary && typeof raw.access_summary === "object" && !Array.isArray(raw.access_summary)
+      ? (raw.access_summary as Record<string, unknown>)
+      : null;
+  const localPdfUrl =
+    rawAccessSummary && rawAccessSummary.local_pdf_url
+      ? String(rawAccessSummary.local_pdf_url)
+      : null;
 
   return {
     paper_id: String(raw.paper_id ?? "unknown-paper"),
+    note_slug: raw.note_slug ? String(raw.note_slug) : undefined,
     title: String(raw.title ?? raw.paper_id ?? "Untitled"),
     authors: raw.authors ? String(raw.authors) : undefined,
     year: typeof raw.year === "number" ? raw.year : undefined,
-    pdf_exists: raw.pdf_exists === true,
+    pdf_exists: raw.pdf_exists === true || Boolean(localPdfUrl),
     pdf_path: raw.pdf_path ? String(raw.pdf_path) : undefined,
     status,
     issues,
@@ -302,6 +713,21 @@ function normalizePaper(raw: Record<string, unknown>): PaperSummary {
             typeof rawOpsSummary.stats_check_count === "number" ? rawOpsSummary.stats_check_count : 0,
         }
       : null,
+    access_summary: rawAccessSummary
+      ? {
+          status_label:
+            rawAccessSummary.status_label === "open" ||
+            rawAccessSummary.status_label === "institution_required" ||
+            rawAccessSummary.status_label === "user_imported_pdf"
+              ? rawAccessSummary.status_label
+              : "unavailable",
+          open_access_url: rawAccessSummary.open_access_url ? String(rawAccessSummary.open_access_url) : null,
+          institution_access_url: rawAccessSummary.institution_access_url
+            ? String(rawAccessSummary.institution_access_url)
+            : null,
+          local_pdf_url: localPdfUrl,
+        }
+      : null,
   };
 }
 
@@ -309,6 +735,7 @@ function emptyArtifactBundle(paperId: string): ArtifactBundle {
   return {
     paper_id: paperId,
     run_id: "",
+    inference_summary: null,
     files: {
       document_artifact: { exists: false },
       index_artifact: { exists: false },
@@ -330,42 +757,159 @@ export async function getHealth(): Promise<ApiResult<{ status: string; version?:
   );
 }
 
-export async function getPapers(): Promise<ApiResult<PaperSummary[]>> {
+function syntheticRuntimeReadiness(detail: string): RuntimeReadinessResponse {
+  return {
+    status: "error",
+    checks: [
+      {
+        name: "runtime_readiness",
+        status: "error",
+        detail,
+        path: null,
+      },
+    ],
+  };
+}
+
+export async function getRuntimeReadiness(): Promise<ApiResult<RuntimeReadinessResponse>> {
+  if (APP_CONFIG.forceMock) {
+    const detail =
+      "Runtime checks are unavailable while mock mode is forced. Disable mock mode to inspect the live backend runtime.";
+    return {
+      data: syntheticRuntimeReadiness(detail),
+      isMock: true,
+      reason: detail,
+    };
+  }
+
+  try {
+    return {
+      data: await fetchJson<RuntimeReadinessResponse>("/health/ready", undefined, 15_000),
+      isMock: false,
+    };
+  } catch (error) {
+    return {
+      data: syntheticRuntimeReadiness(
+        `Runtime checks could not be loaded. ${getApiErrorMessage(error)}. Start the backend, then reload this page.`,
+      ),
+      isMock: true,
+      reason: "runtime readiness endpoint unavailable",
+    };
+  }
+}
+
+export async function getPapers(options?: { preferCache?: boolean }): Promise<ApiResult<PaperSummary[]>> {
+  const cachedPapers = options?.preferCache ? getCachedLivePapers() : null;
+  if (cachedPapers !== null) {
+    return {
+      data: cachedPapers,
+      isMock: false,
+    };
+  }
   return withMockFallback(
     async () => {
-      const rows = await firstSuccess<Record<string, unknown>[]>(["/papers?limit=5000"]);
+      const rows = await firstSuccess<Record<string, unknown>[]>(["/papers/rail?limit=5000"]);
       if (!Array.isArray(rows)) {
         throw new Error("invalid papers response");
       }
-      return rows.map(normalizePaper);
+      const normalized = rows.map(normalizePaper);
+      replaceCachedLivePapers(normalized, { reusable: true });
+      return normalized;
     },
     () => getMockPapers(),
     "papers endpoint unavailable",
   );
 }
 
-export async function getPaper(paperId: string): Promise<ApiResult<PaperDetail>> {
+export async function getRecentPaperChoices(limit = 6): Promise<ApiResult<PaperSummary[]>> {
+  const normalizedLimit = Math.max(1, Math.min(20, Math.floor(limit)));
   return withMockFallback(
     async () => {
-      const row = await firstSuccess<Record<string, unknown>>([`/papers/${encodeURIComponent(paperId)}`]);
-      return normalizePaper(row) as PaperDetail;
+      const rows = await firstSuccess<Record<string, unknown>[]>([
+        `/papers/recent?limit=${encodeURIComponent(String(normalizedLimit))}`,
+      ]);
+      if (!Array.isArray(rows)) {
+        throw new Error("invalid recent papers response");
+      }
+      return rows.map(normalizePaper);
     },
-    () => getMockPaper(paperId),
-    "paper detail unavailable",
+    () => getMockPapers().slice(0, normalizedLimit),
+    "recent papers endpoint unavailable",
   );
 }
 
-interface PaperNoteListQuery {
-  q?: string;
-  tag?: string;
-  tags?: string[];
-  status?: string;
-  structuredOnly?: boolean;
-  sortBy?: "date_processed" | "confidence";
-  sortOrder?: "asc" | "desc";
-  page?: number;
-  pageSize?: number;
+export async function getPaper(
+  paperId: string,
+  options?: {
+    preferNoteDetail?: boolean;
+  },
+): Promise<ApiResult<PaperDetail>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockPaper(paperId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  const candidates = buildPaperIdCandidates(paperId);
+  let lastError: unknown;
+  let resolvedLookup: PaperNoteStructuredStateLookupResponse | null = null;
+
+  try {
+    for (const candidate of candidates) {
+      try {
+        const row = await fetchJson<Record<string, unknown>>(`/papers/${encodeURIComponent(candidate)}`);
+        return {
+          data: normalizePaper(row) as PaperDetail,
+          isMock: false,
+        };
+      } catch (error) {
+        lastError = error;
+        if (isApiHttpError(error) && error.status === 404) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (options?.preferNoteDetail) {
+      resolvedLookup ??= await tryResolvePaperNoteLookupByPaperIdCandidates(candidates);
+      if (resolvedLookup) {
+        const canonicalPaperDetail = await tryLoadCanonicalPaperDetailFromLookup(resolvedLookup, candidates);
+        if (canonicalPaperDetail) {
+          return {
+            data: canonicalPaperDetail,
+            isMock: false,
+          };
+        }
+      }
+      if (resolvedLookup) {
+        const synthesizedFromLookup = synthesizePaperDetailFromStructuredLookup(paperId, resolvedLookup);
+        if (synthesizedFromLookup) {
+          return {
+            data: synthesizedFromLookup,
+            isMock: false,
+          };
+        }
+      }
+    }
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (!canUseAutoMockFallback()) {
+    throw lastError instanceof Error ? lastError : new Error("paper detail unavailable");
+  }
+
+  return {
+    data: getMockPaper(paperId),
+    isMock: true,
+    reason: "paper detail unavailable",
+  };
 }
+
+type PaperNoteListQuery = MockPaperNoteQuery;
 
 function buildPaperNotesQuery(params?: PaperNoteListQuery): string {
   const query = new URLSearchParams();
@@ -390,8 +934,20 @@ function buildPaperNotesQuery(params?: PaperNoteListQuery): string {
   if (params?.status?.trim()) {
     query.set("status", params.status.trim());
   }
+  if (params?.starred) {
+    query.set("starred", "true");
+  }
+  if (params?.triageLabel?.trim()) {
+    query.set("triage_label", params.triageLabel.trim());
+  }
   if (params?.structuredOnly) {
     query.set("structured_only", "true");
+  }
+  if (params?.hasReadingAssist) {
+    query.set("has_reading_assist", "true");
+  }
+  if (params?.readingAssistLocale?.trim()) {
+    query.set("reading_assist_locale", params.readingAssistLocale.trim().toLowerCase());
   }
   if (params?.sortBy) {
     query.set("sort_by", params.sortBy);
@@ -410,56 +966,91 @@ function buildPaperNotesQuery(params?: PaperNoteListQuery): string {
 }
 
 export async function getPaperNotesIndex(params?: PaperNoteListQuery): Promise<ApiResult<PaperNoteListResponse>> {
+  const query = buildPaperNotesQuery(params);
+  return withMockFallback(
+    () => firstSuccess<PaperNoteListResponse>([`/paper-notes${query}`]),
+    () => getMockPaperNotesIndex(params),
+    "paper notes unavailable, mock index loaded",
+  );
+}
+
+export async function getPaperNotesHomeContext(): Promise<ApiResult<PaperNotesHomeContext>> {
+  return withMockFallback(
+    () => firstSuccess<PaperNotesHomeContext>(["/paper-notes/home-context"]),
+    () => getMockPaperNotesHomeContext(),
+    "paper notes home context unavailable, mock context loaded",
+  );
+}
+
+export async function importPaperPdf(file: File): Promise<ApiResult<PaperNoteImportResponse>> {
   if (APP_CONFIG.forceMock) {
-    return {
-      data: {
-        generated_at: new Date().toISOString(),
-        index_path: "storage/obsidian/paper_notes_index.json",
-        total: 0,
-        page: 1,
-        page_size: 30,
-        total_pages: 1,
-        available_tags: [],
-        available_statuses: [],
-        items: [],
-      },
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
+    throw new Error("PDF import needs a live backend. Turn off forced mock mode and try again.");
   }
 
-  const query = buildPaperNotesQuery(params);
+  const formData = new FormData();
+  formData.append("file", file);
+
   return {
-    data: await firstSuccess<PaperNoteListResponse>([`/paper-notes${query}`]),
+    data: await postForm<PaperNoteImportResponse>("/paper-notes/import-pdf", formData),
     isMock: false,
   };
 }
 
-export async function getPaperNoteDetail(slug: string): Promise<ApiResult<PaperNoteDetailResponse>> {
+export async function getPaperNoteDetail(
+  slug: string,
+  options?: { readingAssistLocale?: string | null },
+): Promise<ApiResult<PaperNoteDetailResponse>> {
+  const query = new URLSearchParams();
+  if (options?.readingAssistLocale?.trim()) {
+    query.set("reading_assist_locale", options.readingAssistLocale.trim().toLowerCase());
+  }
+  const detailQuery = query.toString();
+  const detailPath = `/paper-notes/${encodeURIComponent(slug)}${detailQuery ? `?${detailQuery}` : ""}`;
+  return withMockFallback(
+    async () => {
+      const detail = await firstSuccess<PaperNoteDetailResponse>([detailPath]);
+      primeStructuredLookupCacheFromNoteDetail(detail, { paperIds: [slug] });
+      return detail;
+    },
+    () => getMockPaperNoteDetail(slug, options),
+    "paper note detail unavailable, mock note loaded",
+  );
+}
+
+export async function getPaperNoteOperatorState(
+  slug: string,
+): Promise<ApiResult<PaperNoteOperatorState>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: {
-        note: {
-          slug,
-          title: "Mock paper note",
-          note_path: `Inbox/PaperPipe/${slug}.md`,
-          aliases: [],
-          tags: [],
-        },
-        frontmatter: {},
-        body_markdown: "# Mock note\n\nMock mode enabled.",
-        related: [],
-        references: [],
-        structured_state: null,
-        available_actions: [],
-      },
+      data: getMockPaperNoteOperatorState(slug),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
-
   return {
-    data: await firstSuccess<PaperNoteDetailResponse>([`/paper-notes/${encodeURIComponent(slug)}`]),
+    data: await fetchJson<PaperNoteOperatorState>(`/paper-notes/${encodeURIComponent(slug)}/operator-state`),
+    isMock: false,
+  };
+}
+
+export async function updatePaperNoteOperatorState(
+  slug: string,
+  payload: PaperNoteOperatorStateUpdateRequest,
+): Promise<ApiResult<PaperNoteOperatorState>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: updateMockPaperNoteOperatorState(slug, payload),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  const nextState = await fetchJson<PaperNoteOperatorState>(`/paper-notes/${encodeURIComponent(slug)}/operator-state`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  clearCachedPaperNoteStructuredLookup([slug, nextState.note_slug, nextState.paper_id]);
+  return {
+    data: nextState,
     isMock: false,
   };
 }
@@ -469,17 +1060,27 @@ export async function getPaperNoteStructuredStateByPaperId(
 ): Promise<ApiResult<PaperNoteStructuredStateLookupResponse | null>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: null,
+      data: getMockPaperNoteStructuredStateByPaperId(paperId),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
 
-  try {
+  const cachedLookup = getCachedPaperNoteStructuredLookup(paperId);
+  if (cachedLookup) {
     return {
-      data: await firstSuccess<PaperNoteStructuredStateLookupResponse>([
-        `/paper-notes/resolve-by-paper-id?paper_id=${encodeURIComponent(paperId)}`,
-      ]),
+      data: cachedLookup,
+      isMock: false,
+    };
+  }
+
+  try {
+    const lookup = await firstSuccess<PaperNoteStructuredStateLookupResponse>([
+      `/paper-notes/resolve-by-paper-id?paper_id=${encodeURIComponent(paperId)}`,
+    ]);
+    replaceCachedPaperNoteStructuredLookup(lookup, { paperIds: [paperId] });
+    return {
+      data: lookup,
       isMock: false,
     };
   } catch (error) {
@@ -494,71 +1095,180 @@ export async function getPaperNoteStructuredStateByPaperId(
       throw error;
     }
     return {
-      data: null,
+      data: getMockPaperNoteStructuredStateByPaperId(paperId),
       isMock: true,
       reason: "structured paper note lookup unavailable",
     };
   }
 }
 
-export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+export async function getLatestPaperSynthesis(
+  paperSlug: string,
+): Promise<ApiResult<PaperSynthesisListItem | null>> {
+  const normalizedSlug = paperSlug.trim();
+  if (!normalizedSlug) {
+    return {
+      data: null,
+      isMock: false,
+      reason: "paper slug unavailable",
+    };
+  }
+
   if (APP_CONFIG.forceMock) {
     return {
-      data: getMockMeetingPack(packId),
+      data: null,
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
 
-  return {
-    data: await firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
-    isMock: false,
-  };
+  try {
+    const query = new URLSearchParams({ paper_slug: normalizedSlug }).toString();
+    const response = await firstSuccess<PaperSynthesisListResponse>([`/paper-syntheses?${query}`]);
+    return {
+      data: response.items[0] ?? null,
+      isMock: false,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      isMock: false,
+      reason: getApiErrorMessage(error),
+    };
+  }
+}
+
+export async function getPaperSynthesisManifest(
+  synthesisId: string,
+): Promise<ApiResult<PaperSynthesisManifest | null>> {
+  const normalizedId = synthesisId.trim();
+  if (!normalizedId) {
+    return {
+      data: null,
+      isMock: false,
+      reason: "paper synthesis id unavailable",
+    };
+  }
+
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: null,
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+
+  try {
+    const response = await firstSuccess<PaperSynthesisManifest>([
+      `/paper-syntheses/${encodeURIComponent(normalizedId)}/manifest`,
+    ]);
+    return {
+      data: response,
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && error.status === 404) {
+      return {
+        data: null,
+        isMock: false,
+        reason: "paper synthesis manifest not found",
+      };
+    }
+    return {
+      data: null,
+      isMock: false,
+      reason: getApiErrorMessage(error),
+    };
+  }
+}
+
+export function getPaperSynthesisMarkdownUrl(synthesisId: string): string {
+  return apiPath(`/paper-syntheses/${encodeURIComponent(synthesisId)}/markdown`);
+}
+
+export async function getMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
+  return withMockFallback(
+    () => firstSuccess<MeetingPackResponse>([`/meeting-packs/${encodeURIComponent(packId)}`]),
+    () => getMockMeetingPack(packId),
+    "meeting pack detail unavailable, mock draft loaded",
+  );
 }
 
 export async function getMeetingPackIndex(): Promise<ApiResult<MeetingPackListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
+    () => getMockMeetingPackIndex(),
+    "meeting packs unavailable, mock drafts loaded",
+  );
+}
+
+export async function generateMeetingPack(
+  payload: MeetingPackRequestSnapshot,
+): Promise<ApiResult<MeetingPackResponse>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: getMockMeetingPackIndex(),
+      data: createMockMeetingPack(payload),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
-
-  return {
-    data: await firstSuccess<MeetingPackListResponse>(["/meeting-packs"]),
-    isMock: false,
-  };
+  try {
+    return {
+      data: await fetchJson<MeetingPackResponse>("/meeting-packs/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+      isMock: false,
+    };
+  } catch (error) {
+    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
+      throw error;
+    }
+    if (!canUseAutoMockFallback()) {
+      throw error;
+    }
+    return {
+      data: createMockMeetingPack(payload),
+      isMock: true,
+      reason: "meeting pack generation unavailable, mock draft created",
+    };
+  }
 }
 
 export async function getMethodComparison(comparisonId: string): Promise<ApiResult<MethodComparisonResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockMethodComparison(comparisonId),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
-
-  return {
-    data: await firstSuccess<MethodComparisonResponse>([
-      `/method-comparisons/${encodeURIComponent(comparisonId)}`,
-    ]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () =>
+      firstSuccess<MethodComparisonResponse>([
+        `/method-comparisons/${encodeURIComponent(comparisonId)}`,
+      ]),
+    () => getMockMethodComparison(comparisonId),
+    "method comparison unavailable, mock comparison loaded",
+  );
 }
 
 export async function getMethodComparisonIndex(): Promise<ApiResult<MethodComparisonListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<MethodComparisonListResponse>(["/method-comparisons"]),
+    () => getMockMethodComparisonIndex(),
+    "method comparisons unavailable, mock index loaded",
+  );
+}
+
+export async function generateMethodComparison(
+  payload: MethodComparisonCreateRequest,
+): Promise<ApiResult<MethodComparisonResponse>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: getMockMethodComparisonIndex(),
+      data: createMockMethodComparison(payload),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
-
   return {
-    data: await firstSuccess<MethodComparisonListResponse>(["/method-comparisons"]),
+    data: await fetchJson<MethodComparisonResponse>("/method-comparisons/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
     isMock: false,
   };
 }
@@ -568,99 +1278,173 @@ export function getMethodComparisonCsvUrl(comparisonId: string): string {
 }
 
 export async function getChartPack(chartPackId: string): Promise<ApiResult<ChartPackResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockChartPack(chartPackId),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
-
-  return {
-    data: await firstSuccess<ChartPackResponse>([
-      `/chart-packs/${encodeURIComponent(chartPackId)}`,
-    ]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () =>
+      firstSuccess<ChartPackResponse>([
+        `/chart-packs/${encodeURIComponent(chartPackId)}`,
+      ]),
+    () => getMockChartPack(chartPackId),
+    "chart pack unavailable, mock pack loaded",
+  );
 }
 
 export async function getChartPackIndex(): Promise<ApiResult<ChartPackListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ChartPackListResponse>(["/chart-packs"]),
+    () => getMockChartPackIndex(),
+    "chart packs unavailable, mock index loaded",
+  );
+}
+
+export async function generateChartPack(
+  payload: ChartPackRequestSnapshot,
+): Promise<ApiResult<ChartPackResponse>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: getMockChartPackIndex(),
+      data: createMockChartPack(payload),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
-
   return {
-    data: await firstSuccess<ChartPackListResponse>(["/chart-packs"]),
+    data: await fetchJson<ChartPackResponse>("/chart-packs/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
     isMock: false,
   };
 }
 
 export async function getImageEvidence(imageEvidenceId: string): Promise<ApiResult<ImageEvidenceResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockImageEvidence(imageEvidenceId),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
-
-  return {
-    data: await firstSuccess<ImageEvidenceResponse>([
-      `/image-evidence/${encodeURIComponent(imageEvidenceId)}`,
-    ]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () =>
+      firstSuccess<ImageEvidenceResponse>([
+        `/image-evidence/${encodeURIComponent(imageEvidenceId)}`,
+      ]),
+    () => getMockImageEvidence(imageEvidenceId),
+    "image evidence unavailable, mock entry loaded",
+  );
 }
 
 export async function getImageEvidenceIndex(): Promise<ApiResult<ImageEvidenceListResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockImageEvidenceIndex(),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
-
-  return {
-    data: await firstSuccess<ImageEvidenceListResponse>(["/image-evidence"]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () => firstSuccess<ImageEvidenceListResponse>(["/image-evidence"]),
+    () => getMockImageEvidenceIndex(),
+    "image evidence index unavailable, mock entries loaded",
+  );
 }
 
 export async function getProtocolCard(protocolId: string): Promise<ApiResult<ProtocolCardResponse>> {
+  return withMockFallback(
+    () =>
+      firstSuccess<ProtocolCardResponse>([
+        `/protocol-cards/${encodeURIComponent(protocolId)}`,
+      ]),
+    () => getMockProtocolCard(protocolId),
+    "protocol card unavailable, mock entry loaded",
+  );
+}
+
+export async function getProtocolCardIndex(): Promise<ApiResult<ProtocolCardListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<ProtocolCardListResponse>(["/protocol-cards"]),
+    () => getMockProtocolCardIndex(),
+    "protocol cards unavailable, mock index loaded",
+  );
+}
+
+export async function createProtocolCard(
+  payload: ProtocolCardRequestSnapshot,
+): Promise<ApiResult<ProtocolCardResponse>> {
   if (APP_CONFIG.forceMock) {
     return {
-      data: getMockProtocolCard(protocolId),
+      data: createMockProtocolCard(payload),
       isMock: true,
       reason: FORCE_MOCK_REASON,
     };
   }
-
   return {
-    data: await firstSuccess<ProtocolCardResponse>([
-      `/protocol-cards/${encodeURIComponent(protocolId)}`,
-    ]),
+    data: await fetchJson<ProtocolCardResponse>("/protocol-cards", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
     isMock: false,
   };
 }
 
-export async function getProtocolCardIndex(): Promise<ApiResult<ProtocolCardListResponse>> {
+export async function createProtocolDraftFromAttachment(
+  payload: ProtocolAttachmentDraftCreateRequest,
+): Promise<ApiResult<ProtocolAttachmentDraftResponse>> {
   if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockProtocolCardIndex(),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
+    throw new Error("Protocol attachment draft creation needs the live backend.");
+  }
+
+  const formData = new FormData();
+  formData.set("file", payload.file);
+
+  const noteSlug = payload.noteSlug?.trim();
+  const paperId = payload.paperId?.trim();
+  const runId = payload.runId?.trim();
+  const title = payload.title?.trim();
+  const purpose = payload.purpose?.trim();
+
+  if (noteSlug) {
+    formData.set("note_slug", noteSlug);
+  }
+  if (paperId) {
+    formData.set("paper_id", paperId);
+  }
+  if (runId) {
+    formData.set("run_id", runId);
+  }
+  if (title) {
+    formData.set("title", title);
+  }
+  if (purpose) {
+    formData.set("purpose", purpose);
   }
 
   return {
-    data: await firstSuccess<ProtocolCardListResponse>(["/protocol-cards"]),
+    data: await postForm<ProtocolAttachmentDraftResponse>("/protocol-cards/draft-from-attachment", formData, {
+      signal: payload.signal,
+    }),
     isMock: false,
   };
+}
+
+export async function getProtocolAttachmentBundle(
+  attachmentBundleId: string,
+): Promise<ApiResult<ProtocolAttachmentBundle>> {
+  if (APP_CONFIG.forceMock) {
+    throw new Error("Protocol attachment bundle lookup needs the live backend.");
+  }
+  return {
+    data: await fetchJson<ProtocolAttachmentBundle>(
+      `/protocol-cards/attachments/${encodeURIComponent(attachmentBundleId)}`,
+    ),
+    isMock: false,
+  };
+}
+
+export function getProtocolAttachmentBundleUrl(attachmentBundleId: string): string {
+  return apiPath(`/protocol-cards/attachments/${encodeURIComponent(attachmentBundleId)}`);
+}
+
+export function getProtocolAttachmentSourceUrl(
+  attachmentBundleId: string,
+  options?: { download?: boolean },
+): string {
+  const path = `/protocol-cards/attachments/${encodeURIComponent(attachmentBundleId)}/source`;
+  if (options?.download) {
+    return apiPath(`${path}?download=1`);
+  }
+  return apiPath(path);
+}
+
+export function getProtocolAttachmentMarkdownUrl(attachmentBundleId: string): string {
+  return apiPath(
+    `/protocol-cards/attachments/${encodeURIComponent(attachmentBundleId)}/extracted-markdown`,
+  );
 }
 
 export function getChartPackDataCsvUrl(chartPackId: string, chartId: string): string {
@@ -675,36 +1459,29 @@ export function getChartPackSpecUrl(chartPackId: string, chartId: string): strin
   );
 }
 
-export async function getMeetingPackTrace(packId: string): Promise<ApiResult<MeetingPackTraceResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockMeetingPackTrace(packId),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
+export function getChartPackRenderSvgUrl(chartPackId: string, chartId: string): string {
+  return apiPath(
+    `/chart-packs/${encodeURIComponent(chartPackId)}/charts/${encodeURIComponent(chartId)}/render.svg`,
+  );
+}
 
-  return {
-    data: await firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
-    isMock: false,
-  };
+export async function getMeetingPackTrace(packId: string): Promise<ApiResult<MeetingPackTraceResponse>> {
+  return withMockFallback(
+    () => firstSuccess<MeetingPackTraceResponse>([`/meeting-packs/${encodeURIComponent(packId)}/trace`]),
+    () => getMockMeetingPackTrace(packId),
+    "meeting pack trace unavailable, mock trace loaded",
+  );
 }
 
 export async function getMeetingPackValidation(packId: string): Promise<ApiResult<MeetingPackValidationResponse>> {
-  if (APP_CONFIG.forceMock) {
-    return {
-      data: getMockMeetingPackValidation(packId),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
-  }
-
-  return {
-    data: await firstSuccess<MeetingPackValidationResponse>([
-      `/meeting-packs/${encodeURIComponent(packId)}/validate`,
-    ]),
-    isMock: false,
-  };
+  return withMockFallback(
+    () =>
+      firstSuccess<MeetingPackValidationResponse>([
+        `/meeting-packs/${encodeURIComponent(packId)}/validate`,
+      ]),
+    () => getMockMeetingPackValidation(packId),
+    "meeting pack validation unavailable, mock validation loaded",
+  );
 }
 
 export async function regenerateMeetingPack(packId: string): Promise<ApiResult<MeetingPackResponse>> {
@@ -779,29 +1556,29 @@ export async function enqueueDeepRead(payload: DeepReadRequest): Promise<ApiResu
   if (APP_CONFIG.forceMock) {
     return { data: createMockJob(), isMock: true, reason: FORCE_MOCK_REASON };
   }
-  try {
+  return {
+    data: await firstSuccess<JobEnqueueResponse>(["/jobs/deepread"], {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    isMock: false,
+  };
+}
+
+export async function cancelJobRun(jobId: string): Promise<ApiResult<JobCancelResponse>> {
+  if (APP_CONFIG.forceMock) {
     return {
-      data: await firstSuccess<JobEnqueueResponse>(["/jobs/deepread"], {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-      isMock: false,
-    };
-  } catch (error) {
-    // Backend returned a valid 4xx response (e.g. duplicate open job, auth, validation):
-    // surface it to UI instead of masking with mock enqueue.
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
-      throw error;
-    }
-    if (!canUseAutoMockFallback()) {
-      throw error;
-    }
-    return {
-      data: createMockJob(),
+      data: { status: "cancelled" },
       isMock: true,
-      reason: "deepread enqueue unavailable",
+      reason: FORCE_MOCK_REASON,
     };
   }
+  return {
+    data: await fetchJson<JobCancelResponse>(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
 }
 
 export function logClientUserAction(payload: ClientUserActionRequest): void {
@@ -846,40 +1623,13 @@ export async function repairStats(payload: RepairStatsRequest): Promise<ApiResul
       reason: FORCE_MOCK_REASON,
     };
   }
-
-  try {
-    return {
-      data: await firstSuccess<StatsRepairResponse>(["/ops/repair-stats"], {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-      isMock: false,
-    };
-  } catch (error) {
-    if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
-      throw error;
-    }
-    if (!canUseAutoMockFallback()) {
-      throw error;
-    }
-    return {
-      data: {
-        seeded: 0,
-        planned: 0,
-        skipped: Math.max(1, payload.paper_ids.length),
-        total: Math.max(1, payload.paper_ids.length),
-        results: (payload.paper_ids.length > 0 ? payload.paper_ids : ["mock-paper"]).map((paperId) => ({
-          paper_id: paperId,
-          run_id: payload.run_id ?? null,
-          status: "skipped" as const,
-          checks: 0,
-          reason: "repair-stats endpoint unavailable",
-        })),
-      },
-      isMock: true,
-      reason: "repair-stats endpoint unavailable",
-    };
-  }
+  return {
+    data: await firstSuccess<StatsRepairResponse>(["/ops/repair-stats"], {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    isMock: false,
+  };
 }
 
 export async function getArtifactsLatest(paperId: string): Promise<ApiResult<ArtifactBundle>> {
@@ -891,8 +1641,11 @@ export async function getArtifactsLatest(paperId: string): Promise<ApiResult<Art
     };
   }
   try {
+    const candidates = buildPaperIdCandidates(paperId);
     return {
-      data: await firstSuccess<ArtifactBundle>([`/artifacts/${encodeURIComponent(paperId)}/latest`]),
+      data: await firstSuccess<ArtifactBundle>(
+        candidates.map((candidate) => `/artifacts/${encodeURIComponent(candidate)}/latest`),
+      ),
       isMock: false,
     };
   } catch (error) {
@@ -964,10 +1717,14 @@ export async function getObsidianMirror(paperId: string, runId: string): Promise
   }
 
   try {
+    const candidates = buildPaperIdCandidates(paperId);
     return {
-      data: await firstSuccess<ObsidianMirror>([
-        `/obsidian/mirror?paper_id=${encodeURIComponent(paperId)}&run_id=${encodeURIComponent(runId)}`,
-      ]),
+      data: await firstSuccess<ObsidianMirror>(
+        candidates.map(
+          (candidate) =>
+            `/obsidian/mirror?paper_id=${encodeURIComponent(candidate)}&run_id=${encodeURIComponent(runId)}`,
+        ),
+      ),
       isMock: false,
     };
   } catch (error) {
@@ -1036,24 +1793,55 @@ export async function getPersonas(): Promise<ApiResult<PersonaListResponse>> {
   );
 }
 
-export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<string>> {
-  const apiPdfUrl = apiPath(`/papers/${encodeURIComponent(paperId)}/pdf`);
+async function buildPlaceholderPdfResult(reason: string): Promise<ApiResult<string>> {
+  const mockBlob = await fetchBlobFromUrl(SAMPLE_PDF);
+  if (!(await looksLikePdfBlob(mockBlob))) {
+    throw new Error("mock sample PDF is invalid");
+  }
+  return {
+    data: URL.createObjectURL(mockBlob),
+    isMock: true,
+    reason,
+  };
+}
+
+export async function getPaperPdfBlobUrl(
+  paperId: string,
+  options?: {
+    preferPlaceholder?: boolean;
+  },
+): Promise<ApiResult<string>> {
+  const apiPdfUrls = buildPaperIdCandidates(paperId).map((candidate) =>
+    apiPath(`/papers/${encodeURIComponent(candidate)}/pdf`)
+  );
   if (APP_CONFIG.forceMock) {
-    const mockBlob = await fetchBlobFromUrl(SAMPLE_PDF);
-    if (!(await looksLikePdfBlob(mockBlob))) {
-      throw new Error("mock sample PDF is invalid");
-    }
-    return {
-      data: URL.createObjectURL(mockBlob),
-      isMock: true,
-      reason: FORCE_MOCK_REASON,
-    };
+    return buildPlaceholderPdfResult(FORCE_MOCK_REASON);
+  }
+
+  if (options?.preferPlaceholder) {
+    return buildPlaceholderPdfResult("paper pdf unavailable, placeholder sample loaded (not source evidence)");
   }
 
   try {
-    const pdfBlob = await fetchBlobFromUrl(apiPdfUrl);
-    if (!(await looksLikePdfBlob(pdfBlob))) {
-      throw new Error(`invalid PDF payload from ${apiPdfUrl}`);
+    let pdfBlob: Blob | null = null;
+    let lastPdfUrl = apiPdfUrls[0] ?? apiPath(`/papers/${encodeURIComponent(paperId)}/pdf`);
+    let lastError: unknown;
+    for (const apiPdfUrl of apiPdfUrls) {
+      try {
+        const candidateBlob = await fetchBlobFromUrl(apiPdfUrl);
+        if (!(await looksLikePdfBlob(candidateBlob))) {
+          throw new Error(`invalid PDF payload from ${apiPdfUrl}`);
+        }
+        pdfBlob = candidateBlob;
+        lastPdfUrl = apiPdfUrl;
+        break;
+      } catch (error) {
+        lastError = error;
+        lastPdfUrl = apiPdfUrl;
+      }
+    }
+    if (!pdfBlob) {
+      throw lastError instanceof Error ? lastError : new Error(`invalid PDF payload from ${lastPdfUrl}`);
     }
     return {
       data: URL.createObjectURL(pdfBlob),
@@ -1063,14 +1851,6 @@ export async function getPaperPdfBlobUrl(paperId: string): Promise<ApiResult<str
     if (!canUseAutoMockFallback()) {
       throw error;
     }
-    const mockBlob = await fetchBlobFromUrl(SAMPLE_PDF);
-    if (!(await looksLikePdfBlob(mockBlob))) {
-      throw error;
-    }
-    return {
-      data: URL.createObjectURL(mockBlob),
-      isMock: true,
-      reason: "paper pdf unavailable, sample loaded",
-    };
+    return buildPlaceholderPdfResult("paper pdf unavailable, placeholder sample loaded (not source evidence)");
   }
 }

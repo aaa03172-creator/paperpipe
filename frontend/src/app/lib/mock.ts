@@ -1,36 +1,503 @@
-import {
+import type {
   ArtifactBundle,
+  ChartPackListItem,
   ChartPackListResponse,
+  ChartPackRequestSnapshot,
   ChartPackResponse,
+  ChartTemplateId,
+  ChartWarning,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
   EvidenceHighlight,
   JobEnqueueResponse,
   JobStatus,
+  MethodComparison,
+  MethodComparisonCell,
+  MethodComparisonCreateRequest,
+  MethodComparisonFieldId,
   MethodComparisonListResponse,
+  MethodComparisonListItem,
+  MethodComparisonRow,
   MethodComparisonResponse,
+  MethodComparisonValueKind,
   MeetingPackListResponse,
+  MeetingPackListItem,
+  MeetingPackMode,
+  MeetingPackRequestSnapshot,
   MeetingPackResponse,
+  PaperNoteContextTrace,
   MeetingPackTraceResponse,
   MeetingPackValidationResponse,
+  OutputModeFamily,
   NotebookClaim,
   NotebookArtifact,
   ObsidianMirror,
   PaperDetail,
+  PaperNoteDetailResponse,
+  PaperNotesHomeContext,
+  PaperNoteListResponse,
+  PaperNoteOperatorState,
+  PaperNoteOperatorStateUpdateRequest,
+  PaperNoteSectionNavigatorItem,
+  PaperNoteOperatorTriageLabel,
+  PaperNoteReference,
+  PaperNoteRelated,
+  PaperNoteSummary,
   PaperSummary,
   PersonaListResponse,
+  ProtocolCardListItem,
+  ProtocolCardRequestSnapshot,
   ProtocolCardListResponse,
   ProtocolCardResponse,
   StructuredPaperState,
   TimelineResponse,
 } from "./types";
 import { buildBestHighlightMap, getClaimLinkState, isClaimTextMissing } from "./claimGuard";
+import { hasPaperOperatorNoteText } from "./paperOperatorState";
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
 const SAMPLE_PDF = "/sample.pdf";
+const MOCK_GENERATED_CHART_PACKS = new Map<string, ChartPackResponse>();
+const MOCK_GENERATED_CHART_PACK_ORDER: string[] = [];
+const MOCK_GENERATED_MEETING_PACKS = new Map<string, MeetingPackResponse>();
+const MOCK_GENERATED_MEETING_PACK_ORDER: string[] = [];
+const MOCK_GENERATED_METHOD_COMPARISONS = new Map<string, MethodComparisonResponse>();
+const MOCK_GENERATED_METHOD_COMPARISON_ORDER: string[] = [];
+const MOCK_GENERATED_PROTOCOL_CARDS = new Map<string, ProtocolCardResponse>();
+const MOCK_GENERATED_PROTOCOL_CARD_ORDER: string[] = [];
+
+function formatMockChartPackTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildMockChartPackId(): string {
+  return `chartpack_${formatMockChartPackTimestamp(new Date())}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatMeetingPackModeLabel(value: MeetingPackMode): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+const GENERIC_BROWSER_MEETING_PACK_TITLE = "Browser generated meeting draft";
+
+function normalizeRequestedMeetingPackTitle(
+  title: string | null | undefined,
+  sourceRef: string,
+): string | undefined {
+  const normalizedTitle = title?.trim();
+  if (!normalizedTitle) {
+    return undefined;
+  }
+  if (normalizedTitle.toLowerCase() === GENERIC_BROWSER_MEETING_PACK_TITLE.toLowerCase()) {
+    return sourceRef;
+  }
+  return normalizedTitle;
+}
+
+function outputModeFamilyForMeetingPackMode(mode: MeetingPackMode): OutputModeFamily {
+  if (mode === "journal_club" || mode === "literature_update") {
+    return "lab_meeting";
+  }
+  if (mode === "project_progress_update") {
+    return "project_update";
+  }
+  return "builder_debug";
+}
+
+function formatMockMeetingPackTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function formatMockMethodComparisonTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildMockMeetingPackId(mode: MeetingPackMode): string {
+  return `meetingpack_${formatMockMeetingPackTimestamp(new Date())}_${mode}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function buildMockMethodComparisonId(): string {
+  return `methodcmp_${formatMockMethodComparisonTimestamp(new Date())}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function formatMockProtocolCardTimestamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildMockProtocolCardId(): string {
+  return `protocol_${formatMockProtocolCardTimestamp(new Date())}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildMeetingPackListItem(response: MeetingPackResponse): MeetingPackListItem {
+  const primarySource = response.pack.source_items.find((item) => item.type === "paper_slug");
+  return {
+    pack_id: response.pack.id,
+    title: response.pack.title,
+    mode: response.pack.mode,
+    output_mode_family: response.pack.output_mode_family,
+    created_at: response.pack.created_at,
+    readiness: response.pack.readiness,
+    source_count: response.pack.source_items.length,
+    slide_count: response.pack.slides.length,
+    trace_entry_count: response.pack.retrieval_trace.length,
+    primary_source_title: primarySource?.title ?? response.pack.source_items[0]?.title ?? null,
+    has_generation_request: Boolean(response.pack.generation_request),
+    regenerated_from_pack_id: response.pack.regenerated_from_pack_id ?? null,
+  };
+}
+
+function buildProtocolCardListItem(response: ProtocolCardResponse): ProtocolCardListItem {
+  return {
+    protocol_id: response.protocol_card.protocol_id,
+    title: response.protocol_card.title,
+    source_kind: response.protocol_card.source_kind,
+    validation_status: response.protocol_card.validation_status,
+    updated_at: response.protocol_card.updated_at,
+    version_count: response.protocol_card.version_summaries.length,
+    current_version_id: response.protocol_card.current_version_id ?? null,
+    linked_paper_count: response.protocol_card.linked_paper_ids.length,
+    linked_note_count: response.protocol_card.linked_note_slugs.length,
+  };
+}
+
+function buildChartPackListItem(response: ChartPackResponse): ChartPackListItem {
+  return {
+    chart_pack_id: response.chart_pack.chart_pack_id,
+    title: response.chart_pack.title,
+    created_at: response.chart_pack.created_at,
+    generated_at: response.chart_pack.generated_at ?? null,
+    chart_count: response.chart_pack.charts.length,
+    warning_count: response.chart_pack.warnings.length,
+  };
+}
+
+function defaultMockChartTitle(templateId: ChartTemplateId): string {
+  if (templateId === "reported_vs_computed_p_scatter") {
+    return "Reported vs computed p scatter";
+  }
+  if (templateId === "table_numeric_bar") {
+    return "Numeric table bar chart";
+  }
+  if (templateId === "table_numeric_line") {
+    return "Numeric table line chart";
+  }
+  return "Verification status counts";
+}
+
+function buildMockChartPackWarnings(templateId: ChartTemplateId): ChartWarning[] {
+  if (templateId === "reported_vs_computed_p_scatter") {
+    return [
+      {
+        code: "stats_p_pairs_skipped",
+        severity: "warning",
+        message: "Skipped approximate reported p values while building this scatter snapshot.",
+      },
+    ];
+  }
+  return [];
+}
+
+function buildMockChartPackCsv(templateId: ChartTemplateId): string {
+  if (templateId === "reported_vs_computed_p_scatter") {
+    return ["reported_p,computed_p", "0.01,0.009", "0.05,0.051"].join("\n");
+  }
+  return ["status,value", "review,1", "verified,4"].join("\n");
+}
+
+function buildMockChartPackSpec(
+  chartId: string,
+  title: string,
+  templateId: ChartTemplateId,
+  warnings: ChartWarning[],
+) {
+  if (templateId === "reported_vs_computed_p_scatter") {
+    return {
+      chart_id: chartId,
+      title,
+      template_id: templateId,
+      mark: "point",
+      encoding: { x: "reported_p", y: "computed_p" },
+      row_count: 2,
+      warnings,
+    };
+  }
+  return {
+    chart_id: chartId,
+    title,
+    template_id: templateId,
+    mark: "bar",
+    encoding: { x: "status", y: "value" },
+    row_count: 2,
+    warnings,
+  };
+}
+
+const MOCK_METHOD_COMPARISON_FIELD_SPECS: Record<
+  MethodComparisonFieldId,
+  { label: string; value_kind: MethodComparisonValueKind }
+> = {
+  intervention: { label: "Intervention", value_kind: "text" },
+  comparator: { label: "Comparator", value_kind: "text" },
+  duration_or_timepoint: { label: "Duration / Timepoint", value_kind: "duration" },
+  primary_readout: { label: "Primary Readout", value_kind: "categorical" },
+  sample_size: { label: "Sample Size", value_kind: "numeric" },
+};
+
+function buildMethodComparisonListItem(response: MethodComparisonResponse): MethodComparisonListItem {
+  return {
+    comparison_id: response.comparison.comparison_id,
+    title: response.comparison.title,
+    created_at: response.comparison.created_at,
+    generated_at: response.comparison.generated_at ?? response.comparison.created_at,
+    paper_count: response.comparison.paper_ids.length,
+    field_count: response.comparison.columns.length,
+    warning_count: response.comparison.warnings.length,
+  };
+}
+
+function buildMockMethodComparisonCsv(comparison: MethodComparison): string {
+  const header = ["paper_id", "title", ...comparison.columns.map((column) => column.field_id)];
+  const lines = [header.join(",")];
+  for (const row of comparison.rows) {
+    const values = comparison.columns.map((column) => {
+      const cell = row.cells.find((entry) => entry.field_id === column.field_id);
+      const text = String(cell?.value ?? "");
+      return `"${text.replaceAll('"', '""')}"`;
+    });
+    lines.push([`"${row.paper_id}"`, `"${row.title.replaceAll('"', '""')}"`, ...values].join(","));
+  }
+  return lines.join("\n");
+}
+
+function buildMockMethodComparisonMarkdown(comparison: MethodComparison): string {
+  const header = ["Paper", ...comparison.columns.map((column) => column.label)];
+  const divider = header.map(() => "---");
+  const rows = comparison.rows.map((row) => {
+    const values = comparison.columns.map((column) => {
+      const cell = row.cells.find((entry) => entry.field_id === column.field_id);
+      return String(cell?.value ?? "-");
+    });
+    return `| ${[row.title, ...values].join(" | ")} |`;
+  });
+
+  return [
+    `# ${comparison.title}`,
+    "",
+    `- Comparison ID: \`${comparison.comparison_id}\``,
+    `- Papers: ${comparison.paper_ids.length}`,
+    `- Fields: ${comparison.columns.length}`,
+    "",
+    `| ${header.join(" | ")} |`,
+    `| ${divider.join(" | ")} |`,
+    ...rows,
+  ].join("\n");
+}
+
+function resolveMockComparisonPaperTitle(paperId: string): string {
+  return MOCK_PAPERS.find((paper) => paper.paper_id === paperId)?.title ?? paperId;
+}
+
+function resolveMockComparisonPaperSlug(paperId: string): string | null {
+  return MOCK_PAPER_NOTES.find((note) => note.id === paperId)?.slug ?? null;
+}
+
+function buildSyntheticMethodComparisonCell(
+  paperId: string,
+  fieldId: MethodComparisonFieldId,
+  rowIndex: number,
+): MethodComparisonCell {
+  const paperSlug = resolveMockComparisonPaperSlug(paperId) ?? paperId;
+  const baseLocator = {
+    page: rowIndex + 1,
+    span: [24 + rowIndex * 8, 72 + rowIndex * 8] as [number, number],
+    chunk_id: `chunk-${String(rowIndex + 1).padStart(2, "0")}`,
+    source: "claimset.resolved.json",
+  };
+
+  if (fieldId === "sample_size") {
+    if (rowIndex % 2 === 1) {
+      return {
+        field_id: fieldId,
+        value: null,
+        normalized_value: null,
+        status: "missing",
+        note: null,
+        evidence_refs: [],
+      };
+    }
+    const sampleSize = 48 + rowIndex * 12;
+    return {
+      field_id: fieldId,
+      value: sampleSize,
+      normalized_value: sampleSize,
+      status: "explicit",
+      note: null,
+      evidence_refs: [
+        {
+          paper_slug: paperSlug,
+          claim_id: `${paperId}-sample-size`,
+          evidence_id: `${paperId}-sample-size-evidence`,
+          run_id: `run-${rowIndex + 1}`,
+          locator: baseLocator,
+        },
+      ],
+    };
+  }
+
+  if (fieldId === "comparator" && rowIndex % 2 === 1) {
+    return {
+      field_id: fieldId,
+      value: "Comparator requires manual review",
+      normalized_value: "comparator requires manual review",
+      status: "conflict",
+      note: "Mock-generated comparison keeps one comparator cell in conflict so the review path stays visible.",
+      evidence_refs: [
+        {
+          paper_slug: paperSlug,
+          claim_id: `${paperId}-comparator-a`,
+          evidence_id: `${paperId}-comparator-a-evidence`,
+          run_id: `run-${rowIndex + 1}`,
+          locator: baseLocator,
+        },
+        {
+          paper_slug: paperSlug,
+          claim_id: `${paperId}-comparator-b`,
+          evidence_id: `${paperId}-comparator-b-evidence`,
+          run_id: `run-${rowIndex + 1}`,
+          locator: {
+            ...baseLocator,
+            page: baseLocator.page + 1,
+            chunk_id: `${baseLocator.chunk_id}-b`,
+          },
+        },
+      ],
+    };
+  }
+
+  const defaultTextByField: Record<MethodComparisonFieldId, string | number> = {
+    intervention: `${resolveMockComparisonPaperTitle(paperId)} intervention`,
+    comparator: `${resolveMockComparisonPaperTitle(paperId)} comparator`,
+    duration_or_timepoint: `${8 + rowIndex * 4} weeks`,
+    primary_readout: rowIndex % 2 === 0 ? "Primary endpoint trend" : "Derived assay outcome",
+    sample_size: 0,
+  };
+  const value = defaultTextByField[fieldId];
+  return {
+    field_id: fieldId,
+    value,
+    normalized_value: value,
+    status: fieldId === "primary_readout" ? "inferred" : "explicit",
+    note:
+      fieldId === "primary_readout"
+        ? "Mock-generated from claimset-style evidence so the derived-cell review state stays visible."
+        : null,
+    evidence_refs: [
+      {
+        paper_slug: paperSlug,
+        claim_id: `${paperId}-${fieldId}`,
+        evidence_id: `${paperId}-${fieldId}-evidence`,
+        run_id: `run-${rowIndex + 1}`,
+        locator: baseLocator,
+      },
+    ],
+  };
+}
+
+function buildMockMethodComparisonRow(
+  paperId: string,
+  fieldIds: MethodComparisonFieldId[],
+  rowIndex: number,
+): MethodComparisonRow {
+  const seededRow = MOCK_METHOD_COMPARISON_RESPONSE.comparison.rows.find((row) => row.paper_id === paperId);
+  if (seededRow) {
+    return {
+      ...deepClone(seededRow),
+      cells: fieldIds
+        .map((fieldId) => seededRow.cells.find((cell) => cell.field_id === fieldId))
+        .filter((cell): cell is MethodComparisonCell => Boolean(cell))
+        .map((cell) => deepClone(cell)),
+    };
+  }
+
+  return {
+    paper_id: paperId,
+    paper_slug: resolveMockComparisonPaperSlug(paperId),
+    title: resolveMockComparisonPaperTitle(paperId),
+    cells: fieldIds.map((fieldId) => buildSyntheticMethodComparisonCell(paperId, fieldId, rowIndex)),
+  };
+}
+
+function buildMeetingPackTraceSummary(response: MeetingPackResponse): MeetingPackTraceResponse["summary"] {
+  const matchedPaperSlugs = Array.from(
+    new Set(response.pack.retrieval_trace.flatMap((entry) => entry.matched_paper_slugs)),
+  );
+  const sourcePaths = Array.from(
+    new Set(
+      response.pack.retrieval_trace
+        .map((entry) => entry.source_path)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  return {
+    entry_count: response.pack.retrieval_trace.length,
+    selector_count: response.pack.source_items.length,
+    matched_paper_count: matchedPaperSlugs.length,
+    source_path_count: sourcePaths.length,
+    action_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.action] = (counts[entry.action] ?? 0) + 1;
+      return counts;
+    }, {}),
+    outcome_counts: response.pack.retrieval_trace.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.outcome] = (counts[entry.outcome] ?? 0) + 1;
+      return counts;
+    }, {}),
+    matched_paper_slugs: matchedPaperSlugs,
+    source_paths: sourcePaths,
+  };
+}
+
+function buildMeetingPackTraceResponse(response: MeetingPackResponse): MeetingPackTraceResponse {
+  return {
+    pack_id: response.pack.id,
+    available: response.pack.retrieval_trace.length > 0,
+    summary: buildMeetingPackTraceSummary(response),
+    trace: deepClone(response.pack.retrieval_trace),
+  };
+}
+
+function buildMeetingPackValidationResponse(response: MeetingPackResponse): MeetingPackValidationResponse {
+  return {
+    validation: {
+      pack_id: response.pack.id,
+      readiness: response.pack.readiness,
+      markdown_sync: deepClone(
+        response.markdown_sync ?? {
+          status: "in_sync",
+          stored_markdown_sha1: "a".repeat(40),
+          rendered_markdown_sha1: "a".repeat(40),
+          note: null,
+        },
+      ),
+      can_regenerate: true,
+      regenerate_strategy: "saved_request",
+      warnings:
+        response.pack.readiness === "background_only"
+          ? ["This draft uses background context only. Recheck canonical evidence before reuse."]
+          : [],
+    },
+  };
+}
 
 const MOCK_PAPERS: PaperDetail[] = [
   {
@@ -206,26 +673,26 @@ const MOCK_JOBS: Record<string, JobStatus[]> = {
   ],
 };
 
-const BASE_NOTEBOOK: NotebookArtifact = {
+const PLACEHOLDER_NOTEBOOK: NotebookArtifact = {
   claims: [
     {
       claim_id: "claim-1",
-      text: "① RAG mitigates hallucination by grounding responses in relevant documents.",
+      text: "① Placeholder PDF is active, so this panel is demonstrating viewer layout rather than source evidence.",
       confidence: "high",
     },
     {
       claim_id: "claim-2",
-      text: "② The methods and indexer pipeline combine PyMuPDF parsing with ChromaDB retrieval.",
+      text: "② Claim selection, trace panels, and highlight behavior remain interactive in fallback mode.",
       confidence: "medium",
     },
     {
       claim_id: "claim-3",
-      text: "③ Section-aware chunking achieved hit rate 0.85, while fixed-window achieved 0.60.",
+      text: "③ To validate grounded evidence spans, load the backend and open a paper with a local PDF path.",
       confidence: "low",
     },
     {
       claim_id: "claim-4",
-      text: "④ Discussion notes structure-preserving parsing as essential and flags PDF-header dependence as a limitation.",
+      text: "④ Placeholder highlights are only for UI calibration and should not be reused as scientific evidence.",
       confidence: "medium",
     },
   ],
@@ -236,23 +703,22 @@ const BASE_NOTEBOOK: NotebookArtifact = {
     { claim_id: "claim-4", page: 1, top: 60, left: 11, width: 75, height: 10, source: "bbox" },
   ],
   agent_plan: [
-    "Parse section-level claims with mandatory evidence anchors.",
-    "Reconcile table schema before statistical verification.",
-    "Run sandbox checks for p-value bounds and N consistency.",
-    "Emit verdict with confidence tags and unresolved gaps.",
+    "Load a placeholder notebook so the workbench can stay explorable without backend data.",
+    "Keep claim selection and highlight focus interactive for UI review.",
+    "Expose the artifact and provenance layout even when source evidence is unavailable.",
+    "Tell the user that grounded evidence requires a real backend PDF path.",
   ],
   sandbox_code: [
-    "# Sandbox Execution (read-only)",
-    "import pandas as pd",
-    "from scipy import stats",
-    "",
-    "df = pd.DataFrame({'group': ['A', 'B'], 'mean': [4.1, 5.0], 'n': [42, 40]})",
-    "t, p = stats.ttest_ind_from_stats(4.1, 1.2, 42, 5.0, 1.1, 40, equal_var=False)",
-    "print({'t_stat': round(float(t), 4), 'p_value': round(float(p), 4)})",
+    "# Placeholder execution preview",
+    "print({",
+    "  'mode': 'mock_fallback',",
+    "  'source_evidence': False,",
+    "  'message': 'Run the backend to inspect grounded PDF evidence.'",
+    "})",
   ].join("\n"),
   verdict: {
-    label: "Caution",
-    detail: "Core claim is supported, but table-level N mismatch needs manual reconciliation.",
+    label: "Preview",
+    detail: "Fallback notebook is active. Load the backend to inspect grounded source evidence.",
     level: "caution",
   },
 };
@@ -273,31 +739,31 @@ const EMPTY_NOTEBOOK: NotebookArtifact = {
 };
 
 const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
-  "paper-2023-imaging": BASE_NOTEBOOK,
+  "paper-2023-imaging": PLACEHOLDER_NOTEBOOK,
   "paper-2024-glucose": {
-    ...BASE_NOTEBOOK,
+    ...PLACEHOLDER_NOTEBOOK,
     verdict: {
-      label: "Pass",
-      detail: "All mandatory checks passed with consistent evidence spans.",
-      level: "pass",
+      label: "Preview",
+      detail: "Fallback notebook is active. The PDF panel is using a placeholder, not source evidence.",
+      level: "caution",
     },
   },
   "paper-2025-nutrition": {
-    ...BASE_NOTEBOOK,
+    ...PLACEHOLDER_NOTEBOOK,
     claims: [
-      ...BASE_NOTEBOOK.claims.slice(0, 2),
+      ...PLACEHOLDER_NOTEBOOK.claims.slice(0, 2),
       {
         claim_id: "claim-3",
         text: "Claim text missing",
         confidence: "low",
       },
-      ...BASE_NOTEBOOK.claims.slice(3),
+      ...PLACEHOLDER_NOTEBOOK.claims.slice(3),
     ],
     highlights: [
-      BASE_NOTEBOOK.highlights[0],
+      PLACEHOLDER_NOTEBOOK.highlights[0],
       { claim_id: "claim-2", page: 4, top: 0, left: 0, width: 0, height: 0 },
       { claim_id: "claim-3", page: 5, top: 0, left: 0, width: 0, height: 0 },
-      ...BASE_NOTEBOOK.highlights.slice(3),
+      ...PLACEHOLDER_NOTEBOOK.highlights.slice(3),
     ],
     verdict: {
       label: "Fail",
@@ -305,9 +771,9 @@ const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
       level: "fail",
     },
   },
-  "paper-2022-omics": BASE_NOTEBOOK,
+  "paper-2022-omics": PLACEHOLDER_NOTEBOOK,
   "paper-2026-ambiguous": {
-    ...BASE_NOTEBOOK,
+    ...PLACEHOLDER_NOTEBOOK,
     claims: [
       {
         claim_id: "claim-1",
@@ -368,6 +834,912 @@ const NOTEBOOK_BY_PAPER: Record<string, NotebookArtifact> = {
   },
 };
 
+export interface MockPaperNoteQuery {
+  q?: string;
+  tag?: string;
+  tags?: string[];
+  status?: string;
+  starred?: boolean;
+  triageLabel?: PaperNoteOperatorTriageLabel;
+  structuredOnly?: boolean;
+  hasReadingAssist?: boolean;
+  readingAssistLocale?: string;
+  sortBy?: "date_processed" | "confidence";
+  sortOrder?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}
+
+const MOCK_PAPER_NOTES: PaperNoteSummary[] = [
+  {
+    slug: "ketogenicInterventionGlucoseVariability2024",
+    title: "Ketogenic Intervention and Glucose Variability: Randomized Trial",
+    note_path: "Inbox/PaperPipe/ketogenicInterventionGlucoseVariability2024.md",
+    structured_state_present: true,
+    id: "paper-2024-glucose",
+    aliases: ["Ketogenic glucose trial"],
+    tags: ["ketogenic", "glucose", "trial"],
+    date_processed: "2026-02-24T07:33:00Z",
+    confidence: 0.91,
+    status: "reviewed",
+    doi: "10.1000/mock-keto-2024",
+    zotero_link: "zotero://select/library/items/mock-keto-2024",
+    updated_at: "2026-02-24T07:33:00Z",
+    pp_signals: {
+      has_claimset: true,
+      claim_count: 4,
+      evidence_count: 4,
+      citation_count: 12,
+      last_appraisal: "Ready for journal club",
+      last_status: "completed",
+    },
+    claim_tags: ["glucose variability", "diet intervention"],
+    entities: ["ketogenic intervention", "continuous glucose monitoring"],
+    mesh: ["Randomized Controlled Trial"],
+    outcomes: ["Glucose variability"],
+    ops_summary: {
+      state: "healthy",
+      label: "Healthy",
+      reason: "ClaimSet and stats snapshot are available.",
+      recommended_action: "none",
+      latest_run_id: "run-002",
+      has_claimset: true,
+      has_stats_report: true,
+      stats_check_count: 2,
+    },
+    starred: true,
+    has_operator_note: true,
+    triage_labels: ["experiment_relevant"],
+  },
+  {
+    slug: "adaptiveInterventionSignalsAmbiguous2026",
+    title: "Adaptive Intervention Signals with Ambiguous Evidence Anchors",
+    note_path: "Inbox/PaperPipe/adaptiveInterventionSignalsAmbiguous2026.md",
+    structured_state_present: true,
+    reading_assist_available: true,
+    reading_assist_locales: ["ko", "ja"],
+    id: "paper-2026-ambiguous",
+    aliases: ["Ambiguous evidence anchor fixture"],
+    tags: ["evidence", "mapping", "review"],
+    date_processed: "2026-02-21T09:05:00Z",
+    confidence: 0.63,
+    status: "needs_review",
+    doi: null,
+    zotero_link: null,
+    updated_at: "2026-02-21T09:05:00Z",
+    pp_signals: {
+      has_claimset: true,
+      claim_count: 3,
+      evidence_count: 4,
+      has_reading_assists: true,
+      reading_assist_count: 2,
+      reading_assist_locales: ["ko", "ja"],
+      last_appraisal: "Needs evidence disambiguation",
+      last_status: "completed",
+    },
+    claim_tags: ["ambiguous mapping", "evidence review"],
+    entities: ["subgroup analysis", "evidence locator"],
+    mesh: ["Cohort Studies"],
+    outcomes: ["Intervention response"],
+    ops_summary: {
+      state: "action_needed",
+      label: "Action needed",
+      reason: "Evidence links require manual review before reuse.",
+      recommended_action: "open_workbench",
+      latest_run_id: "run-004",
+      has_claimset: true,
+      has_stats_report: true,
+      stats_check_count: 2,
+    },
+    starred: false,
+    has_operator_note: true,
+    triage_labels: ["needs_verification", "revisit"],
+  },
+  {
+    slug: "deepLearningImagingOutcomePrediction2023",
+    title: "Deep Learning for Medical Imaging Outcome Prediction",
+    note_path: "Inbox/PaperPipe/deepLearningImagingOutcomePrediction2023.md",
+    structured_state_present: false,
+    id: "paper-2023-imaging",
+    aliases: ["Imaging outcome prediction"],
+    tags: ["imaging", "prediction", "qa"],
+    date_processed: "2026-02-24T09:15:00Z",
+    confidence: 0.58,
+    status: "processing",
+    doi: "10.1000/mock-imaging-2023",
+    zotero_link: "zotero://select/library/items/mock-imaging-2023",
+    updated_at: "2026-02-24T09:15:00Z",
+    pp_signals: {
+      has_claimset: false,
+      claim_count: 0,
+      evidence_count: 0,
+      last_appraisal: "Stats repair still pending",
+      last_status: "processing",
+    },
+    claim_tags: [],
+    entities: ["medical imaging"],
+    mesh: ["Deep Learning"],
+    outcomes: ["Outcome prediction"],
+    ops_summary: {
+      state: "action_needed",
+      label: "Action needed",
+      reason: "Saved note checks are missing or empty.",
+      recommended_action: "repair_stats",
+      latest_run_id: "run-001",
+      has_claimset: false,
+      has_stats_report: false,
+      stats_check_count: 0,
+    },
+    starred: false,
+    has_operator_note: false,
+    triage_labels: [],
+  },
+];
+
+function stripLeadingCounter(text: string): string {
+  return text.replace(/^[^A-Za-z0-9]+\s*/u, "").trim();
+}
+
+function confidenceScore(value: NotebookClaim["confidence"]): number {
+  if (value === "high") {
+    return 0.9;
+  }
+  if (value === "medium") {
+    return 0.65;
+  }
+  return 0.35;
+}
+
+function buildMockAdaptiveReadingAssistPayloads() {
+  return [
+    {
+      locale: "ko",
+      canonical_locale: "en",
+      machine_translated: true,
+      partial: true,
+      blocks: [
+        {
+          kind: "one_line_summary" as const,
+          text: "적응형 중재 신호는 유망하지만, 저장된 근거 앵커가 아직 모호해서 바로 재사용하긴 이르다.",
+          source_heading: "One-Line Summary",
+          provenance: {
+            source_field: "one_line_summary",
+            source_locale: "en",
+            translator: "mock-fallback",
+            model: "mock-translation-v1",
+            version: "2026-04-04",
+          },
+        },
+        {
+          kind: "abstract" as const,
+          text: "이 노트는 적응형 중재 결과를 빠르게 훑도록 돕지만, 근거 위치 매핑이 완전히 정리되기 전까지는 해석보다 검증이 우선이라는 점을 강조한다.",
+          source_heading: "Abstract",
+          provenance: {
+            source_field: "abstract",
+            source_locale: "en",
+            translator: "mock-fallback",
+            model: "mock-translation-v1",
+            version: "2026-04-04",
+          },
+        },
+        {
+          kind: "critical_analysis" as const,
+          text: "저장된 evidence span 가운데 일부는 여전히 ambiguous match 상태다. 따라서 downstream artifact를 만들기 전에 Workbench에서 locator와 quote 연결을 먼저 확인해야 한다.",
+          source_heading: "Critical Analysis",
+          provenance: {
+            source_field: "critical_analysis",
+            source_locale: "en",
+            translator: "mock-fallback",
+            model: "mock-translation-v1",
+            version: "2026-04-04",
+          },
+        },
+      ],
+    },
+    {
+      locale: "ja",
+      canonical_locale: "en",
+      machine_translated: true,
+      partial: true,
+      blocks: [
+        {
+          kind: "one_line_summary" as const,
+          text: "適応的介入シグナルは有望だが、保存済みの根拠アンカーはまだ曖昧で、そのまま再利用するには早い。",
+          source_heading: "One-Line Summary",
+          provenance: {
+            source_field: "one_line_summary",
+            source_locale: "en",
+            translator: "mock-fallback-ja",
+            model: "mock-translation-v2",
+            version: "2026-04-08",
+          },
+        },
+        {
+          kind: "abstract" as const,
+          text: "このノートは適応的介入の結果を素早く把握できるよう助けるが、根拠位置のマッピングが完全に整理されるまでは、解釈より検証が優先されることを強調する。",
+          source_heading: "Abstract",
+          provenance: {
+            source_field: "abstract",
+            source_locale: "en",
+            translator: "mock-fallback-ja",
+            model: "mock-translation-v2",
+            version: "2026-04-08",
+          },
+        },
+        {
+          kind: "critical_analysis" as const,
+          text: "保存済みの evidence span の一部は依然として ambiguous match の状態にある。したがって downstream artifact を作る前に、Workbench で locator と quote の対応を先に確認すべきだ。",
+          source_heading: "Critical Analysis",
+          provenance: {
+            source_field: "critical_analysis",
+            source_locale: "en",
+            translator: "mock-fallback-ja",
+            model: "mock-translation-v2",
+            version: "2026-04-08",
+          },
+        },
+      ],
+    },
+  ];
+}
+
+function buildMockStructuredState(note: PaperNoteSummary): StructuredPaperState {
+  const paperId = note.id ?? note.slug;
+  const paper = MOCK_PAPERS.find((item) => item.paper_id === paperId) ?? null;
+  const runId = paper?.latest_run_id ?? `run-${note.slug}`;
+  const notebook = NOTEBOOK_BY_PAPER[paperId] ?? PLACEHOLDER_NOTEBOOK;
+  const bestHighlightsByClaim = buildBestHighlightMap(notebook.highlights);
+  const noteSignals = note.pp_signals ?? {};
+  const readingAssists =
+    note.slug === "adaptiveInterventionSignalsAmbiguous2026"
+      ? buildMockAdaptiveReadingAssistPayloads()
+      : [];
+  const claimset = notebook.claims.map((claim, claimIndex) => {
+    const primaryHighlight = bestHighlightsByClaim.get(claim.claim_id);
+    const sectionLabel = resolveMockEvidenceSectionLabel(note, claimIndex);
+    const pageIndex = primaryHighlight ? Math.max(primaryHighlight.page - 1, 0) : undefined;
+    return {
+      id: claim.claim_id,
+      source_claim_id: claim.claim_id,
+      run_id: runId,
+      claim: stripLeadingCounter(claim.text),
+      evidence_ids: primaryHighlight ? [`${claim.claim_id}-evidence-1`] : [],
+      evidence: primaryHighlight
+        ? [
+            {
+              id: `${claim.claim_id}-evidence-1`,
+              claim_id: claim.claim_id,
+              run_id: runId,
+              text: stripLeadingCounter(primaryHighlight.quote ?? claim.text),
+              page: pageIndex,
+              section: sectionLabel,
+              bboxPct:
+                primaryHighlight.width > 0 && primaryHighlight.height > 0
+                  ? {
+                      left: primaryHighlight.left,
+                      top: primaryHighlight.top,
+                      width: primaryHighlight.width,
+                      height: primaryHighlight.height,
+                    }
+                  : undefined,
+              source: primaryHighlight.source ?? "bbox",
+              grounded: primaryHighlight.source === "bbox" ? true : null,
+              resolution: primaryHighlight.source === "bbox" ? "MOCK_BBOX" : primaryHighlight.source === "text_match" ? "MOCK_TEXT_MATCH" : null,
+              locator:
+                typeof pageIndex === "number"
+                  ? {
+                      page: pageIndex,
+                      span: [0, 0],
+                      section: sectionLabel,
+                    }
+                  : {
+                      span: [0, 0],
+                      section: sectionLabel,
+                    },
+            },
+          ]
+        : [],
+      confidence: confidenceScore(claim.confidence),
+      tags: note.claim_tags ?? [],
+      outcomes: note.outcomes ?? [],
+    };
+  });
+  const sectionSummary = buildMockRuntimeSectionSummary(claimset);
+  const usesPartialSectionSignal = note.slug === "adaptiveInterventionSignalsAmbiguous2026";
+  const sectionNavigationSignalStatus =
+    usesPartialSectionSignal ? "warn" : sectionSummary.length > 0 ? "pass" : "warn";
+  const sectionNavigationSignalDetail = usesPartialSectionSignal
+    ? `claimset_section_count=${sectionSummary.length}, summary_present=true`
+    : `claimset_section_count=${sectionSummary.length}, summary_present=${
+        sectionSummary.length > 0 ? "true" : "false"
+      }`;
+
+  return {
+    schema_version: "mock-1",
+    paper_slug: note.slug,
+    updated_at: note.updated_at ?? note.date_processed ?? new Date().toISOString(),
+    runs: [
+      {
+        id: runId,
+        action: "deep_read",
+        ts: note.updated_at ?? note.date_processed ?? new Date().toISOString(),
+        status: note.ops_summary?.state === "action_needed" ? "blocked" : "succeeded",
+        summary: notebook.verdict.detail,
+        artifacts: {
+          structured_path: `.pp/${note.slug}/state.json`,
+          write_scope: {
+            structured_state: true,
+            frontmatter_pp: true,
+            markdown_summary: false,
+          },
+        },
+        data: {
+          source: "mock_fallback",
+          section_summary: sectionSummary,
+          section_count: sectionSummary.length,
+          section_navigation_signal_status: sectionNavigationSignalStatus,
+          section_navigation_signal_detail: sectionNavigationSignalDetail,
+        },
+      },
+    ],
+    signals: {
+      has_claimset: noteSignals.has_claimset === true,
+      claim_count: typeof noteSignals.claim_count === "number" ? noteSignals.claim_count : notebook.claims.length,
+      evidence_count: typeof noteSignals.evidence_count === "number" ? noteSignals.evidence_count : notebook.highlights.length,
+      section_count: typeof noteSignals.section_count === "number" ? noteSignals.section_count : sectionSummary.length,
+      quality_gate_section_navigation_signal: sectionNavigationSignalStatus,
+      citation_count: typeof noteSignals.citation_count === "number" ? noteSignals.citation_count : 0,
+      last_appraisal: typeof noteSignals.last_appraisal === "string" ? noteSignals.last_appraisal : null,
+      last_status: typeof noteSignals.last_status === "string" ? noteSignals.last_status : note.status ?? null,
+    },
+    claimset,
+    entities: note.entities ?? [],
+    mesh: note.mesh ?? [],
+    outcomes: note.outcomes ?? [],
+    reading_assists: readingAssists,
+  };
+}
+
+function buildMockContextTrace(note: PaperNoteSummary): PaperNoteContextTrace {
+  const referenceSources = ["pdf"];
+  if (note.doi) {
+    referenceSources.push("doi");
+  }
+  if (note.zotero_link) {
+    referenceSources.push("zotero");
+  }
+  return {
+    available: true,
+    summary: {
+      entry_count: 2,
+      source_path_count: 2,
+      related_count: 1,
+      reference_count: referenceSources.length,
+      action_counts: {
+        note_loaded: 1,
+        structured_state_loaded: 1,
+      },
+      outcome_counts: {
+        loaded: 2,
+      },
+      source_paths: [note.note_path, `.pp/${note.slug}/state.json`],
+      related_slugs: MOCK_PAPER_NOTES.filter((item) => item.slug !== note.slug)
+        .slice(0, 1)
+        .map((item) => item.slug),
+      reference_sources: referenceSources,
+    },
+    trace: [
+      {
+        order: 1,
+        action: "note_loaded",
+        outcome: "loaded",
+        detail: "Loaded paper note from mock fallback dataset.",
+        source_path: note.note_path,
+        matched_slugs: [],
+        metadata: {
+          source: "mock_fallback",
+        },
+      },
+      {
+        order: 2,
+        action: "structured_state_loaded",
+        outcome: "loaded",
+        detail: "Loaded canonical structured state from mock fallback sidecar.",
+        source_path: `.pp/${note.slug}/state.json`,
+        matched_slugs: [note.slug],
+        metadata: {
+          source: "mock_fallback",
+        },
+      },
+    ],
+  };
+}
+
+function buildMockBodyMarkdown(note: PaperNoteSummary): string {
+  if (note.slug === "adaptiveInterventionSignalsAmbiguous2026") {
+    return [
+      `# ${note.title}`,
+      "",
+      "> **One-Line Summary**",
+      "> Adaptive intervention signals look promising, but the saved evidence anchors are still ambiguous.",
+      "",
+      "## Abstract",
+      "This note keeps a short canonical abstract close to the saved review state so the reader can understand the paper quickly without confusing translation support for evidence truth.",
+      "",
+      "## Critical Analysis",
+      "- Saved evidence spans still require manual review before downstream reuse.",
+      "- Ambiguous locator matches should be resolved in Workbench before exporting or summarizing the note elsewhere.",
+      "",
+      "## What to do next",
+      "- Open the workbench to inspect ambiguous evidence links and confirm the canonical source spans.",
+    ].join("\n");
+  }
+
+  const structuredState = buildMockStructuredState(note);
+  const claimPreview = structuredState.claimset.slice(0, 3).map((claim) => `- ${claim.claim}`).join("\n");
+  return [
+    `# ${note.title}`,
+    "",
+    "## Why this note matters",
+    `${note.title} is surfaced in fallback mode so the note viewer still demonstrates how saved notes, structured state, and workbench handoff fit together.`,
+    "",
+    "## Structured signals",
+    claimPreview || "- Structured claims are not available yet.",
+    "",
+    "## What to do next",
+    note.ops_summary?.recommended_action === "repair_stats"
+      ? "- Repair stats before trusting downstream summaries."
+      : "- Open the workbench to validate evidence links and downstream artifacts.",
+  ].join("\n");
+}
+
+function buildMockPaperOperatorState(note: PaperNoteSummary): PaperNoteOperatorState {
+  const paperId = note.id ?? note.slug;
+  let paperNoteText: string | null = null;
+  if (note.slug === "ketogenicInterventionGlucoseVariability2024") {
+    paperNoteText = "Useful for experiment framing. Reopen before protocol planning.";
+  } else if (note.slug === "adaptiveInterventionSignalsAmbiguous2026") {
+    paperNoteText = "Needs manual evidence review before I trust or reuse the saved anchors.";
+  }
+  return {
+    note_slug: note.slug,
+    paper_id: paperId,
+    layer: "raw_memory",
+    canonical_status: "non_canonical",
+    paper_note_text: paperNoteText,
+    starred: note.starred === true,
+    triage_labels: [...(note.triage_labels ?? [])],
+    created_at: note.updated_at ?? note.date_processed ?? null,
+    updated_at: note.updated_at ?? note.date_processed ?? null,
+  };
+}
+
+function buildFallbackPaperNoteSummary(slug: string): PaperNoteSummary {
+  return {
+    slug,
+    title: "Fallback paper note",
+    note_path: `Inbox/PaperPipe/${slug}.md`,
+    structured_state_present: false,
+    aliases: [],
+    tags: [],
+  };
+}
+
+function buildMockAdaptiveReadingAssistDetail(locale?: string | null): PaperNoteDetailResponse["reading_assist"] | null {
+  const canonicalOneLine =
+    "Adaptive intervention signals look promising, but the saved evidence anchors are still ambiguous.";
+  const canonicalAbstract =
+    "This note keeps a short canonical abstract close to the saved review state so the reader can understand the paper quickly without confusing translation support for evidence truth.";
+  const canonicalCriticalAnalysis =
+    "- Saved evidence spans still require manual review before downstream reuse.\n- Ambiguous locator matches should be resolved in Workbench before exporting or summarizing the note elsewhere.";
+  const payloads = buildMockAdaptiveReadingAssistPayloads();
+  const normalizedLocale = locale?.trim().toLowerCase() ?? "";
+  const selected =
+    payloads.find((payload) => payload.locale === normalizedLocale) ??
+    payloads.find((payload) => payload.locale === "ko") ??
+    payloads[0] ??
+    null;
+
+  if (!selected) {
+    return null;
+  }
+
+  return {
+    locale: selected.locale,
+    canonical_locale: selected.canonical_locale,
+    machine_translated: selected.machine_translated,
+    partial: selected.partial,
+    blocks: selected.blocks.map((block) => ({
+      kind: block.kind,
+      label:
+        block.kind === "one_line_summary"
+          ? "One-Line Summary"
+          : block.kind === "critical_analysis"
+            ? "Critical Analysis"
+            : "Abstract",
+      canonical_text:
+        block.kind === "one_line_summary"
+          ? canonicalOneLine
+          : block.kind === "critical_analysis"
+            ? canonicalCriticalAnalysis
+            : canonicalAbstract,
+      translated_text: block.text,
+      source_field: block.provenance.source_field,
+      source_heading: block.source_heading,
+      source_locale: block.provenance.source_locale,
+      translator: block.provenance.translator,
+      model: block.provenance.model,
+      version: block.provenance.version,
+    })),
+  };
+}
+
+function slugifyMockHeading(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[`*_~[\](){}<>]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function extractMockOutlineItems(markdown: string, noteTitle?: string | null) {
+  const normalizedTitle = noteTitle?.trim();
+  const seen = new Map<string, number>();
+  const items: Array<{ id: string; label: string; order: number }> = [];
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const match = rawLine.match(/^(#{1,6})\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const level = match[1]?.length ?? 0;
+    const label = match[2]?.trim() ?? "";
+    if (!label || level < 2 || label === normalizedTitle) {
+      continue;
+    }
+    const baseId = slugifyMockHeading(label);
+    if (!baseId) {
+      continue;
+    }
+    const nextCount = (seen.get(baseId) ?? 0) + 1;
+    seen.set(baseId, nextCount);
+    items.push({
+      id: nextCount === 1 ? baseId : `${baseId}-${nextCount}`,
+      label,
+      order: items.length,
+    });
+  }
+  return items;
+}
+
+function normalizeMockSectionKey(value: string | null | undefined): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) {
+    return "";
+  }
+  return slugifyMockHeading(normalized) || normalized.toLowerCase();
+}
+
+function resolveMockEvidenceSectionLabel(note: PaperNoteSummary, claimIndex: number): string {
+  if (note.slug === "adaptiveInterventionSignalsAmbiguous2026") {
+    const labels = ["Abstract", "Critical Analysis", "What to do next"];
+    return labels[Math.min(claimIndex, labels.length - 1)] ?? "Critical Analysis";
+  }
+  return "Structured signals";
+}
+
+function buildMockRuntimeSectionSummary(
+  claimset: StructuredPaperState["claimset"],
+): Array<{
+  key: string;
+  label: string;
+  claim_count: number;
+  evidence_count: number;
+  representative_claim_id: string | null;
+  representative_evidence_id: string | null;
+  page_start: number | null;
+  page_end: number | null;
+}> {
+  const sections = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      claim_count: number;
+      evidence_count: number;
+      representative_claim_id: string | null;
+      representative_evidence_id: string | null;
+      pages: number[];
+    }
+  >();
+
+  for (const claim of claimset ?? []) {
+    const claimSectionKeys = new Set<string>();
+    for (const evidence of claim.evidence ?? []) {
+      const sectionLabel = evidence.locator?.section?.trim() || evidence.section?.trim() || "";
+      if (!sectionLabel) {
+        continue;
+      }
+      const key = normalizeMockSectionKey(sectionLabel);
+      if (!key) {
+        continue;
+      }
+      const next =
+        sections.get(key) ?? {
+          key,
+          label: sectionLabel,
+          claim_count: 0,
+          evidence_count: 0,
+          representative_claim_id: null,
+          representative_evidence_id: null,
+          pages: [],
+        };
+
+      if (!claimSectionKeys.has(key)) {
+        next.claim_count += 1;
+        claimSectionKeys.add(key);
+      }
+      next.evidence_count += 1;
+      if (!next.representative_claim_id) {
+        next.representative_claim_id = claim.id;
+      }
+      if (!next.representative_evidence_id) {
+        next.representative_evidence_id = evidence.id ?? null;
+      }
+      if (typeof evidence.page === "number" && Number.isFinite(evidence.page)) {
+        next.pages.push(evidence.page);
+      }
+      sections.set(key, next);
+    }
+  }
+
+  return Array.from(sections.values())
+    .map((item) => {
+      const uniquePages = Array.from(new Set(item.pages)).sort((left, right) => left - right);
+      return {
+        key: item.key,
+        label: item.label,
+        claim_count: item.claim_count,
+        evidence_count: item.evidence_count,
+        representative_claim_id: item.representative_claim_id,
+        representative_evidence_id: item.representative_evidence_id,
+        page_start: uniquePages[0] ?? null,
+        page_end: uniquePages.length > 0 ? uniquePages[uniquePages.length - 1] : null,
+      };
+    })
+    .sort((left, right) => {
+      if (left.evidence_count !== right.evidence_count) {
+        return right.evidence_count - left.evidence_count;
+      }
+      if (left.claim_count !== right.claim_count) {
+        return right.claim_count - left.claim_count;
+      }
+      return left.label.localeCompare(right.label);
+    });
+}
+
+function buildMockSectionNavigator(
+  note: PaperNoteSummary,
+  bodyMarkdown: string,
+  structuredState: StructuredPaperState | null,
+): PaperNoteSectionNavigatorItem[] {
+  if (!structuredState) {
+    return [];
+  }
+
+  const outlineByKey = new Map(
+    extractMockOutlineItems(bodyMarkdown, note.title).map((item) => [
+      normalizeMockSectionKey(item.label),
+      { id: item.id, label: item.label, order: item.order },
+    ]),
+  );
+  const runtimeSummary =
+    Array.isArray(structuredState.runs?.[0]?.data?.section_summary) && structuredState.runs[0]?.data?.section_summary.length > 0
+      ? structuredState.runs[0].data.section_summary
+      : buildMockRuntimeSectionSummary(structuredState.claimset ?? []);
+  const items: PaperNoteSectionNavigatorItem[] = [];
+  for (const item of runtimeSummary) {
+      const key = normalizeMockSectionKey(typeof item.key === "string" ? item.key : typeof item.label === "string" ? item.label : "");
+      const label = typeof item.label === "string" ? item.label.trim() : "";
+      if (!key || !label) {
+        continue;
+      }
+      const outlineMatch = outlineByKey.get(key);
+      items.push({
+        key,
+        label: outlineMatch?.label ?? label,
+        outline_id: outlineMatch?.id ?? null,
+        outline_order: outlineMatch?.order ?? null,
+        claim_count: typeof item.claim_count === "number" ? item.claim_count : 0,
+        evidence_count: typeof item.evidence_count === "number" ? item.evidence_count : 0,
+        representative_claim_id:
+          typeof item.representative_claim_id === "string" ? item.representative_claim_id : null,
+        representative_evidence_id:
+          typeof item.representative_evidence_id === "string" ? item.representative_evidence_id : null,
+        page_start: typeof item.page_start === "number" ? item.page_start : null,
+        page_end: typeof item.page_end === "number" ? item.page_end : null,
+        matched_to_outline: Boolean(outlineMatch),
+      });
+    }
+
+  return items.sort((left, right) => {
+      if (left.matched_to_outline !== right.matched_to_outline) {
+        return left.matched_to_outline ? -1 : 1;
+      }
+      if ((left.outline_order ?? Number.MAX_SAFE_INTEGER) !== (right.outline_order ?? Number.MAX_SAFE_INTEGER)) {
+        return (left.outline_order ?? Number.MAX_SAFE_INTEGER) - (right.outline_order ?? Number.MAX_SAFE_INTEGER);
+      }
+      if (left.evidence_count !== right.evidence_count) {
+        return right.evidence_count - left.evidence_count;
+      }
+      if (left.claim_count !== right.claim_count) {
+        return right.claim_count - left.claim_count;
+      }
+      return left.label.localeCompare(right.label);
+    });
+}
+
+function buildMockPaperNoteDetail(
+  note: PaperNoteSummary,
+  options?: { readingAssistLocale?: string | null },
+): PaperNoteDetailResponse {
+  const readingAssist =
+    note.slug === "adaptiveInterventionSignalsAmbiguous2026"
+      ? buildMockAdaptiveReadingAssistDetail(options?.readingAssistLocale)
+      : null;
+  const related: PaperNoteRelated[] = MOCK_PAPER_NOTES.filter((item) => item.slug !== note.slug)
+    .slice(0, 2)
+    .map((item) => ({
+      slug: item.slug,
+      title: item.title,
+      shared_tags: item.tags.slice(0, 2).filter((tag) => note.tags.includes(tag)),
+      shared_signals: (item.outcomes ?? []).slice(0, 1),
+    }));
+
+  const references: PaperNoteReference[] = [
+    {
+      label: "Open placeholder PDF",
+      url: SAMPLE_PDF,
+      source: "pdf" as const,
+    },
+  ];
+  if (note.doi) {
+    references.push({
+      label: `DOI ${note.doi}`,
+      url: `https://doi.org/${note.doi}`,
+      source: "doi" as const,
+    });
+  }
+  if (note.zotero_link) {
+    references.push({
+      label: "Open in Zotero",
+      url: note.zotero_link,
+      source: "zotero" as const,
+    });
+  }
+
+  const bodyMarkdown = buildMockBodyMarkdown(note);
+  const structuredState = note.structured_state_present ? buildMockStructuredState(note) : null;
+
+  return {
+    note,
+    frontmatter: {
+      id: note.id,
+      aliases: note.aliases,
+      tags: note.tags,
+      date_processed: note.date_processed,
+      confidence: note.confidence,
+      status: note.status,
+      doi: note.doi,
+    },
+    body_markdown: bodyMarkdown,
+    related,
+    references,
+    context_trace: buildMockContextTrace(note),
+    structured_state: structuredState,
+    section_navigator: buildMockSectionNavigator(note, bodyMarkdown, structuredState),
+    reading_assist: readingAssist,
+    operator_state: buildMockPaperOperatorState(note),
+    available_actions: [],
+  };
+}
+
+const MOCK_PAPER_NOTE_DETAILS: Record<string, PaperNoteDetailResponse> = Object.fromEntries(
+  MOCK_PAPER_NOTES.map((note) => [note.slug, buildMockPaperNoteDetail(note)]),
+);
+
+function parseMockQueryTerms(value: string): string[] {
+  const pattern = /"([^"]+)"|(\S+)/g;
+  const terms: string[] = [];
+  for (const match of value.matchAll(pattern)) {
+    const raw = (match[1] ?? match[2] ?? "").trim().toLowerCase();
+    if (raw) {
+      terms.push(raw.replace(/\s+/g, " "));
+    }
+  }
+  return terms;
+}
+
+function buildMockPaperNoteHaystack(note: PaperNoteSummary): string {
+  const signals = note.pp_signals ?? {};
+  const lastAppraisal = typeof signals.last_appraisal === "string" ? signals.last_appraisal : "";
+  return [
+    note.slug,
+    note.title,
+    note.id ?? "",
+    ...note.aliases,
+    ...note.tags,
+    ...(note.claim_tags ?? []),
+    ...(note.entities ?? []),
+    ...(note.mesh ?? []),
+    ...(note.outcomes ?? []),
+    lastAppraisal,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterMockPaperNotes(params?: MockPaperNoteQuery): PaperNoteSummary[] {
+  const queryTerms = parseMockQueryTerms(params?.q ?? "");
+  const selectedTags = Array.from(new Set([params?.tag, ...(params?.tags ?? [])].filter((value): value is string => Boolean(value))));
+  const normalizedStatus = params?.status?.trim().toLowerCase() ?? "";
+  const starredOnly = params?.starred === true;
+  const triageLabel = params?.triageLabel ?? null;
+  const hasReadingAssist = params?.hasReadingAssist === true;
+  const targetReadingAssistLocale = params?.readingAssistLocale?.trim().toLowerCase() ?? "";
+
+  return MOCK_PAPER_NOTES.filter((note) => {
+    const haystack = buildMockPaperNoteHaystack(note);
+    if (queryTerms.length > 0 && !queryTerms.every((term) => haystack.includes(term))) {
+      return false;
+    }
+    if (selectedTags.length > 0 && !selectedTags.some((tag) => note.tags.some((value) => value.toLowerCase() === tag.toLowerCase()))) {
+      return false;
+    }
+    if (normalizedStatus && (note.status ?? "").toLowerCase() !== normalizedStatus) {
+      return false;
+    }
+    if (starredOnly && note.starred !== true) {
+      return false;
+    }
+    if (triageLabel && !(note.triage_labels ?? []).includes(triageLabel)) {
+      return false;
+    }
+    if (params?.structuredOnly && !note.structured_state_present && (note.claim_tags?.length ?? 0) === 0 && (note.outcomes?.length ?? 0) === 0) {
+      return false;
+    }
+    if (hasReadingAssist) {
+      const available = note.reading_assist_available === true || (note.reading_assist_locales?.length ?? 0) > 0;
+      if (!available) {
+        return false;
+      }
+    }
+    if (targetReadingAssistLocale) {
+      const locales = (note.reading_assist_locales ?? [])
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean);
+      if (!locales.includes(targetReadingAssistLocale)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function sortMockPaperNotes(notes: PaperNoteSummary[], params?: MockPaperNoteQuery): PaperNoteSummary[] {
+  const sortBy = params?.sortBy ?? "date_processed";
+  const sortOrder = params?.sortOrder ?? "desc";
+  const sorted = [...notes].sort((left, right) => {
+    if (sortBy === "confidence") {
+      return (left.confidence ?? -1) - (right.confidence ?? -1);
+    }
+    const leftValue = left.date_processed ? Date.parse(left.date_processed) : 0;
+    const rightValue = right.date_processed ? Date.parse(right.date_processed) : 0;
+    return leftValue - rightValue;
+  });
+  return sortOrder === "asc" ? sorted : sorted.reverse();
+}
+
 function buildDocumentArtifactFromNotebook(notebook: NotebookArtifact): Record<string, unknown> {
   const rawPages = notebook.highlights
     .map((item) => Math.round(item.page))
@@ -393,6 +1765,20 @@ function toArtifactBundle(paperId: string, runId: string, notebook: NotebookArti
   return {
     paper_id: paperId,
     run_id: runId,
+    inference_summary: {
+      selected_backend: "local",
+      payload_class: "local_only",
+      redaction_applied: false,
+      lanes: {
+        reader: {
+          selected_backend: "local",
+          payload_class: "local_only",
+          redaction_applied: false,
+          provider_name: "mock-local",
+          provider_model: "llama3:8b",
+        },
+      },
+    },
     files: {
       claimset_resolved: {
         exists: true,
@@ -832,7 +2218,7 @@ const MOCK_MEETING_PACK_VALIDATION_RESPONSE: MeetingPackValidationResponse = {
 
 const MOCK_MEETING_PACK_LIST_RESPONSE: MeetingPackListResponse = {
   generated_at: "2026-03-17T09:05:00Z",
-  total: 2,
+  total: 3,
   items: [
     {
       pack_id: MOCK_MEETING_PACK_ID,
@@ -845,6 +2231,20 @@ const MOCK_MEETING_PACK_LIST_RESPONSE: MeetingPackListResponse = {
       slide_count: 2,
       trace_entry_count: 5,
       primary_source_title: "wenzelShortchainFattyAcids2020",
+      has_generation_request: true,
+      regenerated_from_pack_id: null,
+    },
+    {
+      pack_id: "meetingpack_20260317T001512345Z_journal_club_mocksourceaware",
+      title: "Browser generated meeting draft",
+      mode: "journal_club",
+      output_mode_family: "lab_meeting",
+      created_at: "2026-03-17T00:15:12.345Z",
+      readiness: "evidence_backed",
+      source_count: 1,
+      slide_count: 4,
+      trace_entry_count: 0,
+      primary_source_title: "SCFA journal club debug draft",
       has_generation_request: true,
       regenerated_from_pack_id: null,
     },
@@ -1152,7 +2552,13 @@ const MOCK_CHART_PACK_RESPONSE: ChartPackResponse = {
           path: "specs/chart_01_reported-vs-computed-p-scatter.json",
           mime_type: "application/json",
         },
-        render_refs: [],
+        render_refs: [
+          {
+            kind: "render_svg",
+            path: "renders/chart_01_reported-vs-computed-p-scatter.svg",
+            mime_type: "image/svg+xml",
+          },
+        ],
       },
       {
         chart_id: "chart_02_table-numeric-line",
@@ -1187,7 +2593,13 @@ const MOCK_CHART_PACK_RESPONSE: ChartPackResponse = {
           path: "specs/chart_02_table-numeric-line.json",
           mime_type: "application/json",
         },
-        render_refs: [],
+        render_refs: [
+          {
+            kind: "render_svg",
+            path: "renders/chart_02_table-numeric-line.svg",
+            mime_type: "image/svg+xml",
+          },
+        ],
       },
     ],
     source_items: [
@@ -1319,6 +2731,23 @@ const MOCK_CHART_PACK_RESPONSE: ChartPackResponse = {
     "| 0.05 | 0.04 |",
     "| 0.20 | 0.18 |",
   ].join("\n"),
+  quality_gate: {
+    schema_version: "2026-04-17.chart-pack-handoff.v1",
+    workflow: "chart_pack",
+    chart_pack_id: MOCK_CHART_PACK_ID,
+    overall_status: "warn",
+    bundle_ready: true,
+    handoff_ready: false,
+    reason_codes: ["CHART_WARNING_PRESENT"],
+    checks: [
+      { name: "source_items_persisted", status: "pass", detail: "true" },
+      { name: "data_snapshot_refs_complete", status: "pass", detail: "true" },
+      { name: "spec_refs_complete", status: "pass", detail: "true" },
+      { name: "markdown_synced_at_write", status: "pass", detail: "in_sync" },
+      { name: "artifact_brief_review", status: "warn", detail: "CHART_WARNING_PRESENT" },
+      { name: "warning_state_requires_review", status: "warn", detail: "true" },
+    ],
+  },
 };
 
 const MOCK_SECONDARY_CHART_PACK_RESPONSE: ChartPackResponse = {
@@ -1360,7 +2789,13 @@ const MOCK_SECONDARY_CHART_PACK_RESPONSE: ChartPackResponse = {
           path: "specs/chart_01_stats-check-status-counts.json",
           mime_type: "application/json",
         },
-        render_refs: [],
+        render_refs: [
+          {
+            kind: "render_svg",
+            path: "renders/chart_01_stats-check-status-counts.svg",
+            mime_type: "image/svg+xml",
+          },
+        ],
       },
     ],
     source_items: [
@@ -1435,6 +2870,23 @@ const MOCK_SECONDARY_CHART_PACK_RESPONSE: ChartPackResponse = {
     "| inconsistent | 1 |",
     "| verified | 3 |",
   ].join("\n"),
+  quality_gate: {
+    schema_version: "2026-04-17.chart-pack-handoff.v1",
+    workflow: "chart_pack",
+    chart_pack_id: MOCK_SECONDARY_CHART_PACK_ID,
+    overall_status: "pass",
+    bundle_ready: true,
+    handoff_ready: true,
+    reason_codes: [],
+    checks: [
+      { name: "source_items_persisted", status: "pass", detail: "true" },
+      { name: "data_snapshot_refs_complete", status: "pass", detail: "true" },
+      { name: "spec_refs_complete", status: "pass", detail: "true" },
+      { name: "markdown_synced_at_write", status: "pass", detail: "in_sync" },
+      { name: "artifact_brief_review", status: "pass", detail: "pass" },
+      { name: "warning_state_requires_review", status: "pass", detail: "false" },
+    ],
+  },
 };
 
 const MOCK_CHART_PACK_LIST_RESPONSE: ChartPackListResponse = {
@@ -1855,6 +3307,205 @@ export function getMockHealth(): { status: string; version: string } {
   return { status: "ok", version: "mock-3.0" };
 }
 
+function paperNoteIdVariants(value?: string | null): string[] {
+  const text = value?.trim() ?? "";
+  if (!text) {
+    return [];
+  }
+
+  const variants: string[] = [];
+  const append = (candidate: string) => {
+    const normalized = candidate.trim();
+    if (normalized && !variants.includes(normalized)) {
+      variants.push(normalized);
+    }
+  };
+
+  append(text);
+  append(text.replaceAll(":", ""));
+  if (text.includes(":")) {
+    const suffix = text.split(":", 2)[1]?.trim() ?? "";
+    append(suffix);
+    append(suffix.replaceAll(":", ""));
+  } else if (text.startsWith("zotero")) {
+    append(`zotero:${text.slice("zotero".length)}`);
+  }
+
+  return variants;
+}
+
+export function getMockPaperNotesIndex(params?: MockPaperNoteQuery): PaperNoteListResponse {
+  const baseFiltered = filterMockPaperNotes({
+    ...params,
+    hasReadingAssist: false,
+    readingAssistLocale: undefined,
+  });
+  const filtered = sortMockPaperNotes(filterMockPaperNotes(params), params);
+  const pageSize = Math.max(1, Math.round(params?.pageSize ?? 30));
+  const requestedPage = Math.max(1, Math.round(params?.page ?? 1));
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const start = (page - 1) * pageSize;
+  const availableTags = Array.from(new Set(MOCK_PAPER_NOTES.flatMap((note) => note.tags))).sort((left, right) => left.localeCompare(right));
+  const availableStatuses = Array.from(new Set(MOCK_PAPER_NOTES.map((note) => note.status ?? "").filter((value) => value.length > 0))).sort((left, right) => left.localeCompare(right));
+  const availableReadingAssistNoteCount = baseFiltered.filter(
+    (note) => note.reading_assist_available === true || (note.reading_assist_locales?.length ?? 0) > 0,
+  ).length;
+  const availableReadingAssistLocales = Array.from(
+    new Set(
+      baseFiltered.flatMap((note) =>
+        (note.reading_assist_locales ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean),
+      ),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+
+  return {
+    generated_at: new Date().toISOString(),
+    index_path: "mock://paper_notes_index.json",
+    total,
+    page,
+    page_size: pageSize,
+    total_pages: totalPages,
+    available_tags: availableTags,
+    available_statuses: availableStatuses,
+    available_reading_assist_note_count: availableReadingAssistNoteCount,
+    available_reading_assist_locales: availableReadingAssistLocales,
+    items: deepClone(filtered.slice(start, start + pageSize)),
+  };
+}
+
+export function getMockPaperNotesHomeContext(): PaperNotesHomeContext {
+  const noteSlugByPaperId: Record<string, string> = {};
+  const triageCounts = {
+    revisit: 0,
+    needs_verification: 0,
+    experiment_relevant: 0,
+  };
+  let markedPapers = 0;
+  let noteBackedPapers = 0;
+  let starred = 0;
+  for (const note of MOCK_PAPER_NOTES) {
+    for (const candidate of [note.id, note.slug]) {
+      for (const variant of paperNoteIdVariants(candidate)) {
+        if (!(variant in noteSlugByPaperId)) {
+          noteSlugByPaperId[variant] = note.slug;
+        }
+      }
+    }
+    const noteStarred = note.starred === true;
+    const hasOperatorNote = note.has_operator_note === true;
+    const triageLabels = note.triage_labels ?? [];
+    if (noteStarred) {
+      starred += 1;
+    }
+    if (hasOperatorNote) {
+      noteBackedPapers += 1;
+    }
+    if (noteStarred || hasOperatorNote || triageLabels.length > 0) {
+      markedPapers += 1;
+    }
+    for (const label of triageLabels) {
+      triageCounts[label] += 1;
+    }
+  }
+
+  const latestNoteUpdatedAt = [...MOCK_PAPER_NOTES]
+    .map((note) => note.updated_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+
+  return {
+    saved_notes: MOCK_PAPER_NOTES.length,
+    structured_notes: MOCK_PAPER_NOTES.filter((note) => note.structured_state_present === true).length,
+    latest_note_updated_at: latestNoteUpdatedAt,
+    note_context_limited: false,
+    note_slug_by_paper_id: noteSlugByPaperId,
+    marker_summary: {
+      marked_papers: markedPapers,
+      note_backed_papers: noteBackedPapers,
+      starred,
+      triage_counts: triageCounts,
+    },
+  };
+}
+
+export function getMockPaperNoteDetail(
+  slug: string,
+  _options?: { readingAssistLocale?: string | null },
+): PaperNoteDetailResponse {
+  const note = MOCK_PAPER_NOTES.find((item) => item.slug === slug) ?? null;
+  const storedDetail = MOCK_PAPER_NOTE_DETAILS[slug];
+  const requiresDynamicReadingAssist =
+    note?.slug === "adaptiveInterventionSignalsAmbiguous2026" && ((note.reading_assist_locales?.length ?? 0) > 1 || Boolean(_options?.readingAssistLocale));
+  if (note && requiresDynamicReadingAssist) {
+    const builtDetail = buildMockPaperNoteDetail(note, _options);
+    return deepClone({
+      ...builtDetail,
+      operator_state: storedDetail?.operator_state ?? builtDetail.operator_state,
+    });
+  }
+  return deepClone(
+    note
+      ? storedDetail ?? buildMockPaperNoteDetail(note, _options)
+      : storedDetail ?? buildMockPaperNoteDetail(buildFallbackPaperNoteSummary(slug), _options),
+  );
+}
+
+export function getMockPaperNoteOperatorState(slug: string): PaperNoteOperatorState {
+  const detail = MOCK_PAPER_NOTE_DETAILS[slug];
+  if (detail?.operator_state) {
+    return deepClone(detail.operator_state);
+  }
+  return deepClone(buildMockPaperOperatorState(buildFallbackPaperNoteSummary(slug)));
+}
+
+export function updateMockPaperNoteOperatorState(
+  slug: string,
+  payload: PaperNoteOperatorStateUpdateRequest,
+): PaperNoteOperatorState {
+  const note = MOCK_PAPER_NOTES.find((item) => item.slug === slug) ?? null;
+  const existingState =
+    MOCK_PAPER_NOTE_DETAILS[slug]?.operator_state ??
+    (note ? buildMockPaperOperatorState(note) : buildMockPaperOperatorState(buildFallbackPaperNoteSummary(slug)));
+  const updatedAt = new Date().toISOString();
+  const paperNoteText = hasPaperOperatorNoteText(payload.paper_note_text) ? String(payload.paper_note_text).trim() : null;
+  const nextState: PaperNoteOperatorState = {
+    ...existingState,
+    paper_note_text: paperNoteText,
+    starred: payload.starred === true,
+    triage_labels: [...payload.triage_labels],
+    created_at: existingState.created_at ?? updatedAt,
+    updated_at: updatedAt,
+  };
+
+  if (note) {
+    note.starred = nextState.starred;
+    note.triage_labels = [...nextState.triage_labels];
+    note.has_operator_note = hasPaperOperatorNoteText(nextState.paper_note_text);
+    MOCK_PAPER_NOTE_DETAILS[slug] = {
+      ...buildMockPaperNoteDetail(note),
+      operator_state: nextState,
+    };
+  }
+
+  return deepClone(nextState);
+}
+
+export function getMockPaperNoteStructuredStateByPaperId(paperId: string) {
+  const note = MOCK_PAPER_NOTES.find((item) => item.id === paperId) ?? null;
+  if (!note || !note.structured_state_present) {
+    return null;
+  }
+  return {
+    paper_id: paperId,
+    slug: note.slug,
+    note_path: note.note_path,
+    structured_state: buildMockStructuredState(note),
+    operator_state: getMockPaperNoteOperatorState(note.slug),
+  };
+}
+
 export function getMockPapers(): PaperSummary[] {
   return deepClone(MOCK_PAPERS);
 }
@@ -1943,7 +3594,7 @@ export function getMockPersonas(): PersonaListResponse {
 export function getMockArtifactsLatest(paperId: string): ArtifactBundle {
   const paper = MOCK_PAPERS.find((item) => item.paper_id === paperId) ?? MOCK_PAPERS[0];
   const runId = paper.latest_run_id ?? "run-mock";
-  const notebook = NOTEBOOK_BY_PAPER[paper.paper_id] ?? BASE_NOTEBOOK;
+  const notebook = NOTEBOOK_BY_PAPER[paper.paper_id] ?? PLACEHOLDER_NOTEBOOK;
   return deepClone(toArtifactBundle(paper.paper_id, runId, notebook));
 }
 
@@ -1962,7 +3613,7 @@ function toMockObsidianMarkdown(notebook: NotebookArtifact): string {
 }
 
 export function getMockObsidianMirror(paperId: string, runId: string): ObsidianMirror {
-  const notebook = NOTEBOOK_BY_PAPER[paperId] ?? BASE_NOTEBOOK;
+  const notebook = NOTEBOOK_BY_PAPER[paperId] ?? PLACEHOLDER_NOTEBOOK;
   const generated = toMockObsidianMarkdown(notebook);
   if (paperId === "paper-2026-ambiguous") {
     return {
@@ -2060,38 +3711,279 @@ export function getMockTimeline(runId: string): TimelineResponse {
 }
 
 export function getMockMeetingPack(packId: string): MeetingPackResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return deepClone(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
   response.pack.id = packId || MOCK_MEETING_PACK_ID;
   return response;
 }
 
 export function getMockMeetingPackIndex(): MeetingPackListResponse {
-  return deepClone(MOCK_MEETING_PACK_LIST_RESPONSE);
+  const generatedItems = MOCK_GENERATED_MEETING_PACK_ORDER
+    .map((packId) => MOCK_GENERATED_MEETING_PACKS.get(packId))
+    .filter((response): response is MeetingPackResponse => Boolean(response))
+    .map((response) => buildMeetingPackListItem(response));
+  const base = deepClone(MOCK_MEETING_PACK_LIST_RESPONSE);
+  return {
+    ...base,
+    total: generatedItems.length + base.items.length,
+    items: [...generatedItems, ...base.items],
+  };
 }
 
 export function getMockMeetingPackTrace(packId: string): MeetingPackTraceResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackTraceResponse(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_TRACE_RESPONSE);
   response.pack_id = packId || MOCK_MEETING_PACK_ID;
   return response;
 }
 
 export function getMockMeetingPackValidation(packId: string): MeetingPackValidationResponse {
+  const generated = MOCK_GENERATED_MEETING_PACKS.get(packId);
+  if (generated) {
+    return buildMeetingPackValidationResponse(generated);
+  }
   const response = deepClone(MOCK_MEETING_PACK_VALIDATION_RESPONSE);
   response.validation.pack_id = packId || MOCK_MEETING_PACK_ID;
   return response;
 }
 
+export function createMockMeetingPack(request: MeetingPackRequestSnapshot): MeetingPackResponse {
+  const response = deepClone(MOCK_MEETING_PACK_RESPONSE);
+  const now = new Date();
+  const sourceRef = request.source_items[0]?.ref?.trim() || "paper-slug";
+  const packId = buildMockMeetingPackId(request.mode);
+  const normalizedRequestTitle = normalizeRequestedMeetingPackTitle(request.title, sourceRef);
+  const title = normalizedRequestTitle || `${formatMeetingPackModeLabel(request.mode)} draft for ${sourceRef}`;
+
+  response.pack.id = packId;
+  response.pack.mode = request.mode;
+  response.pack.output_mode_family = outputModeFamilyForMeetingPackMode(request.mode);
+  response.pack.title = title;
+  response.pack.created_at = now.toISOString();
+  response.pack.readiness = "evidence_backed";
+  response.pack.generation_request = deepClone(request);
+  response.pack.generation_request.title = normalizedRequestTitle;
+  response.pack.regenerated_from_pack_id = null;
+  response.pack.source_items = request.source_items.map((item, index) => ({
+    id: `src_${String(index + 1).padStart(2, "0")}`,
+    type: item.type,
+    ref: item.ref,
+    title: item.ref,
+    priority: index + 1,
+    included: true,
+  }));
+  response.pack.retrieval_trace = request.source_items.flatMap((item, index) => {
+    const sourceItemId = `src_${String(index + 1).padStart(2, "0")}`;
+    return [
+      {
+        order: index * 2 + 1,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: "selector_selected",
+        outcome: "selected",
+        detail: "Selector accepted for draft generation.",
+        source_item_id: sourceItemId,
+        source_path: null,
+        matched_paper_slugs: [],
+        metadata: {},
+      },
+      {
+        order: index * 2 + 2,
+        selector_type: item.type,
+        selector_ref: item.ref,
+        action: item.type === "paper_slug" ? "paper_state_loaded" : "selector_resolved",
+        outcome: item.type === "paper_slug" ? "loaded" : "resolved",
+        detail:
+          item.type === "paper_slug"
+            ? "Loaded the selected paper slug into the draft."
+            : "Resolved selector context for the draft.",
+        source_item_id: sourceItemId,
+        source_path: item.type === "paper_slug" ? `.pp/${item.ref}/state.json` : item.ref,
+        matched_paper_slugs: item.type === "paper_slug" ? [item.ref] : [],
+        metadata: {},
+      },
+    ];
+  });
+  response.pack.one_page_summary.overview = `This mock meeting draft starts from ${sourceRef} so you can inspect the full pack flow before the live backend is available.`;
+  response.pack.one_page_summary.key_points = [
+    {
+      label: "Starting point",
+      text: `The draft was created from the paper slug ${sourceRef}. Replace this with a live paper slug to generate a real pack.`,
+      evidence_refs: ["evref_01"],
+      uncertainty_note: "Mock generation keeps the workflow shape but not the final scientific content.",
+    },
+  ];
+  response.pack.one_page_summary.uncertainties = [
+    "This is mock-generated draft content for workflow review.",
+  ];
+  response.pack.slides = [
+    {
+      slide_title: "Why this paper is in the meeting",
+      purpose: "Frame the selected paper slug for discussion",
+      bullets: [
+        `Source slug: ${sourceRef}`,
+        `Mode: ${formatMeetingPackModeLabel(request.mode)}`,
+      ],
+      evidence_refs: ["evref_01"],
+      caution_notes: ["Replace mock content with a live draft before reuse."],
+    },
+    {
+      slide_title: "What to review next",
+      purpose: "Check evidence, trace, and discussion prompts",
+      bullets: [
+        "Open the trace panel to confirm which selectors were used.",
+        "Use regenerate after changing selector inputs.",
+      ],
+      evidence_refs: ["evref_01"],
+      caution_notes: [],
+    },
+  ];
+  response.pack.discussion_questions = [
+    {
+      question: `What meeting angle do we want to take for ${sourceRef}?`,
+      rationale: "A starting prompt helps the route feel usable before a live backend is connected.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.expected_questions = [
+    {
+      question: "Is this a live draft or a fallback demo?",
+      suggested_response:
+        "This draft was created in mock mode to demonstrate the creation flow while the backend is unavailable.",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.next_steps = [
+    {
+      action: "Reconnect the live backend and regenerate this draft.",
+      why: "That will replace placeholder content with canonical evidence-backed slides.",
+      priority: "medium",
+      evidence_refs: ["evref_01"],
+    },
+  ];
+  response.pack.evidence_refs = [
+    {
+      id: "evref_01",
+      paper_slug: sourceRef,
+      claim_id: null,
+      evidence_id: null,
+      run_id: "mock-meeting-pack-generate",
+      support_type: "direct",
+      note: "Mock source reference created from the draft request.",
+    },
+  ];
+  response.markdown = [
+    `# ${title}`,
+    "",
+    "## One-page Summary",
+    "",
+    response.pack.one_page_summary.overview,
+    "",
+    "## Slide Outline",
+    "",
+    ...response.pack.slides.map((slide, index) => `${index + 1}. ${slide.slide_title}`),
+  ].join("\n");
+  response.markdown_sync = {
+    status: "in_sync",
+    stored_markdown_sha1: "b".repeat(40),
+    rendered_markdown_sha1: "b".repeat(40),
+    note: "Mock-generated markdown mirrors the current draft bundle.",
+  };
+
+  MOCK_GENERATED_MEETING_PACKS.set(packId, response);
+  MOCK_GENERATED_MEETING_PACK_ORDER.unshift(packId);
+  return deepClone(response);
+}
+
 export function getMockMethodComparison(comparisonId: string): MethodComparisonResponse {
+  const generated = MOCK_GENERATED_METHOD_COMPARISONS.get(comparisonId);
+  if (generated) {
+    return deepClone(generated);
+  }
   const response = deepClone(MOCK_METHOD_COMPARISON_RESPONSE);
   response.comparison.comparison_id = comparisonId || MOCK_METHOD_COMPARISON_ID;
   return response;
 }
 
 export function getMockMethodComparisonIndex(): MethodComparisonListResponse {
-  return deepClone(MOCK_METHOD_COMPARISON_LIST_RESPONSE);
+  const generatedItems = MOCK_GENERATED_METHOD_COMPARISON_ORDER
+    .map((comparisonId) => MOCK_GENERATED_METHOD_COMPARISONS.get(comparisonId))
+    .filter((response): response is MethodComparisonResponse => Boolean(response))
+    .map((response) => buildMethodComparisonListItem(response));
+  const base = deepClone(MOCK_METHOD_COMPARISON_LIST_RESPONSE);
+  return {
+    ...base,
+    total: generatedItems.length + base.items.length,
+    items: [...generatedItems, ...base.items],
+  };
+}
+
+export function createMockMethodComparison(
+  request: MethodComparisonCreateRequest,
+): MethodComparisonResponse {
+  const now = new Date().toISOString();
+  const paperIds = Array.from(new Set(request.paper_ids.map((paperId) => paperId.trim()).filter(Boolean)));
+  const fieldIds = Array.from(new Set(request.field_ids));
+  const comparisonId = request.comparison_id?.trim() || buildMockMethodComparisonId();
+  const title =
+    request.title?.trim() ||
+    (paperIds.length <= 1
+      ? `${resolveMockComparisonPaperTitle(paperIds[0] ?? "paper")} method comparison`
+      : `${resolveMockComparisonPaperTitle(paperIds[0] ?? "paper")} + ${paperIds.length - 1} more method comparison`);
+  const rows = paperIds.map((paperId, index) => buildMockMethodComparisonRow(paperId, fieldIds, index));
+  const warnings = rows.flatMap((row) =>
+    row.cells.flatMap((cell) => {
+      if (cell.status === "conflict") {
+        return [`${cell.field_id.replaceAll("_", " ")} cell for ${row.paper_id} should be reviewed before export.`];
+      }
+      return [];
+    }),
+  );
+
+  const comparison: MethodComparison = {
+    comparison_id: comparisonId,
+    title,
+    created_at: request.created_at ?? now,
+    generated_at: now,
+    paper_ids: paperIds,
+    columns: fieldIds.map((fieldId) => ({
+      field_id: fieldId,
+      label: MOCK_METHOD_COMPARISON_FIELD_SPECS[fieldId].label,
+      value_kind: MOCK_METHOD_COMPARISON_FIELD_SPECS[fieldId].value_kind,
+    })),
+    rows,
+    source_summary: {
+      source_priority: ["claimset.resolved.json", "document_artifact", "paper_note_state"],
+      note: "Mock-generated comparison reflects the claimset-focused review lane. Conflict and missing cells should stay review-visible.",
+      source_paper_count: rows.length,
+      note_backed_paper_count: rows.filter((row) => Boolean(row.paper_slug)).length,
+      operator_override_count: 0,
+    },
+    warnings,
+  };
+
+  const response: MethodComparisonResponse = {
+    comparison,
+    csv_text: buildMockMethodComparisonCsv(comparison),
+    markdown: buildMockMethodComparisonMarkdown(comparison),
+  };
+
+  MOCK_GENERATED_METHOD_COMPARISONS.set(comparisonId, response);
+  MOCK_GENERATED_METHOD_COMPARISON_ORDER.unshift(comparisonId);
+  return deepClone(response);
 }
 
 export function getMockChartPack(chartPackId: string): ChartPackResponse {
+  const generated = MOCK_GENERATED_CHART_PACKS.get(chartPackId);
+  if (generated) {
+    return deepClone(generated);
+  }
   if (chartPackId === MOCK_SECONDARY_CHART_PACK_ID) {
     return deepClone(MOCK_SECONDARY_CHART_PACK_RESPONSE);
   }
@@ -2099,7 +3991,203 @@ export function getMockChartPack(chartPackId: string): ChartPackResponse {
 }
 
 export function getMockChartPackIndex(): ChartPackListResponse {
-  return deepClone(MOCK_CHART_PACK_LIST_RESPONSE);
+  const generatedItems = MOCK_GENERATED_CHART_PACK_ORDER
+    .map((chartPackId) => MOCK_GENERATED_CHART_PACKS.get(chartPackId))
+    .filter((item): item is ChartPackResponse => Boolean(item))
+    .map((item) => buildChartPackListItem(item));
+
+  return deepClone({
+    total: MOCK_CHART_PACK_LIST_RESPONSE.total + generatedItems.length,
+    items: [...generatedItems, ...MOCK_CHART_PACK_LIST_RESPONSE.items],
+  });
+}
+
+export function createMockChartPack(request: ChartPackRequestSnapshot): ChartPackResponse {
+  const now = new Date();
+  const createdAt = request.created_at?.trim() || now.toISOString();
+  const chartRequest = request.charts[0];
+  const templateId = chartRequest?.template_id ?? "stats_check_status_counts";
+  const chartPackId = request.chart_pack_id?.trim() || buildMockChartPackId();
+  const chartId = chartRequest?.chart_id?.trim() || `chart_01_${templateId.replaceAll("_", "-")}`;
+  const chartTitle = chartRequest?.title?.trim() || defaultMockChartTitle(templateId);
+  const chartPackTitle = request.title?.trim() || `${chartTitle} chart pack`;
+  const sourceRef = chartRequest?.source_ref ?? {
+    source_kind: "stats_report",
+    paper_id: "paper-2023-imaging",
+    run_id: "run-001",
+    source_label: "stats_report.json",
+  };
+  const fieldMappings =
+    chartRequest?.field_mappings && chartRequest.field_mappings.length > 0
+      ? chartRequest.field_mappings
+      : templateId === "reported_vs_computed_p_scatter"
+        ? [
+            { target_field: "reported_p", source_field: "reported_p" },
+            { target_field: "computed_p", source_field: "computed_p" },
+          ]
+        : [
+            { target_field: "status", source_field: "status" },
+            { target_field: "value", source_field: "count" },
+          ];
+  const sort =
+    chartRequest?.sort ??
+    (templateId === "reported_vs_computed_p_scatter"
+      ? { field: "reported_p", direction: "asc" as const }
+      : { field: "status", direction: "asc" as const });
+  const warnings = buildMockChartPackWarnings(templateId);
+  const csvText = buildMockChartPackCsv(templateId);
+  const specPayload = buildMockChartPackSpec(chartId, chartTitle, templateId, warnings);
+  const cautionNotes = warnings.length > 0
+    ? [
+        "Some charts include warning states; inspect source lineage before reuse.",
+        "Reported/computed p charts include only exact numeric pairs and skip approximate values.",
+      ]
+    : [];
+  const [csvHeader, ...csvRows] = csvText.split("\n");
+  const markdownTableLines = csvHeader
+    ? [
+        `| ${csvHeader.split(",").join(" | ")} |`,
+        `| ${csvHeader
+          .split(",")
+          .map(() => "---")
+          .join(" | ")} |`,
+        ...csvRows.map((row) => `| ${row.split(",").join(" | ")} |`),
+      ]
+    : [];
+
+  const response: ChartPackResponse = {
+    chart_pack: {
+      chart_pack_id: chartPackId,
+      title: chartPackTitle,
+      created_at: createdAt,
+      generated_at: createdAt,
+      charts: [
+        {
+          chart_id: chartId,
+          title: chartTitle,
+          template_id: templateId,
+          source_ref: {
+            ...sourceRef,
+            source_label: sourceRef.source_label ?? "stats_report.json",
+          },
+          field_mappings: fieldMappings,
+          filters: chartRequest?.filters ?? [],
+          sort,
+          transforms: [
+            ...fieldMappings.map((mapping) => ({
+              kind: "field_mapping" as const,
+              description: `Mapped ${mapping.source_field} -> ${mapping.target_field}.`,
+              field: mapping.target_field,
+            })),
+            {
+              kind: "sort" as const,
+              description: `Sorted rows by ${sort.field} ${sort.direction}.`,
+              field: sort.field,
+            },
+          ],
+          warnings,
+          data_snapshot_ref: {
+            kind: "data_csv",
+            path: `data/${chartId}.csv`,
+            mime_type: "text/csv",
+          },
+          spec_ref: {
+            kind: "spec_json",
+            path: `specs/${chartId}.json`,
+            mime_type: "application/json",
+          },
+          render_refs: [
+            {
+              kind: "render_svg",
+              path: `renders/${chartId}.svg`,
+              mime_type: "image/svg+xml",
+            },
+          ],
+        },
+      ],
+      source_items: [
+        {
+          ...sourceRef,
+          source_label: sourceRef.source_label ?? "stats_report.json",
+        },
+      ],
+      generation_request: {
+        chart_pack_id: request.chart_pack_id ?? chartPackId,
+        title: request.title ?? chartPackTitle,
+        notes: request.notes ?? null,
+        created_at: createdAt,
+        charts: [
+          {
+            chart_id: chartRequest?.chart_id ?? chartId,
+            title: chartRequest?.title ?? chartTitle,
+            template_id: templateId,
+            source_ref: {
+              ...sourceRef,
+              source_label: sourceRef.source_label ?? "stats_report.json",
+            },
+            field_mappings: fieldMappings,
+            filters: chartRequest?.filters ?? [],
+            sort,
+          },
+        ],
+      },
+      render_env: {
+        engine: "chart_pack_template_renderer",
+        version: "v0",
+        notes: "Deterministic template-driven spec builder over saved artifact snapshots.",
+      },
+      caution_notes: cautionNotes,
+      warnings,
+    },
+    markdown: [
+      `# ${chartPackTitle}`,
+      "",
+      `- Chart Pack ID: ${chartPackId}`,
+      `- Charts: 1`,
+      "",
+      "## Charts",
+      `### ${chartTitle}`,
+      `- Template: ${templateId}`,
+      `- Data snapshot: data/${chartId}.csv`,
+      "",
+      ...markdownTableLines,
+    ].join("\n"),
+    data_snapshots: {
+      [chartId]: csvText,
+    },
+    specs: {
+      [chartId]: specPayload,
+    },
+    quality_gate: {
+      schema_version: "2026-04-17.chart-pack-handoff.v1",
+      workflow: "chart_pack",
+      chart_pack_id: chartPackId,
+      overall_status: warnings.length > 0 ? "warn" : "pass",
+      bundle_ready: true,
+      handoff_ready: warnings.length === 0,
+      reason_codes: warnings.length > 0 ? ["CHART_WARNING_PRESENT"] : [],
+      checks: [
+        { name: "source_items_persisted", status: "pass", detail: "true" },
+        { name: "data_snapshot_refs_complete", status: "pass", detail: "true" },
+        { name: "spec_refs_complete", status: "pass", detail: "true" },
+        { name: "markdown_synced_at_write", status: "pass", detail: "in_sync" },
+        {
+          name: "artifact_brief_review",
+          status: warnings.length > 0 ? "warn" : "pass",
+          detail: warnings.length > 0 ? "CHART_WARNING_PRESENT" : "pass",
+        },
+        {
+          name: "warning_state_requires_review",
+          status: warnings.length > 0 ? "warn" : "pass",
+          detail: warnings.length > 0 ? "true" : "false",
+        },
+      ],
+    },
+  };
+
+  MOCK_GENERATED_CHART_PACKS.set(chartPackId, response);
+  MOCK_GENERATED_CHART_PACK_ORDER.unshift(chartPackId);
+  return deepClone(response);
 }
 
 export function getMockImageEvidence(imageEvidenceId: string): ImageEvidenceResponse {
@@ -2114,6 +4202,10 @@ export function getMockImageEvidenceIndex(): ImageEvidenceListResponse {
 }
 
 export function getMockProtocolCard(protocolId: string): ProtocolCardResponse {
+  const generated = MOCK_GENERATED_PROTOCOL_CARDS.get(protocolId);
+  if (generated) {
+    return deepClone(generated);
+  }
   if (protocolId === MOCK_SECONDARY_PROTOCOL_CARD_ID) {
     return deepClone(MOCK_SECONDARY_PROTOCOL_CARD_RESPONSE);
   }
@@ -2121,7 +4213,99 @@ export function getMockProtocolCard(protocolId: string): ProtocolCardResponse {
 }
 
 export function getMockProtocolCardIndex(): ProtocolCardListResponse {
-  return deepClone(MOCK_PROTOCOL_CARD_LIST_RESPONSE);
+  const generatedItems = MOCK_GENERATED_PROTOCOL_CARD_ORDER
+    .map((protocolId) => MOCK_GENERATED_PROTOCOL_CARDS.get(protocolId))
+    .filter((response): response is ProtocolCardResponse => Boolean(response))
+    .map((response) => buildProtocolCardListItem(response));
+
+  return deepClone({
+    total: MOCK_PROTOCOL_CARD_LIST_RESPONSE.total + generatedItems.length,
+    items: [...generatedItems, ...MOCK_PROTOCOL_CARD_LIST_RESPONSE.items],
+  });
+}
+
+function buildMockProtocolMarkdown(response: ProtocolCardResponse): string {
+  const currentVersion = response.versions.find(
+    (version) => version.version_id === response.protocol_card.current_version_id,
+  ) ?? response.versions[0];
+
+  return [
+    `# ${response.protocol_card.title}`,
+    "",
+    `- Protocol ID: \`${response.protocol_card.protocol_id}\``,
+    `- Source kind: ${response.protocol_card.source_kind.replaceAll("_", " ")}`,
+    `- Validation status: ${response.protocol_card.validation_status.replaceAll("_", " ")}`,
+    currentVersion ? `- Current version: \`${currentVersion.version_id}\`` : null,
+    "",
+    "## Current snapshot",
+    "",
+    currentVersion?.content_snapshot ?? "No saved snapshot.",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+export function createMockProtocolCard(request: ProtocolCardRequestSnapshot): ProtocolCardResponse {
+  const now = new Date().toISOString();
+  const protocolId = request.protocol_id?.trim() || buildMockProtocolCardId();
+  const linkedPaperIds = Array.from(new Set(request.linked_paper_ids.map((item) => item.trim()).filter(Boolean)));
+  const linkedNoteSlugs = Array.from(new Set(request.linked_note_slugs.map((item) => item.trim()).filter(Boolean)));
+  const versions = request.versions.map((version, index) => {
+    const versionNumber = version.version_number || index + 1;
+    const protocolSuffix = protocolId.replace(/^protocol_/, "");
+    return {
+      version_id: version.version_id?.trim() || `protver_${protocolSuffix}_v${versionNumber}`,
+      protocol_id: protocolId,
+      version_number: versionNumber,
+      key_steps_summary: [...version.key_steps_summary],
+      materials: [...version.materials],
+      equipment: [...version.equipment],
+      critical_conditions: [...version.critical_conditions],
+      readouts: [...version.readouts],
+      cautions: [...version.cautions],
+      content_snapshot: version.content_snapshot,
+      change_reason: version.change_reason ?? null,
+      status: version.status,
+      created_by: version.created_by,
+      created_at: version.created_at?.trim() || now,
+      source_refs: version.source_refs.map((ref) => ({ ...ref })),
+      note: version.note ?? null,
+    };
+  });
+  const currentVersion =
+    versions.find((version) => version.status === "active") ??
+    versions[versions.length - 1];
+
+  const response: ProtocolCardResponse = {
+    protocol_card: {
+      protocol_id: protocolId,
+      title: request.title.trim(),
+      purpose: request.purpose?.trim() || null,
+      context: request.context?.trim() || null,
+      source_kind: request.source_kind,
+      linked_paper_ids: linkedPaperIds,
+      linked_note_slugs: linkedNoteSlugs,
+      current_version_id: currentVersion?.version_id ?? null,
+      validation_status: request.validation_status,
+      created_at: request.created_at?.trim() || now,
+      updated_at: request.updated_at?.trim() || now,
+      version_summaries: versions.map((version) => ({
+        version_id: version.version_id,
+        version_number: version.version_number,
+        status: version.status,
+        created_at: version.created_at,
+        change_reason: version.change_reason,
+        source_ref_count: version.source_refs.length,
+      })),
+    },
+    versions,
+    markdown: "",
+  };
+
+  response.markdown = buildMockProtocolMarkdown(response);
+  MOCK_GENERATED_PROTOCOL_CARDS.set(protocolId, response);
+  MOCK_GENERATED_PROTOCOL_CARD_ORDER.unshift(protocolId);
+  return deepClone(response);
 }
 
 export function createMockJob(): JobEnqueueResponse {
@@ -2869,7 +5053,7 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
     agent_plan: [
       "Loaded claims from artifact bundle.",
       "Evidence mapping can be reviewed in claimset payload.",
-      checkCount > 0 ? `Stats report contains ${checkCount} checks.` : "Stats report is missing or empty.",
+      checkCount > 0 ? `Saved note checks include ${checkCount} checks.` : "Saved note checks are missing or empty.",
     ],
     sandbox_code: "# Sandbox Execution (read-only)\n# Parsed from backend artifact bundle.",
     verdict: {
@@ -2877,7 +5061,7 @@ export function getNotebookFromBundle(bundle: ArtifactBundle): NotebookArtifact 
       detail:
         checkCount > 0
           ? "Artifact loaded from backend. Verify stats checks and evidence links."
-          : "Claimset loaded, but stats report is not available yet.",
+          : "Saved claims loaded, but saved note checks are not available yet.",
       level: "caution",
     },
   };
@@ -2959,17 +5143,17 @@ export function getNotebookFromStructuredState(
     claims: applyClaimLinkGuards(parsedClaims, parsedHighlights),
     highlights: parsedHighlights,
     agent_plan: [
-      `Loaded ${parsedClaims.length} structured claims from canonical state.json.`,
+      `Loaded ${parsedClaims.length} saved claims from canonical state.json.`,
       lastRun ? `Latest skill action: ${asString(lastRun.action) ?? "unknown"} (${asString(lastRun.status) ?? "unknown"}).` : "No skill run metadata recorded.",
-      checkCount > 0 ? `Stats report contains ${checkCount} checks.` : "Stats report is missing or empty.",
+      checkCount > 0 ? `Saved note checks include ${checkCount} checks.` : "Saved note checks are missing or empty.",
     ],
     sandbox_code: "# Sandbox Execution (read-only)\n# Canonical structured paper state loaded from state.json.",
     verdict: {
       label: checkCount > 0 ? "Review" : "Pending",
       detail:
         checkCount > 0
-          ? "Canonical structured state loaded from the paper note sidecar. Verify stats checks and evidence links."
-          : "Canonical structured state loaded, but stats report is not available yet.",
+          ? "Saved note state loaded from the paper note sidecar. Verify checks and evidence links."
+          : "Saved note state loaded, but saved note checks are not available yet.",
       level: "caution",
     },
   };

@@ -17,6 +17,7 @@ interface PdfPanelProps {
   paperId: string;
   pdfUrl: string;
   pdfAvailable: boolean;
+  placeholderNotice?: string | null;
   claims: NotebookClaim[];
   highlights: EvidenceHighlight[];
   activeClaimId: string | null;
@@ -252,6 +253,7 @@ export function PdfPanel({
   paperId,
   pdfUrl,
   pdfAvailable,
+  placeholderNotice,
   claims,
   highlights,
   activeClaimId,
@@ -599,6 +601,13 @@ export function PdfPanel({
         </div>
       ) : null}
 
+      {placeholderNotice ? (
+        <div className="mb-2 rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] px-3 py-2 text-xs text-[var(--pp-warning-text)]">
+          <p className="font-semibold">Placeholder PDF active</p>
+          <p className="mt-1">{placeholderNotice}</p>
+        </div>
+      ) : null}
+
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)]">
         {pdfAvailable && pdfUrl ? (
           <div data-testid="pdf-viewer" className="h-[70vh] min-h-[420px] w-full overflow-hidden xl:h-[calc(100vh-10rem)]">
@@ -632,7 +641,7 @@ export function PdfPanel({
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 px-4 text-center">
             <FileWarning className="h-8 w-8 text-[var(--pp-text-dim)]" />
             <p className="text-sm text-[var(--pp-text-primary)]">PDF를 불러올 수 없습니다.</p>
-            <p className="text-xs text-[var(--pp-text-dim)]">백엔드 PDF 엔드포인트 실패 시 mock sample PDF를 사용합니다.</p>
+            <p className="text-xs text-[var(--pp-text-dim)]">백엔드 PDF 엔드포인트 실패 시 source evidence가 아닌 placeholder PDF를 사용합니다.</p>
           </div>
         )}
       </div>
