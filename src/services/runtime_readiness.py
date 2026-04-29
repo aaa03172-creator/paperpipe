@@ -170,6 +170,44 @@ def _processor_gate_threshold_change_preflight_compact_text(preflight: object) -
     return ", ".join(parts)
 
 
+def _processor_gate_threshold_change_decision_compact_text(decision: object) -> str | None:
+    if not isinstance(decision, dict):
+        return None
+
+    final_status = str(decision.get("final_status") or "").strip()
+    recommended_action = str(decision.get("recommended_action") or "").strip()
+    counts = (
+        decision.get("manual_review_counts")
+        if isinstance(decision.get("manual_review_counts"), dict)
+        else {}
+    )
+    supports_high = _safe_int(counts.get("supports_high_threshold_change"))
+    completed = _safe_int(counts.get("completed"))
+    total = _safe_int(counts.get("total"))
+    preflight = (
+        decision.get("threshold_change_preflight")
+        if isinstance(decision.get("threshold_change_preflight"), dict)
+        else {}
+    )
+    preflight_status = str(preflight.get("status") or "").strip()
+    preflight_blocker = str(preflight.get("blocker") or "").strip()
+
+    parts: list[str] = []
+    if final_status:
+        parts.append(f"status={final_status}")
+    if recommended_action:
+        parts.append(f"action={recommended_action}")
+    if completed is not None and total is not None:
+        parts.append(f"reviewed={completed}/{total}")
+    if supports_high is not None:
+        parts.append(f"high={supports_high}")
+    if preflight_status and preflight_status != "not_applicable":
+        parts.append(f"preflight={preflight_status}")
+    if preflight_blocker:
+        parts.append(f"blocker={preflight_blocker}")
+    return ", ".join(parts) or None
+
+
 def _processor_gate_manual_review_scope_compact_text(
     *,
     threshold_relevant_count: int | None,
@@ -993,18 +1031,19 @@ def _latest_processor_gate_threshold_review_check() -> RuntimeReadinessCheck:
         ),
     }
     threshold_change_decision_path = latest_run / "threshold_change_decision.json"
+    threshold_change_decision: dict[str, object] = {}
     threshold_change_preflight: dict[str, object] = {}
     threshold_change_decision_available = bool(threshold_change_decision_path.exists())
     threshold_change_preflight_status = "not_applicable"
     threshold_change_preflight_blocker: str | None = None
     if threshold_change_decision_available:
         try:
-            threshold_change_decision = json.loads(
+            loaded_threshold_change_decision = json.loads(
                 threshold_change_decision_path.read_text(encoding="utf-8")
             )
-            if isinstance(threshold_change_decision, dict) and isinstance(
-                threshold_change_decision.get("threshold_change_preflight"), dict
-            ):
+            if isinstance(loaded_threshold_change_decision, dict):
+                threshold_change_decision = loaded_threshold_change_decision
+            if isinstance(threshold_change_decision.get("threshold_change_preflight"), dict):
                 threshold_change_preflight = threshold_change_decision[
                     "threshold_change_preflight"
                 ]
@@ -1022,6 +1061,11 @@ def _latest_processor_gate_threshold_review_check() -> RuntimeReadinessCheck:
     metadata.update(
         {
             "threshold_change_decision_available": threshold_change_decision_available,
+            "threshold_change_decision_text": (
+                _processor_gate_threshold_change_decision_compact_text(
+                    threshold_change_decision
+                )
+            ),
             "threshold_change_preflight_available": bool(threshold_change_preflight),
             "threshold_change_preflight_required": bool(
                 threshold_change_preflight.get("required")

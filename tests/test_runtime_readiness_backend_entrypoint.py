@@ -524,6 +524,7 @@ def test_latest_processor_gate_threshold_review_check_reports_latest_run(monkeyp
         "threshold_change_proposal_markdown_available": False,
         "threshold_change_validation_replay_command_available": False,
         "threshold_change_decision_available": False,
+        "threshold_change_decision_text": None,
         "threshold_change_preflight_available": False,
         "threshold_change_preflight_required": False,
         "threshold_change_preflight_ready": False,
@@ -644,6 +645,13 @@ def test_latest_processor_gate_threshold_review_check_surfaces_threshold_change_
         json.dumps(
             {
                 "schema_version": "processor_gate_threshold_change_decision.v1",
+                "final_status": "threshold_change_validation_replay_required",
+                "recommended_action": "run_threshold_change_validation_replay_before_decision",
+                "manual_review_counts": {
+                    "total": 1,
+                    "completed": 1,
+                    "supports_high_threshold_change": 1,
+                },
                 "threshold_change_preflight": {
                     "required": True,
                     "ready": False,
@@ -665,6 +673,12 @@ def test_latest_processor_gate_threshold_review_check_surfaces_threshold_change_
     check = runtime_readiness._latest_processor_gate_threshold_review_check()
 
     assert check.metadata["threshold_change_decision_available"] is True
+    assert check.metadata["threshold_change_decision_text"] == (
+        "status=threshold_change_validation_replay_required, "
+        "action=run_threshold_change_validation_replay_before_decision, "
+        "reviewed=1/1, high=1, preflight=missing_threshold_change_proposal, "
+        "blocker=missing_threshold_change_proposal"
+    )
     assert check.metadata["threshold_change_preflight_available"] is True
     assert check.metadata["threshold_change_preflight_required"] is True
     assert check.metadata["threshold_change_preflight_ready"] is False
