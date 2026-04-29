@@ -392,6 +392,37 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
                         "threshold_change_preflight_markdown_path": (
                             "secret-preflight-markdown-path"
                         ),
+                        "threshold_change_decision": {
+                            "final_status": "threshold_change_validation_replay_required",
+                            "recommended_action": (
+                                "run_threshold_change_validation_replay_before_decision"
+                            ),
+                            "manual_review_counts": {
+                                "total": 1,
+                                "completed": 1,
+                                "supports_high_threshold_change": 1,
+                            },
+                            "high_threshold_candidate_ids": ["secret-paper-id"],
+                            "operator_note": "secret-decision-note",
+                            "threshold_change_preflight": {
+                                "required": True,
+                                "ready": False,
+                                "status": "missing_threshold_change_proposal",
+                                "blocker": "missing_threshold_change_proposal",
+                                "validation_replay_status": "not_applicable",
+                                "validation_replay_matches_proposal": False,
+                                "secret_raw_field": "secret-preflight-field",
+                            },
+                        },
+                        "threshold_change_preflight": {
+                            "required": True,
+                            "ready": False,
+                            "status": "missing_threshold_change_proposal",
+                            "blocker": "missing_threshold_change_proposal",
+                            "validation_replay_status": "not_applicable",
+                            "validation_replay_matches_proposal": False,
+                            "secret_raw_field": "secret-preflight-alias-field",
+                        },
                     },
                 )
             ],
@@ -415,6 +446,10 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     assert "secret-decision-markdown-path" not in resp.text
     assert "secret-preflight-path" not in resp.text
     assert "secret-preflight-markdown-path" not in resp.text
+    assert "secret-paper-id" not in resp.text
+    assert "secret-decision-note" not in resp.text
+    assert "secret-preflight-field" not in resp.text
+    assert "secret-preflight-alias-field" not in resp.text
     payload = resp.json()
     check = next(
         entry
@@ -429,6 +464,16 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     )
     assert check["metadata"]["threshold_change_decision_available"] is True
     assert check["metadata"]["threshold_change_preflight_available"] is True
+    assert check["metadata"]["threshold_change_decision_text"] == (
+        "status=threshold_change_validation_replay_required, "
+        "action=run_threshold_change_validation_replay_before_decision, "
+        "reviewed=1/1, high=1, preflight=missing_threshold_change_proposal, "
+        "blocker=missing_threshold_change_proposal"
+    )
+    assert check["metadata"]["threshold_change_preflight_text"] == (
+        "required=yes, ready=no, status=missing_threshold_change_proposal, "
+        "blocker=missing_threshold_change_proposal"
+    )
     assert "threshold_replay_review_command" not in check["metadata"]
     assert "threshold_review_command" not in check["metadata"]
     assert "threshold_change_validation_replay_command_template" not in check["metadata"]
@@ -437,6 +482,8 @@ def test_api_health_ready_browser_safe_summary_scrubs_processor_gate_commands(mo
     assert "threshold_change_decision_markdown_path" not in check["metadata"]
     assert "threshold_change_preflight_path" not in check["metadata"]
     assert "threshold_change_preflight_markdown_path" not in check["metadata"]
+    assert "threshold_change_decision" not in check["metadata"]
+    assert "threshold_change_preflight" not in check["metadata"]
 
 
 def test_health_ready_can_opt_back_into_detailed_mode_under_beta_gate(monkeypatch):

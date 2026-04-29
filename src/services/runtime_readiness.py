@@ -518,6 +518,54 @@ def _browser_safe_processor_gate_threshold_review_metadata(
     raw_threshold_change_preflight_markdown_path = str(
         browser_metadata.pop("threshold_change_preflight_markdown_path", "") or ""
     ).strip()
+    raw_threshold_change_decision = browser_metadata.pop("threshold_change_decision", None)
+    raw_threshold_change_preflight = browser_metadata.pop("threshold_change_preflight", None)
+    if isinstance(raw_threshold_change_decision, Mapping):
+        browser_metadata.setdefault("threshold_change_decision_available", True)
+        browser_metadata.setdefault(
+            "threshold_change_decision_text",
+            _processor_gate_threshold_change_decision_compact_text(
+                raw_threshold_change_decision
+            ),
+        )
+        nested_preflight = raw_threshold_change_decision.get("threshold_change_preflight")
+        if raw_threshold_change_preflight is None and isinstance(nested_preflight, Mapping):
+            raw_threshold_change_preflight = nested_preflight
+    if isinstance(raw_threshold_change_preflight, Mapping):
+        browser_metadata.setdefault("threshold_change_preflight_available", True)
+        browser_metadata.setdefault(
+            "threshold_change_preflight_required",
+            bool(raw_threshold_change_preflight.get("required")),
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_ready",
+            bool(raw_threshold_change_preflight.get("ready")),
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_status",
+            str(raw_threshold_change_preflight.get("status") or "").strip()
+            or "not_applicable",
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_blocker",
+            str(raw_threshold_change_preflight.get("blocker") or "").strip()
+            or None,
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_validation_replay_status",
+            str(raw_threshold_change_preflight.get("validation_replay_status") or "").strip()
+            or None,
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_validation_replay_matches_proposal",
+            bool(raw_threshold_change_preflight.get("validation_replay_matches_proposal")),
+        )
+        browser_metadata.setdefault(
+            "threshold_change_preflight_text",
+            _processor_gate_threshold_change_preflight_compact_text(
+                raw_threshold_change_preflight
+            ),
+        )
     if raw_replay_review_command or raw_threshold_review_command:
         browser_metadata["threshold_replay_review_command_available"] = True
     if raw_threshold_change_validation_command or raw_validation_replay_command:
