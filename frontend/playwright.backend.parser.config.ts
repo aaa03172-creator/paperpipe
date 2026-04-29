@@ -7,6 +7,10 @@ const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
 const frontendBaseUrl = `http://127.0.0.1:${frontendPort}`;
 const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1";
 
+// These parser-lane specs gate themselves off process.env, so mirror the dedicated
+// lane flag into the Playwright test process as well as the backend web server.
+process.env.PAPERPIPE_E2E_ENABLE_PARSER_WORKER = "1";
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: /.*backend\.spec\.ts/,
@@ -39,7 +43,7 @@ export default defineConfig({
       reuseExistingServer,
       cwd: ".",
       env: {
-        VITE_API_BASE_URL: backendBaseUrl,
+        LATTICE_UI_BACKEND_URL: backendBaseUrl,
       },
     },
   ],

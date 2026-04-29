@@ -39,7 +39,7 @@ function applyTheme(theme: "dark" | "light") {
 
 export const useAppStore = create<AppStore>((set, get) => ({
   themeMode: "dark",
-  resolvedTheme: "dark",
+  resolvedTheme: resolveTheme("dark"),
   searchQuery: "",
   terminalOpen: false,
   activeClaimId: "claim-1",

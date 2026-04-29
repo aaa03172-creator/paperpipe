@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 import signal
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -25,12 +27,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("e2e_fake_worker")
 
 POLL_INTERVAL_SECONDS = 0.2
+ACTIVE_RUN_HOLD_SECONDS = 3.0
 SEED_ARTIFACT_FILES = (
     "claimset.json",
     "claimset.resolved.json",
     "document_artifact.json",
     "stats_report.json",
 )
+FAKE_CANCEL_WINDOW_PAPER_IDS = {"paper-e2e-rebuild-001"}
 
 _stop_requested = False
 
@@ -55,6 +59,25 @@ def _latest_seed_artifact_dir(paper_id: str, run_id: str | None) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
+def _runtime_db_has_jobs_table() -> bool:
+    raw_path = os.getenv("PAPERPIPE_DB_PATH", "").strip()
+    if not raw_path:
+        return True
+
+    db_path = Path(raw_path).expanduser()
+    if not db_path.exists():
+        return False
+
+    try:
+        with sqlite3.connect(db_path) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs' LIMIT 1"
+            ).fetchone()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
+
 async def fake_run_deepread_job(
     job_id: str,
     paper_id: str,
@@ -77,14 +100,6 @@ async def fake_run_deepread_job(
         override_backend=parser_backend,
     )
     artifact_dir = Path("storage") / "artifacts" / paper_id / str(run_id)
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    seed_dir = _latest_seed_artifact_dir(paper_id, run_id)
-    if seed_dir is not None:
-        for filename in SEED_ARTIFACT_FILES:
-            source = seed_dir / filename
-            if source.exists():
-                shutil.copy2(source, artifact_dir / filename)
 
     def emit_timestamp() -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -113,6 +128,34 @@ async def fake_run_deepread_job(
                 "timestamp": emit_timestamp(),
             }
         )
+
+    if paper_id in FAKE_CANCEL_WINDOW_PAPER_IDS:
+        if progress_callback:
+            await progress_callback(
+                {
+                    "job_id": job_id,
+                    "run_id": run_id,
+                    "stage": "read",
+                    "progress": 85,
+                    "message": "e2e fake worker holding active run for cancel coverage",
+                    "level": "INFO",
+                    "timestamp": emit_timestamp(),
+                }
+            )
+        deadline = asyncio.get_running_loop().time() + ACTIVE_RUN_HOLD_SECONDS
+        while asyncio.get_running_loop().time() < deadline:
+            if cancel_check and cancel_check():
+                logger.info("cancelled fake deepread job %s for %s during hold window", job_id, paper_id)
+                return {"status": "cancelled", "run_id": run_id}
+            await asyncio.sleep(0.1)
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir = _latest_seed_artifact_dir(paper_id, run_id)
+    if seed_dir is not None:
+        for filename in SEED_ARTIFACT_FILES:
+            source = seed_dir / filename
+            if source.exists():
+                shutil.copy2(source, artifact_dir / filename)
 
     bootstrap_meta = {
         "paper_id": paper_id,
@@ -145,6 +188,9 @@ def main() -> int:
     worker = worker_mod.Worker()
     logger.info("e2e fake worker polling for queued jobs")
     while not _stop_requested:
+        if not _runtime_db_has_jobs_table():
+            logger.info("runtime db unavailable or missing jobs table; stopping fake worker")
+            break
         job = queue.claim_next_job()
         if job is None:
             time.sleep(POLL_INTERVAL_SECONDS)

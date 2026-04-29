@@ -5,39 +5,57 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-PYTHON_BIN="$(command -v python3 || command -v python)"
-if [[ -z "${PYTHON_BIN}" ]]; then
+RESOLVER_RUNNER="$(command -v python3 || command -v python)"
+if [[ -z "${RESOLVER_RUNNER}" ]]; then
   echo "python3/python not found" >&2
   exit 127
 fi
+PYTHON_BIN="$("${RESOLVER_RUNNER}" "${REPO_ROOT}/scripts/resolve_verification_python.py" --require-module fastapi --require-module uvicorn)"
 
 BACKEND_PORT="${E2E_BACKEND_PORT:-8000}"
-E2E_RUNTIME_DIR="frontend/.e2e-backend-runtime"
+E2E_RUNTIME_DIR="${REPO_ROOT}/frontend/.e2e-backend-runtime"
 E2E_CONFIG_PATH="${E2E_RUNTIME_DIR}/config.e2e.yaml"
 E2E_SKILLS_POLICY_PATH="${E2E_RUNTIME_DIR}/skills_policy.e2e.yaml"
-E2E_VAULT_REL="./frontend/.e2e-backend-runtime/obsidian"
-E2E_LIBRARY_REL="./frontend/.e2e-backend-runtime/Library"
-E2E_UPLOAD_REL="./frontend/.e2e-backend-runtime/NotebookLM_Upload"
-E2E_EXPORT_REL="./frontend/.e2e-backend-runtime/export"
-E2E_WATCH_REL="./frontend/.e2e-backend-runtime/Inbox"
-E2E_DOWNLOADS_REL="./frontend/.e2e-backend-runtime/Downloads"
-E2E_PDF_STORAGE_REL="./frontend/.e2e-backend-runtime/storage/pdfs"
-E2E_CHART_PACKS_REL="./frontend/.e2e-backend-runtime/storage/chart_packs"
-E2E_METHOD_COMPARISONS_REL="./frontend/.e2e-backend-runtime/storage/method_comparisons"
-E2E_IMAGE_EVIDENCE_REL="./frontend/.e2e-backend-runtime/storage/image_evidence"
-E2E_PROTOCOL_CARDS_REL="./frontend/.e2e-backend-runtime/storage/protocol_cards"
-E2E_DB_REL="./frontend/.e2e-backend-runtime/storage/state.db"
+E2E_VAULT_PATH="${E2E_RUNTIME_DIR}/obsidian"
+E2E_LIBRARY_PATH="${E2E_RUNTIME_DIR}/Library"
+E2E_UPLOAD_PATH="${E2E_RUNTIME_DIR}/NotebookLM_Upload"
+E2E_EXPORT_PATH="${E2E_RUNTIME_DIR}/export"
+E2E_WATCH_PATH="${E2E_RUNTIME_DIR}/Inbox"
+E2E_DOWNLOADS_PATH="${E2E_RUNTIME_DIR}/Downloads"
+E2E_PDF_STORAGE_PATH="${E2E_RUNTIME_DIR}/storage/pdfs"
+E2E_CHART_PACKS_PATH="${E2E_RUNTIME_DIR}/storage/chart_packs"
+E2E_METHOD_COMPARISONS_PATH="${E2E_RUNTIME_DIR}/storage/method_comparisons"
+E2E_IMAGE_EVIDENCE_PATH="${E2E_RUNTIME_DIR}/storage/image_evidence"
+E2E_PROTOCOL_CARDS_PATH="${E2E_RUNTIME_DIR}/storage/protocol_cards"
+E2E_PAPER_SYNTHESES_PATH="${E2E_RUNTIME_DIR}/storage/paper_syntheses"
+E2E_DB_PATH="${E2E_RUNTIME_DIR}/storage/state.db"
 
-rm -rf "${E2E_RUNTIME_DIR}"
+cleanup_stale_fake_worker() {
+  pkill -f "frontend/scripts/run_fake_worker_for_e2e.py" >/dev/null 2>&1 || true
+}
+
+reset_e2e_runtime_dir() {
+  local attempt
+  for attempt in 1 2 3; do
+    rm -rf "${E2E_RUNTIME_DIR}" && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+cleanup_stale_fake_worker
+reset_e2e_runtime_dir
 mkdir -p "${E2E_RUNTIME_DIR}"
 find backend src -type d -name "__pycache__" -prune -exec rm -rf {} +
 export PAPERPIPE_CONFIG_PATH="${E2E_CONFIG_PATH}"
 export PAPERPIPE_SKILLS_POLICY_PATH="${E2E_SKILLS_POLICY_PATH}"
-export PAPERPIPE_CHART_PACKS_DIR="${E2E_CHART_PACKS_REL}"
-export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_REL}"
-export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_REL}"
-export PAPERPIPE_PROTOCOL_CARDS_DIR="${E2E_PROTOCOL_CARDS_REL}"
-export PAPERPIPE_DB_PATH="${E2E_DB_REL}"
+export PAPERPIPE_CHART_PACKS_DIR="${E2E_CHART_PACKS_PATH}"
+export PAPERPIPE_METHOD_COMPARISONS_DIR="${E2E_METHOD_COMPARISONS_PATH}"
+export PAPERPIPE_IMAGE_EVIDENCE_DIR="${E2E_IMAGE_EVIDENCE_PATH}"
+export PAPERPIPE_PROTOCOL_CARDS_DIR="${E2E_PROTOCOL_CARDS_PATH}"
+export PAPERPIPE_PAPER_SYNTHESES_DIR="${E2E_PAPER_SYNTHESES_PATH}"
+export PAPERPIPE_DB_PATH="${E2E_DB_PATH}"
+export PAPERPIPE_INCLUDE_TEST_FIXTURES="1"
 
 cat > "${E2E_CONFIG_PATH}" <<YAML
 system:
@@ -45,16 +63,16 @@ system:
   log_level: "INFO"
 
 paths:
-  zotero_base_dir: "${E2E_LIBRARY_REL}"
-  obsidian_vault: "${E2E_VAULT_REL}"
+  zotero_base_dir: "${E2E_LIBRARY_PATH}"
+  obsidian_vault: "${E2E_VAULT_PATH}"
   index_all: "00_Index/paper_collection.csv"
   index_clinical: "00_Index/mct_mci_trials.csv"
-  upload_dir: "${E2E_UPLOAD_REL}"
-  export_dir: "${E2E_EXPORT_REL}"
-  watch_folder: "${E2E_WATCH_REL}"
-  library_dir: "${E2E_LIBRARY_REL}"
-  downloads_watch_dir: "${E2E_DOWNLOADS_REL}"
-  pdf_storage_dir: "${E2E_PDF_STORAGE_REL}"
+  upload_dir: "${E2E_UPLOAD_PATH}"
+  export_dir: "${E2E_EXPORT_PATH}"
+  watch_folder: "${E2E_WATCH_PATH}"
+  library_dir: "${E2E_LIBRARY_PATH}"
+  downloads_watch_dir: "${E2E_DOWNLOADS_PATH}"
+  pdf_storage_dir: "${E2E_PDF_STORAGE_PATH}"
 
 search:
   constraints:
@@ -81,7 +99,7 @@ llm:
     api_key: ""
     model: "gpt-4o-mini"
   features:
-    trial_extraction:
+    specialty_trial_extraction:
       enabled: false
       model: "gpt-4o-mini"
     slot_classification:
@@ -181,11 +199,14 @@ YAML
 
 "${PYTHON_BIN}" - <<'PY'
 import copy
+from datetime import datetime, timezone
 import json
 import shutil
 import sqlite3
 from pathlib import Path
 import textwrap
+
+from src.paper_syntheses.service import materialize_paper_synthesis_for_slug
 
 root = Path.cwd()
 e2e_runtime = root / "frontend" / ".e2e-backend-runtime"
@@ -227,6 +248,7 @@ conn.execute(
         stage TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         started_at TIMESTAMP,
+        heartbeat_at TIMESTAMP,
         finished_at TIMESTAMP,
         artifact_dir TEXT,
         log_path TEXT,
@@ -884,6 +906,59 @@ structured_state_payload = {
                     "avg_confidence": 0.81,
                     "verified_checks": 2,
                     "inconsistent_checks": 0,
+                },
+                "appraisal_report": {
+                    "schema_version": "critical_appraisal.v2",
+                    "layer": "review_gate",
+                    "canonical_status": "non_canonical",
+                    "label": "Strong",
+                    "summary": "Strong: saved claims, evidence anchors, and recorded checks look internally consistent for downstream reading review.",
+                    "claim_count": 2,
+                    "evidence_count": 3,
+                    "avg_confidence": 0.81,
+                    "verified_checks": 2,
+                    "inconsistent_checks": 0,
+                    "checks": [
+                        {
+                            "code": "claimset_ready",
+                            "label": "Saved claimset",
+                            "status": "pass",
+                            "detail": "2 saved claims with 3 evidence anchors are available.",
+                        },
+                        {
+                            "code": "evidence_locator_quality",
+                            "label": "Evidence locator quality",
+                            "status": "pass",
+                            "detail": "grounded=3, ambiguous=0, unresolved=0, approx=0, locator_missing=0",
+                        },
+                        {
+                            "code": "stats_consistency",
+                            "label": "Saved stats consistency",
+                            "status": "pass",
+                            "detail": "2 verified checks and 0 inconsistent checks.",
+                        },
+                        {
+                            "code": "verification_completed",
+                            "label": "Verification completion",
+                            "status": "pass",
+                            "detail": "completed",
+                        },
+                        {
+                            "code": "review_ready",
+                            "label": "Review-ready gate",
+                            "status": "pass",
+                            "detail": "quality_gate=pass, review_ready=true",
+                        },
+                    ],
+                    "concerns": [],
+                    "questions": [],
+                    "warnings": [],
+                    "source_artifacts": [
+                        "claimset.resolved.json",
+                        "stats_report.json",
+                        "reader_eval.json",
+                        "quality_gate.json",
+                    ],
                 }
             },
         },
@@ -1036,6 +1111,54 @@ structured_state_payload = {
                             "avg_confidence": 0.74,
                             "verified_checks": 1,
                             "inconsistent_checks": 0,
+                        },
+                        "appraisal_report": {
+                            "schema_version": "critical_appraisal.v2",
+                            "layer": "review_gate",
+                            "canonical_status": "non_canonical",
+                            "label": "Mixed",
+                            "summary": "Mixed: reviewed 1 saved claim and 1 evidence anchor; 1 evidence-bounded concern needs follow-up.",
+                            "claim_count": 1,
+                            "evidence_count": 1,
+                            "avg_confidence": 0.74,
+                            "verified_checks": 1,
+                            "inconsistent_checks": 0,
+                            "checks": [
+                                {
+                                    "code": "claimset_ready",
+                                    "label": "Saved claimset",
+                                    "status": "pass",
+                                    "detail": "1 saved claim with 1 evidence anchor is available.",
+                                },
+                                {
+                                    "code": "evidence_locator_quality",
+                                    "label": "Evidence locator quality",
+                                    "status": "warn",
+                                    "detail": "grounded=1, ambiguous=0, unresolved=0, approx=1, locator_missing=0",
+                                },
+                            ],
+                            "concerns": [
+                                {
+                                    "code": "approximate_locator",
+                                    "title": "Some saved evidence uses approximate locator matches.",
+                                    "detail": "1 evidence anchor came from approximate matching, so precision-sensitive downstream notes should be checked before reuse.",
+                                    "severity": "warn",
+                                    "claim_ids": ["claim_structured_peer_001"],
+                                    "evidence_ids": ["evidence_structured_peer_001"],
+                                    "source_artifacts": ["claimset.resolved.json", "reader_eval.json"],
+                                }
+                            ],
+                            "questions": [
+                                {
+                                    "code": "scope_follow_up",
+                                    "question": "Should the low-confidence or weak-overlap claims stay in the reusable note, or be downgraded to tentative context?",
+                                    "rationale": "This keeps the default reading workspace focused on trustworthy claims instead of stretching the reviewer lane into product truth.",
+                                    "claim_ids": ["claim_structured_peer_001"],
+                                    "evidence_ids": [],
+                                }
+                            ],
+                            "warnings": [],
+                            "source_artifacts": ["claimset.resolved.json", "reader_eval.json"],
                         }
                     },
                 }
@@ -1342,7 +1465,31 @@ structured_state_payload = {
 (artifact_dir / "stats_report.json").write_text(json.dumps(stats_payload, indent=2), encoding="utf-8")
 (artifact_dir / "bootstrap_meta.json").write_text(json.dumps(bootstrap_payload, indent=2), encoding="utf-8")
 (artifact_dir / "run_meta.json").write_text(
-    json.dumps({"paper_id": paper_id, "run_id": run_id, "status": "completed"}, indent=2),
+    json.dumps(
+        {
+            "paper_id": paper_id,
+            "run_id": run_id,
+            "status": "completed",
+            "selected_backend": "mixed",
+            "payload_class": "mixed",
+            "redaction_applied": True,
+            "inference_lanes": {
+                "reader": {
+                    "selected_backend": "local",
+                    "payload_class": "local_only",
+                    "redaction_applied": False,
+                },
+                "clinical_extraction": {
+                    "selected_backend": "commercial",
+                    "payload_class": "external_allowed",
+                    "redaction_applied": True,
+                    "provider_name": "openai",
+                    "provider_model": "gpt-5.4-mini",
+                },
+            },
+        },
+        indent=2,
+    ),
     encoding="utf-8",
 )
 (vault_path / ".pp" / primary_slug / "state.json").parent.mkdir(parents=True, exist_ok=True)
@@ -1476,7 +1623,7 @@ note_backed_bootstrap_payload = copy.deepcopy(bootstrap_payload)
     encoding="utf-8",
 )
 (note_backed_artifact_dir / "run_meta.json").write_text(
-    json.dumps({"paper_id": note_backed_paper_id, "run_id": note_backed_run_id, "status": "completed"}, indent=2),
+    json.dumps({"paper_id": note_backed_paper_id, "run_id": note_backed_run_id, "status": "succeeded"}, indent=2),
     encoding="utf-8",
 )
 
@@ -2167,6 +2314,14 @@ list_missing_claimset_payload = {
 (list_missing_artifact_dir / "claimset.json").write_text(
     json.dumps(list_missing_claimset_payload, indent=2),
     encoding="utf-8",
+)
+
+materialize_paper_synthesis_for_slug(
+    note_backed_slug,
+    vault_path=vault_path,
+    artifacts_root=root / "storage" / "artifacts",
+    output_root=e2e_runtime / "storage" / "paper_syntheses",
+    now=datetime(2026, 4, 10, 9, 0, tzinfo=timezone.utc),
 )
 
 conn.commit()

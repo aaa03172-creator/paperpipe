@@ -66,7 +66,12 @@ export function getPaperNoteOpsReason(summary?: PaperNoteOpsSummary | null): str
     return "";
   }
   if (summary.state === "action_needed" && summary.recommended_action === "repair_stats") {
-    return `${summary.reason} Open in Workbench to repair the Stats Snapshot.`;
+    return "Saved note checks are missing or empty. Open the workbench to refresh the saved note checks.";
+  }
+  if (summary.state === "action_needed" && summary.recommended_action === "open_workbench") {
+    if (/stats snapshot/i.test(summary.reason)) {
+      return "Saved note checks need review in the workbench.";
+    }
   }
   return summary.reason;
 }
@@ -76,10 +81,10 @@ export function getPaperNoteOpsActionLabel(summary?: PaperNoteOpsSummary | null)
     return null;
   }
   if (summary.recommended_action === "repair_stats") {
-    return "Repair Stats in Workbench";
+    return "Refresh checks in Workbench";
   }
   if (summary.recommended_action === "open_workbench") {
-    return "Open in Workbench";
+    return "Review in Workbench";
   }
   return null;
 }
@@ -95,7 +100,7 @@ export function derivePaperNoteOpsSummary(params: {
     return {
       state: "healthy",
       label: "Healthy",
-      reason: `ClaimSet and Stats Snapshot are available. ${statsCheckCount} checks ready.`,
+      reason: `Saved claims and note checks are available. ${statsCheckCount} checks are ready.`,
       recommended_action: "none",
       latest_run_id: params.latestRunId ?? null,
       has_claimset: true,
@@ -108,7 +113,7 @@ export function derivePaperNoteOpsSummary(params: {
     return {
       state: "action_needed",
       label: "Action needed",
-      reason: "Stats report is missing or empty.",
+      reason: "Saved note checks are missing or empty.",
       recommended_action: "repair_stats",
       latest_run_id: params.latestRunId ?? null,
       has_claimset: true,
@@ -121,7 +126,7 @@ export function derivePaperNoteOpsSummary(params: {
     return {
       state: "action_needed",
       label: "Action needed",
-      reason: "Stats Snapshot exists but ClaimSet is missing.",
+      reason: "Saved note checks exist, but saved claims are missing.",
       recommended_action: "open_workbench",
       latest_run_id: params.latestRunId ?? null,
       has_claimset: false,

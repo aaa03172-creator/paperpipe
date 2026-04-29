@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { ReactNode, useMemo, useState } from "react";
 import { ChevronDown, FileText, Search } from "lucide-react";
+import { getPaperAccessSummaryDisplay } from "../lib/accessSummary";
 import { deriveContentReviewSummary } from "../lib/contentReview";
 import { PaperNoteOpsSummary, PaperSummary } from "../lib/types";
 import { OperationalStateSummary } from "./OperationalStateSummary";
@@ -14,6 +15,37 @@ interface RailProps {
   onSearchChange: (query: string) => void;
   onSelectPaper: (paperId: string) => void;
   mobileCollapsedByDefault?: boolean;
+  shortcutNav?: ReactNode;
+}
+
+function paperIdVariants(paperId?: string): string[] {
+  const text = paperId?.trim() ?? "";
+  if (!text) {
+    return [];
+  }
+
+  const variants: string[] = [];
+  const append = (value: string) => {
+    const candidate = value.trim();
+    if (candidate && !variants.includes(candidate)) {
+      variants.push(candidate);
+    }
+  };
+
+  append(text);
+  append(text.replaceAll(":", ""));
+  if (text.includes(":")) {
+    const suffix = text.split(":", 2)[1]?.trim() ?? "";
+    append(suffix);
+    append(suffix.replaceAll(":", ""));
+  }
+  return variants;
+}
+
+function paperIdsMatch(left?: string, right?: string): boolean {
+  const leftVariants = paperIdVariants(left);
+  const rightVariants = new Set(paperIdVariants(right));
+  return leftVariants.some((candidate) => rightVariants.has(candidate));
 }
 
 export function Rail({
@@ -24,6 +56,7 @@ export function Rail({
   onSearchChange,
   onSelectPaper,
   mobileCollapsedByDefault = true,
+  shortcutNav,
 }: RailProps) {
   const [mobileOpen, setMobileOpen] = useState(!mobileCollapsedByDefault);
   const query = searchQuery.trim().toLowerCase();
@@ -40,8 +73,9 @@ export function Rail({
   const filteredCount = filteredPapers.length;
 
   const paperButtons = filteredPapers.map((paper) => {
-    const active = paper.paper_id === selectedPaperId;
+    const active = paperIdsMatch(paper.paper_id, selectedPaperId);
     const opsSummary = paperNoteOpsByPaperId[paper.paper_id] ?? null;
+    const accessSummary = getPaperAccessSummaryDisplay(paper.access_summary);
     const contentReviewSummary = deriveContentReviewSummary(paper.issues, {
       issuesLabel: paper.issues_label,
       issuesState: paper.issues_state,
@@ -75,7 +109,7 @@ export function Rail({
 
           {issueCount > 0 ? (
             <StatusBadge
-              label={`QA ${issueCount}`}
+              label={`Review ${issueCount}`}
               tone="danger"
               iconTone="danger"
               className="px-2"
@@ -83,7 +117,7 @@ export function Rail({
             />
           ) : contentReviewSummary.state === "unavailable" ? (
             <StatusBadge
-              label="QA unavailable"
+              label="Review unavailable"
               tone="muted"
               className="px-2"
               testId="rail-review-unavailable-badge"
@@ -95,6 +129,14 @@ export function Rail({
             {reviewDetail}
           </p>
         ) : null}
+        <div className="mt-2">
+          <StatusBadge
+            label={accessSummary.label}
+            tone={accessSummary.tone}
+            className="px-2"
+            testId="rail-access-badge"
+          />
+        </div>
         {opsSummary ? (
           <div className="mt-2">
             <OperationalStateSummary
@@ -113,7 +155,7 @@ export function Rail({
   return (
     <aside className="surface-card flex min-h-0 max-h-[min(72vh,760px)] flex-col overflow-hidden p-3 xl:h-full xl:max-h-none">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Navigation Rail</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Papers</p>
         <label className="mt-3 flex items-center gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-2 py-2">
           <Search className="h-4 w-4 text-[var(--pp-text-dim)]" />
           <input
@@ -136,6 +178,7 @@ export function Rail({
             </button>
           </div>
         ) : null}
+        {shortcutNav ? <div className="mt-2 flex flex-wrap items-center gap-1.5">{shortcutNav}</div> : null}
       </div>
 
       <button

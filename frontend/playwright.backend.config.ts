@@ -11,7 +11,7 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: /.*backend\.spec\.ts/,
   timeout: 60_000,
-  workers: 2,
+  workers: 1,
   use: {
     baseURL: frontendBaseUrl,
     trace: "on-first-retry",
@@ -35,7 +35,8 @@ export default defineConfig({
       reuseExistingServer,
       cwd: ".",
       env: {
-        VITE_API_BASE_URL: backendBaseUrl,
+        LATTICE_UI_BACKEND_URL: backendBaseUrl,
+        VITE_E2E_MEETING_PACK_VISIBLE_LIMIT: "1",
       },
     },
   ],

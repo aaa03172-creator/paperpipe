@@ -43,13 +43,13 @@ body {
   }
 
   .paper-note-link {
-    color: #ae8cff;
+    color: var(--pp-accent);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
 
   .paper-note-link:hover {
-    color: #ccb6ff;
+    color: var(--pp-accent-text);
   }
 
   .paper-note-heading-anchor {
@@ -58,7 +58,7 @@ body {
   }
 
   .paper-note-heading-anchor:hover {
-    color: #ccb6ff;
+    color: var(--pp-accent-text);
   }
 
   .paper-note-markdown {
@@ -130,7 +130,7 @@ body {
   }
 
   .paper-note-markdown blockquote {
-    border-left: 3px solid #9c7cff;
+    border-left: 3px solid var(--pp-accent);
     padding-left: 0.8rem;
     color: var(--pp-text-secondary);
   }

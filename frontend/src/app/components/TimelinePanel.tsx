@@ -105,6 +105,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
+            aria-label="Show all timeline events"
             onClick={() => setFilter("all")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
@@ -117,6 +118,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
           </button>
           <button
             type="button"
+            aria-label="Show status timeline events"
             onClick={() => setFilter("status")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
@@ -129,6 +131,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
           </button>
           <button
             type="button"
+            aria-label="Show error timeline events"
             onClick={() => setFilter("error")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
@@ -141,6 +144,7 @@ export function TimelinePanel({ events, density }: TimelinePanelProps) {
           </button>
           <button
             type="button"
+            aria-label="Show done timeline events"
             onClick={() => setFilter("done")}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px]",
