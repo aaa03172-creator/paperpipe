@@ -518,8 +518,22 @@ def _browser_safe_processor_gate_threshold_review_metadata(
     raw_threshold_change_preflight_markdown_path = str(
         browser_metadata.pop("threshold_change_preflight_markdown_path", "") or ""
     ).strip()
+    raw_threshold_change_proposal = browser_metadata.pop("threshold_change_proposal", None)
     raw_threshold_change_decision = browser_metadata.pop("threshold_change_decision", None)
     raw_threshold_change_preflight = browser_metadata.pop("threshold_change_preflight", None)
+    if isinstance(raw_threshold_change_proposal, Mapping):
+        browser_metadata.setdefault("threshold_change_proposal_available", True)
+        nested_validation_command = str(
+            raw_threshold_change_proposal.get("validation_replay_command_template")
+            or raw_threshold_change_proposal.get(
+                "threshold_change_validation_replay_command_template"
+            )
+            or ""
+        ).strip()
+        if nested_validation_command:
+            browser_metadata.setdefault(
+                "threshold_change_validation_replay_command_available", True
+            )
     if isinstance(raw_threshold_change_decision, Mapping):
         browser_metadata.setdefault("threshold_change_decision_available", True)
         browser_metadata.setdefault(
