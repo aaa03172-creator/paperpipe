@@ -104,9 +104,47 @@ def _threshold_replay_compact_text(payload: Mapping[str, Any]) -> str | None:
     return ", ".join(parts)
 
 
+def _threshold_change_decision_compact_text(payload: Mapping[str, Any]) -> str | None:
+    final_status = str(payload.get("final_status") or "").strip()
+    recommended_action = str(payload.get("recommended_action") or "").strip()
+    counts = payload.get("manual_review_counts")
+    counts = counts if isinstance(counts, Mapping) else {}
+    supports_high = _coerce_optional_int(counts.get("supports_high_threshold_change"))
+    completed = _coerce_optional_int(counts.get("completed"))
+    total = _coerce_optional_int(counts.get("total"))
+    preflight = payload.get("threshold_change_preflight")
+    preflight = preflight if isinstance(preflight, Mapping) else {}
+    preflight_status = str(preflight.get("status") or "").strip()
+    preflight_blocker = str(preflight.get("blocker") or "").strip()
+
+    parts: list[str] = []
+    if final_status:
+        parts.append(f"status={final_status}")
+    if recommended_action:
+        parts.append(f"action={recommended_action}")
+    if completed is not None and total is not None:
+        parts.append(f"reviewed={completed}/{total}")
+    if supports_high is not None:
+        parts.append(f"high={supports_high}")
+    if preflight_status and preflight_status != "not_applicable":
+        parts.append(f"preflight={preflight_status}")
+    if preflight_blocker:
+        parts.append(f"blocker={preflight_blocker}")
+    return ", ".join(parts) or None
+
+
 def _load_json_mapping(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     return payload if isinstance(payload, dict) else {}
+
+
+def _load_existing_json_mapping(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return _load_json_mapping(path)
+    except Exception:
+        return {}
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:
@@ -515,6 +553,11 @@ def render_processor_gate_threshold_review_markdown(
             lines.append(f"- Threshold Change Decision: {threshold_change_decision_path}")
         if threshold_change_decision_markdown_path.exists():
             lines.append(f"- Threshold Change Decision Markdown: {threshold_change_decision_markdown_path}")
+        threshold_change_decision_text = _threshold_change_decision_compact_text(
+            _load_existing_json_mapping(threshold_change_decision_path)
+        )
+        if threshold_change_decision_text:
+            lines.append(f"- Threshold Decision: {threshold_change_decision_text}")
         if mid_confidence_policy_decision_path.exists():
             lines.append(f"- Mid-Confidence Policy Decision: {mid_confidence_policy_decision_path}")
         if mid_confidence_policy_decision_markdown_path.exists():
@@ -1110,7 +1153,16 @@ def _evidence_source(payload: dict) -> str:
     return "none"
 
 
-def _coerce_optional_float(value) -> float | None:
+def _coerce_optional_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_float(value: object) -> float | None:
     if value in (None, ""):
         return None
     try:
