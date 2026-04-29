@@ -765,6 +765,144 @@ def test_cli_workflow_falls_back_from_docling_and_reports_reader_timeout(monkeyp
     assert "Reader timeout after 123s" in output
 
 
+def test_cli_deepread_falls_back_to_db_obsidian_path(monkeypatch, tmp_path):
+    import src.services.cli_workflows as workflows
+
+    pdf_path = tmp_path / "paper_db_note_cli.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    note_path = tmp_path / "Inbox" / "paper_db_note_cli.md"
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text("# DB-backed Note\n", encoding="utf-8")
+
+    config = SimpleNamespace(
+        agents=SimpleNamespace(enabled=True, main_model="mock-reader"),
+        llm=SimpleNamespace(
+            timeout_seconds=15,
+            features=SimpleNamespace(specialty_trial_extraction=SimpleNamespace(enabled=True)),
+        ),
+        ingest=SimpleNamespace(
+            parser_backend="fitz_pdfplumber",
+            enable_docling=False,
+            enable_ocr_fallback=False,
+            ocr_lang="eng",
+            ocr_min_text_chars=200,
+            enable_table_pass2_ocr=False,
+            enable_cloud_table_fallback=False,
+            cloud_table_page_budget=2,
+            cloud_table_model="gpt-4o-mini",
+            cloud_table_base_url=None,
+            cloud_table_api_key=None,
+            cloud_table_timeout_seconds=30,
+        ),
+        paths=SimpleNamespace(
+            library_dir=tmp_path,
+            obsidian_vault=tmp_path,
+            index_all="missing_paper_collection.csv",
+        ),
+        entity_aliases={},
+    )
+
+    class FakeIngestAgent:
+        def __init__(self, **_kwargs):
+            pass
+
+        def process_v2(self, _path: str):
+            return DocumentArtifactV2(
+                document_id="paper_db_note_cli",
+                meta=ArtifactMetaV2(title="DB-backed CLI Note", authors=["Kim"], source_ref=str(pdf_path)),
+                pages=[
+                    PageV2(
+                        page_index=0,
+                        width=595.0,
+                        height=842.0,
+                        blocks=[
+                            BlockV2(
+                                block_id="b1",
+                                lines=[
+                                    LineV2(
+                                        line_id="l1",
+                                        text="Human-derived systems support translational drug development.",
+                                        spans=[
+                                            SpanV2(
+                                                span_id="s1",
+                                                text="Human-derived systems support translational drug development.",
+                                            )
+                                        ],
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+                tables=[],
+            )
+
+    class FakeIndexerAgent:
+        def __init__(self, **_kwargs):
+            pass
+
+        def process(self, _doc):
+            return SimpleNamespace(chunk_count=1)
+
+    class FakeReaderAgent:
+        def __init__(self, **_kwargs):
+            self.model_name = "mock-reader"
+
+        def analyze(self, _doc):
+            return ClaimSet(
+                doc_id="paper_db_note_cli",
+                claims=[
+                    ScientificClaim(
+                        claim_id="c1",
+                        type="mechanism",
+                        statement="Human-derived systems support translational drug development.",
+                        confidence=0.88,
+                    )
+                ],
+            )
+
+    class FakeFeedbackRetriever:
+        def query_relevant_feedback(self, *_args, **_kwargs):
+            return []
+
+    monkeypatch.setattr(workflows, "load_config", lambda: config)
+    monkeypatch.setattr(
+        workflows,
+        "get_paper_by_id",
+        lambda _identifier: {
+            "local_path": str(pdf_path),
+            "pdf_path": str(pdf_path),
+            "obsidian_path": "Inbox/paper_db_note_cli.md",
+        },
+    )
+    monkeypatch.setattr(workflows, "time_limit", lambda _seconds: nullcontext())
+
+    fake_ingest_module = types.ModuleType("src.agents.ingest_agent")
+    fake_ingest_module.IngestAgent = FakeIngestAgent
+    fake_indexer_module = types.ModuleType("src.agents.indexer_agent")
+    fake_indexer_module.IndexerAgent = FakeIndexerAgent
+    fake_reader_module = types.ModuleType("src.agents.reader_agent")
+    fake_reader_module.ReaderAgent = FakeReaderAgent
+    fake_feedback_module = types.ModuleType("src.agents.feedback_retriever")
+    fake_feedback_module.FeedbackRetriever = FakeFeedbackRetriever
+
+    monkeypatch.setitem(sys.modules, "src.agents.ingest_agent", fake_ingest_module)
+    monkeypatch.setitem(sys.modules, "src.agents.indexer_agent", fake_indexer_module)
+    monkeypatch.setitem(sys.modules, "src.agents.reader_agent", fake_reader_module)
+    monkeypatch.setitem(sys.modules, "src.agents.feedback_retriever", fake_feedback_module)
+
+    console = Console(record=True, width=120)
+    workflows.run_deepread_workflow("paper_db_note_cli", verify=False, console=console)
+
+    output = console.export_text()
+    note_text = note_path.read_text(encoding="utf-8")
+    assert "Note not found" not in output
+    assert "Note:" in output
+    assert "paper_db_note_cli.md" in output
+    assert "## 🤖 Agent Deep Read" in note_text
+    assert "Human-derived systems support translational drug development." in note_text
+
+
 def test_cli_workflow_reuses_bounded_clinical_extraction_block_for_clinical_notes(monkeypatch, tmp_path):
     import src.services.cli_workflows as workflows
 
