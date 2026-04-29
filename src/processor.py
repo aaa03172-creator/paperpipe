@@ -275,6 +275,8 @@ def _normalized_fetcher_source(fetcher: Any) -> str:
             raw_name = raw_name()
         except Exception:
             raw_name = None
+    if raw_name is None:
+        raw_name = getattr(fetcher, "source", None)
     text = str(raw_name or "").strip().lower()
     if "pubmed" in text:
         return "pubmed"
@@ -546,7 +548,9 @@ def _build_slot_selection_rationale(
                 {
                     "rank": index,
                     "paper_id": str(getattr(candidate, "id", "") or ""),
+                    "title": str(getattr(candidate, "title", "") or ""),
                     "score": round(_coerce_optional_float(getattr(candidate, "manual_rank_score", None)) or 0.0, 3),
+                    "score_breakdown": _candidate_selection_breakdown(slot_name, candidate),
                     "source": str(getattr(candidate, "source", "") or ""),
                     "published": str(getattr(candidate, "published", "") or ""),
                 }
