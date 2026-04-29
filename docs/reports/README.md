@@ -59,6 +59,7 @@ Then use the older 2026-03 notes only as baseline, release-gate, or packaging co
   - `Slot_Classification_Hard_Case_Adjudication_Rule_2026-04-24.md`
   - `Slot_Classification_Rerun_Stability_Followup_2026-04-24.md`
   - `Slot_Classification_Tuning_Advisory_Hold_Runbook_2026-04-24.md`
+  - `Processor_Candidate_Selection_Scenario_Benchmark_2026-04-29.md`
   - `Processor_Gate_Excluded_Bucket_Policy_Runbook_2026-04-23.md`
   - `Processor_Gate_Mid_Confidence_Policy_Debt_Runbook_2026-04-23.md`
   - `Docling_Tool_Intake_Decision_2026-03-23.md`
