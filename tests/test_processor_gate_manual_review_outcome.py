@@ -336,6 +336,7 @@ def test_run_processor_gate_manual_review_outcome_blocks_threshold_change_withou
     threshold_decision_markdown = (run_root / "threshold_change_decision.md").read_text(
         encoding="utf-8"
     )
+    audit_markdown = (run_root / "audit.md").read_text(encoding="utf-8")
 
     assert threshold_decision["final_status"] == "threshold_change_validation_replay_required"
     assert threshold_decision["recommended_action"] == "run_threshold_change_validation_replay_before_decision"
@@ -359,6 +360,12 @@ def test_run_processor_gate_manual_review_outcome_blocks_threshold_change_withou
     )
     assert "Threshold Change Preflight: required=yes, ready=no" in threshold_decision_markdown
     assert "missing_threshold_change_proposal" in threshold_decision_markdown
+    assert (
+        "Threshold Decision: status=threshold_change_validation_replay_required"
+        in audit_markdown
+    )
+    assert "preflight=missing_threshold_change_proposal" in audit_markdown
+    assert "blocker=missing_threshold_change_proposal" in audit_markdown
 
 
 def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_validation_replay(
@@ -413,6 +420,7 @@ def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_
     threshold_decision_markdown = (run_root / "threshold_change_decision.md").read_text(
         encoding="utf-8"
     )
+    audit_markdown = (run_root / "audit.md").read_text(encoding="utf-8")
 
     assert threshold_decision["final_status"] == "high_threshold_boundary_review_needed"
     assert threshold_decision["recommended_action"] == "review_high_threshold_boundary_candidates"
@@ -431,3 +439,7 @@ def test_run_processor_gate_manual_review_outcome_allows_threshold_change_after_
     assert payload["threshold_change_preflight_text"] == "required=yes, ready=yes, status=ready"
     assert "validation replay matched the proposal" in threshold_decision["summary"]
     assert "Threshold Change Preflight: required=yes, ready=yes, status=ready" in threshold_decision_markdown
+    assert "Threshold Decision: status=high_threshold_boundary_review_needed" in audit_markdown
+    assert "reviewed=1/1" in audit_markdown
+    assert "high=1" in audit_markdown
+    assert "preflight=ready" in audit_markdown
