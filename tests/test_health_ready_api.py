@@ -59,6 +59,7 @@ def test_health_ready_reports_runtime_checks():
         assert "threshold_change_next_step" in latest_processor_gate_threshold_review["metadata"]
         assert "threshold_change_blocker" in latest_processor_gate_threshold_review["metadata"]
         assert "threshold_change_text" in latest_processor_gate_threshold_review["metadata"]
+        assert "threshold_change_decision_text" in latest_processor_gate_threshold_review["metadata"]
         assert "tuning_targets" in latest_processor_gate_threshold_review["metadata"]
         assert "action_plan" in latest_processor_gate_threshold_review["metadata"]
         assert "manual_review_rows_available" in latest_processor_gate_threshold_review["metadata"]
