@@ -77,6 +77,14 @@ interface SectionNavigatorItem {
 
 type FocusKind = "claim" | "evidence" | "run";
 type ViewerOutputMode = Extract<OutputModeFamily, "learner" | "builder_debug">;
+type ImportDeepReadJobStatus = {
+  jobId: string;
+  runId?: string | null;
+  status: JobLifecycle;
+  progress?: number | null;
+  stage?: string | null;
+  errorMessage?: string | null;
+};
 
 interface FocusTarget {
   kind: FocusKind;
@@ -158,6 +166,22 @@ function getFocusClassName(active: boolean): string {
     return "";
   }
   return "ring-2 ring-[var(--pp-accent-text)] ring-offset-2 ring-offset-[var(--pp-surface-raised)]";
+}
+
+function getImportDeepReadStatusGuidance(job: ImportDeepReadJobStatus): string {
+  if (job.status === "queued") {
+    return "Queued on the local worker. Open review for full progress; if it stays queued, check /ready.";
+  }
+  if (job.status === "running") {
+    return "Deep read is running. This can take several minutes; open review for logs and live progress.";
+  }
+  if (job.status === "completed") {
+    return "Deep read completed. Open review to inspect saved evidence and generated state.";
+  }
+  if (job.status === "failed") {
+    return "Deep read stopped before completion. Open review for logs, then check /ready if inference setup looks unhealthy.";
+  }
+  return "Deep read was cancelled. Queue it again when you are ready to continue.";
 }
 
 function getGroundingBadge(grounded?: boolean | null, resolution?: string | null): { label: string; className: string } | null {
@@ -2817,14 +2841,7 @@ export function PaperNoteDetailPage() {
   const [queueingImportDeepRead, setQueueingImportDeepRead] = useState(false);
   const [importDeepReadMessage, setImportDeepReadMessage] = useState<string | null>(null);
   const [importDeepReadError, setImportDeepReadError] = useState<string | null>(null);
-  const [importDeepReadJob, setImportDeepReadJob] = useState<{
-    jobId: string;
-    runId?: string | null;
-    status: JobLifecycle;
-    progress?: number | null;
-    stage?: string | null;
-    errorMessage?: string | null;
-  } | null>(null);
+  const [importDeepReadJob, setImportDeepReadJob] = useState<ImportDeepReadJobStatus | null>(null);
   const actionRunLockRef = useRef(false);
   const protocolAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const detailRequestIdRef = useRef(0);
@@ -3454,6 +3471,9 @@ export function PaperNoteDetailPage() {
                   </div>
                   <p className="mt-1">
                     Job <span className="font-mono text-[var(--pp-text-primary)]">{importDeepReadJob.jobId}</span>
+                  </p>
+                  <p className="mt-1" data-testid="paper-note-import-guidance-deepread-status-guidance">
+                    {getImportDeepReadStatusGuidance(importDeepReadJob)}
                   </p>
                   {importDeepReadJob.errorMessage ? (
                     <p className="mt-1 text-[var(--pp-status-failed-text)]">{importDeepReadJob.errorMessage}</p>

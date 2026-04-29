@@ -93,6 +93,7 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 - Paper note detail: add a `Queue deep read` affordance for imported notes, using the existing deep-read job API and pointing users back to review for progress.
 - Paper note detail: after queueing, show the latest queued job status, run id, and job id inline so the user can confirm the action before opening review.
 - Paper note detail: poll the queued job while the imported note remains open, keeping the detail page as a lightweight status confirmation surface and the workbench as the full progress surface.
+- Paper note detail: add status-specific deep-read guidance so queued/running/failed states tell the first-time user whether to open review, wait, or check `/ready`.
 - Doctor CLI: add `paperpipe doctor --fix` to create a starter `config.yaml` and only create missing first-run directories that are project-local or relative; external absolute paths are reported and skipped.
 - E2E: click `Queue deep read` in the imported-note browser flow and assert the queued feedback plus inline queued status.
 - Docs smoke: add a README first-paper smoke test that checks the documented import URL and CLI commands still match the implemented Typer command surface.
