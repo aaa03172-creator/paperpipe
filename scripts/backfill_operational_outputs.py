@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 import sys
@@ -12,7 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.db_utils import get_db_connection
+from src.db_utils import get_db_connection, get_db_path
 from src.exporter import run_export
 from src.jobs.queue import JobQueue
 from scripts.qa_report import (
@@ -30,6 +31,22 @@ class BackfillCandidate:
     pdf_ready: bool
     markdown_missing: bool
     claimset_missing: bool
+
+
+def _backup_db(db_path: Path, backup_path: Path) -> None:
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(db_path)
+    dst = sqlite3.connect(backup_path)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+
+
+def _default_backup_path(db_path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return db_path.parent / "backups" / f"{db_path.stem}_before_operational_outputs_backfill_{stamp}{db_path.suffix}"
 
 
 def _paper_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -149,6 +166,21 @@ def main() -> int:
     parser.add_argument("--run-verify", action="store_true", help="When enqueueing, enable verify stage.")
     parser.add_argument("--persona-id", default="default", help="Persona id for enqueued jobs.")
     parser.add_argument(
+        "--confirm-vault-backup",
+        action="store_true",
+        help="Required with --apply --export-missing. Confirms the Obsidian vault has a trusted backup.",
+    )
+    parser.add_argument(
+        "--confirm-enqueue",
+        action="store_true",
+        help="Required with --apply --enqueue-claimset. Confirms the operator intends to add queue work.",
+    )
+    parser.add_argument(
+        "--backup-path",
+        default="",
+        help="Optional SQLite backup path before apply actions. Auto-generated next to the DB when omitted.",
+    )
+    parser.add_argument(
         "--allow-missing-pdf",
         action="store_true",
         help="Allow enqueue even when local pdf_path is missing/not found.",
@@ -160,6 +192,19 @@ def main() -> int:
     )
     parser.add_argument("--print-sample", type=int, default=10, help="Number of sample candidates to print.")
     args = parser.parse_args()
+
+    if args.apply and args.export_missing and not args.confirm_vault_backup:
+        print(
+            "[BACKFILL] error=vault_backup_confirmation_required "
+            "--apply --export-missing requires --confirm-vault-backup"
+        )
+        return 2
+    if args.apply and args.enqueue_claimset and not args.confirm_enqueue:
+        print(
+            "[BACKFILL] error=enqueue_confirmation_required "
+            "--apply --enqueue-claimset requires --confirm-enqueue"
+        )
+        return 2
 
     cfg = load_config()
     vault_path = Path(cfg.paths.obsidian_vault).expanduser()
@@ -195,6 +240,18 @@ def main() -> int:
             print("[BACKFILL] dry-run only (no changes applied)")
             return 0
 
+        if not args.export_missing and not args.enqueue_claimset:
+            print("[BACKFILL] no action flags selected (--export-missing / --enqueue-claimset)")
+            return 0
+
+        db_path = get_db_path()
+        if db_path.exists():
+            backup_path = Path(args.backup_path).expanduser() if args.backup_path else _default_backup_path(db_path)
+            _backup_db(db_path, backup_path)
+            print(f"[BACKFILL] db_backup={backup_path}")
+        else:
+            print(f"[BACKFILL] db_backup_skipped=db_not_found path={db_path}")
+
         if args.export_missing:
             run_export(overwrite=False)
             print("[BACKFILL] exporter run complete (overwrite=False)")
@@ -212,9 +269,6 @@ def main() -> int:
             print(f"[BACKFILL] claimset_jobs_enqueued={enqueued}")
             print(f"[BACKFILL] claimset_jobs_skipped_open={skipped_open}")
             print(f"[BACKFILL] claimset_jobs_skipped_pdf_missing={skipped_pdf}")
-
-        if not args.export_missing and not args.enqueue_claimset:
-            print("[BACKFILL] no action flags selected (--export-missing / --enqueue-claimset)")
         return 0
     finally:
         conn.close()
