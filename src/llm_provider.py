@@ -200,6 +200,15 @@ _SLOT_METHODS_CUE_TERMS = (
     "precision",
     "cutoff",
     "cutoffs",
+    "reporting checklist",
+    "reporting guideline",
+    "reporting standards",
+    "quality control",
+    "knowledgebase",
+    "database",
+    "public archive",
+    "resource",
+    "ontology",
 )
 _SLOT_MECHANISM_CUE_TERMS = (
     "pathway",
@@ -685,6 +694,65 @@ class LLMProvider:
         if has_clinical_focus and not has_methods_focus and not has_explicit_mechanism_focus:
             return "Clinical"
         return None
+
+    def _methods_review_resource_fallback_slot(self, paper: Dict[str, Any], predicted_slot: str) -> Optional[str]:
+        if predicted_slot == "Methods":
+            return None
+
+        text = self._paper_text_blob(paper)
+        methods_review_or_resource = any(
+            term in text
+            for term in (
+                "updated guideline for reporting",
+                "essential items for reporting",
+                "reporting checklist",
+                "reporting guideline",
+                "reporting guidelines",
+                "reporting standards",
+                "reporting diagnostic accuracy",
+                "sample preparation",
+                "pre-analytical",
+                "preanalytical",
+                "quality control",
+                "harmonization",
+                "benchmark dataset",
+                "method benchmark",
+                "methods benchmark",
+                "public archive",
+                "knowledgebase",
+                "database",
+                "gene set collection",
+                "ontology",
+            )
+        )
+        if not methods_review_or_resource:
+            return None
+
+        explicit_clinical_benefit_review = any(
+            term in text
+            for term in (
+                "clinical benefit",
+                "clinical benefits",
+                "treatment effect",
+                "intervention effect",
+                "adverse events",
+                "patient outcome",
+                "patient outcomes",
+            )
+        )
+        explicit_mechanism_synthesis = any(
+            term in text
+            for term in (
+                "mechanistic review",
+                "pathway synthesis",
+                "causal pathway",
+                "molecular mechanism",
+                "disease mechanism",
+            )
+        )
+        if explicit_clinical_benefit_review or explicit_mechanism_synthesis:
+            return None
+        return "Methods"
 
     def _escalation_fast_reject_reason(self, paper: Dict[str, Any]) -> Optional[str]:
         reason, _ = self._escalation_fast_reject(paper)
@@ -1707,6 +1775,8 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
            - Disease-focused clinical evidence reviews should not become Mechanism solely from biological rationale.
            - Head-to-head assay benchmarking with clinical endpoints should remain Methods.
            - Methods-focused systematic reviews of assay handling, calibration, quality control, preprocessing, image analysis, or sample preparation should remain Methods even when disease and biomarker terms are prominent.
+           - PRISMA, STARD, TRIPOD, and MIFlowCyt-style reporting standards or reporting checklists should remain Methods, not Clinical or Mechanism.
+           - ClinVar, Open Targets, MSigDB, and Gene Ontology-style knowledgebase/database/resource papers should remain Methods when the central contribution is resource curation, schema, annotation, or benchmark utility.
            - Clinic-based dementia-risk prediction should remain Clinical.
            - Population screening/classification utility should remain Clinical.
         10. Confidence and Adjudication: Set needs_adjudication=true if the center of gravity is mixed, if a review/resource taxonomy gap is driving uncertainty, or if Methods and Clinical signals are both strong.
@@ -1732,6 +1802,21 @@ Methods Snippet: {methods_snippet if methods_snippet else "Not available"}
                     predicted = self._normalize_slot_prediction(data.get("predicted_slot"))
                     if predicted:
                         first_pass_confidence = self._coerce_optional_float(data.get("confidence"))
+                        deterministic_slot = self._methods_review_resource_fallback_slot(paper, predicted)
+                        if deterministic_slot:
+                            self._set_slot_classification_metrics(
+                                status="ok",
+                                adjudication_triggered=False,
+                                adjudication_reason=None,
+                                final_source="deterministic_methods_resource_fallback",
+                                final_slot=deterministic_slot,
+                                first_pass_predicted_slot=predicted,
+                                first_pass_confidence=first_pass_confidence,
+                                error=None,
+                            )
+                            logger.info(f"   🤖 Slot Methods/Resource Fallback: {current_slot} -> {deterministic_slot}")
+                            return deterministic_slot
+
                         deterministic_slot = self._clinical_review_fallback_slot(paper, predicted)
                         if deterministic_slot:
                             self._set_slot_classification_metrics(
