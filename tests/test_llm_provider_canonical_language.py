@@ -330,6 +330,24 @@ def test_classify_slot_prompt_includes_methods_review_boundary_rule() -> None:
     assert "Do not choose Methods for clinical-benefit reviews unless the methods/workflow itself is the object of synthesis" in prompt
 
 
+def test_classify_slot_prompt_includes_real_methods_resource_anchors() -> None:
+    provider = _provider()
+
+    provider.classify_slot(
+        {
+            "title": "ClinVar: public archive of interpretations of clinically relevant variants",
+            "summary": "A public archive and resource for variant interpretation.",
+        },
+        "Methods",
+    )
+
+    assert provider.last_request is not None
+    prompt = str(provider.last_request["prompt"])
+    assert "PRISMA, STARD, TRIPOD, and MIFlowCyt-style reporting standards" in prompt
+    assert "ClinVar, Open Targets, MSigDB, and Gene Ontology-style knowledgebase/database/resource papers" in prompt
+    assert "resource curation, schema, annotation, or benchmark utility" in prompt
+
+
 def test_classify_slot_applies_clinical_review_fallback_when_model_overcalls_mechanism() -> None:
     class _ReviewFallbackProvider(_CapturingProvider):
         def _make_request(self, task: str, prompt: str, is_json: bool = False, schema=None, system_prompt=None):
@@ -362,6 +380,76 @@ def test_classify_slot_applies_clinical_review_fallback_when_model_overcalls_mec
     assert result == "Clinical"
     metrics = provider.get_slot_classification_metrics()
     assert metrics["final_source"] == "deterministic_review_fallback"
+    assert metrics["first_pass_predicted_slot"] == "Mechanism"
+
+
+def test_classify_slot_applies_methods_resource_fallback_before_clinical_review_fallback() -> None:
+    class _MethodsResourceFallbackProvider(_CapturingProvider):
+        def _make_request(self, task: str, prompt: str, is_json: bool = False, schema=None, system_prompt=None):
+            self._record_request(task, prompt, is_json=is_json, schema=schema, system_prompt=system_prompt)
+            if task == "slot_classification":
+                return """
+                {
+                  "reasoning": "Systematic reviews are mentioned, so this looks clinical.",
+                  "domain_in_scope": true,
+                  "clinical_signal": true,
+                  "methods_signal": false,
+                  "mechanism_signal": true,
+                  "predicted_slot": "Mechanism",
+                  "confidence": 1.0,
+                  "needs_adjudication": false
+                }
+                """
+            return super()._make_request(task, prompt, is_json=is_json, schema=schema, system_prompt=system_prompt)
+
+    provider = _MethodsResourceFallbackProvider(SimpleNamespace(features=None, default_model=None))
+
+    result = provider.classify_slot(
+        {
+            "title": "The PRISMA 2020 statement: an updated guideline for reporting systematic reviews",
+            "summary": "An updated guideline for reporting systematic reviews.",
+        },
+        "Unknown",
+    )
+
+    assert result == "Methods"
+    metrics = provider.get_slot_classification_metrics()
+    assert metrics["final_source"] == "deterministic_methods_resource_fallback"
+    assert metrics["first_pass_predicted_slot"] == "Mechanism"
+
+
+def test_classify_slot_applies_methods_resource_fallback_for_database_resources() -> None:
+    class _DatabaseResourceFallbackProvider(_CapturingProvider):
+        def _make_request(self, task: str, prompt: str, is_json: bool = False, schema=None, system_prompt=None):
+            self._record_request(task, prompt, is_json=is_json, schema=schema, system_prompt=system_prompt)
+            if task == "slot_classification":
+                return """
+                {
+                  "reasoning": "Gene and variant biology are prominent.",
+                  "domain_in_scope": true,
+                  "clinical_signal": false,
+                  "methods_signal": false,
+                  "mechanism_signal": true,
+                  "predicted_slot": "Mechanism",
+                  "confidence": 1.0,
+                  "needs_adjudication": false
+                }
+                """
+            return super()._make_request(task, prompt, is_json=is_json, schema=schema, system_prompt=system_prompt)
+
+    provider = _DatabaseResourceFallbackProvider(SimpleNamespace(features=None, default_model=None))
+
+    result = provider.classify_slot(
+        {
+            "title": "ClinVar: public archive of interpretations of clinically relevant variants",
+            "summary": "A knowledgebase and public archive for variant annotations.",
+        },
+        "Unknown",
+    )
+
+    assert result == "Methods"
+    metrics = provider.get_slot_classification_metrics()
+    assert metrics["final_source"] == "deterministic_methods_resource_fallback"
     assert metrics["first_pass_predicted_slot"] == "Mechanism"
 
 
