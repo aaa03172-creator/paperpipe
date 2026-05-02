@@ -91,3 +91,7 @@ storage/reports/
 
 # Generated export documents
 output/
+
+# Generated eval snapshot outputs.
+# Keep tracked snapshots intact; force-add a curated snapshot when it is durable evidence.
+snapshots/*/
