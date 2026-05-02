@@ -103,6 +103,8 @@ def init_db():
         cursor.execute("ALTER TABLE jobs ADD COLUMN clean_reindex INTEGER DEFAULT 0")
     if "heartbeat_at" not in existing_cols:
         cursor.execute("ALTER TABLE jobs ADD COLUMN heartbeat_at TIMESTAMP")
+    if "error_code" not in existing_cols:
+        cursor.execute("ALTER TABLE jobs ADD COLUMN error_code TEXT")
 
     cursor.execute(
         """
