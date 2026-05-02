@@ -365,6 +365,7 @@ Current rule:
 - exported members remain sibling outputs
 - `preview/slide-*.png` files are non-canonical render-cache files regenerated from `deck.pptx` render inputs, not declared output members
 - loaders that enforce declared artifacts should reject preview-cache paths unless a later spec explicitly promotes previews into the manifest contract
+- API clients may use a dedicated preview-cache route such as `/talk-packs/{talk_pack_id}/preview/slide-01.png`; they should not retrieve preview files through `/artifacts/...`
 - review artifacts remain additive sidecars
 
 ## 6. Generation Flow

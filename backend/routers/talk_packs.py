@@ -10,11 +10,11 @@ from src.schemas.talk_pack import TalkPackListResponse, TalkPackResponse
 from src.talk_packs.service import (
     get_talk_pack,
     load_declared_talk_pack_artifact,
+    load_talk_pack_deck_preview,
     render_talk_pack_deck_pptx,
     talk_pack_list_response,
     talk_pack_response_payload,
 )
-
 
 router = APIRouter(prefix="/talk-packs", tags=["talk-packs"])
 
@@ -65,6 +65,28 @@ def get_talk_pack_artifact_route(talk_pack_id: str, artifact_path: str) -> Respo
             content,
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{talk_pack_id}/preview/{preview_filename}", response_class=Response)
+def get_talk_pack_deck_preview_route(talk_pack_id: str, preview_filename: str) -> Response:
+    try:
+        _, normalized_path, content = load_talk_pack_deck_preview(
+            talk_pack_id,
+            preview_filename,
+        )
+        filename = _safe_filename(
+            f"{talk_pack_id}_{normalized_path.rsplit('/', 1)[-1]}",
+            fallback="talk-pack-preview.png",
+        )
+        return Response(
+            content,
+            media_type="image/png",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
