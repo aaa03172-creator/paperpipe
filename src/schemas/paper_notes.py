@@ -417,3 +417,4 @@ class PaperNoteImportResponse(BaseModel):
     title: str
     note_path: str
     pdf_url: str
+    doi: str | None = None

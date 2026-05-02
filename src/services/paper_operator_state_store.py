@@ -49,8 +49,7 @@ def _sanitize_operator_state_for_storage(state: PaperNoteOperatorState) -> Paper
     return state.model_copy(update={"paper_note_text": sanitized_note})
 
 
-def load_operator_state(vault_path: Path, note_slug: str, paper_id: str | None) -> PaperNoteOperatorState | None:
-    path = operator_state_path(vault_path, note_slug, paper_id)
+def _load_operator_state_from_path(path: Path) -> PaperNoteOperatorState | None:
     if not path.exists():
         return None
     try:
@@ -59,6 +58,28 @@ def load_operator_state(vault_path: Path, note_slug: str, paper_id: str | None) 
         )
     except Exception:
         return None
+
+
+def load_operator_state(vault_path: Path, note_slug: str, paper_id: str | None) -> PaperNoteOperatorState | None:
+    normalized_slug = str(note_slug or "").strip()
+    normalized_paper_id = str(paper_id or "").strip() or None
+
+    state = _load_operator_state_from_path(operator_state_path(vault_path, normalized_slug, normalized_paper_id))
+    if state is None and normalized_paper_id:
+        legacy_path = operator_state_path(vault_path, normalized_slug, None)
+        state = _load_operator_state_from_path(legacy_path)
+    if state is None:
+        return None
+
+    current_paper_id = normalized_paper_id or normalized_slug
+    if state.note_slug == normalized_slug and state.paper_id == current_paper_id:
+        return state
+    return state.model_copy(
+        update={
+            "note_slug": normalized_slug,
+            "paper_id": current_paper_id,
+        }
+    )
 
 
 def save_operator_state(

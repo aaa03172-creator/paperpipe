@@ -66,6 +66,7 @@ MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$")
 QUERY_TERM_PATTERN = re.compile(r'"([^"]+)"|(\S+)')
 SLUG_SANITIZE_PATTERN = re.compile(r"[^a-z0-9]+")
+DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
 ONE_LINE_SUMMARY_PATTERN = re.compile(
     r"(?im)^>\s*\*\*(?:one-line summary|one-liner|tl;dr)\*\*\s*$\n(?P<body>(?:^>\s?.*(?:\n|$))+)"
 )
@@ -765,11 +766,81 @@ def _extract_import_title(pdf_path: Path, *, fallback_name: str) -> str:
     return _sanitize_import_title(fallback, fallback="Imported PDF")
 
 
+def _normalize_import_doi(raw: str) -> str | None:
+    doi = str(raw or "").strip()
+    if doi.lower().startswith("doi:"):
+        doi = doi[4:].strip()
+    doi = doi.rstrip(".,;:)]]}").strip()
+    if DOI_PATTERN.fullmatch(doi):
+        return doi
+    return None
+
+
+def _extract_import_doi_from_text(text: str) -> str | None:
+    for match in DOI_PATTERN.finditer(str(text or "")):
+        doi = _normalize_import_doi(match.group(0))
+        if doi:
+            return doi
+    return None
+
+
+def _select_import_doi_candidate(candidates: list[tuple[str, str]]) -> str | None:
+    scores: dict[str, int] = {}
+    order: dict[str, int] = {}
+    for idx, (doi, context) in enumerate(candidates):
+        if not doi:
+            continue
+        order.setdefault(doi, idx)
+        scores[doi] = scores.get(doi, 0) + 100
+        normalized_context = str(context or "").lower()
+        if "doi.org/" in normalized_context or "science.org/doi/" in normalized_context:
+            scores[doi] += 25
+        if "/doi/" in normalized_context:
+            scores[doi] += 10
+    if not scores:
+        return None
+    return sorted(scores, key=lambda doi: (-scores[doi], order[doi], doi))[0]
+
+
+def _extract_import_doi(pdf_path: Path, *, max_pages: int = 16) -> str | None:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(pdf_path))
+        metadata = reader.metadata or {}
+        for key in ("/doi", "/DOI", "doi", "DOI"):
+            doi = _normalize_import_doi(str(metadata.get(key) or ""))
+            if doi:
+                return doi
+
+        candidates: list[tuple[str, str]] = []
+        for page in list(reader.pages)[:max(1, int(max_pages))]:
+            text = page.extract_text() or ""
+            for match in DOI_PATTERN.finditer(text):
+                doi = _normalize_import_doi(match.group(0))
+                if not doi:
+                    continue
+                start = max(0, match.start() - 80)
+                end = min(len(text), match.end() + 80)
+                candidates.append((doi, text[start:end]))
+        return _select_import_doi_candidate(candidates)
+    except Exception:
+        pass
+    return None
+
+
 def _paper_notes_home_dir(vault_path: Path) -> Path:
     return vault_path / "Inbox" / "PaperPipe"
 
 
-def _build_imported_note_markdown(*, paper_id: str, title: str, pdf_url: str, imported_at: str) -> str:
+def _build_imported_note_markdown(
+    *,
+    paper_id: str,
+    title: str,
+    pdf_url: str,
+    imported_at: str,
+    doi: str | None = None,
+) -> str:
     frontmatter = {
         "id": paper_id,
         "aliases": [title],
@@ -783,7 +854,12 @@ def _build_imported_note_markdown(*, paper_id: str, title: str, pdf_url: str, im
             }
         },
     }
+    if doi:
+        frontmatter["doi"] = doi
     frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
+    references = [f"* [Open PDF]({pdf_url})"]
+    if doi:
+        references.append(f"* DOI: {doi}")
     body = "\n".join(
         [
             f"# {title}",
@@ -795,11 +871,35 @@ def _build_imported_note_markdown(*, paper_id: str, title: str, pdf_url: str, im
             "- Open in Workbench when you want extracted claims and checks.",
             "",
             "## References",
-            f"* [Open PDF]({pdf_url})",
+            *references,
             "",
         ]
     )
     return f"---\n{frontmatter_text}\n---\n\n{body}"
+
+
+def _upsert_imported_note_doi(note_path: Path, *, paper_id: str, doi: str | None) -> bool:
+    doi = _normalize_import_doi(doi or "")
+    if not doi or not note_path.exists():
+        return False
+
+    content = _safe_read_text(note_path)
+    frontmatter, body = _parse_frontmatter(content)
+    if str(frontmatter.get("id") or "").strip() != paper_id:
+        return False
+    if str(frontmatter.get("doi") or "").strip() == doi and f"DOI: {doi}" in body:
+        return False
+
+    frontmatter["doi"] = doi
+    if f"DOI: {doi}" not in body:
+        if "## References" in body:
+            body = body.replace("## References", f"## References\n* DOI: {doi}", 1)
+        else:
+            body = f"{body.rstrip()}\n\n## References\n* DOI: {doi}\n"
+
+    frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
+    atomic_write_text(note_path, f"---\n{frontmatter_text}\n---\n\n{body.lstrip()}")
+    return True
 
 
 def _persist_imported_note_path(paper_id: str, note_path: str) -> None:
@@ -851,12 +951,14 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
 
     created_pdf = False
     created_note = False
+    should_upsert_existing_note_doi = False
     try:
         if not pdf_path.exists():
             _atomic_write_bytes(pdf_path, payload)
             created_pdf = True
 
         title = _extract_import_title(pdf_path, fallback_name=Path(filename).stem)
+        doi = _extract_import_doi(pdf_path)
         slug = f"{_slugify_import_title(title)}-{digest[:8]}"
         note_path = note_dir / f"{slug}.md"
         note_relative_path = note_path.relative_to(vault_path).as_posix()
@@ -867,6 +969,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
             existing_id = str(existing_frontmatter.get("id") or "").strip()
             if existing_id == paper_id:
                 should_write_note = False
+                should_upsert_existing_note_doi = True
             else:
                 raise HTTPException(
                     status_code=409,
@@ -881,6 +984,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
                     title=title,
                     pdf_url=pdf_url,
                     imported_at=imported_at,
+                    doi=doi,
                 ),
             )
             created_note = True
@@ -890,6 +994,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
             title,
             "user_imported_pdf",
             imported_at,
+            doi=doi,
             local_pdf_path=pdf_path,
             status="NEW",
             issues_state="unavailable",
@@ -897,6 +1002,8 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
         if not _paper_state_persisted(paper_id):
             raise RuntimeError(f"Imported paper state was not persisted for paper_id={paper_id}")
         _persist_imported_note_path(paper_id, note_relative_path)
+        if should_upsert_existing_note_doi:
+            _upsert_imported_note_doi(note_path, paper_id=paper_id, doi=doi)
     except Exception as exc:
         if created_note:
             note_path.unlink(missing_ok=True)
@@ -912,6 +1019,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
         title=title,
         note_path=note_relative_path,
         pdf_url=pdf_url,
+        doi=doi,
     )
 
 
