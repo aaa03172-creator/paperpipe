@@ -45,6 +45,10 @@ from src.services.evidence_extraction_sidecar import (
     build_evidence_extraction_bundle,
     write_evidence_extraction_bundle,
 )
+from src.services.figure_caption_sidecar import (
+    build_figure_caption_sidecar,
+    write_figure_caption_sidecar,
+)
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
@@ -437,6 +441,51 @@ def _write_run_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
         )
     except Exception as exc:
         logger.warning("Failed to write run_meta.json: %s", exc)
+
+
+def _write_reader_timeout_sidecar(
+    artifact_dir: Path,
+    *,
+    job_id: str,
+    run_id: str,
+    paper_id: str,
+    timeout_message: str,
+    timeout_budget_sec: int,
+    page_count: int,
+    table_count: int,
+    error_type: str,
+    bootstrap_meta: Dict[str, Any],
+) -> Path | None:
+    payload = {
+        "schema_version": "reader_timeout.v1",
+        "layer": "review_gate_artifact",
+        "canonical_status": "non_canonical",
+        "job_id": job_id,
+        "run_id": run_id,
+        "paper_id": paper_id,
+        "status": "timeout",
+        "message": timeout_message,
+        "error_type": error_type,
+        "timeout_budget_sec": int(timeout_budget_sec),
+        "page_count": int(page_count),
+        "table_count": int(table_count),
+        "reader_model": bootstrap_meta.get("reader_model"),
+        "reader_attempt_order": bootstrap_meta.get("reader_attempt_order"),
+        "reader_provider_timeout_sec": bootstrap_meta.get("reader_provider_timeout_sec"),
+        "reader_provider_timeout_override_applied": bootstrap_meta.get(
+            "reader_provider_timeout_override_applied"
+        ),
+        "reader_analysis": bootstrap_meta.get("reader_analysis"),
+        "recommended_action": "retry_with_larger_reader_timeout_or_focused_first_reader_context",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = artifact_dir / "reader_timeout.json"
+    try:
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+        return path
+    except Exception as exc:
+        logger.warning("Failed to write reader_timeout.json: %s", exc)
+        return None
 
 
 def _class_name(obj: Any) -> str:
@@ -1054,6 +1103,8 @@ async def run_deepread_job(
             "artifact_document_written": False,
             "artifact_index_written": False,
             "artifact_claimset_written": False,
+            "artifact_figure_captions_written": False,
+            "artifact_reader_timeout_written": False,
             "artifact_stats_written": False,
             "claimset_readiness": "unknown",
             "claimset_ready": None,
@@ -1134,6 +1185,25 @@ async def run_deepread_job(
             doc_artifact.model_dump_json(indent=2),
         )
         bootstrap_meta["artifact_document_written"] = True
+        try:
+            figure_caption_sidecar = build_figure_caption_sidecar(
+                paper_id=paper_id,
+                run_id=run_id,
+                document_artifact=doc_artifact,
+            )
+            figure_caption_path = write_figure_caption_sidecar(figure_caption_sidecar, artifact_dir)
+            bootstrap_meta["artifact_figure_captions_written"] = True
+            bootstrap_meta["figure_caption_count"] = int(figure_caption_sidecar.metrics.figure_count)
+            bootstrap_meta["figure_caption_artifact"] = str(figure_caption_path)
+            if run_meta is not None:
+                run_meta["figure_caption_artifact"] = str(figure_caption_path)
+                run_meta["figure_caption_count"] = bootstrap_meta["figure_caption_count"]
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+        except Exception as exc:
+            logger.warning("Failed to write figure_captions.json: %s", exc)
+            bootstrap_meta["artifact_figure_captions_written"] = False
+            bootstrap_meta["figure_caption_error"] = str(exc)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
 
         note_path: Optional[Path] = _resolve_note_path_for_paper(config, paper_id)
@@ -1362,6 +1432,8 @@ async def run_deepread_job(
         bootstrap_meta["reader_table_count"] = table_count
         bootstrap_meta["reader_timeout_triggered"] = False
         bootstrap_meta["reader_timeout_error_type"] = None
+        bootstrap_meta["artifact_reader_timeout_written"] = False
+        bootstrap_meta["reader_timeout_artifact"] = None
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         if run_meta is not None:
             run_meta["reader_timeout_base_sec"] = reader_timeout_base
@@ -1371,6 +1443,7 @@ async def run_deepread_job(
             run_meta["reader_table_count"] = table_count
             run_meta["reader_timeout_triggered"] = False
             run_meta["reader_timeout_error_type"] = None
+            run_meta["reader_timeout_artifact"] = None
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
         await emit("read", 54, f"Reader timeout budget: {reader_timeout_budget}s")
@@ -1416,10 +1489,29 @@ async def run_deepread_job(
             )
             bootstrap_meta["reader_timeout_triggered"] = True
             bootstrap_meta["reader_timeout_error_type"] = type(exc).__name__
+            timeout_sidecar_path = _write_reader_timeout_sidecar(
+                artifact_dir,
+                job_id=job_id,
+                run_id=run_id,
+                paper_id=paper_id,
+                timeout_message=timeout_message,
+                timeout_budget_sec=reader_timeout_budget,
+                page_count=page_count,
+                table_count=table_count,
+                error_type=type(exc).__name__,
+                bootstrap_meta=bootstrap_meta,
+            )
+            bootstrap_meta["artifact_reader_timeout_written"] = timeout_sidecar_path is not None
+            bootstrap_meta["reader_timeout_artifact"] = (
+                str(timeout_sidecar_path) if timeout_sidecar_path is not None else None
+            )
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             if run_meta is not None:
                 run_meta["reader_timeout_triggered"] = True
                 run_meta["reader_timeout_error_type"] = type(exc).__name__
+                run_meta["reader_timeout_artifact"] = (
+                    str(timeout_sidecar_path) if timeout_sidecar_path is not None else None
+                )
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
             await emit("read", 55, timeout_message, level="ERROR")
