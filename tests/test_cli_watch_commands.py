@@ -272,6 +272,7 @@ def test_doctor_fix_creates_starter_config_and_safe_local_directories(monkeypatc
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PAPERPIPE_HOME", str(tmp_path))
+    monkeypatch.delenv("PAPERPIPE_CONFIG_PATH", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 

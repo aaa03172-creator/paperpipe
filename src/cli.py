@@ -4127,116 +4127,107 @@ def show_processor_gate_threshold_review(
         _emit_json(payload)
         return
 
+    def _artifact_line(label: str, path: Path) -> str:
+        return f"{label}: {path.name} ({path})"
+
     console.print("[bold blue]🧭 Processor Gate Threshold Review[/bold blue]")
     console.print(f"Run: {summary.get('run_id') or '-'}")
     console.print(f"Summary: {summary_path}")
     if markdown_path.exists():
-        console.print(f"Markdown: {markdown_path}")
+        console.print(_artifact_line("Markdown", markdown_path))
     if manual_review_rows_path.exists():
-        console.print(f"Manual Review Rows: {manual_review_rows_path}")
+        console.print(_artifact_line("Manual Review Rows", manual_review_rows_path))
     if manual_review_markdown_path.exists():
-        console.print(f"Manual Review Markdown: {manual_review_markdown_path}")
+        console.print(_artifact_line("Manual Review Markdown", manual_review_markdown_path))
     if manual_review_checklist_path.exists():
-        console.print(f"Manual Review Checklist: {manual_review_checklist_path}")
+        console.print(_artifact_line("Manual Review Checklist", manual_review_checklist_path))
     if manual_review_seed_path.exists():
-        console.print(f"Manual Review Seed: {manual_review_seed_path}")
+        console.print(_artifact_line("Manual Review Seed", manual_review_seed_path))
     if manual_review_frontier_path.exists():
-        console.print(f"Manual Review Frontier: {manual_review_frontier_path}")
+        console.print(_artifact_line("Manual Review Frontier", manual_review_frontier_path))
     if manual_review_frontier_notes_path.exists():
-        console.print(f"Manual Review Frontier Notes: {manual_review_frontier_notes_path}")
+        console.print(_artifact_line("Manual Review Frontier Notes", manual_review_frontier_notes_path))
     if manual_review_frontier_crosscheck_packet_path.exists():
-        console.print(f"Manual Review Frontier Crosscheck Packet: {manual_review_frontier_crosscheck_packet_path}")
+        console.print(
+            _artifact_line("Manual Review Frontier Crosscheck Packet", manual_review_frontier_crosscheck_packet_path)
+        )
     if manual_review_frontier_claude_crosscheck_path.exists():
-        console.print(f"Manual Review Frontier Claude Crosscheck: {manual_review_frontier_claude_crosscheck_path}")
+        console.print(
+            _artifact_line("Manual Review Frontier Claude Crosscheck", manual_review_frontier_claude_crosscheck_path)
+        )
     if manual_review_frontier_claude_crosscheck_json_path.exists():
-        console.print(f"Manual Review Frontier Claude Crosscheck JSON: {manual_review_frontier_claude_crosscheck_json_path}")
+        console.print(
+            _artifact_line(
+                "Manual Review Frontier Claude Crosscheck JSON",
+                manual_review_frontier_claude_crosscheck_json_path,
+            )
+        )
     if manual_review_basis_markdown_path.exists():
-        console.print(f"Manual Review Basis: {manual_review_basis_markdown_path}")
+        console.print(_artifact_line("Manual Review Basis", manual_review_basis_markdown_path))
     if manual_review_decision_markdown_path.exists():
-        console.print(f"Manual Review Decision: {manual_review_decision_markdown_path}")
+        console.print(_artifact_line("Manual Review Decision", manual_review_decision_markdown_path))
     if manual_review_outcome_path.exists():
-        console.print(f"Manual Review Outcome: {manual_review_outcome_path}")
+        console.print(_artifact_line("Manual Review Outcome", manual_review_outcome_path))
     if manual_review_outcome_markdown_path.exists():
-        console.print(f"Manual Review Outcome Markdown: {manual_review_outcome_markdown_path}")
+        console.print(_artifact_line("Manual Review Outcome Markdown", manual_review_outcome_markdown_path))
     if threshold_change_decision_path.exists():
-        console.print(f"Threshold Change Decision: {threshold_change_decision_path}")
+        console.print(_artifact_line("Threshold Change Decision", threshold_change_decision_path))
     if threshold_change_decision_markdown_path.exists():
-        console.print(f"Threshold Change Decision Markdown: {threshold_change_decision_markdown_path}")
+        console.print(
+            _artifact_line("Threshold Change Decision Markdown", threshold_change_decision_markdown_path)
+        )
     if mid_confidence_policy_decision_path.exists():
-        console.print(f"Mid-Confidence Policy Decision: {mid_confidence_policy_decision_path}")
+        console.print(_artifact_line("Mid-Confidence Policy Decision", mid_confidence_policy_decision_path))
     if mid_confidence_policy_decision_markdown_path.exists():
-        console.print(f"Mid-Confidence Policy Decision Markdown: {mid_confidence_policy_decision_markdown_path}")
+        console.print(
+            _artifact_line(
+                "Mid-Confidence Policy Decision Markdown",
+                mid_confidence_policy_decision_markdown_path,
+            )
+        )
     if mid_confidence_policy_debt_reconciliation_path.exists():
         console.print(
-            "Mid-Confidence Policy Debt Reconciliation: "
-            f"{mid_confidence_policy_debt_reconciliation_path}"
-        )
-        console.print(
-            "Policy Debt Reconciliation File: "
-            "mid_confidence_policy_debt_reconciliation.json"
+            _artifact_line(
+                "Mid-Confidence Policy Debt Reconciliation",
+                mid_confidence_policy_debt_reconciliation_path,
+            )
         )
     if mid_confidence_policy_debt_reconciliation_markdown_path.exists():
         console.print(
-            "Mid-Confidence Policy Debt Reconciliation Markdown: "
-            f"{mid_confidence_policy_debt_reconciliation_markdown_path}"
-        )
-        console.print(
-            "Policy Debt Reconciliation Markdown File: "
-            "mid_confidence_policy_debt_reconciliation.md"
+            _artifact_line(
+                "Mid-Confidence Policy Debt Reconciliation Markdown",
+                mid_confidence_policy_debt_reconciliation_markdown_path,
+            )
         )
     if manual_override_policy_decision_path.exists():
         console.print(
-            "Manual Override Policy Decision: "
-            f"{manual_override_policy_decision_path}"
-        )
-        console.print(
-            "Manual Override Policy Decision File: "
-            "manual_override_policy_decision.json"
+            _artifact_line("Manual Override Policy Decision", manual_override_policy_decision_path)
         )
     if manual_override_policy_decision_markdown_path.exists():
         console.print(
-            "Manual Override Policy Decision Markdown: "
-            f"{manual_override_policy_decision_markdown_path}"
-        )
-        console.print(
-            "Manual Override Policy Decision Markdown File: "
-            "manual_override_policy_decision.md"
+            _artifact_line(
+                "Manual Override Policy Decision Markdown",
+                manual_override_policy_decision_markdown_path,
+            )
         )
     if indexed_pending_policy_decision_path.exists():
         console.print(
-            "Indexed Pending Policy Decision: "
-            f"{indexed_pending_policy_decision_path}"
-        )
-        console.print(
-            "Indexed Pending Policy Decision File: "
-            "indexed_pending_policy_decision.json"
+            _artifact_line("Indexed Pending Policy Decision", indexed_pending_policy_decision_path)
         )
     if indexed_pending_policy_decision_markdown_path.exists():
         console.print(
-            "Indexed Pending Policy Decision Markdown: "
-            f"{indexed_pending_policy_decision_markdown_path}"
-        )
-        console.print(
-            "Indexed Pending Policy Decision Markdown File: "
-            "indexed_pending_policy_decision.md"
+            _artifact_line(
+                "Indexed Pending Policy Decision Markdown",
+                indexed_pending_policy_decision_markdown_path,
+            )
         )
     if fixture_or_test_policy_decision_path.exists():
         console.print(
-            "Fixture/Test Policy Decision: "
-            f"{fixture_or_test_policy_decision_path}"
-        )
-        console.print(
-            "Fixture/Test Policy Decision File: "
-            "fixture_or_test_policy_decision.json"
+            _artifact_line("Fixture/Test Policy Decision", fixture_or_test_policy_decision_path)
         )
     if fixture_or_test_policy_decision_markdown_path.exists():
         console.print(
-            "Fixture/Test Policy Decision Markdown: "
-            f"{fixture_or_test_policy_decision_markdown_path}"
-        )
-        console.print(
-            "Fixture/Test Policy Decision Markdown File: "
-            "fixture_or_test_policy_decision.md"
+            _artifact_line("Fixture/Test Policy Decision Markdown", fixture_or_test_policy_decision_markdown_path)
         )
     if threshold_change_proposal_path.exists():
         console.print(f"Threshold Change Proposal: {threshold_change_proposal_path}")
