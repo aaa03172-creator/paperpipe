@@ -5,9 +5,26 @@ Date: 2026-03-17
 Owner: Repository maintainers
 Canonical: `docs/Pending_PR_Queue.md`
 
+## Role
+
+This file is a secondary working queue.
+
+Use it for:
+- packaging or staging context
+- bounded lane reopen decisions
+- historical implementation records that still matter for review
+
+Do not use it as the first current-posture entrypoint.
+
+Read these first instead:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
+
 ## Queued
 
 ## Current packaging reference
+- Read `docs/reports/Current_Docs_Posture_2026-04-17.md` first when you need the current docs reading order and lane-selection posture before using this queue.
 - Use `docs/reports/Current_State_Packaging_2026-03-24.md` as the current separation note for the mixed dirty tree.
 - Read it before bundling docs-state changes together with visual-coverage or Docling/eval work.
 - Use `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md` as the default source-only bundle.
@@ -26,7 +43,7 @@ Canonical: `docs/Pending_PR_Queue.md`
 - Keep the Docling / ingest-eval / teacher-review tail packaged separately under `docs/reports/Docling_Eval_Lane_Packaging_2026-03-24.md`.
 - Keep the frontend visual-coverage tail packaged separately under `docs/reports/Frontend_Visual_Coverage_Lane_Packaging_2026-03-24.md`.
 - Treat the frontend visual-coverage lane as closed unless a route regresses or a new viewer shell lacks coverage.
-- Use `docs/reports/Current_State_Update_2026-03-24.md` as the current posture note.
+- Use `docs/reports/Current_State_Update_2026-03-24.md` as an older 2026-03 posture note for baseline packaging context, not as the first current-posture entrypoint.
 - Use `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md` as the default source-only bundle.
 - Use `docs/reports/Current_State_Staging_Guide_2026-03-24.md` as the current practical staging rule.
 - Use `docs/reports/Current_Concrete_Next_Actions_2026-03-24.md` as the current concrete action checklist.
@@ -46,7 +63,8 @@ Canonical: `docs/Pending_PR_Queue.md`
 - `Image Evidence` was promoted to an active bounded spec on 2026-03-23.
 
 ## Reading rule
-- Use `Current packaging reference`, `Current recommended posture`, and `Current Holds` above as the only current action-order guidance.
+- Use `docs/reports/Current_Docs_Posture_2026-04-17.md` first for the current repo reading order.
+- Use `Current packaging reference`, `Current recommended posture`, and `Current Holds` below only when the task is specifically about queue history, staging, packaging, or reopen conditions.
 - Treat the completed items and historical notes below as implementation records, not as replacement posture or next-step instructions.
 
 ## PR-DOC-MethodComparison-v1 (Completed in workspace)

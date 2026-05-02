@@ -9,6 +9,7 @@ import { JobLifecycle, PipelineStage } from "../lib/types";
 interface WorkbenchLayoutProps {
   title: string;
   subtitle?: string;
+  headerMeta?: ReactNode;
   stage: PipelineStage;
   jobStatus: JobLifecycle;
   mockMode: boolean;
@@ -29,6 +30,7 @@ interface WorkbenchLayoutProps {
 export function WorkbenchLayout({
   title,
   subtitle,
+  headerMeta,
   stage,
   jobStatus,
   mockMode,
@@ -54,6 +56,7 @@ export function WorkbenchLayout({
           <div>
             <h1 className="text-lg font-semibold text-[var(--pp-text-primary)]">{title}</h1>
             {subtitle ? <p className="text-sm text-[var(--pp-text-secondary)]">{subtitle}</p> : null}
+            {headerMeta ? <div className="mt-2">{headerMeta}</div> : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -64,10 +67,16 @@ export function WorkbenchLayout({
               </span>
             ) : null}
             <Link
+              to="/ready"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Runtime checks
+            </Link>
+            <Link
               to="/papers"
               className="inline-flex items-center gap-1 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
             >
-              Paper Notes
+              Open reading
             </Link>
             <button
               type="button"
@@ -89,7 +98,7 @@ export function WorkbenchLayout({
           {mobileControls ? (
             <details className="mt-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] md:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-                Workbench controls
+                Review controls
               </summary>
               <div className="grid gap-2 border-t border-[var(--pp-border)] p-3">{mobileControls}</div>
             </details>
@@ -97,17 +106,42 @@ export function WorkbenchLayout({
         </div>
 
         {mockMode && mockReason ? (
-          <p className="mt-2 text-xs text-[var(--pp-text-dim)]">{mockReason}</p>
+          <div data-testid="workbench-runtime-guidance" className="mt-2 text-xs text-[var(--pp-text-dim)]">
+            <p>{mockReason}</p>
+            <p className="mt-1">
+              If you expected live runs here,{" "}
+              <Link to="/ready" className="text-[var(--pp-accent-text)] underline underline-offset-2">
+                open Runtime checks
+              </Link>{" "}
+              before retrying this workbench.
+            </p>
+          </div>
         ) : null}
         {notice ? <div className="mt-2">{notice}</div> : null}
       </header>
 
       <main className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,1fr)] xl:items-start">
-        <div className="order-2 min-h-0 xl:order-1 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{rail}</div>
-        <div className="order-1 min-h-0 xl:order-2">{pdfPanel}</div>
+        <div
+          id="workbench-paper-list"
+          tabIndex={-1}
+          className="order-2 min-h-0 xl:order-1 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start"
+        >
+          {rail}
+        </div>
+        <div id="workbench-document-panel" tabIndex={-1} className="order-1 min-h-0 xl:order-2">
+          {pdfPanel}
+        </div>
         <div className="order-3 grid min-h-0 gap-4 xl:order-3">
-          <div className="min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start">{artifactPanel}</div>
-          <div className="min-h-0">{timelinePanel}</div>
+          <div
+            id="workbench-artifact-panel"
+            tabIndex={-1}
+            className="min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-6.5rem)] xl:self-start"
+          >
+            {artifactPanel}
+          </div>
+          <div id="workbench-timeline-panel" tabIndex={-1} className="min-h-0">
+            {timelinePanel}
+          </div>
         </div>
       </main>
 

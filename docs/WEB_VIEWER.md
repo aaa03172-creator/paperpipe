@@ -17,6 +17,16 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 
 - 목록: `/papers`
 - 상세: `/papers/:slug`
+- backend-served direct entry:
+  - `/ui` -> triage shell
+  - `/ui/papers` -> paper notes list
+  - `/ui/papers/:slug` -> paper note detail
+  - `/ui/workbench/:paperId` -> workbench
+  - reason: backend JSON API already owns root paths such as `/papers`, so direct browser entry must stay under `/ui/*`
+
+현재 web viewer boundary에는 `Research DNA`가 포함되지 않습니다.
+- `Research DNA`는 현재 API/CLI operator lane으로 유지한다.
+- `/ui/research-dna` 같은 dedicated frontend viewer route는 현재 제품 범위가 아니다.
 
 챗봇 자체는 현재 활성 제품 범위 밖입니다. 대신 아래 미래 대비 훅은 유지합니다.
 - canonical structured state: `vault/.pp/<slug>/state.json`
@@ -24,13 +34,16 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   - `/papers/<slug>?focus=claim:<id>`
   - `/papers/<slug>?focus=evidence:<id>`
   - `/papers/<slug>?focus=run:<id>`
-- current scope decision: list/detail/actions/ClaimSet/related 흐름은 acceptance를 충족했다. 추가 search sophistication, density preset, audit-deep-link는 trigger-based backlog로만 유지한다.
+  - current scope decision: list/detail/actions/ClaimSet/related 흐름은 acceptance를 충족했다. 추가 search sophistication, density preset, audit-deep-link는 trigger-based backlog로만 유지한다.
+  - `Section navigator` pilot is allowed only as a read-only viewer aid derived from existing note headings plus saved evidence `locator.section`.
+  - it is navigation help only and must not become a second section-truth owner beside canonical state and source locators.
 - verification checkpoint (2026-03-13):
   - real `state.json -> /paper-notes/{slug} -> /papers/:slug` path was rechecked against live workspace data.
   - sample note `wenzelShortchainFattyAcids2020` renders `2` claim cards and `2` evidence cards, and `?focus=evidence:<id>` correctly focuses the target evidence card.
   - all current real structured sidecars in the vault validate against `StructuredPaperState`.
   - Workbench now prefers canonical `paper-notes` structured sidecar state over stale artifact claimsets when a note-backed paper id is resolvable.
-  - real sidecar check for `zoteroduboisAlzheimerDiseaseClinicalBiological2024` confirmed `claim_c0ffee000001 -> page 1 -> bbox(8,10,40,20) -> source=bbox` through the frontend notebook helper path.
+  - one live note-backed sidecar check (`zoteroduboisAlzheimerDiseaseClinicalBiological2024`) confirmed `claim_c0ffee000001 -> page 1 -> bbox(8,10,40,20) -> source=bbox` through the frontend notebook helper path.
+  - that paper choice was a validation-time workspace example, not a default domain assumption for the viewer itself.
   - current viewer issue is not missing claim/evidence cards; the remaining limitation is upstream evidence-grounding coverage, because most real locators are still `text_match` rather than `bbox`.
 - checkpoint decision (2026-03-13):
   - `issues_state`는 유지하되, richer taxonomy로 확장하지 않는다.
@@ -90,6 +103,10 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
     - Markdown 본문(GFM 렌더용)
     - Related Papers(공유 태그 + structured signals 기반)
     - References(Open PDF/DOI/Zotero 우선순위)
+    - `section_navigator[]`
+      - derived navigation aid from note headings plus saved evidence `locator.section`
+      - prefers latest structured run `data.section_summary` when present, then falls back to claimset-derived reconstruction
+      - read-only and non-canonical
     - optional `context_trace`
       - deterministic note-detail context assembly trace
       - expected actions:
@@ -181,9 +198,24 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
 - 렌더링 매핑:
   - Properties 패널: `note` 객체 (`id/aliases/tags/date_processed/confidence/status`)
     - `note.ops_summary`가 있으면 same-language operational summary 렌더
+    - when the latest structured run carries `section_navigation_signal_status`, Properties also shows a compact section-navigator readiness row
+    - older saved states may still infer the same row from run `data.section_summary` / `section_count` when explicit handoff quality-gate status is absent
+    - this row is additive viewer guidance only; it does not own section truth and does not replace the separate `Section navigator` panel
   - 본문: `body_markdown` (GFM)
   - Related Papers: `related[]` with shared tags plus structured signals reasoning
   - References: `references[]` + access policy summary (`preferred source`, DOI/Zotero readiness, source role 설명)
+  - Section navigator: derived read-only section map from note outline plus saved evidence `locator.section`
+    - runtime preference order:
+      - latest structured run `data.section_summary`
+      - claimset/evidence fallback when older state files do not include runtime section summaries yet
+    - frontend fallback mirrors the same preference order when `section_navigator[]` is absent from the detail response
+    - purpose:
+      - reopen long notes faster
+      - jump from section label to note heading or saved evidence focus
+    - non-goals:
+      - no new retrieval backend
+      - no section registry as truth owner
+      - no promotion of viewer-derived grouping into canonical state
   - optional `context_trace`
     - summary of which note/index/sidecar paths contributed to the detail view
     - operational/debug contract only
@@ -294,9 +326,9 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
   3. DOI
   4. Zotero
   5. 기타 외부 링크
-- 경로 마스킹 활성 시:
-  - 환경변수 `LATTICE_MASK_LOCAL_PATHS=1` 또는 `PAPERPIPE_MASK_LOCAL_PATHS=1`
-  - `pdf` source 링크(`file://`, `.pdf`, `Open PDF`)는 응답에서 제외
+- 기본 경로 마스킹:
+  - 로컬 파일 절대경로와 `pdf` source 링크(`file://`, `.pdf`, `Open PDF`)는 기본적으로 응답에서 제외
+  - trusted local debugging이 꼭 필요할 때만 `LATTICE_MASK_LOCAL_PATHS=0` 또는 `PAPERPIPE_MASK_LOCAL_PATHS=0`으로 opt-out
 
 ## 프론트 구조
 - Current frontend stack:
@@ -332,7 +364,7 @@ npm run dev
 ## 배포 참고
 - 서버는 `config.yaml`의 vault 경로에 접근 가능해야 합니다.
 - 공개 배포 시에는 저작권 PDF 직접 호스팅 대신 DOI/Zotero 링크 사용이 기본 안전 경로입니다.
-- `file://` 링크 노출이 불필요하면 path masking 설정을 활성화해 로컬 파일 링크를 숨길 수 있습니다.
+- 기본 동작은 path masking 활성화입니다. 로컬 파일 링크를 일부러 노출해야 하는 trusted debugging이 아니면 그대로 유지하세요.
 - UI/UX 변경 전에는 `docs/UX_REVIEW_TEMPLATE.md` 기준으로 `docs/UX_REVIEW_REPORT_<flow>.md`를 생성합니다.
 
 ## 테스트

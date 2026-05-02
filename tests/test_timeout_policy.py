@@ -106,6 +106,25 @@ def test_step_timeout_estimators_respect_remaining_doc_budget():
     assert stats == 185
 
 
+def test_step_timeout_estimators_never_drop_below_large_base():
+    reader = estimate_reader_timeout_seconds(
+        720,
+        page_count=13,
+        table_count=0,
+        adaptive=True,
+    )
+    stats = estimate_stats_timeout_seconds(
+        960,
+        page_count=13,
+        table_count=0,
+        claim_count=5,
+        adaptive=True,
+    )
+
+    assert reader == 720
+    assert stats == 960
+
+
 def test_default_timeout_bases_are_scaled_from_llm_timeout():
     assert default_reader_timeout_base_seconds(15) == 90
     assert default_stats_timeout_base_seconds(15) == 120

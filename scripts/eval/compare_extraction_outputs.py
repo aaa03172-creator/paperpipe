@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.schemas.core import TrialExtraction
+from src.schemas.core import SpecialtyTrialExtraction
 
 
 CORE_FIELDS = ("population", "intervention", "outcome", "sample_size", "duration")
@@ -78,7 +78,7 @@ def _normalize_text(value: Any) -> str | None:
 
 
 def _unwrap_extraction_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    for key in ("trial_extraction", "extraction", "data"):
+    for key in ("specialty_trial_extraction", "trial_extraction", "extraction", "data"):
         nested = payload.get(key)
         if isinstance(nested, dict):
             return nested
@@ -92,7 +92,7 @@ def _load_json_object(path: Path) -> dict[str, Any]:
     return _unwrap_extraction_payload(payload)
 
 
-def _missing_aliases(extraction: TrialExtraction) -> set[str]:
+def _missing_aliases(extraction: SpecialtyTrialExtraction) -> set[str]:
     values = extraction.extraction_quality.missing_fields or []
     return {_normalize_text(value) for value in values if _normalize_text(value)}
 
@@ -103,7 +103,7 @@ def _field_marked_missing(missing_fields: set[str], field_name: str) -> bool:
     return any(alias in missing_fields for alias in normalized_aliases)
 
 
-def _normalized_snapshot(extraction: TrialExtraction) -> dict[str, Any]:
+def _normalized_snapshot(extraction: SpecialtyTrialExtraction) -> dict[str, Any]:
     missing_fields = _missing_aliases(extraction)
     first_outcome = extraction.outcomes.cognition[0] if extraction.outcomes.cognition else None
 
@@ -243,14 +243,14 @@ def evaluate_extraction_pair(
     }
 
     gold_payload = _load_json_object(gold_path.expanduser().resolve())
-    gold_extraction = TrialExtraction.model_validate(gold_payload)
+    gold_extraction = SpecialtyTrialExtraction.model_validate(gold_payload)
     row["paper_id"] = row["paper_id"] or str(gold_extraction.paper_id)
     gold_snapshot = _normalized_snapshot(gold_extraction)
     row["gold_snapshot"] = gold_snapshot
 
     try:
         prediction_payload = _load_json_object(prediction_path.expanduser().resolve())
-        prediction_extraction = TrialExtraction.model_validate(prediction_payload)
+        prediction_extraction = SpecialtyTrialExtraction.model_validate(prediction_payload)
     except Exception as exc:
         row["error"] = f"{type(exc).__name__}: {exc}"
         row["buckets"] = ["schema_invalid"]
@@ -470,7 +470,7 @@ def run_comparison(
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compare TrialExtraction outputs against a bounded goldset.")
+    parser = argparse.ArgumentParser(description="Compare SpecialtyTrialExtraction outputs against a bounded goldset.")
     parser.add_argument("--manifest", required=True, help="Manifest with documents[].gold_path and prediction_path.")
     parser.add_argument("--out-dir", default="snapshots/extraction_regression_eval", help="Output root directory.")
     parser.add_argument("--run-id", default="", help="Optional run id. Defaults to a UTC timestamp.")

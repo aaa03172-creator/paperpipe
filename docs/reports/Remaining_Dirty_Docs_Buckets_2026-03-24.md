@@ -3,7 +3,9 @@
 Status: Active packaging note  
 Date: 2026-03-24  
 Owner: Lattice runtime maintainers  
-Canonical: `docs/reports/Remaining_Dirty_Docs_Buckets_2026-03-24.md`
+Related current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
 
 ## Purpose
 
@@ -13,6 +15,22 @@ This note does not open a new lane.
 
 It answers a narrower question:
 - when a dirty doc is still visible, what kind of doc is it, and should it travel with the default docs-only bundle or stay in a separate review bucket?
+
+## 2026-04 usage note
+
+This note remains useful as the late-March dirty-doc bucket map.
+
+Use it for:
+- historical bucket classification of the remaining late-March docs
+- comparing older docs-only bundle assumptions with later posture cleanup
+- review context when a dated doc still points back to the 2026-03 bucket model
+
+Do not use it as the first current docs-posture entrypoint for later cleanup passes.
+
+Read these first for current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Current Judgment
 

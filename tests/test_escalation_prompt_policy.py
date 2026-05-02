@@ -93,6 +93,51 @@ def test_escalation_fast_approve_flags_neurology_guidance_case() -> None:
     assert "guidance" in reason.lower() or "authoritative" in reason.lower()
 
 
+def test_escalation_fast_approve_flags_oncology_guideline_case() -> None:
+    provider = _provider()
+
+    reason = provider._escalation_fast_approve_reason(
+        {
+            "title": "Clinical practice guideline for liquid biopsy biomarkers in metastatic colorectal cancer",
+            "summary": "Consensus guidance for diagnosis, treatment monitoring, and plasma biomarker interpretation in metastatic colorectal cancer.",
+            "tags": ["#Oncology", "#ClinicalGuideline", "#LiquidBiopsy"],
+        }
+    )
+
+    assert reason is not None
+    assert "guidance" in reason.lower() or "authoritative" in reason.lower()
+
+
+def test_escalation_fast_approve_flags_immunology_assay_protocol_case() -> None:
+    provider = _provider()
+
+    reason = provider._escalation_fast_approve_reason(
+        {
+            "title": "Standardizing flow cytometry assay validation for monitoring CAR-T cell persistence in lymphoma patients",
+            "summary": "This translational methods paper validates a flow cytometry assay and protocol optimization workflow for monitoring CAR-T cell persistence in patients with lymphoma.",
+            "tags": ["#Methods", "#Immunology", "#AssayValidation"],
+        }
+    )
+
+    assert reason is not None
+    assert "auto-approve" in reason.lower()
+
+
+def test_escalation_fast_approve_flags_biomaterials_translational_pilot_case() -> None:
+    provider = _provider()
+
+    reason = provider._escalation_fast_approve_reason(
+        {
+            "title": "Pilot translational study of a hydrogel wound dressing in diabetic foot ulcers",
+            "summary": "In this pilot translational clinical study, patients with diabetic foot ulcers received a hydrogel wound dressing with standard care comparison. The intervention improved wound closure and tissue repair markers with acceptable safety.",
+            "tags": ["#Biomaterials", "#TranslationalMedicine", "#PilotTrial"],
+        }
+    )
+
+    assert reason is not None
+    assert "clinical/translational" in reason.lower() or "auto-approve" in reason.lower()
+
+
 def test_escalation_fast_approve_keeps_review_style_microbiome_case_pending() -> None:
     provider = _provider()
 
@@ -101,6 +146,20 @@ def test_escalation_fast_approve_keeps_review_style_microbiome_case_pending() ->
             "title": "The Microbiota–Gut–Brain Axis and Alzheimer’s Disease: Neuroinflammation Is to Blame?",
             "summary": "This review highlights disturbances in the microbiota-gut-brain axis in Alzheimer's disease.",
             "tags": ["#Alzheimers_Disease", "#Gut_Microbiome", "#Review"],
+        }
+    )
+
+    assert reason is None
+
+
+def test_escalation_fast_approve_keeps_broad_biomaterials_review_pending() -> None:
+    provider = _provider()
+
+    reason = provider._escalation_fast_approve_reason(
+        {
+            "title": "Review of hydrogel scaffolds for regenerative medicine and wound healing",
+            "summary": "This broad review surveys hydrogel scaffolds, regenerative biomaterials, and wound-healing applications across preclinical and translational settings. It does not present new clinical data or authoritative biomedical guidance.",
+            "tags": ["#Review", "#Biomaterials", "#RegenerativeMedicine"],
         }
     )
 

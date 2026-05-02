@@ -134,10 +134,12 @@ Current API surface:
 - `POST /method-comparisons/generate`
 - `GET /method-comparisons`
 - `GET /method-comparisons/{comparison_id}`
+- `GET /method-comparisons/{comparison_id}/markdown`
 - `GET /method-comparisons/{comparison_id}/export.csv`
 
 Current rule:
 - the API is a thin wrapper over schema/service/store code
+- `comparison.md` may be handed off as bounded plain-text output, but the lane still avoids a generic raw bundle/artifact download surface
 - CSV export remains an attachment-backed handoff surface, not a hidden editor contract
 
 ### 7. Viewer stays read-only

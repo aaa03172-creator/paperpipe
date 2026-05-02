@@ -17,6 +17,7 @@ def _summary(
     goal_warn: int,
     step_warn: int,
     recovery_warn: int,
+    section_warn: int = 0,
     goal_missing: int = 0,
     step_missing: int = 0,
     recovery_missing: int = 0,
@@ -34,6 +35,10 @@ def _summary(
             "pass": max(run_count - goal_warn - goal_missing, 0),
             "warn": goal_warn,
             **({"missing": goal_missing} if goal_missing else {}),
+        },
+        "section_navigation_signal_status_counts": {
+            "pass": max(run_count - section_warn, 0),
+            "warn": section_warn,
         },
         "step_stability_status_counts": {
             "pass": max(run_count - step_warn - step_missing, 0),
@@ -61,6 +66,7 @@ def test_compare_deepread_handoff_audits_passes_and_promotes(tmp_path: Path) -> 
             run_count=10,
             review_ready_count=7,
             goal_warn=3,
+            section_warn=1,
             step_warn=2,
             recovery_warn=1,
             context_missing=2,
@@ -74,6 +80,7 @@ def test_compare_deepread_handoff_audits_passes_and_promotes(tmp_path: Path) -> 
             run_count=10,
             review_ready_count=8,
             goal_warn=2,
+            section_warn=0,
             step_warn=1,
             recovery_warn=1,
             context_missing=1,
@@ -108,6 +115,7 @@ def test_compare_deepread_handoff_audits_rejects_regression(tmp_path: Path) -> N
             run_count=10,
             review_ready_count=8,
             goal_warn=1,
+            section_warn=0,
             step_warn=1,
             recovery_warn=0,
             context_missing=0,
@@ -120,6 +128,7 @@ def test_compare_deepread_handoff_audits_rejects_regression(tmp_path: Path) -> N
             run_count=10,
             review_ready_count=6,
             goal_warn=3,
+            section_warn=2,
             step_warn=2,
             recovery_warn=2,
             context_missing=1,
@@ -135,6 +144,7 @@ def test_compare_deepread_handoff_audits_rejects_regression(tmp_path: Path) -> N
     assert report["decision"]["passed"] is False
     assert "review_ready_rate" in report["decision"]["failed_checks"]
     assert "goal_drift_warn_or_fail_rate" in report["decision"]["failed_checks"]
+    assert "section_navigation_signal_warn_or_fail_rate" in report["decision"]["failed_checks"]
     assert "step_stability_warn_or_fail_rate" in report["decision"]["failed_checks"]
     assert "failure_recovery_warn_or_fail_rate" in report["decision"]["failed_checks"]
     assert "context_manifest_missing_rate" in report["decision"]["failed_checks"]
@@ -152,6 +162,7 @@ def test_compare_deepread_handoff_audits_rejects_missing_summary_regression(tmp_
             run_count=10,
             review_ready_count=8,
             goal_warn=1,
+            section_warn=0,
             step_warn=1,
             recovery_warn=1,
             goal_missing=0,
@@ -167,6 +178,7 @@ def test_compare_deepread_handoff_audits_rejects_missing_summary_regression(tmp_
             run_count=10,
             review_ready_count=8,
             goal_warn=1,
+            section_warn=0,
             step_warn=1,
             recovery_warn=1,
             goal_missing=2,

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import shutil
 import sys
 import types
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,11 +43,32 @@ def _load_deepread_handoff_artifacts_module() -> types.ModuleType:
     _ensure_package("src", REPO_ROOT / "src")
     schemas_pkg = _ensure_package("src.schemas", REPO_ROOT / "src" / "schemas")
     services_pkg = _ensure_package("src.services", REPO_ROOT / "src" / "services")
+    skills_pkg = _ensure_package("src.skills", REPO_ROOT / "src" / "skills")
     deepread_schema = _load_module(
         "src.schemas.deepread_handoff",
         REPO_ROOT / "src" / "schemas" / "deepread_handoff.py",
     )
+    skills_schema = _load_module(
+        "src.schemas.skills",
+        REPO_ROOT / "src" / "schemas" / "skills.py",
+    )
+    meeting_pack_schema = _load_module(
+        "src.schemas.meeting_pack",
+        REPO_ROOT / "src" / "schemas" / "meeting_pack.py",
+    )
+    fixture_visibility = _load_module(
+        "src.services.fixture_visibility",
+        REPO_ROOT / "src" / "services" / "fixture_visibility.py",
+    )
+    storage_module = _load_module(
+        "src.skills.storage",
+        REPO_ROOT / "src" / "skills" / "storage.py",
+    )
     setattr(schemas_pkg, "deepread_handoff", deepread_schema)
+    setattr(schemas_pkg, "skills", skills_schema)
+    setattr(schemas_pkg, "meeting_pack", meeting_pack_schema)
+    setattr(services_pkg, "fixture_visibility", fixture_visibility)
+    setattr(skills_pkg, "storage", storage_module)
     service_module = _load_module(
         "src.services.deepread_handoff_artifacts",
         REPO_ROOT / "src" / "services" / "deepread_handoff_artifacts.py",
@@ -65,6 +88,7 @@ class BackfillStats:
     runs_scanned: int
     runs_needing_update: int
     runs_updated: int
+    files_backed_up: int
     acceptance_contract_needing_update: int
     quality_gate_needing_update: int
     context_manifest_needing_update: int
@@ -101,6 +125,25 @@ def _load_manifest_run_dirs(manifest_path: Path) -> list[Path]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _default_backup_dir(artifacts_root: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return artifacts_root.parent / "_artifact_backups" / f"deepread_handoff_{stamp}"
+
+
+def _backup_file(file_path: Path, *, artifacts_root: Path, backup_dir: Path) -> Path:
+    try:
+        relative_path = file_path.resolve().relative_to(artifacts_root.resolve())
+    except ValueError:
+        relative_path = Path(file_path.name)
+    target = backup_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if file_path.exists():
+        shutil.copy2(file_path, target)
+    else:
+        target.write_text("", encoding="utf-8")
+    return target
 
 
 def _collect_run_dirs(artifacts_root: Path, *, paper_ids: set[str] | None = None) -> list[Path]:
@@ -146,6 +189,16 @@ def resolve_run_dirs(
         seen.add(normalized)
         unique_run_dirs.append(normalized)
     return unique_run_dirs
+
+
+def _missing_required_run_files(run_dirs: list[Path]) -> dict[str, list[str]]:
+    required = ("run_meta.json", "bootstrap_meta.json")
+    missing: dict[str, list[str]] = {}
+    for run_dir in run_dirs:
+        missing_files = [name for name in required if not (run_dir / name).exists()]
+        if missing_files:
+            missing[str(run_dir)] = missing_files
+    return missing
 
 
 def _expected_handoff_payloads(run_dir: Path) -> dict[str, dict[str, Any]]:
@@ -196,10 +249,13 @@ def run_backfill(
     *,
     run_dirs: list[Path],
     apply_changes: bool,
+    artifacts_root: Path | None = None,
+    backup_dir: Path | None = None,
 ) -> BackfillStats:
     runs_scanned = 0
     runs_needing_update = 0
     runs_updated = 0
+    files_backed_up = 0
     acceptance_contract_needing_update = 0
     quality_gate_needing_update = 0
     context_manifest_needing_update = 0
@@ -232,6 +288,11 @@ def run_backfill(
             continue
 
         for filename in changed_files:
+            if backup_dir is not None:
+                backup_root = artifacts_root or run_dir.parent.parent
+                backup_path = _backup_file(run_dir / filename, artifacts_root=backup_root, backup_dir=backup_dir)
+                files_backed_up += 1
+                print(f"[BACKUP] {backup_path}")
             _write_json(run_dir / filename, expected_payloads[filename])
             if filename == "acceptance_contract.json":
                 acceptance_contract_updated += 1
@@ -245,6 +306,7 @@ def run_backfill(
         runs_scanned=runs_scanned,
         runs_needing_update=runs_needing_update,
         runs_updated=runs_updated,
+        files_backed_up=files_backed_up,
         acceptance_contract_needing_update=acceptance_contract_needing_update,
         quality_gate_needing_update=quality_gate_needing_update,
         context_manifest_needing_update=context_manifest_needing_update,
@@ -267,6 +329,14 @@ def main() -> int:
     parser.add_argument("--run-dir", action="append", default=[], help="Explicit run directory to backfill.")
     parser.add_argument("--paper-id", action="append", default=[], help="Optional paper_id filter. Repeat as needed.")
     parser.add_argument("--apply", action="store_true", help="Write updated derived artifacts to disk. Default is dry-run.")
+    parser.add_argument(
+        "--backup-dir",
+        default="",
+        help=(
+            "Backup directory for original derived artifact files when --apply is used. "
+            "Auto-generated under the artifacts parent when omitted."
+        ),
+    )
     args = parser.parse_args()
 
     artifacts_root = Path(args.artifacts_root).expanduser().resolve()
@@ -281,17 +351,32 @@ def main() -> int:
     )
     if not run_dirs:
         raise SystemExit("no_run_dirs_provided")
+    missing_run_files = _missing_required_run_files(run_dirs)
+    if missing_run_files:
+        print(json.dumps({"error": "missing_run_files", "missing": missing_run_files}, indent=2, sort_keys=True))
+        return 1
 
-    stats = run_backfill(run_dirs=run_dirs, apply_changes=bool(args.apply))
+    backup_dir = None
+    if args.apply:
+        backup_dir = Path(args.backup_dir).expanduser().resolve() if args.backup_dir else _default_backup_dir(artifacts_root)
+    stats = run_backfill(
+        run_dirs=run_dirs,
+        apply_changes=bool(args.apply),
+        artifacts_root=artifacts_root,
+        backup_dir=backup_dir,
+    )
     print(f"[SUMMARY] runs_scanned={stats.runs_scanned}")
     print(f"[SUMMARY] runs_needing_update={stats.runs_needing_update}")
     print(f"[SUMMARY] runs_updated={stats.runs_updated}")
+    print(f"[SUMMARY] files_backed_up={stats.files_backed_up}")
     print(f"[SUMMARY] acceptance_contract_needing_update={stats.acceptance_contract_needing_update}")
     print(f"[SUMMARY] quality_gate_needing_update={stats.quality_gate_needing_update}")
     print(f"[SUMMARY] context_manifest_needing_update={stats.context_manifest_needing_update}")
     print(f"[SUMMARY] acceptance_contract_updated={stats.acceptance_contract_updated}")
     print(f"[SUMMARY] quality_gate_updated={stats.quality_gate_updated}")
     print(f"[SUMMARY] context_manifest_updated={stats.context_manifest_updated}")
+    if backup_dir is not None:
+        print(f"[SUMMARY] backup_dir={backup_dir}")
     if not args.apply:
         print("[SUMMARY] dry-run complete (no files written)")
     return 0

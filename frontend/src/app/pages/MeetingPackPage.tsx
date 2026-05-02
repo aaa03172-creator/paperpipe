@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   generateMeetingPack,
   getMeetingPackIndex,
   getMeetingPack,
+  getPaperNoteDetail,
   getMeetingPackTrace,
   getMeetingPackValidation,
   regenerateMeetingPack,
@@ -47,6 +48,81 @@ function formatDateTime(value?: string | null): string {
     return value;
   }
   return parsed.toLocaleString();
+}
+
+const GENERIC_BROWSER_MEETING_PACK_TITLE = "Browser generated meeting draft";
+
+function buildMeetingPackDayKey(value?: string | null): string {
+  if (!value) {
+    return "unknown";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatMeetingPackDayLabel(value?: string | null): string {
+  if (!value) {
+    return "Unknown save day";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatMeetingPackIdentityTime(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+  });
+}
+
+function isGenericBrowserMeetingPackTitle(value?: string | null): boolean {
+  return value?.trim().toLowerCase() === GENERIC_BROWSER_MEETING_PACK_TITLE.toLowerCase();
+}
+
+function buildMeetingPackDisplayTitle(
+  title: string | null | undefined,
+  primarySourceTitle?: string | null,
+): string {
+  const normalizedTitle = title?.trim();
+  const normalizedPrimarySourceTitle = primarySourceTitle?.trim();
+  if (normalizedPrimarySourceTitle && isGenericBrowserMeetingPackTitle(normalizedTitle)) {
+    return normalizedPrimarySourceTitle;
+  }
+  return normalizedTitle || normalizedPrimarySourceTitle || "Untitled meeting draft";
+}
+
+function buildMeetingPackPrimarySourceCaption(
+  displayTitle: string,
+  primarySourceTitle?: string | null,
+): string | null {
+  const normalizedPrimarySourceTitle = primarySourceTitle?.trim();
+  if (!normalizedPrimarySourceTitle || normalizedPrimarySourceTitle === displayTitle.trim()) {
+    return null;
+  }
+  return `Primary source: ${normalizedPrimarySourceTitle}`;
 }
 
 function formatModeLabel(value: string): string {
@@ -122,6 +198,27 @@ interface MeetingPackNavigationState {
   meetingPackNotice?: MeetingPackActionNotice;
 }
 
+interface MeetingPackSourceNoteLink {
+  sourceSlug: string;
+  slug: string;
+  title: string;
+  resolved: boolean;
+}
+
+interface MeetingPackDayGroup {
+  dayKey: string;
+  label: string;
+  items: MeetingPackListItem[];
+  titleGroups: MeetingPackTitleGroup[];
+}
+
+interface MeetingPackTitleGroup {
+  groupKey: string;
+  displayTitle: string;
+  primarySourceCaption: string | null;
+  items: MeetingPackListItem[];
+}
+
 function isObjectWithKeys(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -181,6 +278,13 @@ function buildMeetingPackHeaderDerivedFrom(pack: MeetingPack | null): string {
   return `Derived from ${pack.source_items.length} source item${pack.source_items.length === 1 ? "" : "s"}, ${pack.evidence_refs.length} evidence ref${pack.evidence_refs.length === 1 ? "" : "s"}, and the saved ${formatModeLabel(pack.mode)} draft bundle.`;
 }
 
+function buildMeetingPackHeaderContinuity(sourceNoteCount: number): string {
+  if (sourceNoteCount > 0) {
+    return "Canonical evidence lives upstream in linked paper notes. Continue in note before rerendering, regenerating, or sharing this draft.";
+  }
+  return "Canonical evidence lives upstream in saved source refs and retrieval trace. Re-open upstream review context before rerendering, regenerating, or sharing this draft.";
+}
+
 function buildMeetingPackSourceNoteSlugs(pack: MeetingPack | null): string[] {
   if (!pack) {
     return [];
@@ -198,6 +302,22 @@ function buildMeetingPackSourceNoteSlugs(pack: MeetingPack | null): string[] {
     }
   }
   return Array.from(slugs);
+}
+
+function buildMeetingPackPrimarySourceTitle(pack: MeetingPack | null): string | null {
+  if (!pack) {
+    return null;
+  }
+
+  const directPaperSource = pack.source_items.find(
+    (item) => item.type === "paper_slug" && item.title?.trim(),
+  );
+  if (directPaperSource?.title?.trim()) {
+    return directPaperSource.title.trim();
+  }
+
+  const fallbackSource = pack.source_items.find((item) => item.title?.trim());
+  return fallbackSource?.title?.trim() ?? null;
 }
 
 const MEETING_PACK_MODE_OPTIONS: Array<{ value: MeetingPackMode; label: string; help: string }> = [
@@ -224,11 +344,32 @@ const MEETING_PACK_MODE_OPTIONS: Array<{ value: MeetingPackMode; label: string; 
 ];
 
 const MEETING_PACK_MAX_SLIDES_OPTIONS = [5, 6, 7, 8] as const;
+const DEFAULT_VISIBLE_MEETING_PACKS = 24;
+const MEETING_PACKS_PAGE_INCREMENT = 24;
+const ENABLE_E2E_VISIBLE_LIMIT =
+  (import.meta.env.VITE_E2E_MEETING_PACK_VISIBLE_LIMIT as string | undefined)?.trim() === "1";
+
+function parseMeetingPackVisibleLimit(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
 
 export function MeetingPackPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { packId: routePackId } = useParams<{ packId?: string }>();
+  const defaultVisiblePackCount =
+    (ENABLE_E2E_VISIBLE_LIMIT
+      ? parseMeetingPackVisibleLimit(searchParams.get("meeting_pack_visible_limit"))
+      : null) ??
+    DEFAULT_VISIBLE_MEETING_PACKS;
   const [packIdInput, setPackIdInput] = useState(routePackId ?? "");
   const [indexSearchQuery, setIndexSearchQuery] = useState("");
   const [tracePresenceFilter, setTracePresenceFilter] = useState<TracePresenceFilter>("all");
@@ -236,12 +377,14 @@ export function MeetingPackPage() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftMode, setDraftMode] = useState<MeetingPackMode>("journal_club");
   const [draftMaxSlides, setDraftMaxSlides] = useState<number>(6);
+  const [visiblePackCount, setVisiblePackCount] = useState(defaultVisiblePackCount);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [indexResponse, setIndexResponse] = useState<MeetingPackListResponse | null>(null);
   const [packResponse, setPackResponse] = useState<MeetingPackResponse | null>(null);
   const [traceResponse, setTraceResponse] = useState<MeetingPackTraceResponse | null>(null);
   const [validationResponse, setValidationResponse] = useState<MeetingPackValidationResponse | null>(null);
+  const [resolvedSourceNotes, setResolvedSourceNotes] = useState<MeetingPackSourceNoteLink[]>([]);
   const [runningAction, setRunningAction] = useState<DraftAction | null>(null);
   const [actionNotice, setActionNotice] = useState<MeetingPackActionNotice | null>(null);
   const [loading, setLoading] = useState(false);
@@ -277,6 +420,7 @@ export function MeetingPackPage() {
       setPackResponse(null);
       setTraceResponse(null);
       setValidationResponse(null);
+      setResolvedSourceNotes([]);
       setMockReasons([]);
 
       try {
@@ -311,6 +455,7 @@ export function MeetingPackPage() {
       setPackResponse(null);
       setTraceResponse(null);
       setValidationResponse(null);
+      setResolvedSourceNotes([]);
       setMockReasons([]);
 
       try {
@@ -356,7 +501,50 @@ export function MeetingPackPage() {
       ),
     [normalizedIndexSearchQuery, packIndex, tracePresenceFilter],
   );
+  const visiblePackIndex = useMemo(
+    () => filteredPackIndex.slice(0, visiblePackCount),
+    [filteredPackIndex, visiblePackCount],
+  );
+  const hiddenPackCount = Math.max(filteredPackIndex.length - visiblePackIndex.length, 0);
   const hasActiveIndexFilters = normalizedIndexSearchQuery.length > 0 || tracePresenceFilter !== "all";
+  const filteredCountLabel = hasActiveIndexFilters ? "matching saved packs" : "saved packs";
+  const hiddenDraftLabel = hasActiveIndexFilters ? "older matching draft" : "older draft";
+  const revealDraftLabel = hasActiveIndexFilters ? "older matching draft" : "older draft";
+  const visiblePackGroups = useMemo<MeetingPackDayGroup[]>(() => {
+    const groups: MeetingPackDayGroup[] = [];
+    for (const item of visiblePackIndex) {
+      const dayKey = buildMeetingPackDayKey(item.created_at);
+      const displayTitle = buildMeetingPackDisplayTitle(item.title, item.primary_source_title);
+      const primarySourceCaption = buildMeetingPackPrimarySourceCaption(
+        displayTitle,
+        item.primary_source_title,
+      );
+      let dayGroup = groups[groups.length - 1];
+      if (!dayGroup || dayGroup.dayKey !== dayKey) {
+        dayGroup = {
+          dayKey,
+          label: formatMeetingPackDayLabel(item.created_at),
+          items: [],
+          titleGroups: [],
+        };
+        groups.push(dayGroup);
+      }
+      dayGroup.items.push(item);
+
+      let titleGroup = dayGroup.titleGroups.find((group) => group.groupKey === displayTitle);
+      if (!titleGroup) {
+        titleGroup = {
+          groupKey: displayTitle,
+          displayTitle,
+          primarySourceCaption,
+          items: [],
+        };
+        dayGroup.titleGroups.push(titleGroup);
+      }
+      titleGroup.items.push(item);
+    }
+    return groups;
+  }, [visiblePackIndex]);
   const pack = packResponse?.pack ?? null;
   const packMarkdownSync = packResponse?.markdown_sync ?? null;
   const validation = validationResponse?.validation ?? null;
@@ -370,6 +558,82 @@ export function MeetingPackPage() {
     [trace],
   );
   const sourceNoteSlugs = useMemo(() => buildMeetingPackSourceNoteSlugs(pack), [pack]);
+  const packPrimarySourceTitle = useMemo(() => buildMeetingPackPrimarySourceTitle(pack), [pack]);
+  const packDisplayTitle = useMemo(
+    () => buildMeetingPackDisplayTitle(pack?.title, packPrimarySourceTitle),
+    [pack?.title, packPrimarySourceTitle],
+  );
+  const sourceNotes = useMemo<MeetingPackSourceNoteLink[]>(
+    () =>
+      resolvedSourceNotes.length > 0
+        ? resolvedSourceNotes
+        : sourceNoteSlugs.map((slug) => ({
+            sourceSlug: slug,
+            slug,
+            title: slug,
+            resolved: false,
+          })),
+    [resolvedSourceNotes, sourceNoteSlugs],
+  );
+
+  useEffect(() => {
+    setVisiblePackCount(defaultVisiblePackCount);
+  }, [defaultVisiblePackCount, normalizedIndexSearchQuery, tracePresenceFilter]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function resolveSourceNotes() {
+      if (sourceNoteSlugs.length === 0) {
+        setResolvedSourceNotes([]);
+        return;
+      }
+
+      const nextSourceNotes: MeetingPackSourceNoteLink[] = [];
+      for (const sourceSlug of sourceNoteSlugs) {
+        try {
+          const noteResult = await getPaperNoteDetail(sourceSlug);
+          if (!mounted) {
+            return;
+          }
+          if (noteResult.isMock && noteResult.reason) {
+            setMockReasons((current) =>
+              current.includes(noteResult.reason as string) ? current : [...current, noteResult.reason as string],
+            );
+          }
+          const canonicalSlug = noteResult.data.note.slug || sourceSlug;
+          const canonicalTitle = noteResult.data.note.title || canonicalSlug;
+          if (!nextSourceNotes.some((item) => item.slug === canonicalSlug)) {
+            nextSourceNotes.push({
+              sourceSlug,
+              slug: canonicalSlug,
+              title: canonicalTitle,
+              resolved: true,
+            });
+          }
+        } catch {
+          if (!nextSourceNotes.some((item) => item.slug === sourceSlug)) {
+            nextSourceNotes.push({
+              sourceSlug,
+              slug: sourceSlug,
+              title: sourceSlug,
+              resolved: false,
+            });
+          }
+        }
+      }
+
+      if (mounted) {
+        setResolvedSourceNotes(nextSourceNotes);
+      }
+    }
+
+    void resolveSourceNotes();
+
+    return () => {
+      mounted = false;
+    };
+  }, [sourceNoteSlugs]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -383,6 +647,7 @@ export function MeetingPackPage() {
   function resetIndexFilters() {
     setIndexSearchQuery("");
     setTracePresenceFilter("all");
+    setVisiblePackCount(defaultVisiblePackCount);
   }
 
   async function handleGenerateDraft(event: FormEvent<HTMLFormElement>) {
@@ -506,7 +771,7 @@ export function MeetingPackPage() {
               <Badge variant="muted" className="uppercase">Saved drafts</Badge>
             </div>
             <h1 className="mt-2 text-lg font-semibold text-[var(--pp-text-primary)]">
-              {pack?.title ?? "Saved meeting packs"}
+              {routePackId ? (pack ? packDisplayTitle : "Meeting pack") : "Saved meeting packs"}
             </h1>
             <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
               Open saved meeting drafts, check source coverage, and reuse them in journal club or lab meeting prep.
@@ -531,10 +796,12 @@ export function MeetingPackPage() {
         </div>
         <ArtifactHeaderContext
           testId="meeting-pack-header-context"
+          emphasizeFirstItem={Boolean(routePackId)}
           items={[
+            routePackId ? { label: "Derived artifact", value: buildMeetingPackHeaderContinuity(sourceNotes.length) } : null,
             { label: "When to use", value: buildMeetingPackHeaderWhenToUse(routePackId) },
             { label: "Derived from", value: buildMeetingPackHeaderDerivedFrom(pack) },
-          ]}
+          ].filter((item): item is { label: string; value: string } => item !== null)}
         />
 
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -558,16 +825,19 @@ export function MeetingPackPage() {
 
       {!routePackId ? (
         <main className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved meeting packs</CardTitle>
-              <CardDescription>
-                Open recent drafts to review source coverage, validation, and trace history before you reuse them.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Saved meeting packs</CardTitle>
+                <CardDescription>
+                  Open saved derived drafts to review source coverage, validation, and trace history before reuse or handoff.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                  Meeting packs are downstream briefing artifacts. Keep canonical note review upstream before you reuse or share draft slides.
+                </div>
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
                   <label>
                     <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
                       Search
@@ -628,8 +898,15 @@ export function MeetingPackPage() {
                   </Button>
                 </div>
 
-                <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
-                  Showing {filteredPackIndex.length} of {packIndex.length} saved packs.
+                <p
+                  data-testid="meeting-pack-index-summary"
+                  className="mt-3 text-xs text-[var(--pp-text-dim)]"
+                >
+                  {hiddenPackCount > 0
+                    ? `Showing ${visiblePackIndex.length} of ${filteredPackIndex.length} ${filteredCountLabel}. Recent ${hasActiveIndexFilters ? "matching " : ""}drafts stay visible first so this list stays skimmable.`
+                    : hasActiveIndexFilters
+                      ? `Showing ${filteredPackIndex.length} matching saved packs from ${packIndex.length} total.`
+                      : `Showing ${filteredPackIndex.length} of ${packIndex.length} saved packs.`}
                 </p>
               </div>
 
@@ -642,42 +919,141 @@ export function MeetingPackPage() {
                   {error}
                 </div>
               ) : filteredPackIndex.length > 0 ? (
-                filteredPackIndex.map((item) => (
-                  <article key={item.pack_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-sm font-medium text-[var(--pp-text-primary)]">{item.title}</div>
-                      <Badge variant="outline">{formatModeLabel(item.mode)}</Badge>
-                      <Badge variant="muted">{formatOutputModeFamilyLabel(item.output_mode_family)}</Badge>
-                      <Badge className={badgeToneClass(readinessTone(item.readiness))}>
-                        {item.readiness.replace("_", " ")}
-                      </Badge>
-                      {item.trace_entry_count > 0 ? (
-                        <Badge variant="muted">{item.trace_entry_count} trace events</Badge>
-                      ) : (
-                        <Badge variant="muted">saved without trace</Badge>
-                      )}
-                    </div>
-                    <div className="mt-2 grid gap-2 text-xs text-[var(--pp-text-dim)] sm:grid-cols-2">
-                      <div>Created: {formatDateTime(item.created_at)}</div>
-                      <div>Slides: {item.slide_count} · Sources: {item.source_count}</div>
-                    </div>
-                    {item.primary_source_title ? (
-                      <p className="mt-2 text-xs text-[var(--pp-text-secondary)]">
-                        Primary source: {item.primary_source_title}
+                <>
+                  {visiblePackGroups.map((group) => (
+                    <section
+                      key={group.dayKey}
+                      data-testid="meeting-pack-index-day-group"
+                      data-day-key={group.dayKey}
+                      className="space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                          {group.label}
+                        </div>
+                        <Badge variant="outline">
+                          {group.items.length} {hasActiveIndexFilters ? "matching " : ""}draft
+                          {group.items.length === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                      {group.titleGroups.map((titleGroup) => (
+                        <section
+                          key={`${group.dayKey}:${titleGroup.groupKey}`}
+                          data-testid="meeting-pack-index-title-group"
+                          data-group-title={titleGroup.displayTitle}
+                          className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div
+                                data-testid="meeting-pack-index-title"
+                                className="text-sm font-medium text-[var(--pp-text-primary)]"
+                              >
+                                {titleGroup.displayTitle}
+                              </div>
+                              {titleGroup.primarySourceCaption ? (
+                                <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">
+                                  {titleGroup.primarySourceCaption}
+                                </p>
+                              ) : null}
+                            </div>
+                            <Badge variant="outline">
+                              {titleGroup.items.length} {hasActiveIndexFilters ? "matching " : ""}draft
+                              {titleGroup.items.length === 1 ? "" : "s"}
+                            </Badge>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {titleGroup.items.map((item) => (
+                              <article
+                                key={item.pack_id}
+                                data-testid="meeting-pack-index-row"
+                                className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <div
+                                      data-testid="meeting-pack-index-identity"
+                                      className="text-[11px] text-[var(--pp-text-dim)]"
+                                    >
+                                      Saved {formatMeetingPackIdentityTime(item.created_at)}
+                                    </div>
+                                    <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-dim)]">
+                                      {item.pack_id}
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline">{formatModeLabel(item.mode)}</Badge>
+                                    <Badge variant="muted">
+                                      {formatOutputModeFamilyLabel(item.output_mode_family)}
+                                    </Badge>
+                                    <Badge className={badgeToneClass(readinessTone(item.readiness))}>
+                                      {item.readiness.replace("_", " ")}
+                                    </Badge>
+                                    {item.trace_entry_count > 0 ? (
+                                      <Badge variant="muted">{item.trace_entry_count} trace events</Badge>
+                                    ) : (
+                                      <Badge variant="muted">saved without trace</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="mt-2 text-xs text-[var(--pp-text-dim)]">
+                                  Slides: {item.slide_count} · Sources: {item.source_count}
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() =>
+                                      navigate(`/meeting-packs/${encodeURIComponent(item.pack_id)}`)
+                                    }
+                                  >
+                                    Open pack
+                                    <ArrowRight className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </section>
+                  ))}
+                  {hiddenPackCount > 0 ? (
+                    <div className="rounded-md border border-dashed border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                      <div className="text-sm font-medium text-[var(--pp-text-primary)]">
+                        {hiddenPackCount} {hiddenDraftLabel}
+                        {hiddenPackCount === 1 ? "" : "s"} hidden
+                      </div>
+                      <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
+                        Keep the most recent {hasActiveIndexFilters ? "matching " : ""}saved drafts in view first,
+                        then load older ones only if you still need them.
                       </p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => navigate(`/meeting-packs/${encodeURIComponent(item.pack_id)}`)}
-                      >
-                        Open pack
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Button>
-                      <span className="font-mono text-[11px] text-[var(--pp-text-dim)]">{item.pack_id}</span>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          data-testid="meeting-pack-index-show-more"
+                          onClick={() =>
+                            setVisiblePackCount((current) => current + MEETING_PACKS_PAGE_INCREMENT)
+                          }
+                        >
+                          Show {Math.min(hiddenPackCount, MEETING_PACKS_PAGE_INCREMENT)} {revealDraftLabel}
+                          {Math.min(hiddenPackCount, MEETING_PACKS_PAGE_INCREMENT) === 1 ? "" : "s"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setVisiblePackCount(filteredPackIndex.length)}
+                        >
+                          Show all {filteredPackIndex.length}
+                          {hasActiveIndexFilters ? " matching drafts" : ""}
+                        </Button>
+                      </div>
                     </div>
-                  </article>
-                ))
+                  ) : null}
+                </>
               ) : packIndex.length > 0 ? (
                 <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
                   No saved meeting packs match the current search or trace filter.
@@ -695,7 +1071,7 @@ export function MeetingPackPage() {
               <CardHeader>
                 <CardTitle>Start a new draft</CardTitle>
                 <CardDescription>
-                  Create a meeting pack from one paper slug, then review slides, trace coverage, and validation in the saved draft view.
+                  Create one derived meeting draft from a paper slug, then review slides, trace coverage, and validation in the saved draft view.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
@@ -766,6 +1142,10 @@ export function MeetingPackPage() {
                     Start with a paper slug from Paper Notes. The draft will open right away, and you can inspect trace coverage before sharing it.
                   </p>
 
+                  <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                    This draft stays downstream of paper evidence and note context. Re-open the source note before promoting claims into slides or downstream artifacts.
+                  </p>
+
                   <p className="text-xs text-[var(--pp-text-dim)]">
                     {MEETING_PACK_MODE_OPTIONS.find((option) => option.value === draftMode)?.help}
                   </p>
@@ -830,7 +1210,7 @@ export function MeetingPackPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex flex-wrap items-center gap-2">
-                  <span>{pack.title}</span>
+                  <span>{packDisplayTitle}</span>
                   <Badge className={badgeToneClass(readinessTone(pack.readiness))}>{pack.readiness.replace("_", " ")}</Badge>
                   <Badge className={badgeToneClass(syncTone(packMarkdownSync?.status))}>
                     {packMarkdownSync?.status === "drifted" ? "Markdown drift" : "Markdown in sync"}
@@ -1021,28 +1401,31 @@ export function MeetingPackPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {sourceNoteSlugs.length > 0 ? (
+                {sourceNotes.length > 0 ? (
                   <>
                     <div className="space-y-2">
-                      {sourceNoteSlugs.slice(0, 3).map((slug) => (
+                      {sourceNotes.slice(0, 3).map((note) => (
                         <Link
-                          key={slug}
-                          to={`/papers/${encodeURIComponent(slug)}`}
+                          key={`${note.sourceSlug}:${note.slug}`}
+                          to={`/papers/${encodeURIComponent(note.slug)}`}
                           className="flex items-center justify-between rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-sm text-[var(--pp-text-secondary)] transition-colors hover:bg-[var(--pp-surface)]"
                         >
                           <div>
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
                               Continue in note
                             </div>
-                            <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-primary)]">{slug}</div>
+                            <div className="mt-1 text-sm font-medium text-[var(--pp-text-primary)]">{note.title}</div>
+                            {note.slug !== note.title ? (
+                              <div className="mt-1 font-mono text-[11px] text-[var(--pp-text-dim)]">{note.slug}</div>
+                            ) : null}
                           </div>
                           <ArrowRight className="h-3.5 w-3.5 text-[var(--pp-text-dim)]" />
                         </Link>
                       ))}
                     </div>
-                    {sourceNoteSlugs.length > 3 ? (
+                    {sourceNotes.length > 3 ? (
                       <p className="text-xs text-[var(--pp-text-dim)]">
-                        Showing 3 of {sourceNoteSlugs.length} linked notes. Use retrieval trace or evidence refs below to inspect the rest.
+                        Showing 3 of {sourceNotes.length} linked notes. Use retrieval trace or evidence refs below to inspect the rest.
                       </p>
                     ) : null}
                   </>
@@ -1051,9 +1434,18 @@ export function MeetingPackPage() {
                     No linked paper notes were saved with this draft. Use the saved source refs and retrieval trace below to recover upstream review context.
                   </p>
                 )}
-                <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
-                  Keep slide edits and regenerate decisions here. Go back to the note when you need to change claims, evidence, or source selection.
-                </p>
+                <div
+                  data-testid="meeting-pack-recommended-order"
+                  className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                    Recommended order
+                  </div>
+                  <ol className="mt-2 space-y-2 pl-4 text-xs text-[var(--pp-text-secondary)]">
+                    <li>Continue in note when claims, evidence, or source selection need to be challenged.</li>
+                    <li>Come back here after note review when only the saved draft artifact needs maintenance.</li>
+                  </ol>
+                </div>
               </CardContent>
             </Card>
 
@@ -1063,7 +1455,9 @@ export function MeetingPackPage() {
                   <ShieldAlert className="h-4 w-4" />
                   Validation
                 </CardTitle>
-                <CardDescription>Regenerate safety and markdown sync are shown together to reduce diagnosis hops.</CardDescription>
+                <CardDescription>
+                  Keep the current safety snapshot visible, then open draft maintenance only after upstream note review is settled.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex flex-wrap gap-2">
@@ -1077,38 +1471,49 @@ export function MeetingPackPage() {
                 <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
                   Strategy: {validation.regenerate_strategy.replace(/_/g, " ")}
                 </div>
-                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-                    Draft actions
-                  </div>
-                  <p className="mt-2 text-sm text-[var(--pp-text-secondary)]">
-                    These controls only rewrite or regenerate the saved draft artifact. They do not replace canonical evidence review.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={handleRegenerateDraft}
-                      disabled={!validation.can_regenerate || runningAction !== null}
-                    >
-                      {runningAction === "regenerate" ? "Regenerating…" : "Regenerate draft"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleRerenderDraft}
-                      disabled={runningAction !== null}
-                    >
-                      {runningAction === "rerender" ? "Rerendering…" : "Rerender markdown"}
-                    </Button>
-                  </div>
-                  {!validation.can_regenerate ? (
-                    <p className="mt-3 text-xs text-[var(--pp-text-dim)]">
-                      Regenerate stays gated until the saved selector set can be resolved safely in the current vault.
+                <details
+                  data-testid="meeting-pack-draft-maintenance"
+                  className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)]"
+                >
+                  <summary className="cursor-pointer px-3 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Draft maintenance
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
+                      Use this only after note review when the saved draft artifact itself needs to be refreshed.
                     </p>
-                  ) : null}
-                </div>
+                  </summary>
+                  <Separator />
+                  <div className="space-y-3 p-3">
+                    <p className="text-sm text-[var(--pp-text-secondary)]">
+                      Choose the lighter path first. Rerender refreshes markdown from the current draft JSON. Regenerate reruns the saved selector set after upstream note or evidence decisions changed.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleRegenerateDraft}
+                        disabled={!validation.can_regenerate || runningAction !== null}
+                      >
+                        {runningAction === "regenerate" ? "Regenerating…" : "Regenerate draft"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleRerenderDraft}
+                        disabled={runningAction !== null}
+                      >
+                        {runningAction === "rerender" ? "Rerendering…" : "Rerender markdown"}
+                      </Button>
+                    </div>
+                    {!validation.can_regenerate ? (
+                      <p className="text-xs text-[var(--pp-text-dim)]">
+                        Regenerate stays gated until the saved selector set can be resolved safely in the current vault.
+                      </p>
+                    ) : null}
+                  </div>
+                </details>
                 {actionNotice ? (
                   <p
                     className={`rounded-md border p-3 text-sm ${

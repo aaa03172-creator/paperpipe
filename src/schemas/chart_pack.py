@@ -6,6 +6,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.schemas.artifact_brief import ArtifactBrief, ArtifactPlanReview
+from src.schemas.chart_pack_handoff import ChartPackQualityGate
+
 
 ChartSourceKind = Literal["stats_report", "document_table"]
 ChartTemplateId = Literal[
@@ -293,6 +296,8 @@ class ChartPack(BaseModel):
     render_env: ChartRenderEnv | None = None
     caution_notes: list[str] = Field(default_factory=list)
     warnings: list[ChartWarning] = Field(default_factory=list)
+    artifact_brief: ArtifactBrief | None = None
+    artifact_brief_review: ArtifactPlanReview | None = None
 
     @model_validator(mode="after")
     def validate_chart_pack(self):
@@ -320,6 +325,7 @@ class ChartPackResponse(BaseModel):
     markdown: str
     data_snapshots: dict[str, str] = Field(default_factory=dict)
     specs: dict[str, Any] = Field(default_factory=dict)
+    quality_gate: ChartPackQualityGate | None = None
 
 
 class ChartPackListResponse(BaseModel):

@@ -11,22 +11,31 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = state_db_path()
 _IMPORTED_DB_PATH = Path(DB_PATH)
+_ENV_DERIVED_DB_PATH: Path | None = None
+_DOI_UNSET = object()
 
 
 def get_db_path() -> Path:
-    global DB_PATH
+    global DB_PATH, _ENV_DERIVED_DB_PATH
     env_value = os.getenv("PAPERPIPE_DB_PATH")
     if env_value:
         resolved = Path(env_value).expanduser().resolve()
         DB_PATH = resolved
+        _ENV_DERIVED_DB_PATH = resolved
         return resolved
 
     configured = Path(DB_PATH).expanduser().resolve()
+    if _ENV_DERIVED_DB_PATH is not None and configured == _ENV_DERIVED_DB_PATH:
+        _ENV_DERIVED_DB_PATH = None
+        DB_PATH = state_db_path()
+        configured = Path(DB_PATH).expanduser().resolve()
     if configured != _IMPORTED_DB_PATH:
+        _ENV_DERIVED_DB_PATH = None
         return configured
 
     resolved = state_db_path()
     DB_PATH = resolved
+    _ENV_DERIVED_DB_PATH = None
     return resolved
 
 
@@ -278,6 +287,8 @@ def save_paper_state(
     source: str,
     processed_date: str,
     *,
+    doi: Any = _DOI_UNSET,
+    pdf_status: Optional[str] = None,
     local_pdf_path: Optional[str | Path] = None,
     feedback_json: Optional[str] = None,
     download_attempts: Optional[List[Dict[str, Any]]] = None,
@@ -309,13 +320,20 @@ def save_paper_state(
             except Exception:
                 attempts_payload = "[]"
 
+        if doi is _DOI_UNSET:
+            doi_value: Any = identifier
+        elif doi in (None, ""):
+            doi_value = None
+        else:
+            doi_value = str(doi)
+
         if "paper_id" in columns:
             insert_cols.append("paper_id")
             insert_vals.append(identifier)
             update_set.append("paper_id=excluded.paper_id")
         if "doi" in columns:
             insert_cols.append("doi")
-            insert_vals.append(identifier)
+            insert_vals.append(doi_value)
             update_set.append("doi=excluded.doi")
         if "title" in columns:
             insert_cols.append("title")
@@ -352,6 +370,10 @@ def save_paper_state(
             insert_cols.append("pdf_path")
             insert_vals.append(str(local_pdf_path))
             update_set.append("pdf_path=excluded.pdf_path")
+        if "pdf_status" in columns and pdf_status is not None:
+            insert_cols.append("pdf_status")
+            insert_vals.append(str(pdf_status))
+            update_set.append("pdf_status=excluded.pdf_status")
         if "feedback_json" in columns and feedback_json is not None:
             insert_cols.append("feedback_json")
             insert_vals.append(feedback_json)
@@ -637,6 +659,54 @@ def init_run_stats_table() -> None:
     )
     conn.commit()
     conn.close()
+
+
+def _ensure_legacy_runs_table(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+            date TEXT PRIMARY KEY,
+            status TEXT,
+            processed_count INTEGER,
+            last_run_at TIMESTAMP
+        )
+        """
+    )
+
+
+def record_run_status(
+    target_date: str,
+    status: str,
+    *,
+    processed_count: int | None = None,
+    last_run_at: str | None = None,
+) -> None:
+    """Compatibility helper for legacy daily-run status tracking."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        _ensure_legacy_runs_table(cursor)
+        normalized_status = str(status or "").strip().upper()
+        resolved_last_run_at = last_run_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """
+            INSERT INTO runs (date, status, processed_count, last_run_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                status = excluded.status,
+                processed_count = COALESCE(excluded.processed_count, runs.processed_count),
+                last_run_at = excluded.last_run_at
+            """,
+            (
+                target_date,
+                normalized_status,
+                processed_count,
+                resolved_last_run_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool) -> None:

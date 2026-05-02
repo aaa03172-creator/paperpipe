@@ -322,10 +322,19 @@ llm:
     api_key: ""   # mode=cloud일 때 필수, 그 외 선택
     model: "<cloud_model>"
   features:
-    trial_extraction: { enabled: true, model: "<feature_model>" }
+    specialty_trial_extraction: { enabled: true, model: "<feature_model>" }
     slot_classification: { enabled: true, model: "<feature_model>" }
     one_liner: { enabled: true, model: "<feature_model>" }
 ```
+
+호환성 메모:
+- legacy alias `llm.features.trial_extraction`는 기존 로컬 설정을 위해 계속 읽지만, load 시 `DeprecationWarning`을 내고 `specialty_trial_extraction`으로 마이그레이션해야 한다.
+- first-party surface 기준 alias 제거 목표일은 2026-06-30이다. 그 전까지는 warning-only compatibility로 유지한다.
+- 운영 명령:
+  - audit: `python3 scripts/check_legacy_trial_extraction_alias.py --root <scan-target>`
+  - migrate dry-run: `python3 scripts/migrate_legacy_trial_extraction_alias.py --root <scan-target>`
+  - migrate apply: `python3 scripts/migrate_legacy_trial_extraction_alias.py --root <scan-target> --apply`
+  - historical snapshot까지 rewrite가 꼭 필요할 때만: `python3 scripts/migrate_legacy_trial_extraction_alias.py --root <scan-target> --include-generated --include-historical-snapshots --apply`
 
 ---
 
@@ -817,13 +826,15 @@ paperpipe/
 - 기본 배포는 `localhost` 또는 내부망으로 제한
 - 옵션: 간단한 **API Key 헤더 인증**(예: `X-API-Key`) 지원
 - CORS는 `frontend` 오리진만 허용(와일드카드 금지)
-- 로그/응답에 로컬 파일 절대경로를 그대로 노출하지 않도록 마스킹 옵션 제공
+- 로그/응답에 로컬 파일 절대경로를 그대로 노출하지 않도록 기본 마스킹
 - 현재 기본값: `http://127.0.0.1:8000`, `http://localhost:8000` (환경변수로 확장 가능)
-- 현재 구현(2026-02-25):
-  - `LATTICE_API_KEY`(legacy: `PAPERPIPE_API_KEY`)가 설정되면 쓰기 엔드포인트 인증 활성화
+- 현재 구현(2026-03-28):
+  - `LATTICE_API_KEY`(legacy: `PAPERPIPE_API_KEY`)가 설정되면 보호된 쓰기/민감 읽기 엔드포인트 인증 활성화
   - `X-API-Key` 헤더 불일치/누락 시 `401 UNAUTHORIZED`
-  - 보호 대상: `POST /jobs/deepread`, `POST /jobs/{id}/cancel`, `POST /feedback`, `POST /obsidian/sync`
-  - 응답 경로 마스킹 옵션: `LATTICE_MASK_LOCAL_PATHS=true` (legacy: `PAPERPIPE_MASK_LOCAL_PATHS`)
+  - 보호 대상: `POST /jobs/deepread`, `POST /jobs/{id}/cancel`, `POST /feedback`, `POST /obsidian/sync`, `POST /ops/repair-stats`, `POST /skills/run`, `POST /user-actions`, `POST /research-dna*`, `POST /meeting-packs/*`, `POST /image-evidence/*`, `POST /chart-packs/*`, `POST /method-comparisons/*`, `POST /protocol-cards*`, `GET /papers/{paper_id}/pdf`, `GET /artifacts*`, `GET /jobs*`, `GET /runs/{run_id}*`, `GET /user-actions`
+  - 브라우저 UI는 same-origin `/api/*`만 호출하고, FastAPI가 이를 내부 root route로 브리지하면서 필요한 경우 서버 환경변수의 API key를 주입
+  - `VITE_*` frontend env에는 backend secret을 넣지 않음
+  - 응답 절대경로 마스킹은 기본 활성화이며 `LATTICE_MASK_LOCAL_PATHS=false`(legacy: `PAPERPIPE_MASK_LOCAL_PATHS=false`)로만 opt-out 가능
   - 운영 예시 문서: `docs/runtime_security_env.md`
 
 ### 18.6 SSE 안정성 — 권장
@@ -872,8 +883,8 @@ paperpipe/
   - SSE `Last-Event-ID` 기반 로그 replay(`log-*`), terminal replay(`done-*`)
   - SSE `retry` 힌트(2s) + heartbeat ping(20s)
   - CORS 기본 정책 localhost 제한 + 환경변수 확장(`LATTICE_CORS_ALLOW_ORIGINS`)
-  - 선택적 API Key 인증(`LATTICE_API_KEY`) + 쓰기 엔드포인트 가드(`X-API-Key`)
-  - 응답 절대경로 마스킹 옵션(`LATTICE_MASK_LOCAL_PATHS`)
+  - 선택적 API Key 인증(`LATTICE_API_KEY`) + 보호된 쓰기/민감 읽기 엔드포인트 가드(`X-API-Key`)
+  - 응답 절대경로 마스킹 기본 활성화(`LATTICE_MASK_LOCAL_PATHS=false`로만 opt-out)
   - `Last-Event-ID=done-*` 동일 terminal cursor 재접속 시 중복 `done` 미재생(상태만 전송)
   - stale `Last-Event-ID`(로그 길이 초과) 자동 보정(head replay)
   - `GET /obsidian/artifacts` (claimset/chunks/stats bundle, resolved 우선 fallback)

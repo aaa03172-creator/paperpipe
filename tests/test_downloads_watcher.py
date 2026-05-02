@@ -79,6 +79,40 @@ def test_downloads_watcher_matches_by_doi_and_updates_db(tmp_path):
         db_utils.DB_PATH = original_db_path
 
 
+def test_downloads_watcher_uses_runtime_storage_root_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERPIPE_HOME", str(tmp_path / "app-home"))
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        _create_tables(conn)
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, doi, title, pdf_status, pdf_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("paper_runtime_storage", "10.5555/runtime", "Runtime Storage Paper", "manual_required", None),
+        )
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "10.5555_runtime.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n%runtime\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir)
+
+        expected_root = (tmp_path / "app-home" / "storage" / "pdfs").resolve()
+        assert result.status == "matched_doi"
+        assert result.destination is not None
+        assert result.destination.parent == expected_root
+        assert result.destination.exists()
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_downloads_watcher_ambiguous_doi_moves_unmatched_and_queues_review(tmp_path):
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"

@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import traceback
 import csv
 import sqlite3
 import hashlib
@@ -9,7 +8,9 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Awaitable, Optional, List
+from urllib.parse import unquote, urlparse
 
+from backend.routers import paper_notes
 from src.config import load_config, resolve_clinical_extraction_feature
 from src.db_utils import get_db_connection
 from src.agents.ingest_agent import IngestAgent
@@ -22,12 +23,14 @@ except Exception as exc:  # pragma: no cover - exercised in import-smoke regress
     StatsVerificationAgent = None  # type: ignore[assignment]
     _STATS_AGENT_IMPORT_ERROR = exc
 from src.contracts.artifact_views import get_artifact_header, iter_text_sections
+from src.contracts.output_bridge import claim_cards_from_claimset_payload, normalize_claimset_payload
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.llm_provider import get_llm_provider
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import load_profiles
 from src.schemas.core import BiomedicalClinicalExtraction
-from src.services.event_log import log_job_event
+from src.schemas.skills import build_section_signal_summary
+from src.services.event_log import log_job_event, sanitize_event_payload_for_log, sanitize_event_text_for_log
 from src.services.identity import new_run_id
 from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
@@ -42,6 +45,10 @@ from src.services.evidence_extraction_sidecar import (
     build_evidence_extraction_bundle,
     write_evidence_extraction_bundle,
 )
+from src.services.figure_caption_sidecar import (
+    build_figure_caption_sidecar,
+    write_figure_caption_sidecar,
+)
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
@@ -55,16 +62,31 @@ from src.timeout_policy import (
 )
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
-from src.services.runtime_paths import artifact_run_dir, config_file_path, profiles_config_path
+from src.services.runtime_paths import artifact_run_dir, config_file_path, feedback_log_path, profiles_config_path
+from src.services.privacy_preflight import (
+    build_privacy_preflight_response,
+    privacy_preflight_should_block,
+    public_external_link_or_none,
+    resolve_privacy_preflight_mode,
+)
 from src.verify import resolve_anchor_api_context
-from src.skills.storage import split_frontmatter
+from src.skills.storage import (
+    atomic_write_text,
+    resolve_note_path,
+    resolve_note_slug_by_paper_id,
+    split_frontmatter,
+)
 
 logger = logging.getLogger("paperpipe.backend")
 
-# Global Job Queue Registry (In-Memory PubSub)
-JOB_QUEUES: Dict[str, asyncio.Queue] = {}
-FEEDBACK_FILE = Path("storage/feedback.jsonl")
+FEEDBACK_FILE: Path | None = None
 REVIEW_NEEDS_READER = "NEEDS_READER"
+_INFERENCE_NONE = "none"
+_INFERENCE_MIXED = "mixed"
+
+
+def _feedback_file() -> Path:
+    return FEEDBACK_FILE or feedback_log_path()
 
 
 def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
@@ -118,6 +140,50 @@ def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
     return None
 
 
+def _resolve_pdf_path_from_note_frontmatter(paper_id: str) -> Optional[Path]:
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        index = paper_notes._build_index(vault_path)
+        target = paper_notes._find_note_item_for_paper_id(index.items, paper_id)
+        if target is None:
+            return None
+
+        note_path = vault_path / target.note_path
+        if not note_path.exists():
+            return None
+
+        if target.has_runtime_source_metadata():
+            frontmatter = target.build_runtime_source_frontmatter()
+        else:
+            content = paper_notes._safe_read_text(note_path)
+            frontmatter, _ = paper_notes._parse_frontmatter(content)
+
+        candidates: list[Path] = []
+        for key in ("pdf_path", "local_pdf_path"):
+            raw = str(frontmatter.get(key) or "").strip()
+            if raw:
+                candidates.append(Path(raw).expanduser())
+
+        pdf_url = str(frontmatter.get("pdf_url") or "").strip()
+        if pdf_url.lower().startswith("file://"):
+            local_path = unquote(urlparse(pdf_url).path or "")
+            if local_path:
+                candidates.append(Path(local_path).expanduser())
+        elif (
+            pdf_url
+            and not pdf_url.startswith("/papers/")
+            and "://" not in pdf_url
+        ):
+            candidates.append(Path(pdf_url).expanduser())
+
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+    except Exception as exc:
+        logger.debug("Note-backed pdf lookup failed for %s: %s", paper_id, exc)
+    return None
+
+
 def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
     vault_path = config.paths.obsidian_vault
     idx_files = [config.paths.index_all, Path("00_Index/on_demand.csv")]
@@ -166,6 +232,15 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
     finally:
         if conn is not None:
             conn.close()
+
+    try:
+        note_slug = resolve_note_slug_by_paper_id(vault_path, paper_id)
+        if note_slug:
+            note_path = resolve_note_path(vault_path, note_slug)
+            if note_path is not None and note_path.exists():
+                return note_path
+    except Exception as exc:
+        logger.debug("Vault note_path lookup failed for %s: %s", paper_id, exc)
     return None
 
 
@@ -205,7 +280,7 @@ def _build_biomedical_clinical_extraction_inputs(doc, paper_id: str) -> tuple[di
     paper_payload = {
         "title": header.title or paper_id,
         "summary": summary,
-        "link": header.source_ref,
+        "link": public_external_link_or_none(header.source_ref),
         "doi": paper_id if str(paper_id).startswith("10.") or str(paper_id).startswith("doi:") else None,
         "authors": header.authors,
         "source": "deepread_job",
@@ -234,6 +309,28 @@ def _resolve_persona_hint(persona_id: str) -> Optional[str]:
     return None
 
 
+def _build_claimset_section_summary_payload(resolved_claimset: Any) -> list[Dict[str, Any]]:
+    payload: Dict[str, Any] | None = None
+    if hasattr(resolved_claimset, "model_dump"):
+        try:
+            dumped = resolved_claimset.model_dump(mode="json")
+        except Exception:
+            dumped = None
+        if isinstance(dumped, dict):
+            payload = dumped
+    elif isinstance(resolved_claimset, dict):
+        payload = resolved_claimset
+
+    normalized = normalize_claimset_payload(payload)
+    if normalized is None:
+        return []
+    try:
+        return build_section_signal_summary(claim_cards_from_claimset_payload(normalized))
+    except Exception as exc:
+        logger.debug("Failed to derive claimset section summary: %s", exc)
+        return []
+
+
 def _load_similar_feedback_top3(query_text: str, limit: int = 3) -> List[Dict[str, str]]:
     """
     Uses FeedbackRetriever to find top-K approved feedback cases relevant to the query.
@@ -245,11 +342,12 @@ def _load_similar_feedback_top3(query_text: str, limit: int = 3) -> List[Dict[st
             return cases
     except Exception as e:
         logger.warning(f"Failed to load similar feedback: {e}")
-    if not FEEDBACK_FILE.exists():
+    feedback_file = _feedback_file()
+    if not feedback_file.exists():
         return []
 
     # Fallback: JSONL recent accepted feedback scan.
-    lines = FEEDBACK_FILE.read_text(encoding="utf-8").splitlines()
+    lines = feedback_file.read_text(encoding="utf-8").splitlines()
     items: List[Dict[str, str]] = []
     seen_papers: set[str] = set()
     for raw in reversed(lines):
@@ -268,7 +366,7 @@ def _load_similar_feedback_top3(query_text: str, limit: int = 3) -> List[Dict[st
         corr = str(rec.get("user_correction") or "").strip()
         if not corr:
             continue
-        preview = corr.replace("\n", " ")[:180]
+        preview = (sanitize_event_text_for_log(corr) or "").replace("\n", " ")[:180]
         items.append({"paper_id": rec_paper, "preview": preview})
         seen_papers.add(rec_paper)
         if len(items) >= limit:
@@ -327,18 +425,215 @@ def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
 
 def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     try:
-        with open(artifact_dir / "bootstrap_meta.json", "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        atomic_write_text(
+            artifact_dir / "bootstrap_meta.json",
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
     except Exception as exc:
         logger.warning("Failed to write bootstrap_meta.json: %s", exc)
 
 
 def _write_run_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     try:
-        with open(artifact_dir / "run_meta.json", "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        atomic_write_text(
+            artifact_dir / "run_meta.json",
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
     except Exception as exc:
         logger.warning("Failed to write run_meta.json: %s", exc)
+
+
+def _write_reader_timeout_sidecar(
+    artifact_dir: Path,
+    *,
+    job_id: str,
+    run_id: str,
+    paper_id: str,
+    timeout_message: str,
+    timeout_budget_sec: int,
+    page_count: int,
+    table_count: int,
+    error_type: str,
+    bootstrap_meta: Dict[str, Any],
+) -> Path | None:
+    payload = {
+        "schema_version": "reader_timeout.v1",
+        "layer": "review_gate_artifact",
+        "canonical_status": "non_canonical",
+        "job_id": job_id,
+        "run_id": run_id,
+        "paper_id": paper_id,
+        "status": "timeout",
+        "message": timeout_message,
+        "error_type": error_type,
+        "timeout_budget_sec": int(timeout_budget_sec),
+        "page_count": int(page_count),
+        "table_count": int(table_count),
+        "reader_model": bootstrap_meta.get("reader_model"),
+        "reader_attempt_order": bootstrap_meta.get("reader_attempt_order"),
+        "reader_provider_timeout_sec": bootstrap_meta.get("reader_provider_timeout_sec"),
+        "reader_provider_timeout_override_applied": bootstrap_meta.get(
+            "reader_provider_timeout_override_applied"
+        ),
+        "reader_analysis": bootstrap_meta.get("reader_analysis"),
+        "recommended_action": "retry_with_larger_reader_timeout_or_focused_first_reader_context",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = artifact_dir / "reader_timeout.json"
+    try:
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+        return path
+    except Exception as exc:
+        logger.warning("Failed to write reader_timeout.json: %s", exc)
+        return None
+
+
+def _class_name(obj: Any) -> str:
+    return type(obj).__name__ if obj is not None else ""
+
+
+def _resolve_task_backend_name(provider: Any, llm_mode: str | None, task: str) -> str:
+    class_name = _class_name(provider)
+    mode = str(llm_mode or "").strip().lower()
+    normalized_task = str(task or "").strip().lower()
+
+    if class_name == "HybridProvider":
+        local = getattr(provider, "local", None)
+        cloud = getattr(provider, "cloud", None)
+        use_cloud_for_task = normalized_task in {"escalation", "evaluate_escalation"}
+        if use_cloud_for_task and cloud is not None and callable(getattr(cloud, "is_available", None)) and cloud.is_available():
+            return "commercial"
+        if local is not None and callable(getattr(local, "is_available", None)) and local.is_available():
+            return "local"
+        if cloud is not None and callable(getattr(cloud, "is_available", None)) and cloud.is_available():
+            return "commercial"
+        return _INFERENCE_NONE
+    if class_name == "OpenAIProvider":
+        return "commercial"
+    if class_name == "OllamaProvider":
+        return "local"
+    if mode == "local":
+        return "local"
+    if mode == "cloud":
+        return "commercial"
+    if mode == "hybrid":
+        return _INFERENCE_MIXED
+    return _INFERENCE_NONE
+
+
+def _resolve_task_model_name(provider: Any, task: str) -> str | None:
+    get_model = getattr(provider, "_get_model", None)
+    if not callable(get_model):
+        return None
+    try:
+        model = get_model(task)
+    except Exception:
+        return None
+    text = str(model or "").strip()
+    return text or None
+
+
+def _refresh_inference_summary(run_meta: Dict[str, Any]) -> None:
+    lanes = run_meta.get("inference_lanes")
+    if not isinstance(lanes, dict) or not lanes:
+        run_meta["selected_backend"] = _INFERENCE_NONE
+        run_meta["payload_class"] = _INFERENCE_NONE
+        run_meta["redaction_applied"] = False
+        return
+
+    backends = {
+        str(lane.get("selected_backend") or "").strip()
+        for lane in lanes.values()
+        if isinstance(lane, dict) and str(lane.get("selected_backend") or "").strip() and str(lane.get("selected_backend") or "").strip() != _INFERENCE_NONE
+    }
+    payload_classes = {
+        str(lane.get("payload_class") or "").strip()
+        for lane in lanes.values()
+        if isinstance(lane, dict) and str(lane.get("payload_class") or "").strip() and str(lane.get("payload_class") or "").strip() != _INFERENCE_NONE
+    }
+    run_meta["selected_backend"] = next(iter(backends)) if len(backends) == 1 else (_INFERENCE_MIXED if backends else _INFERENCE_NONE)
+    run_meta["payload_class"] = next(iter(payload_classes)) if len(payload_classes) == 1 else (_INFERENCE_MIXED if payload_classes else _INFERENCE_NONE)
+    run_meta["redaction_applied"] = any(
+        bool(lane.get("redaction_applied"))
+        for lane in lanes.values()
+        if isinstance(lane, dict)
+    )
+
+
+def _record_inference_lane(
+    run_meta: Dict[str, Any],
+    *,
+    lane: str,
+    selected_backend: str,
+    payload_class: str,
+    redaction_applied: bool,
+    provider_name: str | None = None,
+    provider_model: str | None = None,
+) -> None:
+    lanes = run_meta.setdefault("inference_lanes", {})
+    if not isinstance(lanes, dict):
+        lanes = {}
+        run_meta["inference_lanes"] = lanes
+    lanes[lane] = {
+        "selected_backend": str(selected_backend or _INFERENCE_NONE),
+        "payload_class": str(payload_class or _INFERENCE_NONE),
+        "redaction_applied": bool(redaction_applied),
+        "provider_name": str(provider_name or "").strip() or None,
+        "provider_model": str(provider_model or "").strip() or None,
+    }
+    _refresh_inference_summary(run_meta)
+
+
+def _record_privacy_preflight(run_meta: Dict[str, Any], *, lane: str, payload: Dict[str, Any]) -> None:
+    lanes = run_meta.setdefault("inference_lanes", {})
+    if not isinstance(lanes, dict):
+        lanes = {}
+        run_meta["inference_lanes"] = lanes
+    lane_payload = lanes.setdefault(lane, {})
+    if isinstance(lane_payload, dict):
+        lane_payload["privacy_preflight"] = payload
+
+
+def _reader_inference_lane_from_metrics(reader_obj: Any) -> Dict[str, Any]:
+    metrics = getattr(reader_obj, "last_analysis_metrics", None)
+    attempts = metrics.get("attempts") if isinstance(metrics, dict) else None
+    selected_attempt = metrics.get("selected_attempt") if isinstance(metrics, dict) else None
+    if isinstance(attempts, list) and attempts:
+        chosen: Dict[str, Any] | None = None
+        if selected_attempt is not None:
+            for attempt in attempts:
+                if not isinstance(attempt, dict):
+                    continue
+                if attempt.get("attempt_idx") == selected_attempt:
+                    chosen = attempt
+                    break
+        if chosen is None:
+            for attempt in reversed(attempts):
+                if isinstance(attempt, dict) and (
+                    attempt.get("provider_name")
+                    or attempt.get("provider_model")
+                    or attempt.get("provider_status")
+                ):
+                    chosen = attempt
+                    break
+        if isinstance(chosen, dict):
+            provider_name = str(chosen.get("provider_name") or "").strip() or "ollama"
+            provider_model = str(chosen.get("provider_model") or "").strip() or None
+            return {
+                "selected_backend": "local",
+                "payload_class": "local_only",
+                "redaction_applied": False,
+                "provider_name": provider_name,
+                "provider_model": provider_model,
+            }
+    model_name = str(getattr(reader_obj, "model_name", "") or "").strip() or None
+    return {
+        "selected_backend": "local",
+        "payload_class": "local_only",
+        "redaction_applied": False,
+        "provider_name": "ollama",
+        "provider_model": model_name,
+    }
 
 
 def _sha256_file(path: Path) -> str:
@@ -630,12 +925,11 @@ async def run_deepread_job(
     """
     Async Job Runner for Deep Read Pipeline.
     Orchestrates: Ingest -> Index -> Read -> Verify.
-    Emits events to JOB_QUEUES[job_id].
+    Emits structured events through log_job_event and the optional progress_callback.
     """
     if not run_id:
         run_id = new_run_id()
-    
-    queue = JOB_QUEUES.get(job_id)
+
     artifact_dir: Optional[Path] = None
     bootstrap_meta: Optional[Dict[str, Any]] = None
     run_meta: Optional[Dict[str, Any]] = None
@@ -654,31 +948,29 @@ async def run_deepread_job(
         return bool(result)
 
     async def emit(stage: str, progress: int, message: str, level: str = "INFO"):
+        safe_message = sanitize_event_text_for_log(message) or ""
         event = {
             "job_id": job_id,
             "run_id": run_id,
             "stage": stage,
             "progress": progress,
-            "message": message,
+            "message": safe_message,
             "level": level,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        event = sanitize_event_payload_for_log(event)
         try:
             log_job_event(
                 job_id=job_id,
                 run_id=run_id,
                 level=level,
                 event_type="progress",
-                message=message,
+                message=safe_message,
                 payload=event,
                 ts=str(event["timestamp"]),
             )
         except Exception as exc:
             logger.debug("Structured job event logging failed for %s: %s", job_id, exc)
-        if queue:
-            await queue.put({"event": "progress", "data": json.dumps(event)})
-            if level == "ERROR":
-                await queue.put({"event": "error", "data": json.dumps(event)})
         if progress_callback:
             await progress_callback(event)
         return event
@@ -695,7 +987,16 @@ async def run_deepread_job(
 
     def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
         metrics = getattr(reader_obj, "last_analysis_metrics", None)
+        if run_meta is not None:
+            _record_inference_lane(
+                run_meta,
+                lane="reader",
+                **_reader_inference_lane_from_metrics(reader_obj),
+            )
         if not isinstance(metrics, dict) or not metrics:
+            if run_meta is not None:
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
             return
         bootstrap_meta["reader_analysis"] = dict(metrics)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -720,6 +1021,11 @@ async def run_deepread_job(
         pdf_path = _resolve_pdf_path_from_db(paper_id)
         if pdf_path:
             logger.info(f"✅ Found PDF from DB path: {pdf_path}")
+
+        if not pdf_path:
+            pdf_path = _resolve_pdf_path_from_note_frontmatter(paper_id)
+            if pdf_path:
+                logger.info(f"✅ Found PDF from note metadata: {pdf_path}")
 
         # Simple heuristic: Look in Library root or subdirs
         if not pdf_path:
@@ -763,8 +1069,13 @@ async def run_deepread_job(
             "llm_params": _collect_llm_params(config),
             "embed_params": _collect_embed_params(config),
             "tool_policy_version": "v1",
+            "selected_backend": _INFERENCE_NONE,
+            "payload_class": _INFERENCE_NONE,
+            "redaction_applied": False,
+            "inference_lanes": {},
             "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
             "status": "running",
+            "section_count": 0,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -792,10 +1103,13 @@ async def run_deepread_job(
             "artifact_document_written": False,
             "artifact_index_written": False,
             "artifact_claimset_written": False,
+            "artifact_figure_captions_written": False,
+            "artifact_reader_timeout_written": False,
             "artifact_stats_written": False,
             "claimset_readiness": "unknown",
             "claimset_ready": None,
             "claimset_claim_count": 0,
+            "claimset_section_count": 0,
             "claimset_readiness_reason": "not_evaluated",
             "claimset_readiness_badge": "UNKNOWN",
             "claimset_ops_action": "none",
@@ -866,9 +1180,30 @@ async def run_deepread_job(
             _write_run_meta(artifact_dir, run_meta)
 
         # Save Document Artifact
-        with open(artifact_dir / "document_artifact.json", "w") as f:
-            f.write(doc_artifact.model_dump_json(indent=2))
+        atomic_write_text(
+            artifact_dir / "document_artifact.json",
+            doc_artifact.model_dump_json(indent=2),
+        )
         bootstrap_meta["artifact_document_written"] = True
+        try:
+            figure_caption_sidecar = build_figure_caption_sidecar(
+                paper_id=paper_id,
+                run_id=run_id,
+                document_artifact=doc_artifact,
+            )
+            figure_caption_path = write_figure_caption_sidecar(figure_caption_sidecar, artifact_dir)
+            bootstrap_meta["artifact_figure_captions_written"] = True
+            bootstrap_meta["figure_caption_count"] = int(figure_caption_sidecar.metrics.figure_count)
+            bootstrap_meta["figure_caption_artifact"] = str(figure_caption_path)
+            if run_meta is not None:
+                run_meta["figure_caption_artifact"] = str(figure_caption_path)
+                run_meta["figure_caption_count"] = bootstrap_meta["figure_caption_count"]
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+        except Exception as exc:
+            logger.warning("Failed to write figure_captions.json: %s", exc)
+            bootstrap_meta["artifact_figure_captions_written"] = False
+            bootstrap_meta["figure_caption_error"] = str(exc)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
 
         note_path: Optional[Path] = _resolve_note_path_for_paper(config, paper_id)
@@ -888,17 +1223,63 @@ async def run_deepread_job(
         if is_clinical_note and clinical_extraction_enabled and llm_conf is not None:
             llm_provider = get_llm_provider(llm_conf, getattr(config, "entity_aliases", None))
             if llm_provider and llm_provider.is_available():
+                _record_inference_lane(
+                    run_meta,
+                    lane="clinical_extraction",
+                    selected_backend=_resolve_task_backend_name(
+                        llm_provider,
+                        getattr(llm_conf, "mode", None),
+                        "clinical_extraction",
+                    ),
+                    payload_class="external_allowed",
+                    redaction_applied=True,
+                    provider_name=_class_name(llm_provider),
+                    provider_model=_resolve_task_model_name(llm_provider, "clinical_extraction"),
+                )
+                _write_run_meta(artifact_dir, run_meta)
                 extract_clinical = getattr(llm_provider, "extract_biomedical_clinical_data", None)
                 if callable(extract_clinical):
                     try:
                         paper_payload, methods_snippet = _build_biomedical_clinical_extraction_inputs(doc_artifact, paper_id)
-                        extraction_candidate = extract_clinical(paper_payload, methods_snippet)
+                        preflight_mode = resolve_privacy_preflight_mode()
+                        preflight = build_privacy_preflight_response(
+                            mode=preflight_mode,
+                            payload_class="external_allowed",
+                            scope="clinical_extraction_external_payload",
+                            payload_texts=[
+                                ("paper_metadata", json.dumps(paper_payload, ensure_ascii=False)),
+                                ("methods_snippet", methods_snippet),
+                            ],
+                            input_refs=[f"paper:{paper_id}", f"run:{run_id}"],
+                            redaction_applied=True,
+                        )
+                        if preflight.mode != "off":
+                            _record_privacy_preflight(
+                                run_meta,
+                                lane="clinical_extraction",
+                                payload=preflight.model_dump(mode="json"),
+                            )
+                            _write_run_meta(artifact_dir, run_meta)
+                        if privacy_preflight_should_block(preflight):
+                            bootstrap_meta["clinical_extraction_status"] = "privacy_preflight_blocked"
+                            run_meta["clinical_extraction_status"] = "privacy_preflight_blocked"
+                            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                            _write_run_meta(artifact_dir, run_meta)
+                            await emit(
+                                "ingest",
+                                28,
+                                "Biomedical clinical extraction blocked by privacy preflight",
+                                level="WARNING",
+                            )
+                            extraction_candidate = None
+                        else:
+                            extraction_candidate = extract_clinical(paper_payload, methods_snippet)
                         if isinstance(extraction_candidate, BiomedicalClinicalExtraction):
                             clinical_extraction = extraction_candidate
                             clinical_path = artifact_dir / "clinical_extraction.json"
-                            clinical_path.write_text(
+                            atomic_write_text(
+                                clinical_path,
                                 clinical_extraction.model_dump_json(indent=2),
-                                encoding="utf-8",
                             )
                             bootstrap_meta["artifact_clinical_extraction_written"] = True
                             bootstrap_meta["clinical_extraction_status"] = "completed"
@@ -907,11 +1288,22 @@ async def run_deepread_job(
                             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                             _write_run_meta(artifact_dir, run_meta)
                             await emit("ingest", 28, "Biomedical clinical extraction artifact written")
+                        elif privacy_preflight_should_block(preflight):
+                            pass
                         else:
                             bootstrap_meta["clinical_extraction_status"] = "empty"
                             run_meta["clinical_extraction_status"] = "empty"
                             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
                             _write_run_meta(artifact_dir, run_meta)
+                    except ValueError as exc:
+                        if "LATTICE_PRIVACY_PREFLIGHT_MODE" not in str(exc):
+                            raise
+                        bootstrap_meta["clinical_extraction_status"] = "failed:invalid_privacy_preflight_mode"
+                        run_meta["clinical_extraction_status"] = "failed:invalid_privacy_preflight_mode"
+                        run_meta["privacy_preflight_error"] = str(exc)
+                        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                        _write_run_meta(artifact_dir, run_meta)
+                        await emit("ingest", 28, "Biomedical clinical extraction skipped: invalid privacy preflight mode", level="WARNING")
                     except Exception as exc:
                         bootstrap_meta["clinical_extraction_status"] = f"failed:{type(exc).__name__}"
                         run_meta["clinical_extraction_status"] = f"failed:{type(exc).__name__}"
@@ -919,6 +1311,15 @@ async def run_deepread_job(
                         _write_run_meta(artifact_dir, run_meta)
                         await emit("ingest", 28, f"Biomedical clinical extraction skipped: {type(exc).__name__}", level="WARNING")
             else:
+                _record_inference_lane(
+                    run_meta,
+                    lane="clinical_extraction",
+                    selected_backend=_INFERENCE_NONE,
+                    payload_class="external_allowed",
+                    redaction_applied=True,
+                    provider_name=_class_name(llm_provider),
+                    provider_model=None,
+                )
                 bootstrap_meta["clinical_extraction_status"] = "llm_unavailable"
                 run_meta["clinical_extraction_status"] = "llm_unavailable"
                 _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -953,8 +1354,10 @@ async def run_deepread_job(
         index_artifact = indexer_agent.process(doc_artifact)
         
         # Save Index Artifact
-        with open(artifact_dir / "index_artifact.json", "w") as f:
-             f.write(index_artifact.model_dump_json(indent=2))
+        atomic_write_text(
+            artifact_dir / "index_artifact.json",
+            index_artifact.model_dump_json(indent=2),
+        )
         bootstrap_meta["artifact_index_written"] = True
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
              
@@ -1029,6 +1432,8 @@ async def run_deepread_job(
         bootstrap_meta["reader_table_count"] = table_count
         bootstrap_meta["reader_timeout_triggered"] = False
         bootstrap_meta["reader_timeout_error_type"] = None
+        bootstrap_meta["artifact_reader_timeout_written"] = False
+        bootstrap_meta["reader_timeout_artifact"] = None
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         if run_meta is not None:
             run_meta["reader_timeout_base_sec"] = reader_timeout_base
@@ -1038,6 +1443,7 @@ async def run_deepread_job(
             run_meta["reader_table_count"] = table_count
             run_meta["reader_timeout_triggered"] = False
             run_meta["reader_timeout_error_type"] = None
+            run_meta["reader_timeout_artifact"] = None
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
         await emit("read", 54, f"Reader timeout budget: {reader_timeout_budget}s")
@@ -1048,8 +1454,15 @@ async def run_deepread_job(
                 attempt_order=reader_attempt_order,
             )
         except TypeError:
-            # Test doubles may expose a simplified constructor.
-            reader_agent = ReaderAgent()
+            try:
+                # Test doubles may accept the legacy constructor without attempt_order.
+                reader_agent = ReaderAgent(
+                    model_name=main_model,
+                    persona_hint=persona_hint,
+                )
+            except TypeError:
+                # Final fallback for minimal test doubles.
+                reader_agent = ReaderAgent()
         timeout_override = _apply_reader_timeout_budget(reader_agent, reader_timeout_budget)
         bootstrap_meta["reader_provider_timeout_sec"] = timeout_override["effective_timeout_sec"]
         bootstrap_meta["reader_provider_timeout_override_applied"] = bool(timeout_override["applied"])
@@ -1076,10 +1489,29 @@ async def run_deepread_job(
             )
             bootstrap_meta["reader_timeout_triggered"] = True
             bootstrap_meta["reader_timeout_error_type"] = type(exc).__name__
+            timeout_sidecar_path = _write_reader_timeout_sidecar(
+                artifact_dir,
+                job_id=job_id,
+                run_id=run_id,
+                paper_id=paper_id,
+                timeout_message=timeout_message,
+                timeout_budget_sec=reader_timeout_budget,
+                page_count=page_count,
+                table_count=table_count,
+                error_type=type(exc).__name__,
+                bootstrap_meta=bootstrap_meta,
+            )
+            bootstrap_meta["artifact_reader_timeout_written"] = timeout_sidecar_path is not None
+            bootstrap_meta["reader_timeout_artifact"] = (
+                str(timeout_sidecar_path) if timeout_sidecar_path is not None else None
+            )
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             if run_meta is not None:
                 run_meta["reader_timeout_triggered"] = True
                 run_meta["reader_timeout_error_type"] = type(exc).__name__
+                run_meta["reader_timeout_artifact"] = (
+                    str(timeout_sidecar_path) if timeout_sidecar_path is not None else None
+                )
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
             await emit("read", 55, timeout_message, level="ERROR")
@@ -1096,10 +1528,14 @@ async def run_deepread_job(
         )
              
         # Save ClaimSet
-        with open(artifact_dir / "claimset.json", "w") as f:
-            f.write(claim_set.model_dump_json(indent=2))
-        with open(artifact_dir / "claimset.resolved.json", "w") as f:
-            f.write(resolved_claim_set.model_dump_json(indent=2))
+        atomic_write_text(
+            artifact_dir / "claimset.json",
+            claim_set.model_dump_json(indent=2),
+        )
+        atomic_write_text(
+            artifact_dir / "claimset.resolved.json",
+            resolved_claim_set.model_dump_json(indent=2),
+        )
         bootstrap_meta["artifact_claimset_written"] = True
         bootstrap_meta["artifact_claimset_resolved_written"] = True
         bootstrap_meta["artifact_reader_eval_written"] = False
@@ -1117,6 +1553,14 @@ async def run_deepread_job(
             for span in claim.evidence_spans
             if span.grounded is False
         )
+        section_summary = _build_claimset_section_summary_payload(resolved_claim_set)
+        bootstrap_meta["claimset_section_count"] = len(section_summary)
+        if run_meta is not None:
+            run_meta["section_count"] = len(section_summary)
+            if section_summary:
+                run_meta["section_summary"] = section_summary
+            else:
+                run_meta.pop("section_summary", None)
         try:
             reader_eval = build_reader_eval_sidecar(
                 paper_id=paper_id,
@@ -1224,8 +1668,10 @@ async def run_deepread_job(
                 )
                 
                 # Save Report
-                with open(artifact_dir / "stats_report.json", "w") as f:
-                    f.write(stats_report.model_dump_json(indent=2))
+                atomic_write_text(
+                    artifact_dir / "stats_report.json",
+                    stats_report.model_dump_json(indent=2),
+                )
                 bootstrap_meta["verifier_status"] = "completed"
                 bootstrap_meta["stats_report_written"] = True
                 bootstrap_meta["artifact_stats_written"] = True
@@ -1335,20 +1781,18 @@ async def run_deepread_job(
                 )
                 note_content = note_path.read_text(encoding="utf-8")
                 note_updated = upsert_deepread_section(note_content, deepread_md)
-                note_path.write_text(note_updated, encoding="utf-8")
+                atomic_write_text(note_path, note_updated)
                 await emit("read", 78, f"Deep Read section upserted: {note_path.name}")
         except Exception as note_err:
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
-        if queue:
-            await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "succeeded", "run_id": run_id})})
         return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
 
     except Exception as e:
-        logger.error(f"Job Failed: {e}")
-        traceback.print_exc() # Print trace to stdout for debugging
-        _mark_run_meta("failed", error=str(e), error_type=type(e).__name__)
+        safe_error = sanitize_event_text_for_log(str(e)) or type(e).__name__
+        logger.error("Job Failed: %s", safe_error)
+        _mark_run_meta("failed", error=safe_error, error_type=type(e).__name__)
         if artifact_dir is not None and bootstrap_meta is not None:
             bootstrap_meta["claimset_readiness"] = "unknown"
             bootstrap_meta["claimset_ready"] = None
@@ -1372,14 +1816,5 @@ async def run_deepread_job(
                 run_meta["handoff_artifacts"] = handoff_artifacts
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
-        await emit("error", 0, str(e), level="ERROR")
-        if queue:
-            await queue.put({"event": "completed", "data": json.dumps({"job_id": job_id, "status": "failed", "error": str(e)})})
-        return {"status": "failed", "error": str(e), "run_id": run_id}
-    finally:
-        # Cleanup queue after short delay to allow client to disconnect?
-        # Actually EventSourceResponse typically handles disconnect.
-        # We might keep the queue for a bit or let it be garbage collected if we remove from dict.
-        # For MVP, we leave it or remove it.
-        # del JOB_QUEUES[job_id] # Keeping it might stream empty?
-        pass
+        await emit("error", 0, safe_error, level="ERROR")
+        return {"status": "failed", "error": safe_error, "run_id": run_id}

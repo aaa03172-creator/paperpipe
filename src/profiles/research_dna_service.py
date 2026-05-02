@@ -47,10 +47,13 @@ from src.profiles.research_dna_store import (
     load_research_dna,
     research_dna_log_path,
     research_dna_profile_path,
+    sanitize_research_dna_log_model,
+    sanitize_research_dna_log_payload,
     save_research_dna,
 )
 from src.schemas import Paper
 from src.services.runtime_paths import search_eval_root as default_search_eval_root
+from src.skills.storage import atomic_write_text
 
 _QUERY_TOKEN_BLACKLIST = {
     "and",
@@ -167,6 +170,7 @@ def log_interview_response(
         actor_type=actor_type,
         actor_id=actor_id,
     )
+    entry = sanitize_research_dna_log_model(entry)
     append_interview_log(dna_id, entry, root)
     return dna, entry
 
@@ -1015,7 +1019,7 @@ def load_research_dna_run_index(
     run_rows = _read_jsonl(run_log_path) if run_log_path.exists() else []
     run_entries = sorted(
         (
-            RunLogEntry.model_validate(row)
+            RunLogEntry.model_validate(sanitize_research_dna_log_payload(row))
             for row in run_rows
             if str(row.get("dna_id") or "").strip() == dna_id
         ),
@@ -2196,7 +2200,7 @@ def _load_run_screening_entries(
     screening_log_path = research_dna_log_path(dna_id, "screening", root)
     screening_rows = _read_jsonl(screening_log_path) if screening_log_path.exists() else []
     return [
-        ScreeningLogEntry.model_validate(row)
+        ScreeningLogEntry.model_validate(sanitize_research_dna_log_payload(row))
         for row in screening_rows
         if str(row.get("run_id") or "").strip() == run_id
     ]
@@ -2375,13 +2379,9 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False))
-            handle.write("\n")
+    payload = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    atomic_write_text(path, payload)

@@ -23,6 +23,7 @@ def test_run_audit_aggregates_handoff_statuses(tmp_path: Path) -> None:
             "review_ready": True,
             "reason_codes": [],
             "hard_fail_codes": [],
+            "checks": [{"name": "section_navigation_signal", "status": "pass", "detail": "ok"}],
             "step_stability_summary": {"status": "pass", "reason_codes": [], "detail": "ok"},
             "failure_recovery_summary": {"status": "pass", "reason_codes": [], "detail": "ok"},
         },
@@ -46,6 +47,7 @@ def test_run_audit_aggregates_handoff_statuses(tmp_path: Path) -> None:
             "review_ready": False,
             "reason_codes": ["RUN_NOT_SUCCEEDED"],
             "hard_fail_codes": ["RUN_NOT_SUCCEEDED"],
+            "checks": [{"name": "section_navigation_signal", "status": "warn", "detail": "missing"}],
             "step_stability_summary": {
                 "status": "fail",
                 "reason_codes": ["RUN_NOT_SUCCEEDED", "READER_TIMEOUT_TRIGGERED"],
@@ -85,9 +87,11 @@ def test_run_audit_aggregates_handoff_statuses(tmp_path: Path) -> None:
     assert summary["step_stability_status_counts"] == {"fail": 1, "pass": 1}
     assert summary["failure_recovery_status_counts"] == {"pass": 1, "warn": 1}
     assert summary["goal_drift_status_counts"] == {"pass": 1, "warn": 1}
+    assert summary["section_navigation_signal_status_counts"] == {"pass": 1, "warn": 1}
     assert summary["review_ready_count"] == 1
     assert summary["promotion_candidate_count"] == 1
     assert summary["runs_with_goal_drift_warn"] == ["run-b"]
+    assert summary["runs_with_section_navigation_signal_warn_or_fail"] == ["run-b"]
     assert summary["runs_with_step_stability_warn_or_fail"] == ["run-b"]
     assert summary["runs_with_failure_recovery_warn_or_fail"] == ["run-b"]
     assert summary["reason_code_counts"]["RUN_NOT_SUCCEEDED"] == 2
@@ -110,6 +114,7 @@ def test_run_audit_marks_missing_context_manifest(tmp_path: Path) -> None:
             "review_ready": False,
             "reason_codes": ["CLAIMSET_NOT_READY"],
             "hard_fail_codes": [],
+            "checks": [],
             "step_stability_summary": {"status": "warn", "reason_codes": ["HEURISTIC_FALLBACK_USED"], "detail": "warn"},
             "failure_recovery_summary": {"status": "pass", "reason_codes": [], "detail": "ok"},
         },
@@ -125,8 +130,10 @@ def test_run_audit_marks_missing_context_manifest(tmp_path: Path) -> None:
 
     assert summary["context_manifest_missing_count"] == 1
     assert summary["goal_drift_status_counts"] == {"missing": 1}
+    assert summary["section_navigation_signal_status_counts"] == {"missing": 1}
     assert details["runs"][0]["context_manifest_present"] is False
     assert details["runs"][0]["goal_drift_status"] == "missing"
+    assert details["runs"][0]["section_navigation_signal_status"] == "missing"
 
 
 def test_run_audit_records_manifest_inputs_and_loads_run_dirs(tmp_path: Path) -> None:
@@ -143,6 +150,7 @@ def test_run_audit_records_manifest_inputs_and_loads_run_dirs(tmp_path: Path) ->
             "review_ready": True,
             "reason_codes": [],
             "hard_fail_codes": [],
+            "checks": [{"name": "section_navigation_signal", "status": "pass", "detail": "ok"}],
             "step_stability_summary": {"status": "pass", "reason_codes": [], "detail": "ok"},
             "failure_recovery_summary": {"status": "pass", "reason_codes": [], "detail": "ok"},
         },

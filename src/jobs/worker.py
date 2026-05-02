@@ -7,7 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from src.jobs.queue import JobQueue
 from backend.services.job_runner import run_deepread_job
-from src.services.event_log import get_execution_run_params, log_job_event
+from src.services.event_log import (
+    get_execution_run_params,
+    log_job_event,
+    sanitize_event_payload_for_log,
+    sanitize_event_text_for_log,
+)
+from src.services.runtime_paths import logs_root
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -40,7 +46,7 @@ class Worker:
         logger.info(f"🚀 Starting Job {job.job_id} (Paper: {job.paper_id})")
         
         # Setup Logs
-        log_dir = Path("logs/jobs")
+        log_dir = logs_root() / "jobs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{job.job_id}.jsonl"
         heartbeat_stop = threading.Event()
@@ -83,18 +89,21 @@ class Worker:
             async def on_progress(event: dict):
                 if has_left_running_state():
                     return
+                safe_event = sanitize_event_payload_for_log(event)
+                if not isinstance(safe_event, dict):
+                    safe_event = {}
 
                 updates = {
-                    "progress": int(event.get("progress", 0)),
-                    "stage": event.get("stage", "running"),
+                    "progress": int(safe_event.get("progress", 0)),
+                    "stage": safe_event.get("stage", "running"),
                     "heartbeat_at": datetime.now(timezone.utc).isoformat(),
                 }
-                if event.get("level") == "ERROR":
-                    updates["error_message"] = event.get("message")
+                if safe_event.get("level") == "ERROR":
+                    updates["error_message"] = safe_event.get("message")
                 self.queue.update_job(job.job_id, updates)
 
                 with open(log_file, "a") as f:
-                    f.write(json.dumps(event) + "\n")
+                    f.write(json.dumps(safe_event) + "\n")
 
             run_params = get_execution_run_params(job.run_id)
             run_kwargs = {
@@ -162,7 +171,10 @@ class Worker:
                 )
                 logger.info(f"✅ Job {job.job_id} completed.")
             else:
-                error_message = (result or {}).get("error", "Deep Read pipeline failed")
+                error_message = (
+                    sanitize_event_text_for_log(str((result or {}).get("error") or "Deep Read pipeline failed"))
+                    or "Deep Read pipeline failed"
+                )
                 self.queue.update_job(job.job_id, {
                     "status": "failed",
                     "error_message": error_message,
@@ -198,6 +210,8 @@ class Worker:
                 updates["status"] = "cancelled"
                 updates["stage"] = "cancelled"
                 updates["error_message"] = "worker interrupted"
+            if "error_message" in updates:
+                updates["error_message"] = sanitize_event_text_for_log(str(updates["error_message"]))
             self.queue.update_job(job.job_id, updates)
             log_job_event(
                 job_id=job.job_id,
@@ -210,7 +224,8 @@ class Worker:
             raise
             
         except Exception as e:
-            logger.error(f"Job failed: {e}")
+            safe_error = sanitize_event_text_for_log(str(e)) or type(e).__name__
+            logger.error(f"Job failed: {safe_error}")
             state = current_state()
             if state and state.status in TERMINAL_STOP_STATUSES:
                 logger.info(
@@ -221,7 +236,7 @@ class Worker:
                 return
             self.queue.update_job(job.job_id, {
                 "status": "failed",
-                "error_message": str(e),
+                "error_message": safe_error,
                 "finished_at": datetime.now(timezone.utc).isoformat()
             })
             log_job_event(
@@ -229,8 +244,8 @@ class Worker:
                 run_id=job.run_id,
                 level="ERROR",
                 event_type="worker_exception",
-                message=str(e),
-                payload={"error": str(e)},
+                message=safe_error,
+                payload={"error": safe_error},
             )
         finally:
             heartbeat_stop.set()

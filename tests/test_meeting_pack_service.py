@@ -9,7 +9,11 @@ from src.profiles.profile_schema import Profile, ProfileConfig
 from src.profiles.profile_store import save_profiles_snapshot
 from src.profiles.research_dna_schema import RunLogEntry, ScreeningLogEntry
 from src.profiles.research_dna_store import append_run_log, append_screening_log
+from src.meeting_packs.renderer import render_meeting_pack_markdown
+from src.meeting_packs.handoff_artifacts import write_meeting_pack_handoff_artifacts
 from src.meeting_packs.service import (
+    backfill_meeting_pack_handoff_artifacts,
+    backfill_meeting_pack_titles,
     generate_meeting_pack,
     get_meeting_pack,
     get_meeting_pack_trace,
@@ -22,12 +26,14 @@ from src.meeting_packs.store import (
     list_meeting_pack_ids,
     load_meeting_pack_markdown,
     meeting_pack_artifact_path,
+    save_meeting_pack_artifact_json,
     meeting_pack_markdown_path,
     save_meeting_pack_bundle,
 )
 from src.schemas.meeting_pack import MeetingPack, MeetingPackGenerateRequest, MeetingPackOnePageSummary, MeetingPackSourceItem
 from src.schemas.skills import SkillClaimCard, SkillClaimEvidence, SkillRunRecord, StructuredPaperState
 from src.skills.storage import write_structured_state
+from tests.meeting_pack_actual_paper_fixture import ACTUAL_PAPER_ALIGNED_TITLE, write_actual_paper_aligned_source
 
 
 def _write_state(
@@ -330,16 +336,33 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     )
 
     assert response.pack.mode == "journal_club"
+    assert response.pack.layer == "user_facing_artifact"
+    assert response.pack.canonical_status == "non_canonical"
     assert response.pack.output_mode_family == "lab_meeting"
     assert response.pack.readiness == "evidence_backed"
     assert response.pack.evidence_refs[0].id == "evref_01"
     assert response.pack.generation_request is not None
     assert response.pack.generation_request.max_slides == 5
+    assert response.pack.artifact_brief is not None
+    assert response.pack.artifact_brief_review is not None
+    assert response.pack.artifact_brief_review.overall_status == "pass"
+    assert response.pack.artifact_brief.source_context.allowed_evidence_refs == ["evref_01"]
+    assert any(
+        item.role == "canonical" and item.layer == "canonical_structured_state"
+        for item in response.pack.artifact_brief.source_context.source_items
+    )
+    assert any(
+        item.kind == "key_point" and item.requires_evidence is True
+        for item in response.pack.artifact_brief.plan.items
+    )
     assert [entry.action for entry in response.pack.retrieval_trace] == ["selector_selected", "paper_state_loaded"]
     assert response.pack.retrieval_trace[-1].source_path == f".pp/{slug}/state.json"
     assert response.markdown_sync is not None
     assert response.markdown_sync.status == "in_sync"
     assert 5 <= len(response.pack.slides) <= 8
+    assert "- Layer: user_facing_artifact" in (response.markdown or "")
+    assert "## Artifact Brief Review" in (response.markdown or "")
+    assert "Promoted biomedical answers must jump back" in (response.markdown or "")
     assert "## Slide Outline" in (response.markdown or "")
     assert list_meeting_pack_ids(root) == [response.pack.id]
     stored = get_meeting_pack(response.pack.id, root=root)
@@ -348,12 +371,356 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     quality_gate_payload = meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root)
     assert contract_payload.exists()
     assert quality_gate_payload.exists()
+
+
+def test_generate_meeting_pack_normalizes_generic_browser_title_to_source_title(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_path, slug)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Browser generated meeting draft",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.title == slug
+    assert response.pack.generation_request is not None
+    assert response.pack.generation_request.title == slug
+    contract_payload = meeting_pack_artifact_path(response.pack.id, "acceptance_contract.json", root)
+    quality_gate_payload = meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root)
     contract = json.loads(contract_payload.read_text(encoding="utf-8"))
     gate = json.loads(quality_gate_payload.read_text(encoding="utf-8"))
     assert contract["workflow"] == "meeting_pack"
+    assert any(check["name"] == "artifact_brief_persisted" for check in contract["acceptance_checks"])
     assert gate["overall_status"] == "pass"
     assert gate["bundle_ready"] is True
     assert gate["discussion_ready"] is True
+    assert any(check["name"] == "artifact_brief_review" for check in gate["checks"])
+
+
+def test_backfill_meeting_pack_titles_dry_run_reports_candidates_without_mutation(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = MeetingPack(
+        id="meetingpack_20260408T140027103756Z_journal_club_06874005",
+        mode="journal_club",
+        title="Browser generated meeting draft",
+        created_at=datetime(2026, 4, 8, 14, 0, 27, 103756, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Browser generated meeting draft",
+            source_items=[{"type": "paper_slug", "ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024"}],
+            max_slides=7,
+        ),
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+                priority=1,
+                included=True,
+            )
+        ],
+        one_page_summary=MeetingPackOnePageSummary(overview="Historical generic title"),
+    )
+    save_meeting_pack_bundle(pack, render_meeting_pack_markdown(pack), root)
+
+    summary = backfill_meeting_pack_titles(root=root, apply=False)
+
+    assert summary["candidate_count"] == 1
+    assert summary["updated_count"] == 0
+    assert summary["dry_run"] is True
+    assert summary["results"][0]["to_title"] == (
+        "Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation"
+    )
+    stored_pack = get_meeting_pack(pack.id, root=root).pack
+    assert stored_pack.title == "Browser generated meeting draft"
+    assert stored_pack.generation_request is not None
+    assert stored_pack.generation_request.title == "Browser generated meeting draft"
+
+
+def test_backfill_meeting_pack_titles_apply_normalizes_title_and_markdown(tmp_path):
+    root = tmp_path / "meeting_packs"
+    pack = MeetingPack(
+        id="meetingpack_20260408T140027103756Z_journal_club_06874005",
+        mode="journal_club",
+        title="Browser generated meeting draft",
+        created_at=datetime(2026, 4, 8, 14, 0, 27, 103756, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Browser generated meeting draft",
+            source_items=[{"type": "paper_slug", "ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024"}],
+            max_slides=7,
+        ),
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+                priority=1,
+                included=True,
+            )
+        ],
+        one_page_summary=MeetingPackOnePageSummary(overview="Historical generic title"),
+    )
+    save_meeting_pack_bundle(pack, render_meeting_pack_markdown(pack), root)
+
+    summary = backfill_meeting_pack_titles(root=root, apply=True)
+
+    assert summary["candidate_count"] == 1
+    assert summary["updated_count"] == 1
+    assert summary["dry_run"] is False
+    stored_pack = get_meeting_pack(pack.id, root=root).pack
+    assert stored_pack.title == (
+        "Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation"
+    )
+    assert stored_pack.generation_request is not None
+    assert stored_pack.generation_request.title == stored_pack.title
+    stored_markdown = load_meeting_pack_markdown(pack.id, root)
+    assert stored_markdown.startswith(f"# {stored_pack.title}\n")
+    validation = validate_meeting_pack(pack.id, root=root).validation
+    assert validation.markdown_sync.status == "in_sync"
+
+
+def test_backfill_meeting_pack_handoff_artifacts_dry_run_reports_stale_quality_gate(tmp_path):
+    root = tmp_path / "meeting_packs"
+    generic_text = "The intervention shows an initial improvement window during early follow-up."
+
+    for index in range(3):
+        existing_pack = MeetingPack(
+            id=f"meetingpack_20260408T13{index:02d}00000000Z_journal_club_existing{index}",
+            mode="journal_club",
+            title=f"Existing draft {index}",
+            created_at=datetime(2026, 4, 8, 13, index, tzinfo=timezone.utc),
+            readiness="evidence_backed",
+            generation_request=MeetingPackGenerateRequest(
+                mode="journal_club",
+                title=f"Existing draft {index}",
+                source_items=[{"type": "paper_slug", "ref": f"paper-existing-{index}"}],
+                max_slides=6,
+            ),
+            source_items=[
+                MeetingPackSourceItem(
+                    id=f"src_existing_{index}",
+                    type="paper_slug",
+                    ref=f"paper-existing-{index}",
+                    title=f"paper-existing-{index}",
+                    priority=1,
+                    included=True,
+                )
+            ],
+            one_page_summary=MeetingPackOnePageSummary(
+                overview="Existing summary",
+                key_points=[{"label": "Key point 1", "text": generic_text}],
+            ),
+            retrieval_trace=[
+                {
+                    "order": 1,
+                    "selector_type": "paper_slug",
+                    "selector_ref": f"paper-existing-{index}",
+                    "action": "selector_selected",
+                    "outcome": "selected",
+                    "detail": "Selected paper slug.",
+                }
+            ],
+        )
+        save_meeting_pack_bundle(existing_pack, render_meeting_pack_markdown(existing_pack), root)
+        write_meeting_pack_handoff_artifacts(
+            pack=existing_pack,
+            root=root,
+            regenerate_strategy="saved_request",
+            markdown_sync_status="in_sync",
+        )
+
+    pack = MeetingPack(
+        id="meetingpack_20260408T140027103756Z_journal_club_06874005",
+        mode="journal_club",
+        title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+        created_at=datetime(2026, 4, 8, 14, 0, 27, 103756, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            source_items=[{"type": "paper_slug", "ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024"}],
+            max_slides=6,
+        ),
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+                priority=1,
+                included=True,
+            )
+        ],
+        one_page_summary=MeetingPackOnePageSummary(
+            overview="Historical contaminated summary",
+            key_points=[
+                {"label": "Key point 1", "text": generic_text},
+                {"label": "Key point 2", "text": "No severe adverse events were reported in the observed cohort."},
+            ],
+        ),
+        retrieval_trace=[
+            {
+                "order": 1,
+                "selector_type": "paper_slug",
+                "selector_ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                "action": "selector_selected",
+                "outcome": "selected",
+                "detail": "Selected paper slug.",
+            }
+        ],
+    )
+    save_meeting_pack_bundle(pack, render_meeting_pack_markdown(pack), root)
+    save_meeting_pack_artifact_json(
+        pack.id,
+        "quality_gate.json",
+        {"pack_id": pack.id, "overall_status": "pass", "reason_codes": []},
+        root=root,
+    )
+
+    summary = backfill_meeting_pack_handoff_artifacts(root=root, apply=False)
+
+    assert summary["candidate_count"] == 4
+    assert summary["updated_count"] == 0
+    assert summary["dry_run"] is True
+    result = next(item for item in summary["results"] if item["pack_id"] == pack.id)
+    assert result["quality_gate_changed"] is True
+    assert result["quality_gate_status_before"] == "pass"
+    assert result["quality_gate_status_after"] == "warn"
+    assert "GENERIC_KEY_POINT_TEXT" in result["quality_gate_reason_codes_after"]
+    assert "KEY_POINT_TEXT_REUSED" in result["quality_gate_reason_codes_after"]
+    assert "TITLE_KEYPOINT_TOKEN_MISMATCH" in result["quality_gate_reason_codes_after"]
+
+    stored_gate = json.loads(
+        meeting_pack_artifact_path(pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert stored_gate["overall_status"] == "pass"
+
+
+def test_backfill_meeting_pack_handoff_artifacts_apply_rewrites_stale_artifacts(tmp_path):
+    root = tmp_path / "meeting_packs"
+    generic_text = "The intervention shows an initial improvement window during early follow-up."
+
+    for index in range(3):
+        existing_pack = MeetingPack(
+            id=f"meetingpack_20260408T13{index:02d}10000000Z_journal_club_existing{index}",
+            mode="journal_club",
+            title=f"Existing draft {index}",
+            created_at=datetime(2026, 4, 8, 13, index, 1, tzinfo=timezone.utc),
+            readiness="evidence_backed",
+            generation_request=MeetingPackGenerateRequest(
+                mode="journal_club",
+                title=f"Existing draft {index}",
+                source_items=[{"type": "paper_slug", "ref": f"paper-existing-{index}"}],
+                max_slides=6,
+            ),
+            source_items=[
+                MeetingPackSourceItem(
+                    id=f"src_existing_{index}",
+                    type="paper_slug",
+                    ref=f"paper-existing-{index}",
+                    title=f"paper-existing-{index}",
+                    priority=1,
+                    included=True,
+                )
+            ],
+            one_page_summary=MeetingPackOnePageSummary(
+                overview="Existing summary",
+                key_points=[{"label": "Key point 1", "text": generic_text}],
+            ),
+            retrieval_trace=[
+                {
+                    "order": 1,
+                    "selector_type": "paper_slug",
+                    "selector_ref": f"paper-existing-{index}",
+                    "action": "selector_selected",
+                    "outcome": "selected",
+                    "detail": "Selected paper slug.",
+                }
+            ],
+        )
+        save_meeting_pack_bundle(existing_pack, render_meeting_pack_markdown(existing_pack), root)
+        write_meeting_pack_handoff_artifacts(
+            pack=existing_pack,
+            root=root,
+            regenerate_strategy="saved_request",
+            markdown_sync_status="in_sync",
+        )
+
+    pack = MeetingPack(
+        id="meetingpack_20260408T140027103756Z_journal_club_06874005",
+        mode="journal_club",
+        title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+        created_at=datetime(2026, 4, 8, 14, 0, 27, 103756, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        generation_request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            source_items=[{"type": "paper_slug", "ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024"}],
+            max_slides=6,
+        ),
+        source_items=[
+            MeetingPackSourceItem(
+                id="src_01",
+                type="paper_slug",
+                ref="zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+                priority=1,
+                included=True,
+            )
+        ],
+        one_page_summary=MeetingPackOnePageSummary(
+            overview="Historical contaminated summary",
+            key_points=[
+                {"label": "Key point 1", "text": generic_text},
+                {"label": "Key point 2", "text": "No severe adverse events were reported in the observed cohort."},
+            ],
+        ),
+        retrieval_trace=[
+            {
+                "order": 1,
+                "selector_type": "paper_slug",
+                "selector_ref": "zoteroduboisAlzheimerDiseaseClinicalBiological2024",
+                "action": "selector_selected",
+                "outcome": "selected",
+                "detail": "Selected paper slug.",
+            }
+        ],
+    )
+    save_meeting_pack_bundle(pack, render_meeting_pack_markdown(pack), root)
+    save_meeting_pack_artifact_json(
+        pack.id,
+        "quality_gate.json",
+        {"pack_id": pack.id, "overall_status": "pass", "reason_codes": []},
+        root=root,
+    )
+
+    summary = backfill_meeting_pack_handoff_artifacts(root=root, apply=True)
+
+    assert summary["candidate_count"] == 4
+    assert summary["updated_count"] == 4
+    assert summary["dry_run"] is False
+
+    stored_gate = json.loads(
+        meeting_pack_artifact_path(pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert stored_gate["overall_status"] == "warn"
+    assert "GENERIC_KEY_POINT_TEXT" in stored_gate["reason_codes"]
+    assert "KEY_POINT_TEXT_REUSED" in stored_gate["reason_codes"]
+    assert "TITLE_KEYPOINT_TOKEN_MISMATCH" in stored_gate["reason_codes"]
+    assert meeting_pack_artifact_path(pack.id, "acceptance_contract.json", root).exists()
 
 
 def test_list_meeting_packs_returns_recent_first_summary_items(tmp_path):
@@ -736,6 +1103,108 @@ def test_generate_meeting_pack_keeps_claim_without_direct_support_as_background_
     )
 
 
+def test_generate_meeting_pack_marks_generic_mismatched_pack_as_content_warn(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "alz-clinical-biological-construct"
+    _write_state(
+        vault_path,
+        slug,
+        claim_text="The intervention shows an initial improvement window during early follow-up.",
+    )
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    gate = json.loads(
+        meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    check_map = {check["name"]: check for check in gate["checks"]}
+    assert gate["overall_status"] == "warn"
+    assert gate["bundle_ready"] is True
+    assert gate["discussion_ready"] is True
+    assert "GENERIC_KEY_POINT_TEXT" in gate["reason_codes"]
+    assert "TITLE_KEYPOINT_TOKEN_MISMATCH" in gate["reason_codes"]
+    assert check_map["content_quality_risk_scan"]["status"] == "warn"
+
+
+def test_validate_meeting_pack_surfaces_content_risk_warnings(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "alz-clinical-biological-construct"
+    _write_state(
+        vault_path,
+        slug,
+        claim_text="The intervention shows an initial improvement window during early follow-up.",
+    )
+
+    created = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            title="Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    validation = validate_meeting_pack(created.pack.id, root=root, vault_path=vault_path)
+
+    assert any("Generic key-point wording was detected" in warning for warning in validation.validation.warnings)
+    assert any("do not appear semantically aligned" in warning for warning in validation.validation.warnings)
+
+
+def test_generate_meeting_pack_keeps_abstract_aligned_actual_paper_probe_content_in_sync(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "jamaDuboisAlzheimerDiseaseClinicalBiologicalConstruct2024"
+    write_actual_paper_aligned_source(vault_path, slug)
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert response.pack.readiness == "evidence_backed"
+    assert response.pack.source_items[0].title == ACTUAL_PAPER_ALIGNED_TITLE
+    assert ACTUAL_PAPER_ALIGNED_TITLE in response.pack.title
+    assert response.markdown_sync is not None
+    assert response.markdown_sync.status == "in_sync"
+    assert len(response.pack.evidence_refs) == 3
+    assert any(
+        "clinical-biological construct" in key_point.text.lower()
+        for key_point in response.pack.one_page_summary.key_points
+    )
+
+    gate = json.loads(
+        meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    check_map = {check["name"]: check for check in gate["checks"]}
+    assert gate["overall_status"] == "pass"
+    assert gate["reason_codes"] == []
+    assert check_map["content_quality_risk_scan"]["status"] == "pass"
+
+    validation = validate_meeting_pack(response.pack.id, root=root, vault_path=vault_path)
+    assert validation.validation.markdown_sync.status == "in_sync"
+    assert validation.validation.can_regenerate is True
+    assert validation.validation.regenerate_strategy == "saved_request"
+    assert validation.validation.warnings == []
+
+
 def test_generate_meeting_pack_flags_missing_grounding_metadata_for_direct_support(tmp_path):
     vault_path = tmp_path / "vault"
     root = tmp_path / "meeting_packs"
@@ -840,6 +1309,55 @@ def test_generate_meeting_pack_uses_actual_source_item_id_for_first_claim_slide(
     assert claim_slide.optional_figure_candidates[0].source_item_id == "src_02"
 
 
+def test_generate_meeting_pack_builds_claim_specific_followups_and_speaker_notes(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "paper-alpha"
+    _write_state_with_claims(
+        vault_path,
+        slug,
+        claims=[
+            {"claim_text": "Inflammation marker decreased after intervention.", "outcomes": ["finding"]},
+            {"claim_text": "Cognitive outcome improved after intervention.", "outcomes": ["finding"]},
+        ],
+    )
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=6,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert any(
+        "Inflammation marker decreased after intervention" in item.question
+        for item in response.pack.discussion_questions
+    )
+    assert any(
+        "Inflammation marker decreased after intervention" in item.question
+        for item in response.pack.expected_questions
+    )
+    assert any(
+        "Inflammation marker decreased after intervention" in item.action
+        for item in response.pack.next_steps
+    )
+    assert any(
+        "Cognitive outcome improved after intervention" in item.action
+        for item in response.pack.next_steps
+    )
+    assert any(
+        "Inflammation marker decreased after intervention" in item.text
+        for item in response.pack.speaker_notes
+    )
+    assert any(
+        "Inflammation marker decreased after intervention" in uncertainty
+        for uncertainty in response.pack.one_page_summary.uncertainties
+    )
+
+
 def test_generate_meeting_pack_treats_note_sources_as_context_only(tmp_path):
     vault_path = tmp_path / "vault"
     root = tmp_path / "meeting_packs"
@@ -895,6 +1413,28 @@ def test_generate_meeting_pack_treats_note_sources_as_context_only(tmp_path):
     assert any(
         "framing bullets come from notes" in item.action
         for item in response.pack.next_steps
+    )
+    assert response.pack.artifact_brief is not None
+    assert response.pack.artifact_brief_review is not None
+    assert response.pack.artifact_brief_review.overall_status == "warn"
+    assert "CONTEXT_ONLY_SOURCE_PRESENT" in response.pack.artifact_brief_review.reason_codes
+    assert any(
+        item.source_type == "project_note" and item.role == "context_only" and item.layer == "raw_memory"
+        for item in response.pack.artifact_brief.source_context.source_items
+    )
+    validation = validate_meeting_pack(response.pack.id, root=root).validation
+    assert any(
+        "Context-only inputs are present and must not be promoted into scientific truth."
+        in warning
+        for warning in validation.warnings
+    )
+    quality_gate_payload = json.loads(
+        meeting_pack_artifact_path(response.pack.id, "quality_gate.json", root).read_text(encoding="utf-8")
+    )
+    assert "CONTEXT_ONLY_SOURCE_PRESENT" in quality_gate_payload["reason_codes"]
+    assert any(
+        check["name"] == "artifact_brief_review" and check["status"] == "warn"
+        for check in quality_gate_payload["checks"]
     )
 
 

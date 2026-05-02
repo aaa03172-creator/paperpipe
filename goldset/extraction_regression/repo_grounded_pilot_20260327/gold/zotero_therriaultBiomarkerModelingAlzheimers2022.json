@@ -1,0 +1,34 @@
+{
+  "paper_id": "zotero:therriaultBiomarkerModelingAlzheimers2022",
+  "citation": {
+    "title": "Biomarker modeling of Alzheimer's disease using PET-based Braak staging",
+    "authors_first": "Therriault",
+    "year": 2022,
+    "journal_or_server": "Nature Aging"
+  },
+  "study_design": {
+    "design": "observational",
+    "control_type": "none"
+  },
+  "population": {
+    "mci_only": false,
+    "n_total": 324
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "PET-based Braak stage"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention",
+      "duration"
+    ]
+  }
+}

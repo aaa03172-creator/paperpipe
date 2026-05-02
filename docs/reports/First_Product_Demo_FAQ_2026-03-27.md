@@ -16,7 +16,7 @@ Lattice is a local-first, paper-centered biomedical research workspace for one p
 
 The source of truth is Lattice-owned structured state:
 
-- note-side `StructuredPaperState`
+- paper-scoped `StructuredPaperState` sidecar (`.pp/<slug>/state.json`)
 - run / job / event trail
 - `ResearchDNA`
 
@@ -53,7 +53,7 @@ It is where the current runtime keeps `DRAFT -> PILOT -> LOCKED` search-design s
 ## 8. Is `Meeting Pack` the source of truth?
 
 No.
-`Meeting Pack` is a downstream draft artifact generated from saved state.
+`Meeting Pack` is a downstream draft artifact generated from saved paper state and other bounded runtime inputs.
 It should be traceable and evidence-backed, but it is not the canonical root.
 
 ## 9. What is not promised in v1?

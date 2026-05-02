@@ -87,7 +87,11 @@ def test_run_backfill_dry_run_and_apply(tmp_path: Path) -> None:
     payload_after_dry = json.loads(target.read_text(encoding="utf-8"))
     assert "highlight_source" not in payload_after_dry["claims"][0]["evidence_spans"][0]
 
-    applied = run_backfill(artifacts, apply_changes=True, include_legacy=False)
+    backup_dir = tmp_path / "backups"
+    applied = run_backfill(artifacts, apply_changes=True, include_legacy=False, backup_dir=backup_dir)
     assert applied.files_updated == 1
+    assert applied.files_backed_up == 1
     payload_after_apply = json.loads(target.read_text(encoding="utf-8"))
     assert payload_after_apply["claims"][0]["evidence_spans"][0]["highlight_source"] == "text_match"
+    backup_payload = json.loads((backup_dir / "paper-b" / "run-2" / "claimset.json").read_text(encoding="utf-8"))
+    assert "highlight_source" not in backup_payload["claims"][0]["evidence_spans"][0]

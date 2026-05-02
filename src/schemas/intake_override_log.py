@@ -9,6 +9,10 @@ class IntakeOverrideLog(BaseModel):
     analysis_available: bool = False
     llm_tagging_used: bool = False
     llm_slot_classification_used: bool = False
+    llm_tagging_adjudication_used: bool = False
+    llm_tagging_adjudication_reason: str | None = None
+    llm_slot_adjudication_used: bool = False
+    llm_slot_adjudication_reason: str | None = None
     input_slot: str | None = None
     stored_slot: str | None = None
     slot_changed: bool = False

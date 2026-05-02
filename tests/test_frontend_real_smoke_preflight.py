@@ -44,7 +44,7 @@ llm:
     api_key: ""
     model: "gpt-4o-mini"
   features:
-    trial_extraction:
+    specialty_trial_extraction:
       enabled: false
       model: "gpt-4o-mini"
     slot_classification:

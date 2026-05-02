@@ -131,18 +131,34 @@ def test_chart_packs_api_generate_roundtrip_and_exports(tmp_path, monkeypatch) -
 
     assert payload["chart_pack"]["chart_pack_id"] == "chartpack_api_demo"
     assert payload["chart_pack"]["title"] == "Research figures"
+    assert payload["quality_gate"]["overall_status"] == "warn"
     assert [chart["chart_id"] for chart in payload["chart_pack"]["charts"]] == [
         "chart_01_reported-vs-computed-p-scatter",
         "chart_02_table-numeric-line",
+    ]
+    assert payload["chart_pack"]["charts"][0]["render_refs"] == [
+        {
+            "kind": "render_svg",
+            "path": "renders/chart_01_reported-vs-computed-p-scatter.svg",
+            "mime_type": "image/svg+xml",
+        }
     ]
     assert payload["specs"]["chart_01_reported-vs-computed-p-scatter"]["mark"] == "point"
     assert "reported_p,computed_p" in payload["data_snapshots"]["chart_01_reported-vs-computed-p-scatter"]
     assert (chart_root / "chartpack_api_demo" / "chart_pack.json").exists()
     assert (chart_root / "chartpack_api_demo" / "chart_pack.md").exists()
+    assert (chart_root / "chartpack_api_demo" / "acceptance_contract.json").exists()
+    assert (chart_root / "chartpack_api_demo" / "quality_gate.json").exists()
+    assert (chart_root / "chartpack_api_demo" / "renders" / "chart_01_reported-vs-computed-p-scatter.svg").exists()
 
     fetched = client.get("/chart-packs/chartpack_api_demo")
     assert fetched.status_code == 200
     assert fetched.json()["chart_pack"]["chart_pack_id"] == "chartpack_api_demo"
+
+    markdown = client.get("/chart-packs/chartpack_api_demo/markdown")
+    assert markdown.status_code == 200
+    assert markdown.headers["content-type"].startswith("text/plain")
+    assert "Chart Pack ID: chartpack_api_demo" in markdown.text
 
     listed = client.get("/chart-packs")
     assert listed.status_code == 200
@@ -170,6 +186,136 @@ def test_chart_packs_api_generate_roundtrip_and_exports(tmp_path, monkeypatch) -
         == 'attachment; filename="chartpack_api_demo_chart_02_table-numeric-line.json"'
     )
     assert spec_export.json()["encoding"] == {"x": "group", "y": "measurement"}
+
+    render_export = client.get(
+        "/chart-packs/chartpack_api_demo/charts/chart_01_reported-vs-computed-p-scatter/render.svg"
+    )
+    assert render_export.status_code == 200
+    assert render_export.headers["content-type"].startswith("image/svg+xml")
+    assert (
+        render_export.headers["content-disposition"]
+        == 'inline; filename="chartpack_api_demo_chart_01_reported-vs-computed-p-scatter.svg"'
+    )
+    assert render_export.text.startswith("<svg")
+    assert payload["chart_pack"]["warnings"] == [
+        {
+            "code": "stats_p_pairs_skipped",
+            "severity": "warning",
+            "message": "Skipped 1 check(s) without exact reported/computed p pairs.",
+        }
+    ]
+    assert payload["chart_pack"]["caution_notes"] == [
+        "Some charts include warning states; inspect source lineage before reuse.",
+        "Reported/computed p charts include only exact numeric pairs and skip approximate values.",
+        "Document-table charts rely on saved table structure and explicit numeric coercion only.",
+    ]
+    assert payload["chart_pack"]["charts"][0]["warnings"] == [
+        {
+            "code": "stats_p_pairs_skipped",
+            "severity": "warning",
+            "message": "Skipped 1 check(s) without exact reported/computed p pairs.",
+        }
+    ]
+
+
+def test_chart_packs_api_preserves_warning_heavy_empty_snapshot_state(tmp_path, monkeypatch) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    chart_root = tmp_path / "chart_packs"
+
+    _write_stats_report(
+        artifacts_root,
+        "paper-warning-001",
+        "run-warning-001",
+        StatsReport(
+            doc_id="doc-warning-001",
+            run_id="run-warning-001",
+            checks=[
+                StatCheckEntry(
+                    check_id="c-warning-1",
+                    test_type="anova",
+                    reported_p="< 0.01",
+                    computed_p=0.009,
+                    code="print('ok')",
+                    outputs="ok",
+                    verdict=VerificationStatus.VERIFIED,
+                )
+            ],
+        ),
+    )
+
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(artifacts_root))
+    monkeypatch.setenv("PAPERPIPE_CHART_PACKS_DIR", str(chart_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/chart-packs/generate",
+        json={
+            "chart_pack_id": "chartpack_api_warning_demo",
+            "title": "Warning-heavy scatter pack",
+            "charts": [
+                {
+                    "title": "Approximate p scatter",
+                    "template_id": "reported_vs_computed_p_scatter",
+                    "source_ref": {
+                        "source_kind": "stats_report",
+                        "paper_id": "paper-warning-001",
+                        "run_id": "run-warning-001",
+                    },
+                    "field_mappings": [
+                        {"target_field": "reported_p", "source_field": "reported_p"},
+                        {"target_field": "computed_p", "source_field": "computed_p"},
+                    ],
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()
+
+    assert payload["chart_pack"]["chart_pack_id"] == "chartpack_api_warning_demo"
+    if "warning_count" in payload["chart_pack"]:
+        assert payload["chart_pack"]["warning_count"] == 3
+    assert payload["chart_pack"]["warnings"] == [
+        {
+            "code": "stats_p_pairs_skipped",
+            "severity": "warning",
+            "message": "Skipped 1 check(s) without exact reported/computed p pairs.",
+        },
+        {
+            "code": "no_chartable_pairs",
+            "severity": "warning",
+            "message": "No chartable reported/computed p pairs were available in the stats report.",
+        },
+        {
+            "code": "empty_snapshot",
+            "severity": "warning",
+            "message": "No rows remained after field mapping, filtering, and sorting.",
+        },
+    ]
+    assert payload["chart_pack"]["caution_notes"] == [
+        "Some charts include warning states; inspect source lineage before reuse.",
+        "Reported/computed p charts include only exact numeric pairs and skip approximate values.",
+    ]
+    assert payload["chart_pack"]["charts"][0]["warnings"] == [
+        {
+            "code": "stats_p_pairs_skipped",
+            "severity": "warning",
+            "message": "Skipped 1 check(s) without exact reported/computed p pairs.",
+        },
+        {
+            "code": "no_chartable_pairs",
+            "severity": "warning",
+            "message": "No chartable reported/computed p pairs were available in the stats report.",
+        },
+        {
+            "code": "empty_snapshot",
+            "severity": "warning",
+            "message": "No rows remained after field mapping, filtering, and sorting.",
+        },
+    ]
+    assert payload["data_snapshots"]["chart_01_reported-vs-computed-p-scatter"] == "reported_p,computed_p\n"
 
 
 def test_chart_packs_api_lists_recent_first(tmp_path, monkeypatch) -> None:
@@ -270,5 +416,6 @@ def test_chart_packs_api_returns_404_when_pack_missing(tmp_path, monkeypatch) ->
     client = TestClient(api_main.app)
 
     assert client.get("/chart-packs/chartpack_missing").status_code == 404
+    assert client.get("/chart-packs/chartpack_missing/markdown").status_code == 404
     assert client.get("/chart-packs/chartpack_missing/charts/chart_01/data.csv").status_code == 404
     assert client.get("/chart-packs/chartpack_missing/charts/chart_01/spec.json").status_code == 404

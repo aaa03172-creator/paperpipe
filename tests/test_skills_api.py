@@ -90,6 +90,120 @@ def _parse_frontmatter(path: Path) -> tuple[str, str]:
     return "\n".join(lines[1:end_index]), "\n".join(lines[end_index + 1 :]).lstrip("\n")
 
 
+def _write_fixture_state(path: Path, slug: str) -> None:
+    _write(
+        path,
+        json.dumps(
+            {
+                "paper_slug": slug,
+                "updated_at": "2026-04-04T00:00:00+00:00",
+                "runs": [],
+                "signals": {
+                    "state_source": "skill_run",
+                    "last_action": "critical_appraisal",
+                },
+                "claimset": [
+                    {
+                        "id": "claim_c0ffee000001",
+                        "source_claim_id": "e2e-claim-1",
+                        "claim": "Fixture claim should not survive a real skill run.",
+                        "evidence_ids": ["evidence_deadbeef0001"],
+                        "evidence": [
+                            {
+                                "id": "evidence_deadbeef0001",
+                                "claim_id": "claim_c0ffee000001",
+                                "text": "Fixture evidence",
+                                "locator": {"chunk_id": "chunk-e2e-001", "source": "bbox"},
+                            }
+                        ],
+                    }
+                ],
+                "entities": [],
+                "mesh": [],
+                "outcomes": [],
+            }
+        ),
+    )
+
+
+def _write_appraisal_artifacts(slug: str) -> None:
+    paper_dir = skills_runner.artifact_paper_dir(f"zotero:{slug}")
+    run_dir = paper_dir / "run-appraisal-001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write(
+        run_dir / "claimset.resolved.json",
+        json.dumps(
+            {
+                "claims": [
+                    {
+                        "claim_id": "CLM-001",
+                        "type": "efficacy",
+                        "statement": "Structured appraisal should remain downstream of saved understanding.",
+                        "confidence": 0.82,
+                        "evidence_spans": [
+                            {
+                                "quote": "Saved evidence anchor for structured appraisal.",
+                                "page": 2,
+                                "section": "Results",
+                                "chunk_id": "chunk-appraisal-001",
+                                "char_start": 12,
+                                "char_end": 58,
+                                "source_span": [12, 58],
+                                "highlight_source": "text_match",
+                                "grounded": True,
+                                "resolution": "NORMALIZED_MATCH",
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+    )
+    _write(
+        run_dir / "stats_report.json",
+        json.dumps(
+            {
+                "checks": [
+                    {
+                        "name": "primary_endpoint_direction",
+                        "verdict": "verified",
+                    }
+                ]
+            }
+        ),
+    )
+    _write(
+        run_dir / "reader_eval.json",
+        json.dumps(
+            {
+                "metrics": {
+                    "unresolved_span_count": 0,
+                    "ambiguous_span_count": 0,
+                    "low_overlap_claim_count": 0,
+                }
+            }
+        ),
+    )
+    _write(
+        run_dir / "quality_gate.json",
+        json.dumps(
+            {
+                "overall_status": "pass",
+                "review_ready": True,
+                "checks": [
+                    {"name": "claimset_ready", "status": "pass", "detail": "ready"},
+                    {"name": "verification_completed", "status": "pass", "detail": "completed"},
+                    {
+                        "name": "evidence_locator_quality",
+                        "status": "pass",
+                        "detail": "bbox=0, text_match=1, approx=0, unresolved=0, ambiguous=0",
+                    },
+                ],
+            }
+        ),
+    )
+
+
 def test_skills_run_writes_sidecar_and_updates_frontmatter(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original_db_path = db_utils.DB_PATH
@@ -228,6 +342,188 @@ def test_skills_run_can_skip_markdown_summary_append(tmp_path, monkeypatch):
     assert "citation_count: 3" in frontmatter_text
     assert "## 🔧 Automation Results (short)" not in body
     assert "validate_citations: Checked 3 references" not in body
+
+
+def test_skills_run_preserves_existing_reading_assists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "skills-note-reading-assist"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    _write(note_path, _note_content(slug))
+    _write_policy(tmp_path / "config" / "skills_policy.yaml")
+    _write(
+        vault_dir / ".pp" / slug / "state.json",
+        json.dumps(
+            {
+                "paper_slug": slug,
+                "updated_at": "2026-04-04T00:00:00+00:00",
+                "runs": [
+                    {
+                        "id": "skill-prev",
+                        "action": "critical_appraisal",
+                        "ts": "2026-04-04T00:00:00+00:00",
+                        "status": "succeeded",
+                        "summary": "Previous skill-owned state.",
+                        "artifacts": {},
+                        "data": {},
+                    }
+                ],
+                "signals": {
+                    "state_source": "skill_run",
+                    "last_action": "critical_appraisal",
+                },
+                "claimset": [],
+                "entities": [],
+                "mesh": [],
+                "outcomes": [],
+                "reading_assists": [
+                    {
+                        "locale": "ko",
+                        "canonical_locale": "en",
+                        "machine_translated": True,
+                        "partial": True,
+                        "blocks": [
+                            {
+                                "kind": "abstract",
+                                "text": "기존 reading assist가 다음 skill run 뒤에도 남아야 한다.",
+                                "source_heading": "Abstract",
+                                "provenance": {
+                                    "source_field": "abstract",
+                                    "source_locale": "en",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+    )
+
+    config = SimpleNamespace(
+        paths=SimpleNamespace(obsidian_vault=vault_dir, library_dir=tmp_path / "Library"),
+        system=SimpleNamespace(unpaywall_email=None),
+    )
+    monkeypatch.setattr(skills_runner, "load_config", lambda: config)
+    monkeypatch.setattr(paper_notes_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/skills/run",
+        json={"slug": slug, "action": "validate_citations", "append_markdown_summary": False},
+    )
+    assert response.status_code == 200
+
+    state = json.loads((vault_dir / ".pp" / slug / "state.json").read_text(encoding="utf-8"))
+    assert state["runs"][0]["action"] == "validate_citations"
+    assert state["reading_assists"][0]["locale"] == "ko"
+    assert (
+        state["reading_assists"][0]["blocks"][0]["text"]
+        == "기존 reading assist가 다음 skill run 뒤에도 남아야 한다."
+    )
+
+
+def test_skills_run_ignores_hidden_fixture_state_when_merging_new_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "skills-note-fixture-merge"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    _write(note_path, _note_content(slug))
+    _write_policy(tmp_path / "config" / "skills_policy.yaml")
+    _write_fixture_state(vault_dir / ".pp" / slug / "state.json", slug)
+
+    config = SimpleNamespace(
+        paths=SimpleNamespace(obsidian_vault=vault_dir, library_dir=tmp_path / "Library"),
+        system=SimpleNamespace(unpaywall_email=None),
+    )
+    monkeypatch.setattr(skills_runner, "load_config", lambda: config)
+    monkeypatch.setattr(paper_notes_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/skills/run",
+        json={"slug": slug, "action": "validate_citations", "append_markdown_summary": False},
+    )
+    assert response.status_code == 200
+
+    state = json.loads((vault_dir / ".pp" / slug / "state.json").read_text(encoding="utf-8"))
+    assert state["runs"][0]["action"] == "validate_citations"
+    assert state["claimset"] == []
+    assert state["signals"]["run_count"] == 1
+
+
+def test_skills_run_critical_appraisal_does_not_fallback_to_hidden_fixture_claimset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "skills-note-fixture-appraisal"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    _write(note_path, _note_content(slug))
+    _write_policy(tmp_path / "config" / "skills_policy.yaml")
+    _write_fixture_state(vault_dir / ".pp" / slug / "state.json", slug)
+
+    config = SimpleNamespace(
+        paths=SimpleNamespace(obsidian_vault=vault_dir, library_dir=tmp_path / "Library"),
+        system=SimpleNamespace(unpaywall_email=None),
+    )
+    monkeypatch.setattr(skills_runner, "load_config", lambda: config)
+    monkeypatch.setattr(paper_notes_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/skills/run",
+        json={"slug": slug, "action": "critical_appraisal", "append_markdown_summary": False},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["run"]["status"] == "failed"
+    assert "No ClaimSet artifact or structured ClaimSet available for appraisal." in payload["run"]["summary"]
+
+
+def test_skills_run_critical_appraisal_writes_structured_review_sidecar(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    slug = "skills-note-appraisal-success"
+    note_path = vault_dir / "Inbox" / "PaperPipe" / f"{slug}.md"
+    _write(note_path, _note_content(slug))
+    _write_policy(tmp_path / "config" / "skills_policy.yaml")
+    _write_appraisal_artifacts(slug)
+
+    config = SimpleNamespace(
+        paths=SimpleNamespace(obsidian_vault=vault_dir, library_dir=tmp_path / "Library"),
+        system=SimpleNamespace(unpaywall_email=None),
+    )
+    monkeypatch.setattr(skills_runner, "load_config", lambda: config)
+    monkeypatch.setattr(paper_notes_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/skills/run",
+        json={"slug": slug, "action": "critical_appraisal", "append_markdown_summary": False},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    report = payload["run"]["data"]["appraisal_report"]
+    assert payload["run"]["status"] == "succeeded"
+    assert payload["run"]["data"]["appraisal"]["label"] == "Strong"
+    assert report["layer"] == "review_gate"
+    assert report["canonical_status"] == "non_canonical"
+    assert report["source_artifacts"] == [
+        "claimset.resolved.json",
+        "stats_report.json",
+        "reader_eval.json",
+        "quality_gate.json",
+    ]
+    assert any(check["code"] == "review_ready" and check["status"] == "pass" for check in report["checks"])
+    assert report["concerns"] == []
+
+    state = json.loads((vault_dir / ".pp" / slug / "state.json").read_text(encoding="utf-8"))
+    assert state["signals"]["last_appraisal"] == "Strong"
+    assert state["runs"][0]["data"]["appraisal_report"]["canonical_status"] == "non_canonical"
 
 
 def test_paper_note_detail_disables_actions_when_required_secret_is_missing(tmp_path, monkeypatch):

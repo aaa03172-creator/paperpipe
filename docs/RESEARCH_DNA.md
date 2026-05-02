@@ -33,9 +33,11 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - `log_interview_response()`
   - `approve_pilot()`
   - `run_pilot()`
+  - `load_research_dna_run_index()`
   - `load_screening_queue_artifact()`
   - `load_next_screening_candidate()`
   - `load_screening_session()`
+  - `load_screening_progress_report()`
   - `load_screening_recommendation()`
   - `submit_screening_decision()`
   - `submit_screening_decision_and_load_next_candidate()`
@@ -43,21 +45,32 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - `lock_research_dna()`
   - `unlock_research_dna()`
 - `backend/main.py`
-  - thin FastAPI wrappers for create/get/update/interview/approve-pilot/pilot/rerank/guidance materialization/screening-queue/next-screening-candidate/screening-session/screening-guidance/screening-recommendation/rerank-gate/screening/screening-advance/screening-current/refine/lock/unlock/project-profile
+  - thin FastAPI wrappers for create/get/update/interview/approve-pilot/pilot/run-index/resume/rerank/guidance materialization/screening-queue/next-screening-candidate/screening-session/screening-progress/screening-guidance/screening-recommendation/rerank-gate/screening/screening-advance/screening-current/refine/lock/unlock/project-profile
 - `src/cli.py`
   - thin CLI wrappers under `paperpipe research-dna ...`
   - interview logging command under `paperpipe research-dna interview`
   - reranked screening sidecar command under `paperpipe research-dna rerank`
+  - run index command under `paperpipe research-dna runs`
+    - returns a bounded run list for the current `Research DNA`, ordered newest-first
+    - merges append-only `runs.jsonl` with the latest run-local `manifest.json` / `metrics.json` sidecars so screening counts stay resume-friendly after screening has started
+  - resume snapshot command under `paperpipe research-dna resume`
+    - returns a bounded latest-run snapshot so operators can re-enter the current screening workflow without manually copying a `run_id`
+    - packages the latest run summary plus the existing session/progress/recommendation/gate reads into one additive response
+    - returns `has_runs=false` with null run/session fields when the `Research DNA` has not been piloted yet
   - screening guidance snapshot command under `paperpipe research-dna materialize-guidance`
     - writes a run-local timestamped `screening_guidance_<timestamp>.json` audit snapshot without changing queue ownership
     - manifest/metrics keep a pointer to the latest snapshot, while older snapshots remain in the run directory
     - materialization also maintains `screening_guidance_index.json` so the run keeps a simple bounded history list of guidance snapshots
+  - screening guidance artifact command under `paperpipe research-dna guidance-artifact`
+    - returns the latest materialized guidance snapshot pointed to by the run manifest without rematerializing a new snapshot
   - screening recommendation command under `paperpipe research-dna recommend`
     - returns an advisory-only `original | reranked` recommendation without changing queue ownership
     - includes stable `primary_reason_code` plus `recommendation_summary` for operator-facing explanation without client-side code mapping
     - includes additive quantitative signal fields such as changed-position ratio and top-score margin for bounded read-side inspection
   - screening guidance command under `paperpipe research-dna guidance`
     - returns the current recommendation and rerank gate together as one bounded operator read
+  - screening guidance history command under `paperpipe research-dna guidance-history`
+    - returns a bounded read of `screening_guidance_index.json` so operators can inspect recent guidance snapshots without opening files manually
   - rerank gate command under `paperpipe research-dna rerank-gate`
     - returns a bounded `eligible | not_eligible | insufficient_signal` judgment for whether the current rerank result is strong enough to even consider stronger operator-default treatment later
     - includes stable `primary_reason_code` / `primary_warning_code` plus `gate_summary` for operator-facing explanation without changing default ownership
@@ -66,12 +79,20 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - next-candidate operator command under `paperpipe research-dna next`
   - screening-session snapshot command under `paperpipe research-dna session`
     - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
+    - recent decisions now carry additive screening-telemetry fields such as selected variant, recommended variant, gate status, and whether the operator followed the pre-write guidance
+    - now also returns a small run-local `guidance_follow_summary` aggregate so operators can inspect adherence/divergence counts without counting recent decisions by hand
+  - screening-progress report command under `paperpipe research-dna progress`
+    - returns a bounded run-local summary that packages current counts, active next candidate, top reason codes, guidance-follow summary, and manifest/metrics/guidance artifact paths in one read
+    - stays read-only and derived from the current queue/session/guidance state plus run-local `manifest.json` and `metrics.json`
   - screening-advance operator command under `paperpipe research-dna screen-next`
     - returns the updated next-candidate payload plus a bounded session snapshot after the write
     - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
+    - now also backfills run-local `metrics.json` and `manifest.json` screening-progress summaries so operator progress remains inspectable outside the live session read
+    - accepts either an explicit `--run-id` or opt-in `--latest` so the operator can advance the newest run without manually copying the `run_id`
   - current-next screening shortcut under `paperpipe research-dna screen-current`
     - screens the current next candidate on the chosen queue variant and returns the refreshed session snapshot
     - now also returns the current advisory screening recommendation and rerank gate so operators do not need extra read calls
+    - accepts either an explicit `--run-id` or opt-in `--latest` so the operator can act on the newest run without manually copying the `run_id`
   - projection materialization command under `paperpipe research-dna project-profile`
 - `src/services/runtime_paths.py`
   - `research_dna_root()`

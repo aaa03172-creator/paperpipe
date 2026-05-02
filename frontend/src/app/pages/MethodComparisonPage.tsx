@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, FileSearch, Route, Search, ShieldAlert } from "lucide-react";
 import {
   getApiErrorMessage,
+  getRecentPaperChoices,
+  generateMethodComparison,
   getMethodComparison,
   getMethodComparisonCsvUrl,
   getMethodComparisonIndex,
@@ -12,14 +14,18 @@ import {
   MethodComparison,
   MethodComparisonCell,
   MethodComparisonCellStatus,
+  MethodComparisonCreateRequest,
+  MethodComparisonFieldId,
   MethodComparisonListItem,
   MethodComparisonListResponse,
   MethodComparisonResponse,
+  PaperSummary,
 } from "../lib/types";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { ArtifactHeaderContext } from "../components/ArtifactHeaderContext";
 
 interface ApiLikeResult {
   isMock: boolean;
@@ -38,6 +44,21 @@ interface EvidenceEntry {
   columnLabel: string;
   cell: MethodComparisonCell;
 }
+
+interface MethodComparisonFieldOption {
+  id: MethodComparisonFieldId;
+  label: string;
+  help: string;
+}
+
+const METHOD_COMPARISON_FIELD_OPTIONS: MethodComparisonFieldOption[] = [
+  { id: "intervention", label: "Intervention", help: "What was tested or applied." },
+  { id: "comparator", label: "Comparator", help: "Control, placebo, or baseline condition." },
+  { id: "duration_or_timepoint", label: "Duration / Timepoint", help: "Treatment window or key measurement timing." },
+  { id: "primary_readout", label: "Primary Readout", help: "Main endpoint or assay emphasized in the paper." },
+  { id: "sample_size", label: "Sample Size", help: "Reported N or count tied to the compared lane." },
+];
+const DEFAULT_METHOD_COMPARISON_FIELDS = METHOD_COMPARISON_FIELD_OPTIONS.map((option) => option.id);
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -180,12 +201,85 @@ function buildEvidenceEntries(comparison: MethodComparison | null): EvidenceEntr
   return entries;
 }
 
+function parsePaperIdsInput(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0),
+    ),
+  );
+}
+
+function recentPaperChoices(papers: PaperSummary[]): PaperSummary[] {
+  return papers
+    .filter((paper) => paper.paper_id.trim().length > 0 && paper.title.trim().length > 0)
+    .slice(0, 6);
+}
+
+function buildMethodHeaderWhenToUse(routeComparisonId?: string): string {
+  if (routeComparisonId) {
+    return "Use this snapshot when you need a reviewable methods grid before CSV export, note handoff, or meeting discussion.";
+  }
+  return "Use this lane when you want to compare claimset-backed method fields across papers before exporting or carrying the grid into notes.";
+}
+
+function buildMethodHeaderDerivedFrom(comparison: MethodComparison | null): string {
+  if (!comparison) {
+    return "Derived from saved paper claimsets after you choose the papers and fields to compare.";
+  }
+  return `Derived from ${comparison.paper_ids.length} paper${comparison.paper_ids.length === 1 ? "" : "s"} and ${comparison.columns.length} claimset-backed field${comparison.columns.length === 1 ? "" : "s"} in the saved snapshot.`;
+}
+
+function buildMethodHeaderContinuity(comparison: MethodComparison | null): string {
+  if (!comparison) {
+    return "Canonical evidence lives upstream in the linked paper notes behind each compared row. Open note from the grid before reusing this comparison downstream.";
+  }
+  const noteBackedRows = comparison.rows.filter((row) => Boolean(row.paper_slug)).length;
+  if (noteBackedRows > 0) {
+    return `Canonical evidence lives upstream in ${noteBackedRows} linked paper note${noteBackedRows === 1 ? "" : "s"} behind this grid. Open note from the compared rows before exporting or reusing downstream.`;
+  }
+  return "Canonical evidence lives upstream in linked paper review context. Re-open source notes from compared rows before exporting or reusing this comparison downstream.";
+}
+
+function buildMethodReviewPriorityCopy(
+  warningsCount: number,
+  statusCounts: StatusCounts,
+): { tone: "attention" | "clear"; title: string; detail: string } {
+  if (warningsCount > 0 || statusCounts.conflict > 0) {
+    return {
+      tone: "attention",
+      title: "Review warnings and conflict-backed cells before export.",
+      detail: "Use the comparison grid and evidence trace first. Re-open compared notes from the grid when canonical paper context needs to be checked.",
+    };
+  }
+  if (statusCounts.missing > 0) {
+    return {
+      tone: "attention",
+      title: "Missing cells are explicit gaps, not safe defaults.",
+      detail: "If those fields matter for downstream reuse, re-open the compared notes before exporting this snapshot.",
+    };
+  }
+  return {
+    tone: "clear",
+    title: "No warnings or unresolved cells are saved in this snapshot.",
+    detail: "Export is likely fine after a quick row-level note spot-check when you need canonical paper context.",
+  };
+}
+
 export function MethodComparisonPage() {
   const navigate = useNavigate();
   const { comparisonId: routeComparisonId } = useParams<{ comparisonId?: string }>();
   const [indexResponse, setIndexResponse] = useState<MethodComparisonListResponse | null>(null);
   const [comparisonResponse, setComparisonResponse] = useState<MethodComparisonResponse | null>(null);
+  const [recentPapers, setRecentPapers] = useState<PaperSummary[]>([]);
   const [indexSearchQuery, setIndexSearchQuery] = useState("");
+  const [createPaperIdsInput, setCreatePaperIdsInput] = useState("");
+  const [createTitle, setCreateTitle] = useState("");
+  const [selectedFieldIds, setSelectedFieldIds] = useState<MethodComparisonFieldId[]>(DEFAULT_METHOD_COMPARISON_FIELDS);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creatingComparison, setCreatingComparison] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mockReasons, setMockReasons] = useState<string[]>([]);
@@ -203,15 +297,20 @@ export function MethodComparisonPage() {
       setError(null);
       setIndexResponse(null);
       setComparisonResponse(null);
+      setRecentPapers([]);
       setMockReasons([]);
 
       try {
-        const result = await getMethodComparisonIndex();
+        const [comparisonIndexResult, papersResult] = await Promise.all([
+          getMethodComparisonIndex(),
+          getRecentPaperChoices(),
+        ]);
         if (!mounted) {
           return;
         }
-        setIndexResponse(result.data);
-        setMockReasons(collectMockReasons([result]));
+        setIndexResponse(comparisonIndexResult.data);
+        setRecentPapers(recentPaperChoices(papersResult.data));
+        setMockReasons(collectMockReasons([comparisonIndexResult, papersResult]));
       } catch (loadError) {
         if (!mounted) {
           return;
@@ -271,6 +370,12 @@ export function MethodComparisonPage() {
   const comparison = comparisonResponse?.comparison ?? null;
   const statusCounts = useMemo(() => buildStatusCounts(comparison), [comparison]);
   const evidenceEntries = useMemo(() => buildEvidenceEntries(comparison), [comparison]);
+  const warningsCount = comparison?.warnings.length ?? 0;
+  const reviewPriority = useMemo(
+    () => buildMethodReviewPriorityCopy(warningsCount, statusCounts),
+    [statusCounts, warningsCount],
+  );
+  const selectedPaperIds = useMemo(() => parsePaperIdsInput(createPaperIdsInput), [createPaperIdsInput]);
   const csvHref = useMemo(() => {
     if (!routeComparisonId) {
       return null;
@@ -285,6 +390,54 @@ export function MethodComparisonPage() {
   }, [comparisonResponse, mockReasons, routeComparisonId]);
   const csvDownloadName = routeComparisonId ? `${routeComparisonId}.csv` : "method-comparison.csv";
 
+  function toggleField(fieldId: MethodComparisonFieldId) {
+    setSelectedFieldIds((prev) =>
+      prev.includes(fieldId) ? prev.filter((item) => item !== fieldId) : [...prev, fieldId],
+    );
+  }
+
+  function toggleCreatePaperId(paperId: string) {
+    setCreateError(null);
+    setCreatePaperIdsInput((prev) => {
+      const nextIds = parsePaperIdsInput(prev);
+      if (nextIds.includes(paperId)) {
+        return nextIds.filter((item) => item !== paperId).join("\n");
+      }
+      return [...nextIds, paperId].join("\n");
+    });
+  }
+
+  async function handleGenerateComparison(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const paperIds = parsePaperIdsInput(createPaperIdsInput);
+    const title = createTitle.trim();
+
+    if (paperIds.length === 0) {
+      setCreateError("Enter at least one paper ID to start a comparison.");
+      return;
+    }
+    if (selectedFieldIds.length === 0) {
+      setCreateError("Choose at least one field to compare.");
+      return;
+    }
+
+    setCreatingComparison(true);
+    setCreateError(null);
+    try {
+      const payload: MethodComparisonCreateRequest = {
+        title: title || undefined,
+        paper_ids: paperIds,
+        field_ids: selectedFieldIds,
+      };
+      const result = await generateMethodComparison(payload);
+      navigate(`/method-comparisons/${encodeURIComponent(result.data.comparison.comparison_id)}`);
+    } catch (actionError) {
+      setCreateError(getApiErrorMessage(actionError));
+    } finally {
+      setCreatingComparison(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
       <header className="surface-card mb-4 p-4">
@@ -298,7 +451,9 @@ export function MethodComparisonPage() {
               {comparison?.title ?? "Method Comparisons"}
             </h1>
             <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
-              Review saved comparison snapshots before export, note handoff, or downstream discussion.
+              {routeComparisonId
+                ? "Review saved comparison snapshots before export, note handoff, or downstream discussion."
+                : "Open saved comparison snapshots or start a new comparison from paper IDs before export or note handoff."}
             </p>
           </div>
 
@@ -343,6 +498,15 @@ export function MethodComparisonPage() {
             </Link>
           </div>
         </div>
+        <ArtifactHeaderContext
+          testId="method-comparison-header-context"
+          emphasizeFirstItem={Boolean(routeComparisonId)}
+          items={[
+            routeComparisonId ? { label: "Derived artifact", value: buildMethodHeaderContinuity(comparison) } : null,
+            { label: "When to use", value: buildMethodHeaderWhenToUse(routeComparisonId) },
+            { label: "Derived from", value: buildMethodHeaderDerivedFrom(comparison) },
+          ].filter((item): item is { label: string; value: string } => item !== null)}
+        />
         {mockReasons.length > 0 ? (
           <p className="mt-3 text-xs text-[var(--pp-text-dim)]">{mockReasons.join(" / ")}</p>
         ) : null}
@@ -546,6 +710,60 @@ export function MethodComparisonPage() {
           </div>
 
           <div className="space-y-4">
+            <Card data-testid="method-comparison-review-priority-card">
+              <CardHeader>
+                <CardTitle>Review priority</CardTitle>
+                <CardDescription>Decide whether this snapshot is ready for export, or whether warnings and cell gaps need review first.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div
+                  data-testid="method-comparison-review-priority"
+                  className={`rounded-md border p-3 text-sm ${
+                    reviewPriority.tone === "attention"
+                      ? "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]"
+                      : "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]"
+                  }`}
+                >
+                  <p className="font-medium">{reviewPriority.title}</p>
+                  <p className="mt-2">{reviewPriority.detail}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className={warningsCount > 0 ? cellStatusBadgeClassName("conflict") : cellStatusBadgeClassName("explicit")}>
+                    Warnings {warningsCount}
+                  </Badge>
+                  <Badge variant="outline" className={cellStatusBadgeClassName("conflict")}>
+                    Conflict {statusCounts.conflict}
+                  </Badge>
+                  <Badge variant="outline" className={cellStatusBadgeClassName("missing")}>
+                    Missing {statusCounts.missing}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Warnings</CardTitle>
+                <CardDescription>Warnings should be read before reusing CSV or markdown downstream.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {warningsCount > 0 ? (
+                  comparison?.warnings.map((warning) => (
+                    <div
+                      key={warning}
+                      className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] p-3 text-sm text-[var(--pp-warning-text)]"
+                    >
+                      {warning}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                    No warnings saved for this comparison.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>Snapshot</CardTitle>
@@ -594,29 +812,6 @@ export function MethodComparisonPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Warnings</CardTitle>
-                <CardDescription>Warnings should be read before reusing CSV or markdown downstream.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {(comparison?.warnings.length ?? 0) > 0 ? (
-                  comparison?.warnings.map((warning) => (
-                    <div
-                      key={warning}
-                      className="rounded-md border border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] p-3 text-sm text-[var(--pp-warning-text)]"
-                    >
-                      {warning}
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
-                    No warnings saved for this comparison.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
                 <CardTitle>Field Registry</CardTitle>
                 <CardDescription>The viewer preserves backend column order from the saved comparison artifact.</CardDescription>
               </CardHeader>
@@ -639,40 +834,161 @@ export function MethodComparisonPage() {
         </main>
       ) : (
         <main className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-4 w-4" />
-                Search comparisons
-              </CardTitle>
-              <CardDescription>Search by title or artifact id before opening a saved comparison snapshot.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <label className="block">
-                <span className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
-                  Search
-                </span>
-                <Input
-                  value={indexSearchQuery}
-                  onChange={(event) => setIndexSearchQuery(event.target.value)}
-                  placeholder="Search title or comparison id"
-                />
-              </label>
-              <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
-                {indexResponse?.total ?? 0} saved comparison{(indexResponse?.total ?? 0) === 1 ? "" : "s"}.
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Search className="h-4 w-4" />
+                  Search comparisons
+                </CardTitle>
+                <CardDescription>Search saved derived comparisons by title or artifact id before opening a review snapshot.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                    Search
+                  </span>
+                  <Input
+                    value={indexSearchQuery}
+                    onChange={(event) => setIndexSearchQuery(event.target.value)}
+                    placeholder="Search title or comparison id"
+                  />
+                </label>
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                  {(indexResponse?.total ?? 0) > 0
+                    ? `${indexResponse?.total ?? 0} saved derived comparison${(indexResponse?.total ?? 0) === 1 ? "" : "s"}.`
+                    : "No saved derived comparisons yet. Start one from paper IDs below, then review fields and evidence here."}
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSearch className="h-4 w-4" />
-                Saved comparison snapshots
-              </CardTitle>
-              <CardDescription>Each card summarizes scope, warning load, and last generation timestamp.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+            <Card>
+              <CardHeader>
+                <CardTitle>Start a new comparison</CardTitle>
+                <CardDescription>
+                  Create one derived comparison from saved claimset-backed fields, then land directly in the review surface.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
+                <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                  Comparisons stay downstream of saved note review. Re-open source notes before exporting or reusing downstream.
+                </div>
+                <form onSubmit={handleGenerateComparison} className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Papers to compare
+                    </span>
+                    <textarea
+                      value={createPaperIdsInput}
+                      onChange={(event) => setCreatePaperIdsInput(event.target.value)}
+                      placeholder={"paper-e2e-methodcmp-alpha-001\npaper-e2e-methodcmp-beta-001"}
+                      aria-label="Method comparison paper ids"
+                      className="min-h-[112px] w-full rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-sm text-[var(--pp-text-primary)] outline-none placeholder:text-[var(--pp-text-dim)] focus:border-[var(--pp-accent-border)]"
+                    />
+                    <span className="mt-2 block text-xs text-[var(--pp-text-dim)]">
+                      Paste paper IDs one per line, or pick from recent papers below.
+                    </span>
+                  </label>
+
+                  {recentPapers.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                        Recent papers
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {recentPapers.map((paper) => {
+                          const selected = selectedPaperIds.includes(paper.paper_id);
+                          return (
+                            <Button
+                              key={paper.paper_id}
+                              type="button"
+                              size="sm"
+                              variant={selected ? "default" : "outline"}
+                              className="h-auto max-w-full items-start justify-start px-3 py-2 text-left"
+                              onClick={() => toggleCreatePaperId(paper.paper_id)}
+                            >
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate text-xs font-medium">{paper.title}</span>
+                                <span className="truncate font-mono text-[11px] opacity-80">{paper.paper_id}</span>
+                              </span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Comparison title
+                    </span>
+                    <Input
+                      value={createTitle}
+                      onChange={(event) => setCreateTitle(event.target.value)}
+                      placeholder="Optional. A comparison title will be generated if left blank."
+                      aria-label="Method comparison title"
+                    />
+                  </label>
+
+                  <div>
+                    <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+                      Fields
+                    </span>
+                    <div className="space-y-2">
+                      {METHOD_COMPARISON_FIELD_OPTIONS.map((option) => {
+                        const checked = selectedFieldIds.includes(option.id);
+                        return (
+                          <label
+                            key={option.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleField(option.id)}
+                              className="mt-0.5 h-4 w-4 rounded border-[var(--pp-border)] bg-[var(--pp-surface)]"
+                            />
+                            <span>
+                              <span className="block text-sm font-medium text-[var(--pp-text-primary)]">{option.label}</span>
+                              <span className="mt-1 block text-xs text-[var(--pp-text-secondary)]">{option.help}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-xs text-[var(--pp-text-secondary)]">
+                    Use paper IDs from Paper Notes or workbench URLs. The comparison generator reads saved claimset-backed fields for each paper and opens the saved snapshot right away.
+                  </p>
+
+                  {createError ? (
+                    <p className="rounded-md border border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] p-3 text-sm text-[var(--pp-status-failed-text)]">
+                      {createError}
+                    </p>
+                  ) : null}
+
+                  <Button
+                    type="submit"
+                    disabled={creatingComparison || parsePaperIdsInput(createPaperIdsInput).length === 0 || selectedFieldIds.length === 0}
+                  >
+                    {creatingComparison ? "Creating comparison…" : "Create comparison"}
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSearch className="h-4 w-4" />
+                  Saved comparison snapshots
+                </CardTitle>
+                <CardDescription>Each card summarizes derived scope, warning load, and last generation timestamp before downstream reuse.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {loading ? (
                 <p className="text-sm text-[var(--pp-text-dim)]">Loading comparison index…</p>
               ) : null}
@@ -683,7 +999,9 @@ export function MethodComparisonPage() {
               ) : null}
               {!loading && !error && filteredItems.length === 0 ? (
                 <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-sm text-[var(--pp-text-secondary)]">
-                  No comparisons match the current search.
+                  {(indexResponse?.total ?? 0) > 0
+                    ? "No comparisons match the current search."
+                    : "No saved derived comparisons yet. Save one to compare papers and evidence here."}
                 </div>
               ) : null}
               {!loading && !error

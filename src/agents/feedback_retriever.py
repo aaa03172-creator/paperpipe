@@ -8,6 +8,8 @@ from typing import Any, Dict, List
 from src.agents.adapter import OllamaModelAdapter
 from src.config import load_config
 from src.schemas.agent_artifacts import FeedbackCase
+from src.services.event_log import sanitize_event_text_for_log
+from src.services.runtime_paths import feedback_index_root
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class FeedbackRetriever:
         self.min_similarity = min_similarity
         self.adapter = OllamaModelAdapter()
 
-        persist_path = "storage/feedback_index"
+        persist_path = str(feedback_index_root())
         try:
             config = load_config()
             if config.agents and getattr(config.agents, "feedback_index_path", None):
@@ -54,7 +56,7 @@ class FeedbackRetriever:
         self._index_file = self._index_dir / f"{self.collection_name}.jsonl"
 
     def add_feedback(self, case: FeedbackCase) -> bool:
-        text_to_embed = (case.user_correction or "").strip()
+        text_to_embed = (sanitize_event_text_for_log(case.user_correction) or "").strip()
         if not text_to_embed:
             logger.warning("FeedbackCase has no user_correction. Skipping index.")
             return False
@@ -123,5 +125,12 @@ class FeedbackRetriever:
         scored.sort(key=lambda x: x[0], reverse=True)
         out: List[Dict[str, Any]] = []
         for _, meta in scored[: max(0, limit)]:
-            out.append({"paper_id": meta.get("paper_id"), "preview": meta.get("preview")})
+            paper_id = meta.get("paper_id")
+            preview = meta.get("preview")
+            out.append(
+                {
+                    "paper_id": sanitize_event_text_for_log(paper_id) if isinstance(paper_id, str) else paper_id,
+                    "preview": sanitize_event_text_for_log(preview) if isinstance(preview, str) else preview,
+                }
+            )
         return out

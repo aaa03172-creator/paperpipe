@@ -3,7 +3,9 @@
 Status: Active staging guide
 Date: 2026-03-24
 Owner: Lattice runtime maintainers
-Canonical: `docs/reports/Current_State_Staging_Guide_2026-03-24.md`
+Related current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Purpose
 
@@ -16,6 +18,22 @@ Its purpose is to show:
 - what may be staged together safely
 - what should stay in separate source lanes
 - what should not be staged as source changes at all
+
+## 2026-04 usage note
+
+This guide remains useful as the late-March staging guide for that mixed-tree snapshot.
+
+Use it for:
+- the original docs-tail / eval-lane / visual-lane staging split
+- reviewing how the late-March dirty tree was meant to be staged safely
+- historical context when comparing newer lane-triage decisions against the earlier staging model
+
+Do not use it as the first current staging or lane-selection entrypoint for the later repo state.
+
+Read these first for current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Current Staging Rule
 

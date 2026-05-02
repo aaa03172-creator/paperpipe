@@ -8,18 +8,54 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 
-RETIRED_STUBS = {
+RETIRED_STUB_TARGETS = {
+    "docs/Lattice_v3_UIUX_MASTER.md": "docs/Lattice_v3_Master_Spec.md",
+    "docs/PaperPipe_v3_Master_Spec.md": "docs/Lattice_v3_Master_Spec.md",
+    "docs/PaperPipe_v3_Master_Spec_Final_Blueprint_v1_2.md": "docs/Lattice_v3_Master_Spec.md",
+    "docs/reports/PaperPipe_Minimum_Operating_Principles_2026-03-25.md": (
+        "docs/PaperPipe_Minimum_Operating_Principles.md"
+    ),
+}
+
+COMMON_ALLOWED_RETIRED_STUB_REFERENCERS = {
+    "scripts/lint_docs.py",
+    "tests/test_lint_docs.py",
+}
+
+MASTER_SPEC_STUBS = {
     "docs/Lattice_v3_UIUX_MASTER.md",
     "docs/PaperPipe_v3_Master_Spec.md",
     "docs/PaperPipe_v3_Master_Spec_Final_Blueprint_v1_2.md",
 }
 
-ALLOWED_RETIRED_STUB_REFERENCERS = {
-    "docs/README.md",
-    "docs/Lattice_v3_Master_Spec.md",
-    "docs/UIUX_Adoption_Filter_2026-02-25.md",
-    "scripts/lint_docs.py",
-    *RETIRED_STUBS,
+ALLOWED_RETIRED_STUB_REFERENCERS_BY_STUB = {
+    "docs/Lattice_v3_UIUX_MASTER.md": {
+        "docs/README.md",
+        "docs/Lattice_v3_Master_Spec.md",
+        "docs/UIUX_Adoption_Filter_2026-02-25.md",
+        *COMMON_ALLOWED_RETIRED_STUB_REFERENCERS,
+        *MASTER_SPEC_STUBS,
+    },
+    "docs/PaperPipe_v3_Master_Spec.md": {
+        "docs/README.md",
+        "docs/Lattice_v3_Master_Spec.md",
+        *COMMON_ALLOWED_RETIRED_STUB_REFERENCERS,
+        *MASTER_SPEC_STUBS,
+    },
+    "docs/PaperPipe_v3_Master_Spec_Final_Blueprint_v1_2.md": {
+        "docs/README.md",
+        "docs/Lattice_v3_Master_Spec.md",
+        *COMMON_ALLOWED_RETIRED_STUB_REFERENCERS,
+        *MASTER_SPEC_STUBS,
+    },
+    "docs/reports/PaperPipe_Minimum_Operating_Principles_2026-03-25.md": {
+        "docs/README.md",
+        "docs/reports/README.md",
+        "docs/reports/External_Harness_Discipline_Fit_Review_2026-04-03.md",
+        "docs/reports/Lightweight_Contracts_Followup_Review_2026-04-03.md",
+        *COMMON_ALLOWED_RETIRED_STUB_REFERENCERS,
+        "docs/reports/PaperPipe_Minimum_Operating_Principles_2026-03-25.md",
+    },
 }
 
 ROOT_REPORT_PREFIXES = (
@@ -32,6 +68,7 @@ ROOT_REPORT_PREFIXES = (
 SKIP_DIRS = {
     ".git",
     "node_modules",
+    "build",
     "dist",
     ".vite",
     "__pycache__",
@@ -157,7 +194,7 @@ def lint_root_report_leaks(issues: list[str]) -> None:
 
 
 def lint_retired_stubs(issues: list[str]) -> None:
-    for rel in sorted(RETIRED_STUBS):
+    for rel, target in sorted(RETIRED_STUB_TARGETS.items()):
         path = ROOT / rel
         if not path.exists():
             issues.append(f"missing retired stub: {rel}")
@@ -165,20 +202,32 @@ def lint_retired_stubs(issues: list[str]) -> None:
         text = path.read_text(errors="ignore")
         if "Status: Retired compatibility stub" not in text:
             issues.append(f"retired stub missing status banner: {rel}")
-        if "Canonical target: `docs/Lattice_v3_Master_Spec.md`" not in text:
+        if f"Canonical target: `{target}`" not in text:
             issues.append(f"retired stub missing canonical target: {rel}")
+
+
+def find_unexpected_retired_stub_references(rel: str, text: str) -> list[str]:
+    issues: list[str] = []
+    for stub in sorted(RETIRED_STUB_TARGETS):
+        if stub not in text:
+            continue
+        allowed_referrers = ALLOWED_RETIRED_STUB_REFERENCERS_BY_STUB.get(
+            stub, COMMON_ALLOWED_RETIRED_STUB_REFERENCERS
+        )
+        if rel in allowed_referrers:
+            continue
+        issues.append(
+            f"unexpected retired compatibility stub reference in {rel}: {stub}"
+        )
+    return issues
 
 
 def lint_retired_stub_references(issues: list[str]) -> None:
     repo_files = iter_repo_files()
     for path in repo_files:
         rel = path.relative_to(ROOT).as_posix()
-        if rel in ALLOWED_RETIRED_STUB_REFERENCERS:
-            continue
         text = path.read_text(errors="ignore")
-        for stub in RETIRED_STUBS:
-            if stub in text:
-                issues.append(f"unexpected retired stub reference in {rel}: {stub}")
+        issues.extend(find_unexpected_retired_stub_references(rel, text))
 
 
 def main() -> int:

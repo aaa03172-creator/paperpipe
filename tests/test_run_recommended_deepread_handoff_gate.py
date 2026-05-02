@@ -21,6 +21,7 @@ def _summary(
     goal_warn: int,
     step_warn: int,
     recovery_warn: int,
+    section_warn: int = 0,
     goal_missing: int = 0,
     step_missing: int = 0,
     recovery_missing: int = 0,
@@ -38,6 +39,10 @@ def _summary(
             "pass": max(run_count - goal_warn - goal_missing, 0),
             "warn": goal_warn,
             **({"missing": goal_missing} if goal_missing else {}),
+        },
+        "section_navigation_signal_status_counts": {
+            "pass": max(run_count - section_warn, 0),
+            "warn": section_warn,
         },
         "step_stability_status_counts": {
             "pass": max(run_count - step_warn - step_missing, 0),

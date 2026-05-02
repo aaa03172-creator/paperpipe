@@ -30,6 +30,10 @@ def _include_test_fixtures_enabled() -> bool:
     return raw.lower() in {"1", "true", "yes", "on"}
 
 
+def include_test_fixtures_enabled() -> bool:
+    return _include_test_fixtures_enabled()
+
+
 def prefer_non_fixture_items(items: Iterable[T], is_fixture: Callable[[T], bool]) -> list[T]:
     materialized = list(items)
     if _include_test_fixtures_enabled():
@@ -56,6 +60,24 @@ def is_test_fixture_paper_record(record: Mapping[str, object]) -> bool:
     return False
 
 
+def classify_test_fixture_paper_record(record: Mapping[str, object]) -> tuple[bool, str | None]:
+    if is_test_fixture_paper_record(record):
+        return True, "fixture_visibility_rule"
+
+    paper_id = str(record.get("paper_id") or "").strip().lower()
+    title = str(record.get("title") or "").strip().lower()
+    pdf_path = str(record.get("pdf_path") or "").replace("\\", "/").strip().lower()
+    pdf_name = Path(pdf_path).name
+
+    if paper_id.startswith("test_"):
+        return True, "paper_id_test_prefix"
+    if title.startswith("test local "):
+        return True, "title_test_local_prefix"
+    if pdf_name in {"test_paper.pdf", "dummy.pdf"} or pdf_name.startswith("test_"):
+        return True, "pdf_name_test_fixture"
+    return False, None
+
+
 def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
     title = pack.title.strip().lower()
     request_title = (pack.generation_request.title if pack.generation_request else "") or ""
@@ -72,6 +94,25 @@ def is_test_fixture_meeting_pack(pack: MeetingPack) -> bool:
         if "e2e" in ref or "fixture" in ref:
             return True
         if source_title.startswith("e2e ") or "fixture" in source_title:
+            return True
+
+    return False
+
+
+def is_test_fixture_meeting_pack_request(
+    *,
+    title: str | None,
+    source_refs: Iterable[str],
+) -> bool:
+    normalized_title = str(title or "").strip().lower()
+    if normalized_title.startswith("backend visual ") or normalized_title.startswith("e2e "):
+        return True
+
+    for raw_ref in source_refs:
+        ref = str(raw_ref or "").strip().lower()
+        if not ref:
+            continue
+        if ref.startswith("paper-e2e-") or ref.startswith("zoteroe2e"):
             return True
 
     return False

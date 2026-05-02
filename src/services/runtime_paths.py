@@ -206,6 +206,41 @@ def feedback_index_root() -> Path:
     return (storage_root() / "feedback_index").resolve()
 
 
+def feedback_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_FEEDBACK_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "feedback.jsonl").resolve()
+
+
+def artifact_review_feedback_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_ARTIFACT_REVIEW_FEEDBACK_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "artifact_review_feedback.jsonl").resolve()
+
+
+def artifact_generation_outcome_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_ARTIFACT_GENERATION_OUTCOME_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "artifact_generation_outcomes.jsonl").resolve()
+
+
+def project_context_link_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_PROJECT_CONTEXT_LINK_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "project_context_links.jsonl").resolve()
+
+
+def zotero_export_path() -> Path:
+    value = os.getenv("PAPERPIPE_ZOTERO_EXPORT_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "zotero_export.json").resolve()
+
+
 def ocr_cache_root() -> Path:
     value = os.getenv("PAPERPIPE_OCR_CACHE_DIR")
     if value:
@@ -293,6 +328,13 @@ def protocol_cards_root() -> Path:
     return (storage_root() / "protocol_cards").resolve()
 
 
+def protocol_attachments_root() -> Path:
+    value = os.getenv("PAPERPIPE_PROTOCOL_ATTACHMENTS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "protocol_attachments").resolve()
+
+
 def chart_packs_root() -> Path:
     value = os.getenv("PAPERPIPE_CHART_PACKS_DIR")
     if value:
@@ -312,6 +354,13 @@ def meeting_packs_root() -> Path:
     if value:
         return Path(value).expanduser().resolve()
     return (storage_root() / "meeting_packs").resolve()
+
+
+def talk_packs_root() -> Path:
+    value = os.getenv("PAPERPIPE_TALK_PACKS_DIR")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "talk_packs").resolve()
 
 
 def method_comparisons_root() -> Path:

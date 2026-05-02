@@ -5,9 +5,9 @@ import logging
 from typing import Tuple
 
 try:
-    import docker
-except ModuleNotFoundError:  # pragma: no cover - exercised by import-only runtime checks.
-    docker = None
+    import docker  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    docker = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class DockerSandbox:
     def __init__(self, job_id: str, work_dir: str):
         if docker is None:
             raise RuntimeError(
-                "Docker sandbox dependency is not installed. Install the optional docker package "
-                "before running verifier sandbox jobs."
+                "Docker sandbox requires the optional 'docker' Python package. "
+                "Install the sandbox dependency before running sandbox-backed actions."
             )
         self.job_id = job_id
         self.host_work_dir = os.path.abspath(work_dir)

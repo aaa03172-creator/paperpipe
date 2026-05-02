@@ -35,7 +35,7 @@ def test_full_integration():
         search=SearchConfig(slots={"test": SlotConfig(query="test")}),
         llm=LLMConfig(
             features=LLMFeatures(
-                trial_extraction=FeatureConfig(),
+                specialty_trial_extraction=FeatureConfig(),
                 slot_classification=FeatureConfig(),
                 one_liner=FeatureConfig()
             )

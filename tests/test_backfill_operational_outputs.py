@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 from scripts.backfill_operational_outputs import (
     BackfillCandidate,
+    _backup_db,
     collect_backfill_candidates,
     enqueue_claimset_backfill,
 )
@@ -14,7 +17,7 @@ from scripts.backfill_operational_outputs import (
 def test_collect_backfill_candidates_detects_missing_markdown_and_claimset(tmp_path: Path, monkeypatch):
     vault = tmp_path / "vault"
     (vault / "Inbox/PaperPipe").mkdir(parents=True, exist_ok=True)
-    existing = vault / "Inbox/PaperPipe/doi101000ok.md"
+    existing = vault / "Inbox/PaperPipe/OK.md"
     existing.write_text("# ok", encoding="utf-8")
 
     artifacts = tmp_path / "artifacts"
@@ -29,18 +32,21 @@ def test_collect_backfill_candidates_detects_missing_markdown_and_claimset(tmp_p
         {
             "paper_id": "doi:10.1000/missing",
             "title": "Missing",
+            "obsidian_path": "Inbox/PaperPipe/Missing.md",
             "feedback_json": "{}",
             "pdf_path": None,
         },
         {
             "paper_id": "doi:10.1000/ok",
             "title": "OK",
+            "obsidian_path": "Inbox/PaperPipe/OK.md",
             "feedback_json": json.dumps({"claims": [{"statement": "x"}]}),
             "pdf_path": None,
         },
         {
             "paper_id": "local--fixture",
             "title": "Fixture",
+            "obsidian_path": "Inbox/PaperPipe/Fixture.md",
             "feedback_json": "{}",
             "pdf_path": None,
         },
@@ -91,3 +97,62 @@ def test_enqueue_claimset_backfill_skips_open_jobs(monkeypatch):
         assert enqueued_ids == ["p_new"]
     finally:
         conn.close()
+
+
+def test_backup_db_preserves_sqlite_file(tmp_path: Path):
+    db_path = tmp_path / "state.db"
+    backup_path = tmp_path / "backups" / "state_backup.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("CREATE TABLE papers (paper_id TEXT PRIMARY KEY, title TEXT)")
+        conn.execute("INSERT INTO papers (paper_id, title) VALUES ('p1', 'Paper One')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _backup_db(db_path, backup_path)
+
+    backup_conn = sqlite3.connect(backup_path)
+    try:
+        row = backup_conn.execute("SELECT title FROM papers WHERE paper_id = 'p1'").fetchone()
+        assert row == ("Paper One",)
+    finally:
+        backup_conn.close()
+
+
+def test_cli_apply_export_requires_vault_backup_confirmation(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "backfill_operational_outputs.py"),
+            "--apply",
+            "--export-missing",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "vault_backup_confirmation_required" in completed.stdout
+
+
+def test_cli_apply_enqueue_requires_confirmation(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "backfill_operational_outputs.py"),
+            "--apply",
+            "--enqueue-claimset",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "enqueue_confirmation_required" in completed.stdout

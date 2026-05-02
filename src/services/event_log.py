@@ -2,11 +2,94 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import re
 import sqlite3
 from typing import Any
 
 from src.db_utils import get_db_connection
 from src.services.identity import new_job_id
+
+
+_EVENT_SECRET_KEY_RE = re.compile(
+    r"(?:^|[_-])(?:authorization|api[_-]?key|token|secret|password|cookie)(?:$|[_-])",
+    re.IGNORECASE,
+)
+_EVENT_AUTH_VALUE_RE = re.compile(r"\b(?:Basic|Bearer)\s+[A-Za-z0-9._~+/\-:=]+")
+_EVENT_OPENAI_STYLE_KEY_RE = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9][A-Za-z0-9_-]{7,}\b")
+_EVENT_DATABASE_URL_RE = re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^\s,;]+", re.IGNORECASE)
+_EVENT_REDACTED = "<redacted>"
+
+
+def _ensure_event_log_tables(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS execution_runs (
+            run_id TEXT PRIMARY KEY,
+            paper_id TEXT,
+            trigger_source TEXT,
+            pipeline_profile TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TEXT,
+            finished_at TEXT,
+            params_json TEXT,
+            metrics_json TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_events (
+            event_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            run_id TEXT,
+            ts TEXT NOT NULL,
+            level TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            payload_json TEXT
+        )
+        """
+    )
+    job_event_cols = {row[1] for row in connection.execute("PRAGMA table_info(job_events)").fetchall()}
+    if "run_id" not in job_event_cols:
+        connection.execute("ALTER TABLE job_events ADD COLUMN run_id TEXT")
+    if "payload_json" not in job_event_cols:
+        connection.execute("ALTER TABLE job_events ADD COLUMN payload_json TEXT")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_actions (
+            action_id TEXT PRIMARY KEY,
+            ts TEXT NOT NULL,
+            paper_id TEXT,
+            action_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            payload_json TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS request_audits (
+            audit_id TEXT PRIMARY KEY,
+            ts TEXT NOT NULL,
+            source TEXT NOT NULL,
+            client_ip TEXT,
+            host TEXT,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            payload_json TEXT
+        )
+        """
+    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_execution_runs_paper ON execution_runs(paper_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, ts)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_job_events_run ON job_events(run_id, ts)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_user_actions_paper ON user_actions(paper_id, ts)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_request_audits_ts ON request_audits(ts)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_request_audits_path ON request_audits(path, ts)")
 
 
 def _utc_now() -> str:
@@ -19,6 +102,42 @@ def _dump_json(payload: Any | None) -> str | None:
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+def _sanitize_event_text(value: str) -> str:
+    text = _EVENT_AUTH_VALUE_RE.sub(_EVENT_REDACTED, value)
+    text = _EVENT_OPENAI_STYLE_KEY_RE.sub(_EVENT_REDACTED, text)
+    text = _EVENT_DATABASE_URL_RE.sub(_EVENT_REDACTED, text)
+    return text
+
+
+def _sanitize_event_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        sanitized: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_text = str(key)
+            if _EVENT_SECRET_KEY_RE.search(key_text):
+                sanitized[key_text] = _EVENT_REDACTED
+            else:
+                sanitized[key_text] = _sanitize_event_payload(value)
+        return sanitized
+    if isinstance(payload, list):
+        return [_sanitize_event_payload(item) for item in payload]
+    if isinstance(payload, tuple):
+        return [_sanitize_event_payload(item) for item in payload]
+    if isinstance(payload, str):
+        return _sanitize_event_text(payload)
+    return payload
+
+
+def sanitize_event_text_for_log(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return _sanitize_event_text(str(value))
+
+
+def sanitize_event_payload_for_log(payload: Any) -> Any:
+    return _sanitize_event_payload(payload)
+
+
 def _load_json(raw: str | None) -> Any | None:
     if not raw:
         return None
@@ -26,6 +145,24 @@ def _load_json(raw: str | None) -> Any | None:
         return json.loads(raw)
     except Exception:
         return None
+
+
+def _sanitized_payload_json_for_read(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    payload = _load_json(raw)
+    if payload is None:
+        return _dump_json(_sanitize_event_text(str(raw)))
+    return _dump_json(_sanitize_event_payload(payload))
+
+
+def _sanitized_job_event_row(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    message = item.get("message")
+    if isinstance(message, str):
+        item["message"] = _sanitize_event_text(message)
+    item["payload_json"] = _sanitized_payload_json_for_read(item.get("payload_json"))
+    return item
 
 
 def ensure_execution_run(
@@ -41,6 +178,7 @@ def ensure_execution_run(
     owns_conn = conn is None
     connection = conn or get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         connection.execute(
             """
             INSERT INTO execution_runs (
@@ -59,7 +197,7 @@ def ensure_execution_run(
                 pipeline_profile,
                 status,
                 _utc_now(),
-                _dump_json(params),
+                _dump_json(_sanitize_event_payload(params)),
             ),
         )
         if owns_conn:
@@ -91,13 +229,14 @@ def update_execution_run(
         params.append(finished_at)
     if metrics is not None:
         assignments.append("metrics_json = ?")
-        params.append(_dump_json(metrics))
+        params.append(_dump_json(_sanitize_event_payload(metrics)))
     if not assignments:
         return
 
     owns_conn = conn is None
     connection = conn or get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         params.append(run_id)
         connection.execute(
             f"UPDATE execution_runs SET {', '.join(assignments)} WHERE run_id = ?",
@@ -125,6 +264,7 @@ def log_job_event(
     owns_conn = conn is None
     connection = conn or get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         connection.execute(
             """
             INSERT INTO job_events (
@@ -138,8 +278,8 @@ def log_job_event(
                 ts or _utc_now(),
                 str(level or "INFO").upper(),
                 event_type,
-                message,
-                _dump_json(payload),
+                _sanitize_event_text(message) if message is not None else None,
+                _dump_json(_sanitize_event_payload(payload)),
             ),
         )
         if owns_conn:
@@ -163,12 +303,13 @@ def log_user_action(
     owns_conn = conn is None
     connection = conn or get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         connection.execute(
             """
             INSERT INTO user_actions (action_id, ts, paper_id, action_type, source, payload_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (action_id, ts or _utc_now(), paper_id, action_type, source, _dump_json(payload)),
+            (action_id, ts or _utc_now(), paper_id, action_type, source, _dump_json(_sanitize_event_payload(payload))),
         )
         if owns_conn:
             connection.commit()
@@ -195,6 +336,7 @@ def log_request_audit(
     owns_conn = conn is None
     connection = conn or get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         connection.execute(
             """
             INSERT INTO request_audits (
@@ -211,7 +353,7 @@ def log_request_audit(
                 path,
                 int(status_code),
                 outcome,
-                _dump_json(payload),
+                _dump_json(_sanitize_event_payload(payload)),
             ),
         )
         if owns_conn:
@@ -229,6 +371,7 @@ def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
 
     connection = get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         row = connection.execute(
             "SELECT params_json FROM execution_runs WHERE run_id = ? LIMIT 1",
             (normalized,),
@@ -236,7 +379,8 @@ def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
         if not row:
             return {}
         payload = _load_json(row["params_json"])
-        return payload if isinstance(payload, dict) else {}
+        sanitized = _sanitize_event_payload(payload)
+        return sanitized if isinstance(sanitized, dict) else {}
     finally:
         connection.close()
 
@@ -244,6 +388,7 @@ def get_execution_run_params(run_id: str | None) -> dict[str, Any]:
 def list_job_events(job_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
     connection = get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         rows = connection.execute(
             """
             SELECT event_id, job_id, run_id, ts, level, event_type, message, payload_json
@@ -254,7 +399,7 @@ def list_job_events(job_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
             """,
             (job_id, limit),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [_sanitized_job_event_row(row) for row in rows]
     finally:
         connection.close()
 
@@ -262,6 +407,7 @@ def list_job_events(job_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
 def list_run_events(run_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
     connection = get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         try:
             rows = connection.execute(
                 """
@@ -278,7 +424,7 @@ def list_run_events(run_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
             if "no such column: run_id" in str(exc).lower():
                 return []
             raise
-        return [dict(row) for row in rows]
+        return [_sanitized_job_event_row(row) for row in rows]
     finally:
         connection.close()
 
@@ -292,6 +438,7 @@ def list_user_actions(
 ) -> list[dict[str, Any]]:
     connection = get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         where: list[str] = []
         params: list[Any] = []
         if paper_id:
@@ -317,7 +464,7 @@ def list_user_actions(
         output: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["payload"] = _load_json(item.pop("payload_json", None))
+            item["payload"] = _sanitize_event_payload(_load_json(item.pop("payload_json", None)))
             output.append(item)
         return output
     finally:
@@ -333,6 +480,7 @@ def list_request_audits(
 ) -> list[dict[str, Any]]:
     connection = get_db_connection()
     try:
+        _ensure_event_log_tables(connection)
         where: list[str] = []
         params: list[Any] = []
         if path:
@@ -358,7 +506,7 @@ def list_request_audits(
         items: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["payload"] = _load_json(item.pop("payload_json", None))
+            item["payload"] = _sanitize_event_payload(_load_json(item.pop("payload_json", None)))
             items.append(item)
         return items
     finally:

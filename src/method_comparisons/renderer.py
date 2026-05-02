@@ -46,6 +46,10 @@ def render_method_comparison_markdown(comparison: MethodComparison) -> str:
     lines.append(f"# {comparison.title}")
     lines.append("")
     lines.append(f"- Comparison ID: {comparison.comparison_id}")
+    lines.append(f"- Layer: {comparison.layer}")
+    lines.append(f"- Canonical status: {comparison.canonical_status}")
+    lines.append(f"- Readiness: {comparison.readiness}")
+    lines.append(f"- Freshness: {comparison.freshness}")
     lines.append(f"- Created at: {comparison.created_at.isoformat()}")
     if comparison.generated_at is not None:
         lines.append(f"- Generated at: {comparison.generated_at.isoformat()}")
@@ -89,6 +93,16 @@ def render_method_comparison_markdown(comparison: MethodComparison) -> str:
             for ref in cell.evidence_refs:
                 lines.append(f"  - {_format_ref_line(ref)}")
         lines.append("")
+
+    lines.extend(
+        [
+            "## Promotion guardrail",
+            "",
+            "- This comparison is a derived user-facing artifact, not canonical scientific truth.",
+            "- Promoted biomedical answers must jump back to upstream claim/evidence/source data before reuse.",
+            "",
+        ]
+    )
     return "\n".join(lines).strip() + "\n"
 
 

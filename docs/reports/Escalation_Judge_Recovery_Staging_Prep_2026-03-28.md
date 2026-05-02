@@ -8,7 +8,7 @@ Owner: Runtime maintainers
 
 Package the bounded escalation recovery lane that:
 
-- restores the escalation gate to the intended narrow PaperPipe neuroscience/Alzheimer policy
+- keeps the escalation gate conservative while remaining biomedical-general by default
 - keeps deterministic `temperature=0` gate decoding
 - locks the recovered behavior with policy tests plus 10-case and 22-case real-history smoke fixtures
 - includes the currently required config/schema/runtime-path dependency owners that `src/llm_provider.py` imports in the present worktree
@@ -71,4 +71,4 @@ Reproduced temp-closure check:
 
 ## Commit Message
 
-`fix(llm): restore narrow escalation gate policy`
+`fix(llm): align escalation fast-lane with biomedical-general policy`

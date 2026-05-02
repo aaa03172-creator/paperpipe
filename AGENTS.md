@@ -6,6 +6,22 @@
 - **Idempotency:** Obsidian markdown generation must replace sections safely, not blindly append.
 - **Persona/Mode Boundary:** Follow `docs/PERSONA_MODE_BOUNDARY.md`. Do not implement every user-facing perspective as a separate agent; separate core reasoning personas from profile context and output/view modes.
 - **Canonical Docs Boundary:** Treat `docs/Lattice_v3_Master_Spec.md` as the top-level runtime SSOT and `docs/PERSONA_MODE_BOUNDARY.md` as the persona/output boundary. Proposal or fit-review docs may inform bounded RFCs, but they must not directly replace the current FastAPI API surface, the `src/db_utils.py` runtime DB/state layer, or the paper/run/artifact model unless explicitly adopted.
+- **Operating Note Entry Point:** Use `docs/PaperPipe_Minimum_Operating_Principles.md` as the durable operating-note entrypoint for workflow/governance fit checks. Do not treat dated report copies or fit reviews as the primary operating reference once a canonical doc exists.
+- **Layer Taxonomy Rule:** Before adding or changing a store, file, artifact, or response shape, classify it as one of: raw source, raw memory, compiled knowledge, canonical structured state, review/gate artifact, or user-facing artifact/export. If the layer is ambiguous, default to non-canonical until a canonical doc explicitly adopts it.
+- **Raw / Memory / Compiled / Canonical Boundary:** Preserve raw sources as originals. Treat raw memory such as logs, traces, working files, backend-only project memory, or future conversation-like material as retrieval/support only. Treat compiled knowledge as derived and reviewable. Keep schema-backed structured state as the current system truth.
+- **Review / Export Boundary:** Acceptance contracts, quality gates, eval sidecars, and review notes are additive checks, not replacement truth stores. User-facing answers, reports, packs, notes, or exports that present biomedical content as evidence-backed must be able to trace back to upstream canonical state and source/evidence lineage.
+- **Inference Strategy Boundary:** Treat `local-first` primarily as data/runtime ownership, not as a blanket requirement that every operator machine run strong local-only inference. Keep canonical state local; allow bounded external inference only as a subordinate backend choice.
+- **Inference Payload Rule:** Before adding or widening any inference request path, classify the payload as `local_only`, `lab_allowed`, or `external_allowed`. If ambiguous, default to the stricter class and keep excerpts minimal rather than sending full notes, full state, or raw memory.
+
+## 1.5 Review guidelines
+- Do not guess. Base judgments only on actual code evidence.
+- Prioritize structural defects, data integrity, security, and failure modes over style.
+- Do not imagine and overwrite a new architecture. Review for conflicts with the current implementation first.
+- Distinguish source data, canonical state, derived artifacts, and cache.
+- Always check whether any frontend flow handles secret keys directly.
+- On failure paths, inspect partial writes, orphan records, and stale cache risks first.
+- If documentation and implementation differ, explicitly call it out.
+- Actively look for dead code, duplicate abstractions, and hidden side effects.
 
 ## 2. MCP & Cost Control Guardrails (CRITICAL)
 If you are equipped with the Google Developer Knowledge MCP (or any external search tool):

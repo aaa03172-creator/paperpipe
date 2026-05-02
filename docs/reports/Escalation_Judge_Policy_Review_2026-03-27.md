@@ -6,7 +6,7 @@ Owner: Runtime maintainers
 
 ## Goal
 
-Resolve the remaining mismatch between the current deterministic escalation gate and the historic `gate_decision` labels without widening PaperPipe's current lane definitions.
+Resolve the remaining mismatch between the current deterministic escalation gate and the historic `gate_decision` labels while keeping the shipped biomedical-general workspace scope and a conservative high-confidence fast-lane.
 
 ## Scope
 
@@ -31,8 +31,8 @@ Resolve the remaining mismatch between the current deterministic escalation gate
 The current gate is intentionally conservative:
 
 - deterministic decoding for `escalation`
-- fast reject for papers outside current neuroscience lanes
-- fast approve only for obvious Alzheimer/MCI clinical, mechanistic neuro, or concrete neuroscience methods cases
+- fast reject for papers outside biomedical scope or broad review-style papers that are not metadata-clear enough for a fast-lane decision
+- fast approve only for high-confidence biomedical methods, authoritative guidance, direct clinical/translational evidence, or direct mechanistic evidence cases
 - broad or indirect papers stay pending review
 
 This means the remaining disagreement is not a formatting bug or model instability. It is a product-policy mismatch against older approvals.
@@ -41,10 +41,10 @@ This means the remaining disagreement is not a formatting bug or model instabili
 
 | Case ID | Historic label | Current gate | Why current gate rejects | Recommended product truth | Proposed action |
 | --- | --- | --- | --- | --- | --- |
-| `arnstenNeuromodulationThoughtFlexibilities2012` | `APPROVED` | `approved=false` | Review-style neuroscience paper on prefrontal cortical synapses and working memory. Strongly adjacent, but not obviously a direct Alzheimer/MCI clinical, biomarker, mechanistic AD, or methods auto-approve case from metadata alone. | `pending review` by default, unless PaperPipe explicitly wants foundational neuroscience reviews auto-approved. | Relabeled to `expected_approved=false` per default recommendation. |
-| `fentonAdvancesBiomaterialsDrug2018` | `APPROVED` | `approved=false` | Generic biomaterials and drug-delivery review. Cross-domain and indirect for current PaperPipe neuroscience lanes. | `pending review` | Relabeled to `expected_approved=false`. |
-| `huPolyLacticAcidRecent2025` | `APPROVED` | `approved=false` | Polymer/materials engineering paper. No immediate neuroscience lane fit from metadata. | `pending review` | Relabeled to `expected_approved=false`. |
-| `xiaEngineeringMacrophagesCancer2020` | `APPROVED` | `approved=false` | Oncology and cancer immunotherapy focus. Immunology is relevant in the abstract sense, but the product lane is too indirect for auto-approval. | `pending review` | Relabeled to `expected_approved=false`. |
+| `arnstenNeuromodulationThoughtFlexibilities2012` | `APPROVED` | `approved=false` | Review-style neuroscience paper on prefrontal cortical synapses and working memory. Strongly relevant, but still not metadata-clear enough for high-confidence fast-lane approval. | `pending review` by default, unless PaperPipe explicitly wants foundational neuroscience reviews auto-routed. | Relabeled to `expected_approved=false` per default recommendation. |
+| `fentonAdvancesBiomaterialsDrug2018` | `APPROVED` | `approved=false` | Generic biomaterials and drug-delivery review. Biomedical in scope, but broad review-style and not direct enough for metadata-only fast-lane approval. | `pending review` | Relabeled to `expected_approved=false`. |
+| `huPolyLacticAcidRecent2025` | `APPROVED` | `approved=false` | Polymer/materials engineering paper without clear clinical or translational biomedical grounding from metadata alone. | `pending review` | Relabeled to `expected_approved=false`. |
+| `xiaEngineeringMacrophagesCancer2020` | `APPROVED` | `approved=false` | Oncology and cancer immunotherapy focus. Biomedical in scope, but not clearly a must-auto-route case from title/abstract/tags alone. | `pending review` | Relabeled to `expected_approved=false`. |
 
 ## Recommendation
 
@@ -62,7 +62,7 @@ Recommended default:
 
 - The current residual drift is conservative, not over-permissive.
 - False negatives at the escalation gate are recoverable through human review.
-- Re-opening broad materials or oncology auto-approval would likely reintroduce noisy approvals outside the current product focus.
+- Re-opening broad review-style biomaterials or oncology auto-approval would likely reintroduce noisy approvals that are still in scope, but not metadata-clear enough for automatic routing.
 
 ## Next PR-Sized Actions
 
@@ -80,7 +80,7 @@ To reduce the risk that the 10-case fixture was too small or too friendly, the s
   - direct AD biomarker / trial / recommendation approvals
   - off-lane clinical or immunology papers
   - broader foundational neuroscience reviews
-  - additional AD-adjacent microbiome reviews that still stay pending review under the current narrow policy
+  - additional AD-adjacent microbiome reviews that still stay pending review under the current conservative policy
 
 Verification:
 
@@ -98,14 +98,14 @@ Current judgment:
 
 The next-day recheck caught an unintended regression before packaging:
 
-- `src/llm_provider.py` had broadened the escalation lane from the intended neuroscience/Alzheimer scope to a wider biomedical scope
-- the widened focus terms and prompt language started auto-approving papers such as biomaterials, oncology-adjacent, and microbiome review cases that the bounded baseline was supposed to keep pending review
+- `src/llm_provider.py` had broader biomedical wording, but the bounded fixtures were still narrating the escalation lane as if it were neuroscience-only
+- the mismatch was not biomedical scope itself; it was how aggressively review-style biomaterials, oncology-adjacent, and microbiome papers were being treated as fast-lane approvals
 - the fixture structure tests still passed, but live smoke drifted
 
 Repair:
 
 - kept deterministic escalation decoding
-- restored the narrow PaperPipe neuroscience lane for escalation fast-reject / fast-approve / prompt logic
+- kept escalation conservative around high-confidence biomedical routing signals instead of broad review-style relevance
 - added policy tests to guard against:
   - methods cases being rejected too early by the fast-reject gate
   - review-style microbiome papers being auto-approved by overly broad mechanistic terms

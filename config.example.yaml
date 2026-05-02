@@ -7,7 +7,7 @@ paths:
   zotero_base_dir: "/path/to/Zotero/storage"
   obsidian_vault: "/path/to/Obsidian/MyVault"
   index_all: "00_Index/paper_collection.csv"
-  index_clinical: "00_Index/mct_mci_trials.csv"
+  index_clinical: "00_Index/clinical_trials.csv"
   upload_dir: "/path/to/NotebookLM_Upload"
   export_dir: "export"
   watch_folder: "/path/to/PaperPipe_Watch"
@@ -17,17 +17,21 @@ paths:
 
 search:
   constraints:
+    # For mixed-source slots, keep up to this many PubMed candidates in the
+    # candidate pool before ranking. PubMed-only slots are not capped by this value.
     min_pubmed: 2
+    # For arXiv or mixed-source slots, keep at most this many preprint candidates
+    # in the candidate pool before ranking.
     max_preprint: 1
   slots:
     mechanism:
-      query: '(ASM OR "acid sphingomyelinase" OR sphingolipid OR ceramide OR autophagy OR lysosome) AND (microglia OR HMGB1 OR neuroinflammation)'
+      query: '("cell signaling" OR pathway OR receptor OR inflammation OR organoid OR "disease model") AND (disease OR tumor OR immune OR translational OR neural)'
       source: "pubmed"
     clinical:
-      query: '(MCI OR "Mild Cognitive Impairment") AND (MCT OR "Medium-chain triglyceride" OR ketone OR "ketogenic diet")'
+      query: '("clinical trial" OR cohort OR biomarker OR treatment OR therapy OR patient) AND (disease OR disorder OR cancer OR inflammation)'
       source: "pubmed"
     methods:
-      query: '"Cre-ER" OR "Cre-loxP" OR tamoxifen OR genotyping OR "recombination efficiency"'
+      query: '(assay OR protocol OR workflow OR validation OR "sample preparation" OR imaging OR organoid OR biomaterial) AND (cell OR tissue OR patient OR disease)'
       source: "pubmed"
 
 llm:
@@ -46,13 +50,18 @@ llm:
       deep_read: "llama3:8b"
       relevance_analyzer: "llama3:8b"
   cloud:
-    provider: "openai"
-    api_key: "" # Optional unless mode == "cloud"
+    provider: "openai" # options: openai, anthropic
+    api_key: "" # Prefer the provider-matching env var (OPENAI_API_KEY or ANTHROPIC_API_KEY); leave blank in normal setups.
     model: "gpt-4o"
     embedding_model: "text-embedding-3-small"
   features:
-    trial_extraction:
+    clinical_extraction:
       enabled: true
+      model: "llama3:8b"
+    # Legacy alias `trial_extraction` is still accepted with a deprecation warning
+    # and is scheduled for removal after 2026-06-30.
+    specialty_trial_extraction:
+      enabled: false
       model: "llama3:8b"
     slot_classification:
       enabled: true
@@ -74,7 +83,7 @@ ingest:
   cloud_table_page_budget: 1
   cloud_table_model: "gpt-4o-mini"
   cloud_table_base_url: null
-  cloud_table_api_key: "" # default uses OPENAI_API_KEY if empty
+  cloud_table_api_key: "" # Prefer OPENAI_API_KEY in the environment; leave blank unless you need an override.
   cloud_table_timeout_seconds: 30
 
 unpaywall:

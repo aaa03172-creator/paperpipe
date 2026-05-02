@@ -23,6 +23,8 @@ def _sample_comparison(title: str = "Method comparison") -> MethodComparison:
         comparison_id="methodcmp_20260318T120000Z_demo",
         title=title,
         created_at=datetime(2026, 3, 18, 12, 0, tzinfo=timezone.utc),
+        readiness="evidence_backed",
+        freshness="unknown",
         paper_ids=["paper-001"],
         columns=build_method_comparison_columns(["intervention", "primary_readout"]),
         rows=[
@@ -54,6 +56,10 @@ def test_method_comparison_store_roundtrip_creates_expected_layout(tmp_path):
     assert md_path == method_comparison_markdown_path(comparison.comparison_id, root)
     assert loaded.comparison_id == comparison.comparison_id
     assert loaded.title == comparison.title
+    assert loaded.layer == "user_facing_artifact"
+    assert loaded.canonical_status == "non_canonical"
+    assert loaded.readiness == "evidence_backed"
+    assert loaded.freshness == "unknown"
     assert loaded_csv == csv_text
     assert loaded_markdown == markdown
     assert list_method_comparison_ids(root) == [comparison.comparison_id]

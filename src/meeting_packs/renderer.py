@@ -8,6 +8,8 @@ def render_meeting_pack_markdown(pack: MeetingPack) -> str:
     lines.append(f"# {pack.title}")
     lines.append("")
     lines.append(f"- Mode: {pack.mode}")
+    lines.append(f"- Layer: {pack.layer}")
+    lines.append(f"- Canonical status: {pack.canonical_status}")
     lines.append(f"- Status: {pack.status}")
     lines.append(f"- Readiness: {pack.readiness}")
     lines.append(f"- Created at: {pack.created_at.isoformat()}")
@@ -85,6 +87,43 @@ def render_meeting_pack_markdown(pack: MeetingPack) -> str:
         lines.append(f"- {ref.id}: {ref.paper_slug}{claim_id}{evidence_id}{location_text}")
         if ref.note:
             lines.append(f"  - Note: {ref.note}")
+
+    if pack.artifact_brief is not None:
+        lines.extend(
+            [
+                "",
+                "## Artifact Brief",
+                "",
+                f"- Artifact family: {pack.artifact_brief.artifact_family}",
+                f"- Goal: {pack.artifact_brief.communicative_intent.goal}",
+                f"- Allowed evidence refs: {len(pack.artifact_brief.source_context.allowed_evidence_refs)}",
+                f"- Context-only inputs: {sum(1 for item in pack.artifact_brief.source_context.source_items if item.role == 'context_only')}",
+            ]
+        )
+
+    if pack.artifact_brief_review is not None:
+        lines.extend(
+            [
+                "",
+                "## Artifact Brief Review",
+                "",
+                f"- Status: {pack.artifact_brief_review.overall_status}",
+            ]
+        )
+        for reason_code in pack.artifact_brief_review.reason_codes:
+            lines.append(f"- Reason code: {reason_code}")
+        for warning in pack.artifact_brief_review.warnings:
+            lines.append(f"- Warning: {warning}")
+
+    lines.extend(
+        [
+            "",
+            "## Promotion guardrail",
+            "",
+            "- This meeting pack is a derived user-facing artifact, not canonical scientific truth.",
+            "- Promoted biomedical answers must jump back to upstream claim/evidence/source data before reuse.",
+        ]
+    )
 
     return "\n".join(lines).strip() + "\n"
 

@@ -1,13 +1,32 @@
 import hashlib
 import logging
 import shutil
-import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 import fitz
 
 logger = logging.getLogger(__name__)
+
+
+class _LazySubprocessProxy:
+    """Delay importing subprocess until OCR fallback is actually invoked."""
+
+    def __init__(self) -> None:
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            import subprocess as subprocess_module
+
+            self._module = subprocess_module
+        return self._module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+subprocess = _LazySubprocessProxy()
 
 
 def detect_need_ocr(pdf_path: Path, min_text_chars: int = 200) -> bool:

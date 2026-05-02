@@ -21,6 +21,10 @@ from src.contracts.output_bridge import (
 from src.fetch.openalex import OpenAlexFetcher
 from src.sandbox.docker_runner import DockerSandbox
 from src.schemas.skills import (
+    CriticalAppraisalCheck,
+    CriticalAppraisalConcern,
+    CriticalAppraisalQuestion,
+    CriticalAppraisalReport,
     SkillClaimCard,
     SkillRunRecord,
     SkillRunRequest,
@@ -46,6 +50,7 @@ from src.skills.storage import (
 )
 from src.skills.types import NoteExecutionContext, SkillHandlerResult
 from src.services.event_log import log_user_action
+from src.services.fixture_visibility import visible_structured_state
 from src.services.identity import make_runtime_paper_id
 from src.services.runtime_paths import artifact_paper_dir, artifacts_root
 
@@ -400,6 +405,451 @@ def _bind_claim_cards_to_run(claim_cards: list[SkillClaimCard], run_id: str) -> 
     return bind_claim_cards_to_run(claim_cards, run_id)
 
 
+def _artifact_path_bundle(claimset_path: Path | None, stats_path: Path | None) -> dict[str, Path]:
+    bundle: dict[str, Path] = {}
+    if claimset_path is not None and claimset_path.exists():
+        bundle["claimset"] = claimset_path
+    if stats_path is not None and stats_path.exists():
+        bundle["stats_report"] = stats_path
+    artifact_dir = (
+        claimset_path.parent
+        if claimset_path is not None
+        else stats_path.parent if stats_path is not None else None
+    )
+    if artifact_dir is None:
+        return bundle
+    for key, filename in {
+        "reader_eval": "reader_eval.json",
+        "quality_gate": "quality_gate.json",
+    }.items():
+        candidate = artifact_dir / filename
+        if candidate.exists():
+            bundle[key] = candidate
+    return bundle
+
+
+def _dedupe_ordered(values: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _evidence_locator_present(card: SkillClaimCard, evidence_index: int) -> bool:
+    evidence = card.evidence[evidence_index]
+    locator = evidence.locator
+    if locator is None:
+        return False
+    return any(
+        [
+            isinstance(locator.page, int),
+            bool(locator.section),
+            bool(locator.chunk_id),
+            bool(locator.span),
+            locator.char_start is not None,
+            locator.char_end is not None,
+            locator.table_id is not None,
+            locator.cell_id is not None,
+            bool(locator.bbox_pdf),
+            bool(locator.bbox_pct),
+        ]
+    )
+
+
+def _quality_gate_check(quality_gate_payload: dict[str, Any] | None, check_name: str) -> dict[str, Any] | None:
+    if not isinstance(quality_gate_payload, dict):
+        return None
+    checks = quality_gate_payload.get("checks")
+    if not isinstance(checks, list):
+        return None
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name") or "").strip() == check_name:
+            return item
+    return None
+
+
+def _normalize_appraisal_check_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"pass", "warn", "fail", "not_run"}:
+        return normalized
+    if normalized in {"ok", "verified", "completed", "ready", "success"}:
+        return "pass"
+    if normalized in {"warning", "mixed", "review"}:
+        return "warn"
+    if normalized in {"error", "failed", "missing"}:
+        return "fail"
+    return "not_run"
+
+
+def _make_appraisal_check(*, code: str, label: str, status: str, detail: str) -> CriticalAppraisalCheck:
+    return CriticalAppraisalCheck(
+        code=code,
+        label=label,
+        status=_normalize_appraisal_check_status(status),
+        detail=detail,
+    )
+
+
+def _build_appraisal_summary(
+    *,
+    label: str,
+    claim_count: int,
+    evidence_count: int,
+    concern_count: int,
+    stats_available: bool,
+) -> str:
+    if concern_count > 0:
+        return (
+            f"{label}: reviewed {claim_count} saved claims and {evidence_count} evidence anchors; "
+            f"{concern_count} evidence-bounded concern{'s' if concern_count != 1 else ''} need follow-up."
+        )
+    if not stats_available:
+        return (
+            f"{label}: saved claims and evidence look internally reusable, "
+            "but no stats report was available for this optional review lane."
+        )
+    return (
+        f"{label}: saved claims, evidence anchors, and recorded checks look internally consistent "
+        "for downstream reading review."
+    )
+
+
+def _build_critical_appraisal_report(
+    claim_cards: list[SkillClaimCard],
+    appraisal: dict[str, Any],
+    *,
+    stats_payload: dict[str, Any] | None,
+    artifact_paths: dict[str, Path] | None = None,
+    quality_gate_payload: dict[str, Any] | None = None,
+    reader_eval_payload: dict[str, Any] | None = None,
+) -> CriticalAppraisalReport:
+    artifact_names = _dedupe_ordered(
+        [path.name for path in (artifact_paths or {}).values() if isinstance(path, Path)]
+    )
+    stats_checks = stats_payload.get("checks") if isinstance(stats_payload, dict) else []
+    if not isinstance(stats_checks, list):
+        stats_checks = []
+
+    unresolved_claim_ids: list[str] = []
+    unresolved_evidence_ids: list[str] = []
+    ambiguous_claim_ids: list[str] = []
+    ambiguous_evidence_ids: list[str] = []
+    approx_claim_ids: list[str] = []
+    approx_evidence_ids: list[str] = []
+    low_confidence_claim_ids: list[str] = []
+    missing_locator_claim_ids: list[str] = []
+    missing_locator_evidence_ids: list[str] = []
+    grounded_evidence_count = 0
+
+    for card in claim_cards:
+        confidence = card.confidence if isinstance(card.confidence, (int, float)) else None
+        if confidence is not None and confidence < 0.7:
+            low_confidence_claim_ids.append(card.id)
+        for index, evidence in enumerate(card.evidence):
+            locator_source = str(
+                (evidence.locator.source if evidence.locator is not None else None)
+                or evidence.source
+                or ""
+            ).strip().lower()
+            if evidence.grounded is True:
+                grounded_evidence_count += 1
+            if evidence.grounded is False and evidence.resolution == "AMBIGUOUS_MATCH":
+                ambiguous_claim_ids.append(card.id)
+                if evidence.id:
+                    ambiguous_evidence_ids.append(evidence.id)
+            elif evidence.grounded is False:
+                unresolved_claim_ids.append(card.id)
+                if evidence.id:
+                    unresolved_evidence_ids.append(evidence.id)
+            if locator_source == "approx":
+                approx_claim_ids.append(card.id)
+                if evidence.id:
+                    approx_evidence_ids.append(evidence.id)
+            if not _evidence_locator_present(card, index):
+                missing_locator_claim_ids.append(card.id)
+                if evidence.id:
+                    missing_locator_evidence_ids.append(evidence.id)
+
+    metrics = reader_eval_payload.get("metrics") if isinstance(reader_eval_payload, dict) else {}
+    if not isinstance(metrics, dict):
+        metrics = {}
+    reader_eval_unresolved = int(metrics.get("unresolved_span_count") or 0)
+    reader_eval_ambiguous = int(metrics.get("ambiguous_span_count") or 0)
+    reader_eval_low_overlap = int(metrics.get("low_overlap_claim_count") or 0)
+    verified_checks = int(appraisal.get("verified_checks") or 0)
+    inconsistent_checks = int(appraisal.get("inconsistent_checks") or 0)
+    claim_count = int(appraisal.get("claim_count") or len(claim_cards))
+    evidence_count = int(appraisal.get("evidence_count") or sum(len(card.evidence) for card in claim_cards))
+    stats_available = bool(isinstance(stats_payload, dict) and stats_payload)
+
+    concerns: list[CriticalAppraisalConcern] = []
+    if inconsistent_checks > 0:
+        concerns.append(
+            CriticalAppraisalConcern(
+                code="stats_inconsistent",
+                title="Saved stats checks disagree with at least one reported conclusion.",
+                detail=(
+                    f"{inconsistent_checks} of {len(stats_checks)} recorded checks are inconsistent. "
+                    "Treat downstream critique as provisional until the saved verification lane is reconciled."
+                ),
+                severity="fail",
+                source_artifacts=_dedupe_ordered(["stats_report.json", "quality_gate.json"]),
+            )
+        )
+    if unresolved_evidence_ids:
+        concerns.append(
+            CriticalAppraisalConcern(
+                code="unresolved_evidence",
+                title="Some saved claims still rely on unresolved evidence anchors.",
+                detail=(
+                    f"{len(_dedupe_ordered(unresolved_claim_ids))} claims and {len(_dedupe_ordered(unresolved_evidence_ids))} "
+                    "evidence anchors were marked unresolved."
+                ),
+                severity="fail",
+                claim_ids=_dedupe_ordered(unresolved_claim_ids),
+                evidence_ids=_dedupe_ordered(unresolved_evidence_ids),
+                source_artifacts=_dedupe_ordered(["claimset.resolved.json", "reader_eval.json"]),
+            )
+        )
+    if ambiguous_evidence_ids:
+        concerns.append(
+            CriticalAppraisalConcern(
+                code="ambiguous_evidence",
+                title="Some evidence anchors remain ambiguous rather than precisely grounded.",
+                detail=(
+                    f"{len(_dedupe_ordered(ambiguous_claim_ids))} claims still depend on ambiguous anchors. "
+                    "These are better framed as follow-up questions than definitive critique."
+                ),
+                severity="warn",
+                claim_ids=_dedupe_ordered(ambiguous_claim_ids),
+                evidence_ids=_dedupe_ordered(ambiguous_evidence_ids),
+                source_artifacts=_dedupe_ordered(["claimset.resolved.json", "reader_eval.json"]),
+            )
+        )
+    if approx_evidence_ids:
+        concerns.append(
+            CriticalAppraisalConcern(
+                code="approximate_locator",
+                title="Some saved evidence uses approximate locator matches.",
+                detail=(
+                    f"{len(_dedupe_ordered(approx_evidence_ids))} evidence anchors came from approximate matching, "
+                    "so precision-sensitive downstream notes should be checked before reuse."
+                ),
+                severity="warn",
+                claim_ids=_dedupe_ordered(approx_claim_ids),
+                evidence_ids=_dedupe_ordered(approx_evidence_ids),
+                source_artifacts=_dedupe_ordered(["claimset.resolved.json", "reader_eval.json"]),
+            )
+        )
+    if low_confidence_claim_ids:
+        concerns.append(
+            CriticalAppraisalConcern(
+                code="low_confidence_claims",
+                title="Some saved claims remain low-confidence.",
+                detail=(
+                    f"{len(_dedupe_ordered(low_confidence_claim_ids))} claims are below the 0.70 confidence threshold "
+                    "used for this optional reviewer lane."
+                ),
+                severity="warn",
+                claim_ids=_dedupe_ordered(low_confidence_claim_ids),
+                source_artifacts=["claimset.resolved.json"],
+            )
+        )
+
+    questions: list[CriticalAppraisalQuestion] = []
+    if unresolved_evidence_ids or ambiguous_evidence_ids:
+        questions.append(
+            CriticalAppraisalQuestion(
+                code="locator_follow_up",
+                question="Which precise passage, table cell, or figure anchor should support the flagged claims?",
+                rationale="The current appraisal found unresolved or ambiguous evidence links, so the next step is tighter grounding rather than free-form critique.",
+                claim_ids=_dedupe_ordered(unresolved_claim_ids + ambiguous_claim_ids),
+                evidence_ids=_dedupe_ordered(unresolved_evidence_ids + ambiguous_evidence_ids),
+            )
+        )
+    if inconsistent_checks > 0:
+        questions.append(
+            CriticalAppraisalQuestion(
+                code="stats_follow_up",
+                question="Do the reported statistical conclusions still hold after the inconsistent saved checks are reconciled?",
+                rationale="Stats disagreement should block strong downstream claims until the saved verification lane is aligned.",
+            )
+        )
+    if low_confidence_claim_ids or reader_eval_low_overlap > 0:
+        questions.append(
+            CriticalAppraisalQuestion(
+                code="scope_follow_up",
+                question="Should the low-confidence or weak-overlap claims stay in the reusable note, or be downgraded to tentative context?",
+                rationale="This keeps the default reading workspace focused on trustworthy claims instead of stretching the reviewer lane into product truth.",
+                claim_ids=_dedupe_ordered(low_confidence_claim_ids),
+            )
+        )
+
+    quality_gate_locator_check = _quality_gate_check(quality_gate_payload, "evidence_locator_quality")
+    quality_gate_verification_check = _quality_gate_check(quality_gate_payload, "verification_completed")
+    quality_gate_claimset_check = _quality_gate_check(quality_gate_payload, "claimset_ready")
+    quality_gate_status = str((quality_gate_payload or {}).get("overall_status") or "").strip().lower()
+    quality_gate_review_ready = (quality_gate_payload or {}).get("review_ready") is True
+
+    locator_status = (
+        _normalize_appraisal_check_status(quality_gate_locator_check.get("status"))
+        if quality_gate_locator_check is not None
+        else (
+            "fail"
+            if unresolved_evidence_ids
+            else "warn"
+            if ambiguous_evidence_ids or approx_evidence_ids or missing_locator_evidence_ids
+            else "pass"
+        )
+    )
+    locator_detail = (
+        str(quality_gate_locator_check.get("detail") or "").strip()
+        if quality_gate_locator_check is not None
+        else (
+            f"grounded={grounded_evidence_count}, ambiguous={len(_dedupe_ordered(ambiguous_evidence_ids))}, "
+            f"unresolved={len(_dedupe_ordered(unresolved_evidence_ids))}, approx={len(_dedupe_ordered(approx_evidence_ids))}, "
+            f"locator_missing={len(_dedupe_ordered(missing_locator_evidence_ids))}"
+        )
+    )
+
+    stats_status = (
+        "not_run"
+        if not stats_available
+        else "fail"
+        if inconsistent_checks > 0
+        else "warn"
+        if len(stats_checks) == 0
+        else "pass"
+    )
+    stats_detail = (
+        "No saved stats report was available for this appraisal."
+        if not stats_available
+        else (
+            f"{inconsistent_checks} inconsistent checks out of {len(stats_checks)} recorded checks."
+            if inconsistent_checks > 0
+            else (
+                "Stats report exists but no saved checks were recorded."
+                if len(stats_checks) == 0
+                else f"{verified_checks} verified checks and 0 inconsistent checks."
+            )
+        )
+    )
+
+    verification_status = (
+        _normalize_appraisal_check_status(quality_gate_verification_check.get("status"))
+        if quality_gate_verification_check is not None
+        else ("pass" if len(stats_checks) > 0 else "not_run")
+    )
+    verification_detail = (
+        str(quality_gate_verification_check.get("detail") or "").strip()
+        if quality_gate_verification_check is not None
+        else (
+            f"Recorded {len(stats_checks)} saved verification checks."
+            if len(stats_checks) > 0
+            else "No saved verification completion signal was available."
+        )
+    )
+
+    review_ready_status = (
+        "not_run"
+        if quality_gate_payload is None
+        else "pass"
+        if quality_gate_review_ready and quality_gate_status == "pass"
+        else "fail"
+        if quality_gate_status == "fail"
+        else "warn"
+    )
+    review_ready_detail = (
+        "No saved quality gate was available for this optional review lane."
+        if quality_gate_payload is None
+        else f"quality_gate={quality_gate_status or 'unknown'}, review_ready={str(quality_gate_review_ready).lower()}"
+    )
+
+    checks = [
+        _make_appraisal_check(
+            code="claimset_ready",
+            label="Saved claimset",
+            status=(
+                _normalize_appraisal_check_status(quality_gate_claimset_check.get("status"))
+                if quality_gate_claimset_check is not None
+                else ("pass" if claim_cards else "fail")
+            ),
+            detail=(
+                str(quality_gate_claimset_check.get("detail") or "").strip()
+                if quality_gate_claimset_check is not None
+                else f"{claim_count} saved claims with {evidence_count} evidence anchors are available."
+            ),
+        ),
+        _make_appraisal_check(
+            code="evidence_locator_quality",
+            label="Evidence locator quality",
+            status=locator_status,
+            detail=locator_detail,
+        ),
+        _make_appraisal_check(
+            code="stats_consistency",
+            label="Saved stats consistency",
+            status=stats_status,
+            detail=stats_detail,
+        ),
+        _make_appraisal_check(
+            code="verification_completed",
+            label="Verification completion",
+            status=verification_status,
+            detail=verification_detail,
+        ),
+        _make_appraisal_check(
+            code="review_ready",
+            label="Review-ready gate",
+            status=review_ready_status,
+            detail=review_ready_detail,
+        ),
+    ]
+
+    warnings: list[str] = []
+    if "reader_eval" not in (artifact_paths or {}):
+        warnings.append("Reader eval sidecar was unavailable; locator quality was inferred from saved claim evidence.")
+    elif reader_eval_unresolved > 0 or reader_eval_ambiguous > 0:
+        warnings.append(
+            f"Reader eval recorded unresolved={reader_eval_unresolved} and ambiguous={reader_eval_ambiguous} evidence spans."
+        )
+    if "quality_gate" not in (artifact_paths or {}):
+        warnings.append("Quality gate artifact was unavailable; review-readiness stayed non-canonical and optional.")
+    if missing_locator_evidence_ids:
+        warnings.append(
+            f"{len(_dedupe_ordered(missing_locator_evidence_ids))} evidence anchors were missing precise locator metadata."
+        )
+
+    summary = _build_appraisal_summary(
+        label=str(appraisal.get("label") or "Needs review"),
+        claim_count=claim_count,
+        evidence_count=evidence_count,
+        concern_count=len(concerns),
+        stats_available=stats_available,
+    )
+    return CriticalAppraisalReport(
+        label=str(appraisal.get("label") or "Needs review"),
+        summary=summary,
+        claim_count=claim_count,
+        evidence_count=evidence_count,
+        avg_confidence=float(appraisal.get("avg_confidence") or 0.0),
+        verified_checks=verified_checks,
+        inconsistent_checks=inconsistent_checks,
+        checks=checks,
+        concerns=concerns,
+        questions=questions,
+        warnings=warnings,
+        source_artifacts=artifact_names,
+    )
+
+
 def _extract_taxonomy(ctx: NoteExecutionContext, cards: list[SkillClaimCard]) -> tuple[list[str], list[str], list[str]]:
     tags = ctx.frontmatter.get("tags")
     tag_list = [str(item).strip() for item in tags] if isinstance(tags, list) else []
@@ -511,13 +961,27 @@ def _run_critical_appraisal_fallback(claim_cards: list[SkillClaimCard], stats_pa
 
 def _handle_critical_appraisal(ctx: NoteExecutionContext, timeout_seconds: int) -> SkillHandlerResult:
     claimset_path, stats_path = _find_latest_artifact_paths(ctx)
+    artifact_paths = _artifact_path_bundle(claimset_path, stats_path)
     claimset_payload = _load_claimset_payload(claimset_path)
     if not claimset_payload:
-        state = load_structured_state(ctx.vault_path, ctx.slug, ctx.frontmatter)
+        state = visible_structured_state(
+            load_structured_state(ctx.vault_path, ctx.slug, ctx.frontmatter),
+            vault_path=ctx.vault_path,
+        )
         if state and state.claimset:
             claim_cards = state.claimset
             stats_payload = _load_json(stats_path)
+            review_artifact_paths = dict(artifact_paths)
+            review_artifact_paths.setdefault("state", structured_state_path(ctx.vault_path, ctx.slug))
             appraisal, sandbox_mode = _run_critical_appraisal_fallback(claim_cards, stats_payload)
+            appraisal_report = _build_critical_appraisal_report(
+                claim_cards,
+                appraisal,
+                stats_payload=stats_payload,
+                artifact_paths=review_artifact_paths,
+                quality_gate_payload=_load_json(review_artifact_paths.get("quality_gate")),
+                reader_eval_payload=_load_json(review_artifact_paths.get("reader_eval")),
+            )
             summary = (
                 f"{appraisal['label']}: reused stored ClaimSet with {appraisal['claim_count']} claims "
                 f"and {appraisal['inconsistent_checks']} inconsistent checks."
@@ -526,7 +990,7 @@ def _handle_critical_appraisal(ctx: NoteExecutionContext, timeout_seconds: int) 
                 status="succeeded",
                 summary=summary,
                 artifacts={"claimset_source": "state.json", "sandbox": sandbox_mode},
-                data={"appraisal": appraisal},
+                data={"appraisal": appraisal, "appraisal_report": appraisal_report.model_dump()},
                 signals={"last_appraisal": appraisal["label"]},
             )
         return SkillHandlerResult(
@@ -547,6 +1011,14 @@ def _handle_critical_appraisal(ctx: NoteExecutionContext, timeout_seconds: int) 
         logger.warning("Critical appraisal sandbox fallback for %s: %s", ctx.slug, exc)
         appraisal, sandbox_mode = _run_critical_appraisal_fallback(claim_cards, stats_payload)
 
+    appraisal_report = _build_critical_appraisal_report(
+        claim_cards,
+        appraisal,
+        stats_payload=stats_payload,
+        artifact_paths=artifact_paths,
+        quality_gate_payload=_load_json(artifact_paths.get("quality_gate")),
+        reader_eval_payload=_load_json(artifact_paths.get("reader_eval")),
+    )
     entities, mesh, outcomes = _extract_taxonomy(ctx, claim_cards)
     summary = (
         f"{appraisal['label']}: {appraisal['claim_count']} claims, "
@@ -561,7 +1033,7 @@ def _handle_critical_appraisal(ctx: NoteExecutionContext, timeout_seconds: int) 
             "stats_report_path": str(stats_path) if stats_path else None,
             "sandbox": sandbox_mode,
         },
-        data={"appraisal": appraisal},
+        data={"appraisal": appraisal, "appraisal_report": appraisal_report.model_dump()},
         claimset=[card.model_dump() for card in claim_cards],
         entities=entities,
         mesh=mesh,
@@ -629,7 +1101,10 @@ def run_skill_action(request: SkillRunRequest) -> SkillRunResponse:
         claimset_cards = [SkillClaimCard.model_validate(item) for item in handler_result.claimset]
         claimset_cards = _bind_claim_cards_to_run(claimset_cards, run_id)
 
-    existing_state = load_structured_state(ctx.vault_path, ctx.slug, ctx.frontmatter)
+    existing_state = visible_structured_state(
+        load_structured_state(ctx.vault_path, ctx.slug, ctx.frontmatter),
+        vault_path=ctx.vault_path,
+    )
     reference_count = len(_collect_reference_candidates(ctx))
     signal_payload = {
         "citation_count": reference_count,

@@ -28,6 +28,7 @@ export function deriveContentReviewSummary(
       issuesLabel.length > 0 &&
       /not analy[sz]ed|unavailable|not available|pending|not reviewed|not run/i.test(issuesLabel));
   const state = flagged ? "flagged" : unavailable ? "unavailable" : "clear";
+  const reviewIssueLabel = `Review ${issueCount} issue${issueCount === 1 ? "" : "s"}`;
 
   return {
     issueCount,
@@ -35,20 +36,20 @@ export function deriveContentReviewSummary(
     badgeLabel: flagged ? `${issueCount} flagged` : unavailable ? "Unavailable" : "Clear",
     badgeTone: flagged ? "danger" : unavailable ? "muted" : "outline",
     badgeIconTone: flagged ? "danger" : null,
-    reviewLabel: flagged ? `Review ${issueCount} issue${issueCount === 1 ? "" : "s"}` : unavailable ? "Review unavailable" : "Review clear",
+    reviewLabel: flagged ? reviewIssueLabel : unavailable ? "Review unavailable" : "Review clear",
     hint: flagged
-      ? "Content QA flags are separate from artifact health."
+      ? "Claim review flags are separate from saved checks."
       : unavailable
-        ? "Content review has not been generated for the current paper summary."
-        : "No content flags in the current paper summary.",
+        ? "Claim review has not been generated for the current paper summary."
+        : "No claim review flags in the current paper summary.",
     detail: flagged
-      ? issuesLabel || `${issueCount} content review flag${issueCount === 1 ? "" : "s"} recorded in the current paper summary.`
+      ? issuesLabel || `${issueCount} claim review flag${issueCount === 1 ? "" : "s"} recorded in the current paper summary.`
       : unavailable
         ? issuesLabel
       : focusIssues
-        ? "Issue focus is enabled, so the notebook is using risk-related claim heuristics."
+        ? "Risk focus is on, so the notebook is using risk-related claim heuristics."
         : null,
-    focusLabel: focusIssues ? "Issue focus enabled" : null,
+    focusLabel: focusIssues ? "Risk focus on" : null,
   };
 }
 

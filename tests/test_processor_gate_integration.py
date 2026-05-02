@@ -96,6 +96,39 @@ def test_step_gate_maps_decisions(mock_update_status, mock_load_config, mock_get
     assert mock_update_status.call_args[0][1] == STATE_QUARANTINED
 
 
+@patch("src.processor.sync_zotero_to_db")
+@patch("src.processor.get_papers_by_status")
+@patch("src.processor.get_llm_provider")
+@patch("src.processor.load_config")
+def test_processor_run_uses_runtime_storage_for_zotero_export(
+    mock_load_config,
+    mock_get_llm,
+    mock_get_papers_by_status,
+    mock_sync_zotero_to_db,
+    tmp_path,
+    monkeypatch,
+):
+    paperpipe_home = tmp_path / "app-home"
+    monkeypatch.setenv("PAPERPIPE_HOME", str(paperpipe_home))
+
+    expected_export = (paperpipe_home / "storage" / "zotero_export.json").resolve()
+    expected_export.parent.mkdir(parents=True, exist_ok=True)
+    expected_export.write_text("[]", encoding="utf-8")
+
+    mock_config = MagicMock()
+    mock_config.confidence_thresholds.high = 0.9
+    mock_config.confidence_thresholds.low = 0.7
+    mock_config.paths.upload_dir = None
+    mock_load_config.return_value = mock_config
+    mock_get_llm.return_value = _FakeProviderWithoutEscalation()
+    mock_get_papers_by_status.return_value = []
+
+    processor = PaperProcessor()
+    processor.run(batch_size=0)
+
+    mock_sync_zotero_to_db.assert_called_once_with(expected_export)
+
+
 @patch("src.processor.get_llm_provider")
 @patch("src.processor.load_config")
 @patch("src.processor.update_paper_status")
@@ -113,6 +146,11 @@ def test_step_gate_marks_failed_when_feedback_json_broken(
     processor = PaperProcessor()
     processor._step_gate({"paper_id": "broken", "confidence": 0.95, "feedback_json": "{bad json"})
     assert mock_update_status.call_args[0][1] == STATE_FAILED
+    updates = mock_update_status.call_args[0][2]
+    payload = json.loads(updates["feedback_json"])
+    assert payload["intake_override_log"]["producer"] == "processor_gate"
+    assert payload["intake_override_log"]["analysis_available"] is False
+    assert payload["intake_override_log"]["processing_status"] == "FAILED"
 
 
 @patch("src.processor.get_llm_provider")
@@ -187,6 +225,9 @@ def test_step_gate_promotes_pending_review_when_escalation_fast_lane_approves(
     assert payload["escalation"]["approved"] is True
     assert payload["escalation"]["final_route"] == "FAST_LANE_APPROVE"
     assert payload["escalation"]["reason_codes"] == ["FASTLANE_GUIDANCE"]
+    assert payload["intake_override_log"]["producer"] == "processor_gate"
+    assert payload["intake_override_log"]["processing_status"] == "APPROVED"
+    assert payload["intake_override_log"]["issues_state"] == "clear"
 
 
 @patch("src.processor.get_llm_provider")
@@ -311,6 +352,9 @@ def test_step_gate_persists_fast_lane_escalation_to_db(mock_load_config, mock_ge
         assert payload["escalation"]["approved"] is True
         assert payload["escalation"]["final_route"] == "FAST_LANE_APPROVE"
         assert payload["escalation"]["reason_codes"] == ["FASTLANE_GUIDANCE"]
+        assert payload["intake_override_log"]["producer"] == "processor_gate"
+        assert payload["intake_override_log"]["processing_status"] == "APPROVED"
+        assert payload["intake_override_log"]["issues_state"] == "clear"
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -388,5 +432,8 @@ def test_step_gate_persists_pending_review_escalation_to_db(mock_load_config, mo
         assert payload["escalation"]["approved"] is False
         assert payload["escalation"]["final_route"] == "QUEUE_HUMAN_REVIEW"
         assert payload["escalation"]["reason_codes"] == ["MODEL_REVIEW_REQUIRED"]
+        assert payload["intake_override_log"]["producer"] == "processor_gate"
+        assert payload["intake_override_log"]["processing_status"] == "PENDING_REVIEW"
+        assert payload["intake_override_log"]["issues_state"] == "flagged"
     finally:
         db_utils.DB_PATH = original_db_path

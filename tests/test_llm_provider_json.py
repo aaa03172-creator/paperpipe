@@ -38,3 +38,36 @@ def test_extract_json_unwraps_nested_tagging_payload() -> None:
         "soft_tags": ["clinical"],
         "evidence_span": "Participants had MCI.",
     }
+
+
+def test_augment_tagging_hard_tags_preserves_existing_llm_values() -> None:
+    provider = _DummyProvider(SimpleNamespace(features=None, default_model=None))
+
+    payload = {
+        "hard_tags": {
+            "species": "rat",
+            "sample_size": 12,
+            "model": "custom_model",
+            "design": "observational",
+            "study_type": "Clinical Trial",
+        },
+        "soft_tags": ["#Test"],
+        "evidence_span": "Existing evidence",
+        "confidence": 0.8,
+    }
+
+    augmented = provider._augment_tagging_hard_tags(
+        payload,
+        {
+            "title": "5xFAD mouse study",
+            "summary": "We analyzed 48 mice in this experiment.",
+        },
+    )
+
+    assert augmented["hard_tags"] == {
+        "species": "rat",
+        "sample_size": 12,
+        "model": "custom_model",
+        "design": "observational",
+        "study_type": "Clinical Trial",
+    }

@@ -6,10 +6,24 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
 
-from src.services.runtime_paths import config_file_path, feedback_index_root, logs_root, rag_root
+from src.services.runtime_paths import (
+    config_file_path,
+    exports_root,
+    feedback_index_root,
+    install_layout_enabled,
+    library_root,
+    logs_root,
+    managed_watch_folder_root,
+    pdf_storage_root,
+    rag_root,
+)
+from src.legacy_trial_extraction_constants import (
+    LEGACY_TRIAL_EXTRACTION_ALIAS_REMOVAL_DATE,
+    SPECIALTY_TRIAL_EXTRACTION_FEATURE_KEY,
+    LEGACY_TRIAL_EXTRACTION_FEATURE_KEY,
+)
 
 _LEGACY_TRIAL_EXTRACTION_ALIAS_WARNED = False
-LEGACY_TRIAL_EXTRACTION_ALIAS_REMOVAL_DATE = "2026-06-30"
 
 class SystemConfig(BaseModel):
     backfill_limit_days: int = 3
@@ -23,11 +37,11 @@ class PathsConfig(BaseModel):
     index_all: Path = Path("00_Index/paper_collection.csv")
     index_clinical: Path = Path("00_Index/clinical_trials.csv")
     upload_dir: Optional[Path] = None
-    export_dir: Path = Path("export")
+    export_dir: Path = Field(default_factory=exports_root)
     watch_folder: Optional[Path] = None # [NEW]
-    library_dir: Path = Path("Library") # [NEW]
-    downloads_watch_dir: Path = Path("~/Downloads")
-    pdf_storage_dir: Path = Path("storage/pdfs")
+    library_dir: Path = Field(default_factory=library_root) # [NEW]
+    downloads_watch_dir: Path = Field(default_factory=lambda: Path("~/Downloads").expanduser())
+    pdf_storage_dir: Path = Field(default_factory=pdf_storage_root)
 
     @field_validator(
         "zotero_base_dir",
@@ -46,6 +60,88 @@ class PathsConfig(BaseModel):
         if v:
             return Path(v).expanduser()
         return v
+
+    @model_validator(mode="after")
+    def normalize_install_layout_owned_defaults(self):
+        if not install_layout_enabled():
+            messages = _path_boundary_warnings(self)
+            if messages:
+                raise ValueError("; ".join(messages))
+            return self
+
+        if self.export_dir == Path("export"):
+            self.export_dir = exports_root()
+        if self.library_dir == Path("Library"):
+            self.library_dir = library_root()
+        if self.pdf_storage_dir == Path("storage/pdfs"):
+            self.pdf_storage_dir = pdf_storage_root()
+        if self.watch_folder == Path("Download/PaperPipe_Watch"):
+            self.watch_folder = managed_watch_folder_root()
+
+        messages = _path_boundary_warnings(self)
+        if messages:
+            raise ValueError("; ".join(messages))
+        return self
+
+
+def _resolved_optional_path(path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    try:
+        return path.expanduser().resolve(strict=False)
+    except Exception:
+        return None
+
+
+def _paths_overlap(first: Path, second: Path) -> bool:
+    if first == second:
+        return True
+    try:
+        first.relative_to(second)
+        return True
+    except ValueError:
+        pass
+    try:
+        second.relative_to(first)
+        return True
+    except ValueError:
+        return False
+
+
+def _path_boundary_warnings(paths: PathsConfig) -> list[str]:
+    messages: list[str] = []
+    resolved_watch_folder = _resolved_optional_path(paths.watch_folder)
+    resolved_upload_dir = _resolved_optional_path(paths.upload_dir)
+    resolved_downloads_watch_dir = _resolved_optional_path(paths.downloads_watch_dir)
+    resolved_pdf_storage_dir = _resolved_optional_path(paths.pdf_storage_dir)
+
+    if resolved_watch_folder is not None:
+        conflicts: list[str] = []
+        for label, resolved in (
+            ("upload_dir", resolved_upload_dir),
+            ("pdf_storage_dir", resolved_pdf_storage_dir),
+        ):
+            if resolved is not None and _paths_overlap(resolved_watch_folder, resolved):
+                conflicts.append(f"{label}={resolved}")
+        if conflicts:
+            messages.append(
+                "paths.watch_folder overlaps managed output paths; "
+                "`paperpipe watch` will fail until this is separated: "
+                + ", ".join(conflicts)
+            )
+
+    if (
+        resolved_downloads_watch_dir is not None
+        and resolved_pdf_storage_dir is not None
+        and _paths_overlap(resolved_downloads_watch_dir, resolved_pdf_storage_dir)
+    ):
+        messages.append(
+            "paths.downloads_watch_dir overlaps paths.pdf_storage_dir; "
+            "`paperpipe watch-downloads` will fail until this is separated: "
+            f"pdf_storage_dir={resolved_pdf_storage_dir}"
+        )
+
+    return messages
 
 class SlotConfig(BaseModel):
     query: str
@@ -86,31 +182,31 @@ def resolve_clinical_extraction_feature(features: Any) -> Any:
         clinical_feature = _coerce_feature_config(features.get("clinical_extraction"))
         if clinical_feature is not None:
             return clinical_feature
-        specialty_feature = _coerce_feature_config(features.get("specialty_trial_extraction"))
+        specialty_feature = _coerce_feature_config(features.get(SPECIALTY_TRIAL_EXTRACTION_FEATURE_KEY))
         if specialty_feature is not None:
             return specialty_feature
-        return _coerce_feature_config(features.get("trial_extraction"))
+        return _coerce_feature_config(features.get(LEGACY_TRIAL_EXTRACTION_FEATURE_KEY))
     clinical_feature = _coerce_feature_config(getattr(features, "clinical_extraction", None))
     if clinical_feature is not None:
         return clinical_feature
-    specialty_feature = _coerce_feature_config(getattr(features, "specialty_trial_extraction", None))
+    specialty_feature = _coerce_feature_config(getattr(features, SPECIALTY_TRIAL_EXTRACTION_FEATURE_KEY, None))
     if specialty_feature is not None:
         return specialty_feature
-    return _coerce_feature_config(getattr(features, "trial_extraction", None))
+    return _coerce_feature_config(getattr(features, LEGACY_TRIAL_EXTRACTION_FEATURE_KEY, None))
 
 
 def resolve_specialty_trial_extraction_feature(features: Any) -> Any:
     if features is None:
         return None
     if isinstance(features, dict):
-        specialty_feature = _coerce_feature_config(features.get("specialty_trial_extraction"))
+        specialty_feature = _coerce_feature_config(features.get(SPECIALTY_TRIAL_EXTRACTION_FEATURE_KEY))
         if specialty_feature is not None:
             return specialty_feature
-        return _coerce_feature_config(features.get("trial_extraction"))
-    specialty_feature = _coerce_feature_config(getattr(features, "specialty_trial_extraction", None))
+        return _coerce_feature_config(features.get(LEGACY_TRIAL_EXTRACTION_FEATURE_KEY))
+    specialty_feature = _coerce_feature_config(getattr(features, SPECIALTY_TRIAL_EXTRACTION_FEATURE_KEY, None))
     if specialty_feature is not None:
         return specialty_feature
-    return _coerce_feature_config(getattr(features, "trial_extraction", None))
+    return _coerce_feature_config(getattr(features, LEGACY_TRIAL_EXTRACTION_FEATURE_KEY, None))
 
 
 def _warn_legacy_trial_extraction_alias_once() -> None:
@@ -134,7 +230,7 @@ def _uses_legacy_trial_extraction_alias(data: Dict[str, Any]) -> bool:
     features_data = llm_data.get("features")
     if not isinstance(features_data, dict):
         return False
-    return "trial_extraction" in features_data
+    return LEGACY_TRIAL_EXTRACTION_FEATURE_KEY in features_data
 
 class LocalLLMConfig(BaseModel):
     provider: Literal["ollama"] = "ollama"
@@ -149,7 +245,7 @@ class LocalLLMConfig(BaseModel):
     concurrency: int = 4
 
 class CloudLLMConfig(BaseModel):
-    provider: Literal["openai"] = "openai"
+    provider: Literal["openai", "anthropic"] = "openai"
     api_key: Optional[str] = None
     model: str = "gpt-4o"
     embedding_model: Optional[str] = None
@@ -165,11 +261,14 @@ class LLMConfig(BaseModel):
     features: LLMFeatures
     timeout_seconds: int = 15
     max_retries: int = 2
+    reader_attempt_order: Literal["current", "focused_first"] = "current"
 
     @model_validator(mode='after')
     def resolve_api_key(self):
-        # 1. ENV overrides everything for Cloud
-        env_key = os.getenv("OPENAI_API_KEY")
+        # 1. ENV overrides everything for Cloud, keyed by provider
+        provider = str(self.cloud.provider or "openai").strip().lower()
+        env_var_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
+        env_key = os.getenv(env_var_name)
         if env_key:
             self.cloud.api_key = env_key
         
@@ -254,5 +353,5 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
 
     # Note: Pydantic V2 validation happens on instantiation
     config = AppConfig(**data)
-    
+
     return config

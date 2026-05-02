@@ -12,6 +12,10 @@ def _init_temp_db(tmp_path, monkeypatch):
     return original_db_path
 
 
+def _browser_headers() -> dict[str, str]:
+    return {"origin": "http://testserver"}
+
+
 def test_chat_stub_defaults_to_disabled(tmp_path, monkeypatch):
     monkeypatch.delenv("CHAT_ENABLED", raising=False)
     monkeypatch.delenv("LATTICE_CHAT_ENABLED", raising=False)
@@ -19,7 +23,7 @@ def test_chat_stub_defaults_to_disabled(tmp_path, monkeypatch):
     original_db_path = _init_temp_db(tmp_path, monkeypatch)
     try:
         client = TestClient(api_main.app)
-        response = client.post("/api/chat", json={"paper_slug": "paper-001", "message": "hello"})
+        response = client.post("/api/chat", json={"paper_slug": "paper-001", "message": "hello"}, headers=_browser_headers())
         assert response.status_code == 501
         payload = response.json()
         assert payload["error_code"] == "CHAT_NOT_IMPLEMENTED"
@@ -36,7 +40,7 @@ def test_chat_stub_stays_not_implemented_when_flag_enabled(tmp_path, monkeypatch
     original_db_path = _init_temp_db(tmp_path, monkeypatch)
     try:
         client = TestClient(api_main.app)
-        response = client.post("/api/chat", json={"paper_slug": "paper-001", "message": "hello"})
+        response = client.post("/api/chat", json={"paper_slug": "paper-001", "message": "hello"}, headers=_browser_headers())
         assert response.status_code == 501
         payload = response.json()
         assert payload["error_code"] == "CHAT_NOT_IMPLEMENTED"
@@ -60,6 +64,7 @@ def test_chat_stub_accepts_explicit_output_mode_family(tmp_path, monkeypatch):
                 "message": "hello",
                 "output_mode_family": "builder_debug",
             },
+            headers=_browser_headers(),
         )
         assert response.status_code == 501
         payload = response.json()

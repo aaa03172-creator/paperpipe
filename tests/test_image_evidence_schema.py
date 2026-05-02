@@ -100,6 +100,81 @@ def test_image_artifact_ref_requires_relative_path() -> None:
         ImageArtifactRef(kind="derived_file", path="/tmp/thumb.png")
 
 
+def test_image_artifact_ref_rejects_traversal_like_path() -> None:
+    with pytest.raises(ValidationError):
+        ImageArtifactRef(kind="derived_file", path="../thumb.png")
+
+
+def test_image_evidence_rejects_noncanonical_bundle_paths() -> None:
+    with pytest.raises(ValidationError, match="view_state_ref.path must be view_state.json"):
+        ImageEvidence(
+            image_evidence_id="img_evidence_001",
+            title="Representative microscopy image",
+            created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+            source_ref={"source_kind": "local_file", "local_path": "/tmp/image.tif"},
+            content_format="image/tiff",
+            view_state_ref={"kind": "view_state_json", "path": "nested/view_state.json"},
+        )
+
+    with pytest.raises(ValidationError, match="handoff_ref.path must be handoff.json"):
+        ImageEvidence(
+            image_evidence_id="img_evidence_001",
+            title="Representative microscopy image",
+            created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+            source_ref={"source_kind": "local_file", "local_path": "/tmp/image.tif"},
+            content_format="image/tiff",
+            handoff_ref={"kind": "handoff_json", "path": "nested/handoff.json"},
+        )
+
+
+def test_image_evidence_rejects_derived_view_state_refs_without_matching_top_level_ref() -> None:
+    with pytest.raises(ValidationError, match="derived_outputs.view_state_ref requires top-level view_state_ref"):
+        ImageEvidence(
+            image_evidence_id="img_evidence_001",
+            title="Representative microscopy image",
+            created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+            source_ref={"source_kind": "local_file", "local_path": "/tmp/image.tif"},
+            content_format="image/tiff",
+            derived_outputs=[
+                {
+                    "derived_output_id": "thumb_01",
+                    "kind": "thumbnail",
+                    "source_image_evidence_id": "img_evidence_001",
+                    "created_by": "operator",
+                    "created_at": datetime(2026, 3, 22, 10, 5, tzinfo=timezone.utc),
+                    "tool_name": "napari",
+                    "bundle_ref": {"kind": "derived_file", "path": "derivatives/thumb_01.png"},
+                    "view_state_ref": {"kind": "view_state_json", "path": "view_state.json"},
+                }
+            ],
+        )
+
+    with pytest.raises(
+        ValidationError,
+        match="derived_outputs.view_state_ref values must match ImageEvidence.view_state_ref.path",
+    ):
+        ImageEvidence(
+            image_evidence_id="img_evidence_001",
+            title="Representative microscopy image",
+            created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+            source_ref={"source_kind": "local_file", "local_path": "/tmp/image.tif"},
+            content_format="image/tiff",
+            view_state_ref={"kind": "view_state_json", "path": "view_state.json"},
+            derived_outputs=[
+                {
+                    "derived_output_id": "thumb_01",
+                    "kind": "thumbnail",
+                    "source_image_evidence_id": "img_evidence_001",
+                    "created_by": "operator",
+                    "created_at": datetime(2026, 3, 22, 10, 5, tzinfo=timezone.utc),
+                    "tool_name": "napari",
+                    "bundle_ref": {"kind": "derived_file", "path": "derivatives/thumb_01.png"},
+                    "view_state_ref": {"kind": "view_state_json", "path": "alternate_view_state.json"},
+                }
+            ],
+        )
+
+
 def test_image_evidence_rejects_duplicate_derived_output_ids() -> None:
     with pytest.raises(ValidationError):
         ImageEvidence(

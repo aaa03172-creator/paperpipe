@@ -3,7 +3,9 @@
 Status: Active packaging note
 Date: 2026-03-24
 Owner: Lattice runtime maintainers
-Canonical: `docs/reports/Canonical_Docs_Tail_Packaging_2026-03-24.md`
+Related current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
 
 ## Purpose
 
@@ -12,6 +14,22 @@ Define the default source-only bundle for the current mixed dirty tree.
 This note is intentionally narrower than the full staging guide.
 It exists so the default first move is explicit:
 - if work resumes and no other lane is explicitly chosen, use this docs tail
+
+## 2026-04 usage note
+
+This note remains useful as the default docs-tail packaging rule for the late-March snapshot.
+
+Use it for:
+- understanding what the original default docs-only bundle included
+- historical review of the first docs-tail packaging pass
+- comparing later docs-entrypoint cleanup against the earlier bundle shape
+
+Do not use it as the first current packaging note for the later repo state.
+
+Read these first for current posture:
+- `docs/reports/Current_Docs_Posture_2026-04-17.md`
+- `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`
+- `docs/reports/Runtime_Readiness_Lane_Packaging_2026-04-07.md`
 
 ## Current Judgment
 

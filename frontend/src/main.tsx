@@ -7,9 +7,12 @@ import { useAppStore } from "./app/store/useAppStore";
 
 useAppStore.getState().hydrateTheme();
 
+const routerBasename =
+  window.location.pathname === "/ui" || window.location.pathname.startsWith("/ui/") ? "/ui" : undefined;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename}>
       <App />
     </BrowserRouter>
   </StrictMode>,

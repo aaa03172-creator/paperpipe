@@ -1,6 +1,7 @@
 
 import logging
-from typing import Iterator, List, Optional
+from time import perf_counter
+from typing import Any, Iterator, List, Optional
 try:
     from effgen.models.base import BaseModel, GenerationResult, TokenCount, GenerationConfig
 except ImportError:
@@ -38,6 +39,32 @@ class OllamaModelAdapter(BaseModel):
         self.provider = OllamaProvider(self.config.llm, self.config.entity_aliases)
         self.model_name = model_name
         self._is_loaded = True # Ollama is always loaded (lazy)
+        self.last_request_meta: dict[str, Any] = {}
+
+    @staticmethod
+    def _duration_seconds(raw: Any) -> float | None:
+        if raw is None:
+            return None
+        try:
+            value = int(raw)
+        except Exception:
+            return None
+        if value < 0:
+            return None
+        return round(value / 1_000_000_000.0, 6)
+
+    @staticmethod
+    def _response_value(response: Any, key: str) -> Any:
+        if isinstance(response, dict):
+            return response.get(key)
+        return getattr(response, key, None)
+
+    @classmethod
+    def _message_content(cls, response: Any) -> str:
+        message = cls._response_value(response, "message")
+        if isinstance(message, dict):
+            return str(message.get("content") or "")
+        return str(getattr(message, "content", "") or "")
 
     def load(self) -> None:
         self.provider._initialize()
@@ -77,8 +104,15 @@ class OllamaModelAdapter(BaseModel):
         """
         if not self.provider.is_available():
             logger.error("Ollama Provider not available.")
+            self.last_request_meta = {
+                "status": "unavailable",
+                "provider": "ollama",
+                "host": getattr(self.provider, "host", None),
+                "model": self.model_name,
+            }
             return GenerationResult(text="", tokens_used=0, finish_reason="error", model_name=self.model_name)
 
+        timeout_seconds = int(getattr(self.provider.config, "timeout_seconds", 0) or 0) or None
         try:
             # Map Config
             # options = {"temperature": config.temperature if config else 0.3}
@@ -91,25 +125,64 @@ class OllamaModelAdapter(BaseModel):
             fmt = kwargs.get("format")
             if not fmt and config and hasattr(config, "format"):
                  fmt = config.format
-            
+
+            request_started = perf_counter()
             response = self.provider.ollama_client.chat(
                 model=self.model_name,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={"temperature": temp},
                 format=fmt
             )
-            
-            content = response['message']['content']
-            # Estimate tokens
-            tokens_used = len(content) // 4
-            
+            request_wall_seconds = round(perf_counter() - request_started, 3)
+
+            content = self._message_content(response)
+            done_reason = str(self._response_value(response, "done_reason") or "stop")
+            eval_count = self._response_value(response, "eval_count")
+            try:
+                tokens_used = int(eval_count) if eval_count is not None else len(content) // 4
+            except Exception:
+                tokens_used = len(content) // 4
+
+            self.last_request_meta = {
+                "status": "ok",
+                "provider": "ollama",
+                "host": getattr(self.provider, "host", None),
+                "model": str(self._response_value(response, "model") or self.model_name),
+                "format": fmt or None,
+                "temperature": temp,
+                "timeout_seconds": timeout_seconds,
+                "request_wall_seconds": request_wall_seconds,
+                "response_created_at": str(self._response_value(response, "created_at") or "") or None,
+                "done": bool(self._response_value(response, "done")) if self._response_value(response, "done") is not None else None,
+                "done_reason": done_reason,
+                "load_duration_seconds": self._duration_seconds(self._response_value(response, "load_duration")),
+                "prompt_eval_count": int(self._response_value(response, "prompt_eval_count")) if self._response_value(response, "prompt_eval_count") is not None else None,
+                "prompt_eval_duration_seconds": self._duration_seconds(self._response_value(response, "prompt_eval_duration")),
+                "eval_count": int(self._response_value(response, "eval_count")) if self._response_value(response, "eval_count") is not None else None,
+                "eval_duration_seconds": self._duration_seconds(self._response_value(response, "eval_duration")),
+                "total_duration_seconds": self._duration_seconds(self._response_value(response, "total_duration")),
+            }
+
             return GenerationResult(
                 text=content,
                 tokens_used=tokens_used,
-                finish_reason="stop",
+                finish_reason=done_reason,
                 model_name=self.model_name
             )
         except Exception as e:
+            request_wall_seconds = round(perf_counter() - request_started, 3) if "request_started" in locals() else None
+            self.last_request_meta = {
+                "status": "timeout" if is_timeout_exception(e) else "error",
+                "provider": "ollama",
+                "host": getattr(self.provider, "host", None),
+                "model": self.model_name,
+                "format": fmt if "fmt" in locals() else None,
+                "temperature": temp if "temp" in locals() else None,
+                "timeout_seconds": timeout_seconds,
+                "request_wall_seconds": request_wall_seconds,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
             if is_timeout_exception(e):
                 raise
             logger.error(f"Adapter Generation Failed: {e}")

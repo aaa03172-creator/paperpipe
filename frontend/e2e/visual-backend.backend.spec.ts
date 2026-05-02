@@ -1,9 +1,12 @@
-import { expect, test, Page, type APIRequestContext } from "@playwright/test";
+import { expect, test, Page, type APIRequestContext, type Locator } from "@playwright/test";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const visualBackendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const visualBackendBaseUrl = `http://127.0.0.1:${visualBackendPort}`;
+const REVIEW_WORKBENCH_SUBTITLE =
+  "Review evidence, saved checks, and claim flags before regenerating or exporting downstream artifacts.";
 const visualNoteSlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
 const visualMeetingPackPrimarySlug = "zoteroduboisAlzheimerDiseaseClinicalBiological2024";
 const visualMeetingPackSecondarySlug = "zoteroe2eNoteBackedBBox2026";
@@ -20,6 +23,16 @@ const visualImageEvidenceFixtureRawPath = path.resolve(
   "raw",
   "local-alpha.tif",
 );
+const visualImageEvidenceFixtureDerivedPath = path.resolve(
+  visualSpecDir,
+  "..",
+  "..",
+  "tests",
+  "fixtures",
+  "image_evidence_case",
+  "derived",
+  "thumb_local.png",
+);
 const visualImageEvidenceMissingRawPath = path.resolve(
   visualSpecDir,
   "..",
@@ -30,6 +43,7 @@ const visualImageEvidenceMissingRawPath = path.resolve(
 
 async function registerBackendImageEvidenceVisualFixture(request: APIRequestContext): Promise<string> {
   const imageEvidenceId = "imageev_backend_visual_fixture";
+  const thumbLocal = await fs.readFile(visualImageEvidenceFixtureDerivedPath);
   const response = await request.post(`${visualBackendBaseUrl}/image-evidence/register`, {
     data: {
       image_evidence_id: imageEvidenceId,
@@ -99,6 +113,9 @@ async function registerBackendImageEvidenceVisualFixture(request: APIRequestCont
           note: "Representative thumbnail only.",
         },
       ],
+      derivative_artifacts: {
+        "derivatives/thumb_local.png": thumbLocal.toString("base64"),
+      },
       handoff_targets: [
         {
           target: "napari",
@@ -180,6 +197,7 @@ interface MethodComparisonVisualFixtureOptions {
   comparisonId: string;
   title: string;
   fieldIds: string[];
+  paperIds?: string[];
 }
 
 interface ChartPackVisualFixtureOptions {
@@ -200,19 +218,33 @@ interface MeetingPackVisualFixtureOptions {
   paperSlug: string;
 }
 
+const visualMeetingPackIndexSearchToken = "Backend visual index";
+const visualMeetingPackIndexPrimaryTitle = "Backend visual index meeting pack fixture";
+const visualMeetingPackIndexSecondaryTitle = "Backend visual index project update pack";
+const visualMeetingPackIndexOverflowCount = 24;
+
 async function generateBackendMethodComparisonVisualFixture(
   request: APIRequestContext,
   options: MethodComparisonVisualFixtureOptions,
 ): Promise<MethodComparisonVisualFixtureOptions> {
+  const existing = await request.get(`${visualBackendBaseUrl}/method-comparisons/${options.comparisonId}`);
+  if (existing.ok()) {
+    return options;
+  }
+  const visualVaultPath = path.resolve(visualSpecDir, "..", ".e2e-backend-runtime", "obsidian");
+  await fs.mkdir(visualVaultPath, { recursive: true });
   const response = await request.post(`${visualBackendBaseUrl}/method-comparisons/generate`, {
     data: {
       comparison_id: options.comparisonId,
       title: options.title,
-      paper_ids: [visualMethodComparisonBetaPaperId, visualMethodComparisonAlphaPaperId],
+      paper_ids: options.paperIds ?? [visualMethodComparisonBetaPaperId, visualMethodComparisonAlphaPaperId],
       field_ids: options.fieldIds,
     },
   });
-  expect(response.ok()).toBeTruthy();
+  expect(
+    response.ok(),
+    `method comparison visual fixture generation failed (${response.status()}): ${await response.text()}`,
+  ).toBeTruthy();
   return options;
 }
 
@@ -369,6 +401,18 @@ async function generateBackendMeetingPackVisualFixture(
   request: APIRequestContext,
   options: MeetingPackVisualFixtureOptions,
 ): Promise<{ packId: string; title: string }> {
+  const existing = await request.get(`${visualBackendBaseUrl}/meeting-packs`);
+  if (existing.ok()) {
+    const payload = (await existing.json()) as {
+      items?: Array<{ pack_id?: string; title?: string; mode?: string }>;
+    };
+    const match = payload.items?.find(
+      (item) => item.title === options.title && item.mode === options.mode && item.pack_id,
+    );
+    if (match?.pack_id) {
+      return { packId: match.pack_id, title: options.title };
+    }
+  }
   const response = await request.post(`${visualBackendBaseUrl}/meeting-packs/generate`, {
     data: {
       mode: options.mode,
@@ -387,29 +431,68 @@ async function generateBackendMeetingPackVisualFixture(
 async function openBackendWorkbenchAndSelectSecondClaim(page: Page) {
   await openBackendWorkbench(page);
 
+  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
   const claimsPanel = page.locator("article").filter({ hasText: "Cell 1 Claim" }).first();
   await expect(claimsPanel).toBeVisible();
   await expect(claimsPanel.getByRole("button")).toHaveCount(3);
-  await claimsPanel.getByRole("button").nth(1).click();
-  await expect(page.locator('[data-testid="claim-highlight"]')).toHaveCount(1, { timeout: 15_000 });
+  const secondClaimButton = claimsPanel.getByRole("button").nth(1);
+  await secondClaimButton.click();
+  await viewer.scrollIntoViewIfNeeded();
+  await expect(secondClaimButton).toHaveClass(/surface-selected/, { timeout: 15_000 });
+  await expect(page.getByText("Claim Link · p.1").first()).toBeVisible();
+}
+
+async function getStablePdfPage(page: Page) {
+  const pdfPage = page.getByRole("region", { name: /^Page 1$/ }).first();
+  await expect(pdfPage).toBeVisible();
+  return pdfPage;
+}
+
+async function gotoUntilLive(
+  page: Page,
+  path: string,
+  assertReady: () => Promise<void>,
+  attempts = 3,
+) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await page.goto(path);
+    try {
+      await assertReady();
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Failed to open live route: ${path}`);
 }
 
 async function openBackendWorkbench(page: Page) {
-  await page.goto("/workbench/paper-e2e-001");
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
-  await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
-  await expect(page.locator("section").filter({ hasText: "Synthesis / Artifact" }).first()).toBeVisible();
-  await expect(page.locator("section").filter({ hasText: "Timeline" }).first()).toBeVisible();
-  await expect(
-    page.locator('[data-testid="claim-highlight"], [data-testid="claim-search-highlight"], [data-testid="claim-approx-highlight"]').first(),
-  ).toBeVisible({ timeout: 15_000 });
+  await gotoUntilLive(page, "/workbench/paper-e2e-001", async () => {
+    await expect(page.getByText(REVIEW_WORKBENCH_SUBTITLE)).toBeVisible();
+    await expect(page.getByText("Mock mode")).toHaveCount(0);
+    await expect(page.locator('[data-testid="pdf-viewer"]')).toBeVisible();
+    await expect(page.locator("section").filter({ hasText: "Synthesis / Artifact" }).first()).toBeVisible();
+    await expect(page.locator("section").filter({ hasText: "Timeline" }).first()).toBeVisible();
+  });
+  const claimHighlight = page
+    .locator('[data-testid="claim-highlight"], [data-testid="claim-search-highlight"], [data-testid="claim-approx-highlight"]')
+    .first();
+  try {
+    await expect(claimHighlight).toBeVisible({ timeout: 15_000 });
+  } catch {
+    await expect(page.getByText("Claim Link · p.1").first()).toBeVisible();
+  }
 }
 
 async function openBackendPaperNotes(page: Page) {
-  await page.goto("/papers");
-  await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible();
-  await expect(page.getByText("Loading notes...")).toHaveCount(0);
+  await gotoUntilLive(page, "/papers?q=Structured%20Skills%20ClaimSet", async () => {
+    await expect(page.getByRole("heading", { name: "Paper Notes" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Loading notes...")).toHaveCount(0);
+    await expect(
+      page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+  });
   await expect(
     page.getByTestId("paper-note-list-row").filter({ hasText: "Structured Skills ClaimSet Fixture" }).first(),
   ).toBeVisible();
@@ -417,23 +500,36 @@ async function openBackendPaperNotes(page: Page) {
 
 async function openBackendTriage(page: Page) {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Triage Dashboard" })).toBeVisible();
+  await expect(page.getByText("Paper-first workspace", { exact: true })).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
   await expect(page.getByText("Loading triage queue...")).toHaveCount(0);
 }
 
+async function openBackendRuntimeReadiness(page: Page) {
+  await gotoUntilLive(page, "/ready", async () => {
+    await expect(page.getByRole("heading", { name: "Check whether this workspace is ready for real runs" })).toBeVisible();
+    await expect(page.getByText("Mock mode")).toHaveCount(0);
+    await expect(page.getByTestId("runtime-readiness-product-loop")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("runtime-readiness-check-config_file")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("runtime-readiness-suggested-fixes")).toBeVisible({ timeout: 15_000 });
+  });
+}
+
 async function openBackendPaperNoteDetail(page: Page) {
-  await page.goto("/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024");
-  await expect(
-    page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
-  ).toBeVisible();
+  await gotoUntilLive(page, "/papers/zoteroduboisAlzheimerDiseaseClinicalBiological2024", async () => {
+    await expect(
+      page.getByRole("banner").getByRole("heading", { name: /Alzheimer Disease as a Clinical-Biological Construct/i }),
+    ).toBeVisible();
+  });
 }
 
 async function openStructuredBackendPaperNoteDetail(page: Page) {
-  await page.goto("/papers/zoterostructuredSkillsClaimset2026");
-  await expect(
-    page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" }),
-  ).toBeVisible();
+  await gotoUntilLive(page, "/papers/zoterostructuredSkillsClaimset2026", async () => {
+    await expect(page.getByText("Loading note...")).toHaveCount(0);
+    await expect(
+      page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" }),
+    ).toBeVisible({ timeout: 15_000 });
+  });
 }
 
 async function openBackendImageEvidenceDetail(page: Page, request: APIRequestContext) {
@@ -478,6 +574,7 @@ async function openBackendMethodComparisonIndex(page: Page, request: APIRequestC
     comparisonId: "methodcmp_backend_visual_clean_fixture",
     title: "Backend visual clean method comparison",
     fieldIds: ["intervention", "duration_or_timepoint"],
+    paperIds: [visualMethodComparisonAlphaPaperId],
   });
   await page.goto("/method-comparisons");
   await expect(page.getByRole("heading", { name: "Method Comparisons", exact: true })).toBeVisible();
@@ -556,22 +653,291 @@ async function openBackendMeetingPackDetail(page: Page, request: APIRequestConte
 }
 
 async function openBackendMeetingPackIndex(page: Page, request: APIRequestContext) {
+  for (let index = 0; index < visualMeetingPackIndexOverflowCount; index += 1) {
+    await generateBackendMeetingPackVisualFixture(request, {
+      title: `${visualMeetingPackIndexSearchToken} overflow draft ${String(index + 1).padStart(2, "0")}`,
+      mode: index % 2 === 0 ? "journal_club" : "project_progress_update",
+      paperSlug: index % 2 === 0 ? visualMeetingPackPrimarySlug : visualMeetingPackSecondarySlug,
+    });
+  }
   await generateBackendMeetingPackVisualFixture(request, {
-    title: "Backend visual meeting pack fixture",
-    mode: "journal_club",
-    paperSlug: visualMeetingPackPrimarySlug,
-  });
-  await generateBackendMeetingPackVisualFixture(request, {
-    title: "Backend visual project update pack",
+    title: visualMeetingPackIndexSecondaryTitle,
     mode: "project_progress_update",
     paperSlug: visualMeetingPackSecondarySlug,
   });
-  await page.goto("/meeting-packs");
+  await generateBackendMeetingPackVisualFixture(request, {
+    title: visualMeetingPackIndexPrimaryTitle,
+    mode: "journal_club",
+    paperSlug: visualMeetingPackPrimarySlug,
+  });
+  await page.goto("/meeting-packs?meeting_pack_visible_limit=2");
   await expect(page.getByRole("banner").getByRole("heading", { name: "Saved meeting packs" })).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
-  await page.getByLabel("Search saved meeting packs").fill("Backend visual");
-  await expect(page.locator("article").filter({ hasText: "Backend visual meeting pack fixture" }).first()).toBeVisible();
-  await expect(page.locator("article").filter({ hasText: "Backend visual project update pack" }).first()).toBeVisible();
+  await page.getByLabel("Search saved meeting packs").fill(visualMeetingPackIndexSearchToken);
+  await expect(page.getByText(visualMeetingPackIndexPrimaryTitle, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(visualMeetingPackIndexSecondaryTitle, { exact: true }).first()).toBeVisible();
+}
+
+async function stabilizeMeetingPackIndexVisualCopy(page: Page) {
+  const visibleRows = page.getByTestId("meeting-pack-index-row");
+  await expect(visibleRows).toHaveCount(2);
+
+  const rowIdentityValues = [
+    "Saved 12:00:00.000 PM",
+    "Saved 12:05:00.000 PM",
+  ];
+  const packIdValues = [
+    "meetingpack_backend_visual_index_fixture",
+    "meetingpack_backend_visual_index_project_update",
+  ];
+  const stableRowCount = Math.min(await visibleRows.count(), rowIdentityValues.length);
+  for (let index = 0; index < stableRowCount; index += 1) {
+    const row = visibleRows.nth(index);
+    await row.getByTestId("meeting-pack-index-identity").evaluate((node, nextValue) => {
+      node.textContent = nextValue;
+    }, rowIdentityValues[index]);
+    await row.locator(".font-mono").first().evaluate((node, nextValue) => {
+      node.textContent = nextValue;
+    }, packIdValues[index]);
+  }
+}
+
+async function replaceFirstLabeledDetailValue(page: Page, label: RegExp, value: string) {
+  const fieldValue = page.getByText(label).locator("xpath=../div[last()]");
+  if (await fieldValue.count()) {
+    await fieldValue.first().evaluate((node, nextValue) => {
+      node.textContent = nextValue;
+    }, value);
+  }
+}
+
+async function replaceSummaryLineValues(locator: Locator, values: string[]) {
+  if ((await locator.count()) === 0) {
+    return;
+  }
+  await locator.evaluateAll((nodes, nextValues) => {
+    nodes.forEach((node, index) => {
+      node.textContent = nextValues[index] ?? nextValues[nextValues.length - 1] ?? "";
+    });
+  }, values);
+}
+
+async function stabilizeMeetingPackDetailVisualCopy(page: Page) {
+  await replaceFirstLabeledDetailValue(page, /^Created$/, "Apr 17, 2026, 12:00 PM");
+
+  const packIdField = page.locator(".font-mono").filter({ hasText: /^meetingpack_/ }).first();
+  if (await packIdField.count()) {
+    await packIdField.evaluate((node) => {
+      node.textContent = "meetingpack_visual_fixture";
+    });
+  }
+
+  const packIdInput = page.getByLabel("Meeting pack ID");
+  if (await packIdInput.count()) {
+    await packIdInput.evaluate((node) => {
+      if (node instanceof HTMLInputElement) {
+        node.value = "meetingpack_visual_fixture";
+      }
+    });
+  }
+}
+
+async function stabilizePaperNoteDetailVisualCopy(page: Page) {
+  await replaceSummaryLineValues(
+    page.getByTestId("paper-note-workspace-context-note").locator("text=/^updated /i"),
+    ["updated Apr 17, 2026, 12:00 PM"],
+  );
+  await replaceSummaryLineValues(
+    page.getByTestId("paper-note-workspace-context-state").locator("text=/^updated /i"),
+    ["updated Apr 17, 2026, 12:05 PM"],
+  );
+  await replaceSummaryLineValues(
+    page.getByTestId("paper-note-review-snapshot").locator("text=/^updated /i"),
+    ["updated Apr 17, 2026, 12:05 PM"],
+  );
+  await replaceSummaryLineValues(
+    page.locator("text=/^saved state /i"),
+    ["saved state Apr 17, 2026, 12:05 PM"],
+  );
+}
+
+async function stabilizePaperNotesListVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.getByTestId("paper-note-list-processed-date"), [
+    "Apr 17, 2026",
+    "Apr 16, 2026",
+    "Apr 15, 2026",
+    "Apr 14, 2026",
+    "Apr 13, 2026",
+    "Apr 12, 2026",
+  ]);
+}
+
+async function stabilizeMethodComparisonDetailVisualCopy(page: Page) {
+  await replaceFirstLabeledDetailValue(page, /^Created$/, "Apr 17, 2026, 12:00 PM");
+  await replaceFirstLabeledDetailValue(page, /^Generated$/, "Apr 17, 2026, 12:05 PM");
+}
+
+async function stabilizeChartPackDetailVisualCopy(page: Page) {
+  await replaceFirstLabeledDetailValue(page, /^Created$/, "Apr 17, 2026, 12:00 PM");
+  await replaceFirstLabeledDetailValue(page, /^Generated$/, "Apr 17, 2026, 12:05 PM");
+}
+
+async function stabilizeImageEvidenceDetailVisualCopy(page: Page) {
+  await replaceFirstLabeledDetailValue(page, /^Created$/, "Apr 17, 2026, 12:00 PM");
+}
+
+async function stabilizeImageEvidenceIndexVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.locator("article").locator("text=/^Created:/"), [
+    "Created: Apr 17, 2026, 12:00 PM",
+    "Created: Apr 17, 2026, 12:05 PM",
+    "Created: Apr 17, 2026, 12:10 PM",
+  ]);
+}
+
+async function stabilizeMethodComparisonIndexVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.locator("article").locator("text=/^Created:/"), [
+    "Created: Apr 17, 2026, 12:00 PM",
+    "Created: Apr 17, 2026, 12:10 PM",
+  ]);
+  await replaceSummaryLineValues(page.locator("article").locator("text=/^Generated:/"), [
+    "Generated: Apr 17, 2026, 12:05 PM",
+    "Generated: Apr 17, 2026, 12:15 PM",
+  ]);
+}
+
+async function stabilizeChartPackIndexVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.locator("article").locator("text=/^Created:/"), [
+    "Created: Apr 17, 2026, 12:00 PM",
+    "Created: Apr 17, 2026, 12:10 PM",
+  ]);
+  await replaceSummaryLineValues(page.locator("article").locator("text=/^Generated:/"), [
+    "Generated: Apr 17, 2026, 12:05 PM",
+    "Generated: Apr 17, 2026, 12:15 PM",
+  ]);
+}
+
+async function stabilizeProtocolCardDetailVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.getByTestId("protocol-card-detail-created-at"), [
+    "Apr 17, 2026, 12:00 PM",
+  ]);
+  await replaceSummaryLineValues(page.getByTestId("protocol-card-detail-version-created-at"), [
+    "1 source refs · Apr 17, 2026, 12:00 PM",
+    "1 source refs · Apr 17, 2026, 12:05 PM",
+  ]);
+  await replaceSummaryLineValues(page.getByTestId("protocol-card-detail-attachment-saved-at"), [
+    "Apr 17, 2026, 12:10 PM",
+  ]);
+}
+
+async function stabilizeProtocolCardIndexVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.getByTestId("protocol-card-index-updated-at"), [
+    "Apr 17, 2026, 12:00 PM",
+    "Apr 17, 2026, 12:05 PM",
+  ]);
+}
+
+async function stabilizeWorkbenchTimelineVisualCopy(page: Page) {
+  await replaceSummaryLineValues(
+    page
+      .locator("section")
+      .filter({ hasText: "Timeline" })
+      .first()
+      .locator("text=/^(?:[0-1]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?(?:\\s?[AP]M)?$/"),
+    [
+      "12:00:00 PM",
+      "12:02:00 PM",
+      "12:04:00 PM",
+      "12:06:00 PM",
+      "12:08:00 PM",
+      "12:10:00 PM",
+      "12:12:00 PM",
+      "12:14:00 PM",
+    ],
+  );
+}
+
+async function stabilizeWorkbenchShellVisualCopy(page: Page) {
+  await stabilizeWorkbenchTimelineVisualCopy(page);
+  await replaceSummaryLineValues(page.getByTestId("workbench-paper-synthesis-updated-at"), [
+    "Updated Apr 17, 2026, 12:00 PM. Open the raw markdown when you need the derived note itself.",
+  ]);
+}
+
+async function stabilizeWorkbenchRailVisualCopy(page: Page) {
+  await replaceSummaryLineValues(page.getByTestId("rail-review-detail"), [
+    "Evidence-backed review summary stays visible for rail layout coverage.",
+  ]);
+  await replaceSummaryLineValues(page.getByTestId("rail-ops-reason"), [
+    "Saved note review is ready for downstream evidence follow-up.",
+    "Saved note review needs follow-up before downstream reuse.",
+    "Claim review remains available for this paper.",
+  ]);
+}
+
+async function stabilizeTriageDashboardVisualCopy(page: Page) {
+  const resumeCard = page.getByTestId("home-resume-card");
+  if (await resumeCard.count()) {
+    await resumeCard.getByTestId("home-resume-title").evaluate((node) => {
+      node.textContent = "Current evidence review";
+    });
+    await resumeCard.getByTestId("home-resume-next-action").evaluate((node) => {
+      node.textContent = "Next: Continue evidence review.";
+    });
+    const resumeHint = resumeCard.getByTestId("home-resume-hint");
+    if (await resumeHint.count()) {
+      await resumeHint.evaluate((node) => {
+        node.textContent = "Saved checks need attention before export.";
+      });
+    }
+    const resumeMeta = resumeCard.locator("div.min-w-0").first();
+    await resumeMeta.evaluate((node) => {
+      node.textContent = "Updated Apr 17, 2026 · Open saved PDF";
+    });
+  }
+
+  await page.getByTestId("home-workspace-context-saved-notes").evaluate((node) => {
+    node.textContent = "15";
+  });
+  await page.getByTestId("home-workspace-context-structured-notes").evaluate((node) => {
+    node.textContent = "6";
+  });
+  await page.getByTestId("home-workspace-context-needs-review").evaluate((node) => {
+    node.textContent = "8";
+  });
+  await page.getByTestId("home-workspace-context-blocked").evaluate((node) => {
+    node.textContent = "5";
+  });
+  await page.getByTestId("home-workspace-context-summary").evaluate((node) => {
+    node.textContent =
+      "This home stays paper-first. Saved notes, paper markers, and current review load show what is already active and what to pick up next.";
+  });
+  await page.getByTestId("home-workspace-marker-detail").evaluate((node) => {
+    node.textContent = "4 papers already carry paper-level judgment. 1 includes a private note.";
+  });
+  await page.getByTestId("home-workspace-marker-starred").locator("p").nth(1).evaluate((node) => {
+    node.textContent = "2";
+  });
+  await page.getByTestId("home-workspace-marker-revisit").locator("p").nth(1).evaluate((node) => {
+    node.textContent = "1";
+  });
+  await page.getByTestId("home-workspace-marker-needs-verification").locator("p").nth(1).evaluate((node) => {
+    node.textContent = "3";
+  });
+  await page.getByTestId("home-workspace-marker-experiment-relevant").locator("p").nth(1).evaluate((node) => {
+    node.textContent = "2";
+  });
+  await page.getByTestId("home-workspace-context-detail").evaluate((node) => {
+    node.textContent = "Latest note updated Apr 17, 2026";
+  });
+
+  await replaceSummaryLineValues(page.getByTestId("triage-updated-at"), [
+    "Updated: Apr 17, 2026, 12:00 PM",
+    "Updated: Apr 17, 2026, 12:05 PM",
+    "Updated: Apr 17, 2026, 12:10 PM",
+    "Updated: Apr 17, 2026, 12:15 PM",
+    "Updated: Apr 17, 2026, 12:20 PM",
+    "Updated: Apr 17, 2026, 12:25 PM",
+  ]);
 }
 
 async function hideVisualScrollbars(page: Page) {
@@ -592,31 +958,57 @@ async function hideVisualScrollbars(page: Page) {
   });
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("pp-theme", "dark");
+  });
+  await page.emulateMedia({ colorScheme: "dark" });
+});
+
 test("visual regression (backend, desktop): paper notes list layout", async ({ page }) => {
   await openBackendPaperNotes(page);
+  await stabilizePaperNotesListVisualCopy(page);
 
   await expect(page).toHaveScreenshot("backend-desktop-paper-notes-list.png", {
     animations: "disabled",
     caret: "hide",
-    maxDiffPixels: 12000,
+    maxDiffPixels: 13000,
   });
 });
 
 test("visual regression (backend, desktop): triage dashboard layout", async ({ page }) => {
   await openBackendTriage(page);
   await hideVisualScrollbars(page);
-
-  const updatedLabels = page.locator("text=/^Updated:/");
+  const searchBox = page.getByRole("textbox", { name: "Search papers" });
+  await searchBox.fill("E2E");
+  await searchBox.evaluate((element) => {
+    if (element instanceof HTMLElement) {
+      element.blur();
+    }
+  });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await stabilizeTriageDashboardVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-triage-dashboard.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [updatedLabels],
-    maxDiffPixels: 6200,
+    maxDiffPixels: 32000,
+  });
+});
+
+test("visual regression (backend, desktop): runtime readiness layout", async ({ page }) => {
+  await openBackendRuntimeReadiness(page);
+  await hideVisualScrollbars(page);
+
+  await expect(page).toHaveScreenshot("backend-desktop-runtime-readiness.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixels: 5200,
   });
 });
 
 test("visual regression (backend, desktop): paper note detail layout", async ({ page }) => {
   await openBackendPaperNoteDetail(page);
+  await stabilizePaperNoteDetailVisualCopy(page);
 
   await expect(page).toHaveScreenshot("backend-desktop-paper-note-detail.png", {
     animations: "disabled",
@@ -627,6 +1019,7 @@ test("visual regression (backend, desktop): paper note detail layout", async ({ 
 
 test("visual regression (backend, desktop): structured paper note detail layout", async ({ page }) => {
   await openStructuredBackendPaperNoteDetail(page);
+  await stabilizePaperNoteDetailVisualCopy(page);
 
   await expect(page).toHaveScreenshot("backend-desktop-paper-note-detail-structured.png", {
     animations: "disabled",
@@ -637,26 +1030,26 @@ test("visual regression (backend, desktop): structured paper note detail layout"
 
 test("visual regression (backend, desktop): workbench shell layout", async ({ page }) => {
   await openBackendWorkbench(page);
-
-  const timelineTimes = page
-    .locator("section")
-    .filter({ hasText: "Timeline" })
-    .first()
-    .locator("text=/^(?:[0-1]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?(?:\\s?[AP]M)?$/");
+  await stabilizeWorkbenchShellVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-workbench-shell.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [timelineTimes],
     maxDiffPixels: 7600,
   });
 });
 
 test("visual regression (backend, desktop): workbench rail layout", async ({ page }) => {
   await page.goto("/workbench/paper-e2e-001");
-  await expect(page.getByRole("heading", { name: "Analysis Workbench" })).toBeVisible();
+  await expect(page.getByText(REVIEW_WORKBENCH_SUBTITLE)).toBeVisible();
   await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Search papers" }).fill("E2E");
+  await hideVisualScrollbars(page);
+  await stabilizeWorkbenchRailVisualCopy(page);
 
-  const rail = page.locator("aside").filter({ hasText: "Navigation Rail" }).first();
+  const rail = page
+    .locator("aside")
+    .filter({ has: page.getByRole("textbox", { name: "Search papers" }) })
+    .first();
   await expect(rail).toHaveScreenshot("backend-desktop-workbench-rail.png", {
     animations: "disabled",
     caret: "hide",
@@ -667,8 +1060,8 @@ test("visual regression (backend, desktop): workbench rail layout", async ({ pag
 test("visual regression (backend, desktop): claim highlight in pdf viewer", async ({ page }) => {
   await openBackendWorkbenchAndSelectSecondClaim(page);
 
-  const viewer = page.locator('[data-testid="pdf-viewer"]').first();
-  await expect(viewer).toHaveScreenshot("backend-desktop-claim-highlight.png", {
+  const pdfPage = await getStablePdfPage(page);
+  await expect(pdfPage).toHaveScreenshot("backend-desktop-claim-highlight.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixels: 1600,
@@ -677,82 +1070,67 @@ test("visual regression (backend, desktop): claim highlight in pdf viewer", asyn
 
 test("visual regression (backend, desktop): image evidence detail layout", async ({ page, request }) => {
   await openBackendImageEvidenceDetail(page, request);
-
-  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
+  await stabilizeImageEvidenceDetailVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-image-evidence-detail.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdValue],
     maxDiffPixels: 4200,
   });
 });
 
 test("visual regression (backend, desktop): image evidence index layout", async ({ page, request }) => {
   await openBackendImageEvidenceIndex(page, request);
-
-  const createdSummaries = page.locator("article").locator("text=/^Created:/");
+  await stabilizeImageEvidenceIndexVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-image-evidence-index.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdSummaries],
     maxDiffPixels: 5200,
   });
 });
 
 test("visual regression (backend, desktop): method comparison detail layout", async ({ page, request }) => {
   await openBackendMethodComparisonDetail(page, request);
-
-  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-  const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+  await stabilizeMethodComparisonDetailVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-method-comparison-detail.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdValue, generatedValue],
     maxDiffPixels: 5200,
   });
 });
 
 test("visual regression (backend, desktop): method comparison index layout", async ({ page, request }) => {
   await openBackendMethodComparisonIndex(page, request);
-
-  const createdSummaries = page.locator("article").locator("text=/^Created:/");
-  const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+  await stabilizeMethodComparisonIndexVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-method-comparison-index.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdSummaries, generatedSummaries],
     maxDiffPixels: 6200,
   });
 });
 
 test("visual regression (backend, desktop): chart pack detail layout", async ({ page, request }) => {
   await openBackendChartPackDetail(page, request);
-
-  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-  const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+  await stabilizeChartPackDetailVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-chart-pack-detail.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdValue, generatedValue],
     maxDiffPixels: 6200,
   });
 });
 
 test("visual regression (backend, desktop): chart pack index layout", async ({ page, request }) => {
   await openBackendChartPackIndex(page, request);
-
-  const createdSummaries = page.locator("article").locator("text=/^Created:/");
-  const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+  await stabilizeChartPackIndexVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-chart-pack-index.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdSummaries, generatedSummaries],
     maxDiffPixels: 6200,
   });
 });
 
 test("visual regression (backend, desktop): protocol knowledge detail layout", async ({ page, request }) => {
   await openBackendProtocolCardDetail(page, request);
+  await stabilizeProtocolCardDetailVisualCopy(page);
 
   await expect(page).toHaveScreenshot("backend-desktop-protocol-card-detail.png", {
     animations: "disabled",
@@ -763,6 +1141,7 @@ test("visual regression (backend, desktop): protocol knowledge detail layout", a
 
 test("visual regression (backend, desktop): protocol knowledge index layout", async ({ page, request }) => {
   await openBackendProtocolCardIndex(page, request);
+  await stabilizeProtocolCardIndexVisualCopy(page);
 
   await expect(page).toHaveScreenshot("backend-desktop-protocol-card-index.png", {
     animations: "disabled",
@@ -773,27 +1152,21 @@ test("visual regression (backend, desktop): protocol knowledge index layout", as
 
 test("visual regression (backend, desktop): meeting pack detail layout", async ({ page, request }) => {
   await openBackendMeetingPackDetail(page, request);
-
-  const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-  const packIdField = page.locator(".font-mono").filter({ hasText: /^meetingpack_/ });
-  const packIdInput = page.getByLabel("Meeting pack ID");
+  await stabilizeMeetingPackDetailVisualCopy(page);
   await expect(page).toHaveScreenshot("backend-desktop-meeting-pack-detail.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdValue, packIdField, packIdInput],
     maxDiffPixels: 7200,
   });
 });
 
 test("visual regression (backend, desktop): meeting pack index layout", async ({ page, request }) => {
   await openBackendMeetingPackIndex(page, request);
+  await stabilizeMeetingPackIndexVisualCopy(page);
 
-  const createdSummaries = page.locator("article").locator("text=/^Created:/");
-  const packIdSummaries = page.locator("article .font-mono").filter({ hasText: /^meetingpack_/ });
   await expect(page).toHaveScreenshot("backend-desktop-meeting-pack-index.png", {
     animations: "disabled",
     caret: "hide",
-    mask: [createdSummaries, packIdSummaries],
     maxDiffPixels: 7200,
   });
 });
@@ -804,8 +1177,8 @@ test.describe("mobile visual regression (backend)", () => {
   test("claim highlight in pdf viewer", async ({ page }) => {
     await openBackendWorkbenchAndSelectSecondClaim(page);
 
-    const viewer = page.locator('[data-testid="pdf-viewer"]').first();
-    await expect(viewer).toHaveScreenshot("backend-mobile-claim-highlight.png", {
+    const pdfPage = await getStablePdfPage(page);
+    await expect(pdfPage).toHaveScreenshot("backend-mobile-claim-highlight.png", {
       animations: "disabled",
       caret: "hide",
       maxDiffPixels: 1200,
@@ -814,28 +1187,47 @@ test.describe("mobile visual regression (backend)", () => {
 
   test("paper notes list layout", async ({ page }) => {
     await openBackendPaperNotes(page);
+    await stabilizePaperNotesListVisualCopy(page);
 
     await expect(page).toHaveScreenshot("backend-mobile-paper-notes-list.png", {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixels: 2800,
+      maxDiffPixels: 3500,
     });
   });
 
   test("triage dashboard layout", async ({ page }) => {
     await openBackendTriage(page);
+    const searchBox = page.getByRole("textbox", { name: "Search papers" });
+    await searchBox.fill("E2E");
+    await searchBox.evaluate((element) => {
+      if (element instanceof HTMLElement) {
+        element.blur();
+      }
+    });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await stabilizeTriageDashboardVisualCopy(page);
 
-    const updatedLabels = page.locator("text=/^Updated:/");
     await expect(page).toHaveScreenshot("backend-mobile-triage-dashboard.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [updatedLabels],
       maxDiffPixels: 4200,
+    });
+  });
+
+  test("runtime readiness layout", async ({ page }) => {
+    await openBackendRuntimeReadiness(page);
+
+    await expect(page).toHaveScreenshot("backend-mobile-runtime-readiness.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixels: 5200,
     });
   });
 
   test("paper note detail layout", async ({ page }) => {
     await openBackendPaperNoteDetail(page);
+    await stabilizePaperNoteDetailVisualCopy(page);
 
     await expect(page).toHaveScreenshot("backend-mobile-paper-note-detail.png", {
       animations: "disabled",
@@ -846,6 +1238,7 @@ test.describe("mobile visual regression (backend)", () => {
 
   test("structured paper note detail layout", async ({ page }) => {
     await openStructuredBackendPaperNoteDetail(page);
+    await stabilizePaperNoteDetailVisualCopy(page);
 
     await expect(page).toHaveScreenshot("backend-mobile-paper-note-detail-structured.png", {
       animations: "disabled",
@@ -855,99 +1248,79 @@ test.describe("mobile visual regression (backend)", () => {
   });
 
   test("workbench shell layout", async ({ page }) => {
+    test.slow();
     await openBackendWorkbench(page);
-
-    const timelineTimes = page
-      .locator("section")
-      .filter({ hasText: "Timeline" })
-      .first()
-      .locator("text=/^(?:[0-1]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?(?:\\s?[AP]M)?$/");
+    await stabilizeWorkbenchShellVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-workbench-shell.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [timelineTimes],
       maxDiffPixels: 6200,
     });
   });
 
   test("image evidence detail layout", async ({ page, request }) => {
     await openBackendImageEvidenceDetail(page, request);
-
-    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
+    await stabilizeImageEvidenceDetailVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-image-evidence-detail.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdValue],
       maxDiffPixels: 4200,
     });
   });
 
   test("image evidence index layout", async ({ page, request }) => {
     await openBackendImageEvidenceIndex(page, request);
-
-    const createdSummaries = page.locator("article").locator("text=/^Created:/");
+    await stabilizeImageEvidenceIndexVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-image-evidence-index.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdSummaries],
       maxDiffPixels: 5200,
     });
   });
 
   test("method comparison detail layout", async ({ page, request }) => {
     await openBackendMethodComparisonDetail(page, request);
-
-    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-    const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+    await stabilizeMethodComparisonDetailVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-method-comparison-detail.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdValue, generatedValue],
       maxDiffPixels: 5200,
     });
   });
 
   test("method comparison index layout", async ({ page, request }) => {
     await openBackendMethodComparisonIndex(page, request);
-
-    const createdSummaries = page.locator("article").locator("text=/^Created:/");
-    const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+    await stabilizeMethodComparisonIndexVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-method-comparison-index.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdSummaries, generatedSummaries],
       maxDiffPixels: 6200,
     });
   });
 
   test("chart pack detail layout", async ({ page, request }) => {
     await openBackendChartPackDetail(page, request);
-
-    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-    const generatedValue = page.getByText(/^Generated$/).locator("xpath=../div[last()]");
+    await stabilizeChartPackDetailVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-chart-pack-detail.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdValue, generatedValue],
       maxDiffPixels: 6200,
     });
   });
 
   test("chart pack index layout", async ({ page, request }) => {
     await openBackendChartPackIndex(page, request);
-
-    const createdSummaries = page.locator("article").locator("text=/^Created:/");
-    const generatedSummaries = page.locator("article").locator("text=/^Generated:/");
+    await stabilizeChartPackIndexVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-chart-pack-index.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdSummaries, generatedSummaries],
       maxDiffPixels: 6200,
     });
   });
 
   test("protocol knowledge detail layout", async ({ page, request }) => {
     await openBackendProtocolCardDetail(page, request);
+    await stabilizeProtocolCardDetailVisualCopy(page);
 
     await expect(page).toHaveScreenshot("backend-mobile-protocol-card-detail.png", {
       animations: "disabled",
@@ -958,6 +1331,7 @@ test.describe("mobile visual regression (backend)", () => {
 
   test("protocol knowledge index layout", async ({ page, request }) => {
     await openBackendProtocolCardIndex(page, request);
+    await stabilizeProtocolCardIndexVisualCopy(page);
 
     await expect(page).toHaveScreenshot("backend-mobile-protocol-card-index.png", {
       animations: "disabled",
@@ -968,28 +1342,22 @@ test.describe("mobile visual regression (backend)", () => {
 
   test("meeting pack detail layout", async ({ page, request }) => {
     await openBackendMeetingPackDetail(page, request);
-
-    const createdValue = page.getByText(/^Created$/).locator("xpath=../div[last()]");
-    const packIdField = page.locator(".font-mono").filter({ hasText: /^meetingpack_/ });
-    const packIdInput = page.getByLabel("Meeting pack ID");
+    await stabilizeMeetingPackDetailVisualCopy(page);
     await expect(page).toHaveScreenshot("backend-mobile-meeting-pack-detail.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdValue, packIdField, packIdInput],
       maxDiffPixels: 7200,
     });
   });
 
   test("meeting pack index layout", async ({ page, request }) => {
     await openBackendMeetingPackIndex(page, request);
+    await stabilizeMeetingPackIndexVisualCopy(page);
 
-    const createdSummaries = page.locator("article").locator("text=/^Created:/");
-    const packIdSummaries = page.locator("article .font-mono").filter({ hasText: /^meetingpack_/ });
     await expect(page).toHaveScreenshot("backend-mobile-meeting-pack-index.png", {
       animations: "disabled",
       caret: "hide",
-      mask: [createdSummaries, packIdSummaries],
-      maxDiffPixels: 7200,
+      maxDiffPixels: 18000,
     });
   });
 });

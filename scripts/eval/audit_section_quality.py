@@ -109,7 +109,12 @@ def _digit_ratio(text: str) -> float:
 
 def _has_figure_cue(text: str) -> bool:
     normalized = str(text or "").lower()
-    return bool(re.search(r"\b(fig(?:ure)?\.?)\b", normalized))
+    return bool(
+        re.search(r"\b(fig(?:ure)?\.?)\b", normalized)
+        or "representative image" in normalized
+        or "representative images" in normalized
+        or "scale bar" in normalized
+    )
 
 
 def classify_low_ratio_page(
@@ -147,6 +152,9 @@ def classify_low_ratio_page(
         bucket = "table_heavy_page"
     elif has_figure_signal:
         bucket = "figure_heavy_page"
+    elif baseline_digit_ratio >= 0.2:
+        bucket = "numeric_dense_page"
+        signals.append("baseline_numeric_dense")
 
     return {
         "review_bucket": bucket,

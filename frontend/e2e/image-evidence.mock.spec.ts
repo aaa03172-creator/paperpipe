@@ -2,9 +2,10 @@ import { expect, test } from "@playwright/test";
 
 test("image evidence viewer filters saved bundles and opens warning-forward detail in mock mode", async ({ page }) => {
   await page.goto("/image-evidence");
+  await page.waitForLoadState("networkidle");
 
-  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible();
-  await expect(page.getByText(/^Mock mode$/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Image Evidence", exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/^Mock mode$/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Representative hippocampal ROI image")).toBeVisible();
 
   await page.locator('input[placeholder="Search title or image evidence id"]').fill("omero");
@@ -19,6 +20,7 @@ test("image evidence viewer filters saved bundles and opens warning-forward deta
 
   await expect(page).toHaveURL(/\/image-evidence\/imageev_/);
   await expect(page.getByRole("heading", { name: "Representative hippocampal ROI image", exact: true })).toBeVisible();
+  await expect(page.getByTestId("image-evidence-header-context")).toContainText("Derived artifact");
   await expect(page.getByRole("heading", { name: "Bundle Review" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Warnings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Derived Outputs" })).toBeVisible();

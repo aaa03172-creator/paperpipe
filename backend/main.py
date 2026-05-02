@@ -1,7 +1,11 @@
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from collections import deque
+from dataclasses import dataclass
+import heapq
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +21,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote, unquote, urlparse
 
 import src.db_utils as db_utils
@@ -33,6 +37,10 @@ from src.schemas.ops import (
     ArtifactFileEntry,
     DownloaderOpsMetricsResponse,
     HomeWorkspaceSummaryResponse,
+    PersonaListResponse,
+    PersonaOption,
+    RunInferenceLaneSummary,
+    RunInferenceSummary,
     StaleJobDiagnosticsResponse,
     StaleJobIncidentListResponse,
     StaleJobIncidentSnapshotResponse,
@@ -40,8 +48,6 @@ from src.schemas.ops import (
     StaleJobRequeueResponse,
     RuntimeReadinessCheck,
     RuntimeReadinessResponse,
-    PersonaListResponse,
-    PersonaOption,
     RunTimelineEvent,
     RunTimelineResponse,
     StatsRepairRequest,
@@ -51,8 +57,9 @@ from src.schemas.ops import (
     UserActionEntry,
     UserActionListResponse,
 )
+from src.schemas.privacy_preflight import PrivacyPreflightResponse
 from src.schemas.paper_notes import PaperNoteIndexItem
-from src.schemas.papers import PaperAccessSummary, PaperDetailResponse, PaperSummaryResponse
+from src.schemas.papers import PaperAccessSummary, PaperDetailResponse, PaperRailSummaryResponse, PaperSummaryResponse
 from src.schemas.research_dna import (
     ResearchDNAActorRequest,
     ResearchDNACreateRequest,
@@ -94,10 +101,8 @@ from src.profiles.research_dna_service import (
     load_research_dna_run_index,
     resolve_research_dna_run_id,
     load_screening_progress_report,
-    load_rerank_gate_report,
     load_screening_guidance_index_artifact,
     load_screening_operator_guidance,
-    load_screening_recommendation,
     load_screening_queue_artifact,
     load_screening_session,
     lock_research_dna,
@@ -107,7 +112,6 @@ from src.profiles.research_dna_service import (
     refine_query_version,
     run_pilot,
     screen_current_candidate_and_load_session,
-    submit_screening_decision_and_load_next_candidate,
     submit_screening_decision_and_load_session,
     submit_screening_decision,
     unlock_research_dna,
@@ -123,26 +127,41 @@ from src.services.event_log import (
     list_user_actions,
     log_request_audit,
     log_user_action,
+    sanitize_event_payload_for_log,
+    sanitize_event_text_for_log,
 )
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.paper_ops_summary import (
+    artifact_snapshot_from_run_dir,
+    ArtifactOperationalSnapshot,
     ArtifactSnapshotCache,
+    build_ops_summary_from_snapshot,
     build_ops_summary_for_candidate_ids,
 )
-from src.services.fixture_visibility import is_test_fixture_paper_record, prefer_non_fixture_items
-from src.services.runtime_readiness import collect_runtime_readiness, summarize_browser_runtime_readiness
-from src.services.stale_jobs import (
-    capture_stale_running_incident_snapshot,
-    collect_stale_jobs,
-    collect_stale_running_incidents,
-    reclaim_stale_running_job,
-    requeue_reclaimed_job,
+from src.services.fixture_visibility import include_test_fixtures_enabled, is_test_fixture_paper_record
+from src.services.runtime_readiness import (
+    collect_runtime_readiness,
+    summarize_browser_runtime_readiness,
 )
-from src.services.runtime_paths import artifact_paper_dir, artifact_run_dir, artifacts_root, frontend_runtime_dir
+from src.services.stale_jobs import collect_stale_jobs
+from src.services.stale_jobs import collect_stale_running_incidents
+from src.services.stale_jobs import capture_stale_running_incident_snapshot
+from src.services.stale_jobs import reclaim_stale_running_job
+from src.services.stale_jobs import requeue_reclaimed_job
+from src.services.runtime_paths import (
+    artifact_paper_dir,
+    artifact_run_dir,
+    artifacts_root,
+    frontend_runtime_dir,
+    preferred_artifact_paper_dir,
+)
 from src.services.stats_repair import seed_stats_reports_from_claimset
 from starlette.datastructures import MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .routers import (
+    artifact_feedback,
+    artifact_generation_outcomes,
     chart_packs,
     feedback,
     image_evidence,
@@ -151,8 +170,10 @@ from .routers import (
     obsidian,
     paper_syntheses,
     paper_notes,
+    project_context_links,
     protocol_cards,
     skills,
+    talk_packs,
 )
 
 
@@ -211,9 +232,25 @@ def _resolve_cors_allow_origins() -> list[str]:
         or ""
     ).strip()
     if not raw:
-        return ["http://127.0.0.1:8000", "http://localhost:8000"]
+        return [
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://testserver",
+        ]
     origins = [item.strip() for item in raw.split(",") if item.strip()]
-    return origins or ["http://127.0.0.1:8000", "http://localhost:8000"]
+    return origins or [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://testserver",
+    ]
 
 
 def _ops_summary_candidate_ids(paper_id: str) -> list[str]:
@@ -236,6 +273,14 @@ def _resolve_api_key() -> str:
     ).strip()
 
 
+def _resolve_beta_username() -> str:
+    return (
+        os.getenv("LATTICE_BETA_USERNAME")
+        or os.getenv("PAPERPIPE_BETA_USERNAME")
+        or "beta"
+    ).strip() or "beta"
+
+
 def _resolve_beta_password() -> str:
     return (
         os.getenv("LATTICE_BETA_PASSWORD")
@@ -244,12 +289,34 @@ def _resolve_beta_password() -> str:
     ).strip()
 
 
-def _resolve_beta_username() -> str:
-    return (
-        os.getenv("LATTICE_BETA_USERNAME")
-        or os.getenv("PAPERPIPE_BETA_USERNAME")
-        or "beta"
-    ).strip() or "beta"
+def _resolve_beta_auth_rate_limit_count() -> int:
+    raw = (
+        os.getenv("LATTICE_BETA_AUTH_RATE_LIMIT_COUNT")
+        or os.getenv("PAPERPIPE_BETA_AUTH_RATE_LIMIT_COUNT")
+        or ""
+    ).strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return 0
+        return max(value, 0)
+    return 20 if _resolve_beta_password() else 0
+
+
+def _resolve_beta_auth_rate_limit_window_seconds() -> int:
+    raw = (
+        os.getenv("LATTICE_BETA_AUTH_RATE_LIMIT_WINDOW_SECONDS")
+        or os.getenv("PAPERPIPE_BETA_AUTH_RATE_LIMIT_WINDOW_SECONDS")
+        or ""
+    ).strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return 300
+        return max(value, 1)
+    return 300
 
 
 def _resolve_api_docs_enabled() -> bool:
@@ -406,24 +473,71 @@ def _path_matches(normalized_path: str, prefix: str) -> bool:
 
 
 _PRIVATE_DATA_ROUTE_PREFIXES: tuple[str, ...] = (
+    "/artifacts",
+    "/artifact-feedback",
+    "/artifact-generation-outcomes",
+    "/chart-packs",
+    "/feedback",
+    "/image-evidence",
     "/jobs",
+    "/meeting-packs",
+    "/method-comparisons",
+    "/obsidian",
     "/ops",
+    "/ops/downloader-metrics",
     "/paper-notes",
     "/paper-syntheses",
     "/papers",
+    "/personas",
+    "/project-context-links",
+    "/protocol-cards",
+    "/research-dna",
+    "/runs",
+    "/talk-packs",
+    "/user-actions",
     "/workspace-summary",
 )
+_PROTECTED_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _is_protected_write_method(method: str) -> bool:
+    return method.upper() in _PROTECTED_WRITE_METHODS
 
 
 def _requires_api_key(method: str, path: str) -> bool:
     normalized_method = method.upper()
-    normalized = path.rstrip("/") or "/"
-    if normalized_method == "GET":
-        return any(_path_matches(normalized, prefix) for prefix in _PRIVATE_DATA_ROUTE_PREFIXES)
-    if normalized_method != "POST":
+    if normalized_method in {"HEAD", "OPTIONS"}:
         return False
 
-    if normalized in {"/jobs/deepread", "/feedback", "/obsidian/sync", "/ops/repair-stats", "/skills/run", "/user-actions"}:
+    normalized = path.rstrip("/") or "/"
+    if normalized_method == "GET":
+        if normalized == "/health/ready":
+            return True
+        if any(_path_matches(normalized, prefix) for prefix in _PRIVATE_DATA_ROUTE_PREFIXES):
+            return True
+        return bool(re.match(r"^/papers/[^/]+/pdf$", normalized))
+
+    if not _is_protected_write_method(normalized_method):
+        return False
+
+    if bool(re.match(r"^/paper-notes/[^/]+/operator-state$", normalized)):
+        return True
+
+    if normalized in {
+        "/api/chat",
+        "/artifact-feedback",
+        "/artifact-generation-outcomes",
+        "/jobs/deepread",
+        "/feedback",
+        "/obsidian/sync",
+        "/ops/repair-stats",
+        "/paper-notes/import-pdf",
+        "/project-context-links",
+        "/skills/run",
+        "/user-actions",
+    }:
+        return True
+    if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
     if bool(
         re.match(
@@ -431,8 +545,6 @@ def _requires_api_key(method: str, path: str) -> bool:
             normalized,
         )
     ):
-        return True
-    if normalized == "/research-dna" or normalized.startswith("/research-dna/"):
         return True
     if normalized.startswith("/meeting-packs/"):
         return True
@@ -443,6 +555,8 @@ def _requires_api_key(method: str, path: str) -> bool:
     if normalized.startswith("/method-comparisons/"):
         return True
     if normalized.startswith("/paper-syntheses/"):
+        return True
+    if normalized.startswith("/talk-packs/"):
         return True
     if normalized.startswith("/protocol-cards/") or normalized == "/protocol-cards":
         return True
@@ -460,11 +574,9 @@ def _rewrite_browser_api_path(path: str) -> str | None:
     return None
 
 
-def _requires_beta_gate(path: str) -> bool:
+def _requires_beta_gate(method: str, path: str) -> bool:
     normalized = path.rstrip("/") or "/"
-    if normalized == "/health/ready":
-        return True
-    if _requires_api_key("GET", normalized) or _requires_api_key("POST", normalized):
+    if _requires_api_key("GET", normalized) or _requires_api_key(method, normalized):
         return True
     if normalized in {
         "/api",
@@ -499,12 +611,12 @@ def _is_browser_api_path(path: str) -> bool:
 
 
 def _should_throttle_browser_write(method: str, original_path: str, rewritten_path: str | None) -> bool:
-    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+    if not _is_protected_write_method(method) or not _is_browser_api_path(original_path):
         return False
     normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
     if normalized == "/user-actions":
         return False
-    return _requires_api_key("POST", normalized)
+    return _requires_api_key(method, normalized)
 
 
 def _should_throttle_browser_read(method: str, original_path: str, rewritten_path: str | None) -> bool:
@@ -522,16 +634,16 @@ def _should_throttle_direct_protected_read(method: str, original_path: str) -> b
 
 
 def _should_throttle_direct_protected_write(method: str, original_path: str) -> bool:
-    if method.upper() != "POST" or _is_browser_api_path(original_path):
+    if not _is_protected_write_method(method) or _is_browser_api_path(original_path):
         return False
     normalized = (original_path.rstrip("/") or "/").rstrip("/") or "/"
     if normalized == "/user-actions":
         return False
-    return _requires_api_key("POST", normalized)
+    return _requires_api_key(method, normalized)
 
 
 def _should_audit_browser_request(method: str, original_path: str, rewritten_path: str | None) -> bool:
-    if method.upper() != "POST" or not _is_browser_api_path(original_path):
+    if not _is_protected_write_method(method) or not _is_browser_api_path(original_path):
         return False
     normalized = (rewritten_path or (original_path.rstrip("/") or "/")).rstrip("/") or "/"
     return normalized != "/user-actions"
@@ -556,6 +668,10 @@ def _request_has_valid_beta_auth(request: Request) -> bool:
         secrets.compare_digest(username, _resolve_beta_username())
         and secrets.compare_digest(password, expected_password)
     )
+
+
+def _request_has_beta_auth_attempt(request: Request) -> bool:
+    return bool((MutableHeaders(scope=request.scope).get("authorization") or "").strip())
 
 
 def _normalize_origin(value: str | None) -> str | None:
@@ -610,13 +726,14 @@ def _allowed_browser_origins_for_request(request: Request) -> set[str]:
 
 
 def _request_has_valid_browser_origin(request: Request, original_path: str) -> bool:
-    if request.method.upper() != "POST" or not _is_browser_api_path(original_path):
+    if not _is_protected_write_method(request.method) or not _is_browser_api_path(original_path):
         return True
     origin = _normalize_origin(request.headers.get("origin"))
     if not origin:
         return False
     if origin in _allowed_browser_origins_for_request(request):
         return True
+    # Local Vite/dev flows proxy browser writes through a loopback frontend origin.
     return _is_loopback_host(_host_for_request(request)) and _is_loopback_host(_origin_host(origin))
 
 
@@ -710,6 +827,10 @@ class _SlidingWindowLimiter:
             bucket.append(now)
             return True, len(bucket), 0
 
+    def clear(self) -> None:
+        with self._lock:
+            self._buckets.clear()
+
 
 def _apply_security_headers(request: Request, response: Response) -> Response:
     headers = response.headers
@@ -729,7 +850,58 @@ def _apply_security_headers(request: Request, response: Response) -> Response:
     return response
 
 
+_ABSOLUTE_PATH_TOKEN_RE = re.compile(
+    r"(?<![:/\w])/(?:Users|private|var|tmp|Volumes|home|opt|mnt|srv|workspace|app)"
+    r"(?:/[^\s\"'<>`|)\]}]+)*"
+)
+
+
+def _mask_local_paths_in_text(value: str) -> str:
+    if not is_path_masking_enabled():
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        raw_path = match.group(0)
+        return mask_local_path(raw_path) or raw_path
+
+    return _ABSOLUTE_PATH_TOKEN_RE.sub(replace, value)
+
+
+def _sanitize_exception_detail_for_response(detail: Any) -> Any:
+    sanitized = sanitize_event_payload_for_log(detail)
+    if isinstance(sanitized, dict):
+        return {
+            str(key): _sanitize_exception_detail_for_response(value)
+            for key, value in sanitized.items()
+        }
+    if isinstance(sanitized, list):
+        return [_sanitize_exception_detail_for_response(item) for item in sanitized]
+    if isinstance(sanitized, tuple):
+        return [_sanitize_exception_detail_for_response(item) for item in sanitized]
+    if isinstance(sanitized, str):
+        return _mask_local_paths_in_text(sanitized)
+    return sanitized
+
+
+def _drop_validation_input_echo(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _drop_validation_input_echo(item)
+            for key, item in value.items()
+            if str(key) != "input"
+        }
+    if isinstance(value, list):
+        return [_drop_validation_input_echo(item) for item in value]
+    return value
+
+
+def _sanitize_request_validation_errors(exc: RequestValidationError) -> Any:
+    errors = jsonable_encoder(exc.errors())
+    return _drop_validation_input_echo(_sanitize_exception_detail_for_response(errors))
+
+
 API_DOCS_ENABLED = _resolve_api_docs_enabled()
+_BETA_AUTH_LIMITER = _SlidingWindowLimiter()
 _BROWSER_READ_LIMITER = _SlidingWindowLimiter()
 _BROWSER_WRITE_LIMITER = _SlidingWindowLimiter()
 
@@ -740,6 +912,26 @@ app = FastAPI(
     redoc_url="/redoc" if API_DOCS_ENABLED else None,
     openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def sanitized_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    response = JSONResponse(
+        status_code=exc.status_code,
+        headers=exc.headers,
+        content={"detail": _sanitize_exception_detail_for_response(exc.detail)},
+    )
+    return _apply_security_headers(request, response)
+
+
+@app.exception_handler(RequestValidationError)
+async def sanitized_request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    response = JSONResponse(
+        status_code=422,
+        content={"detail": _sanitize_request_validation_errors(exc)},
+    )
+    return _apply_security_headers(request, response)
+
 
 app.add_middleware(
     TrustedHostMiddleware,
@@ -754,13 +946,19 @@ app.add_middleware(
 )
 
 
+def _reset_request_limiters() -> None:
+    _BETA_AUTH_LIMITER.clear()
+    _BROWSER_READ_LIMITER.clear()
+    _BROWSER_WRITE_LIMITER.clear()
+
+
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
     original_path = str(request.scope.get("path") or request.url.path or "/")
     rewritten_path = _rewrite_browser_api_path(original_path)
     client_ip = _client_ip_for_request(request)
     host = _host_for_request(request)
-    if request.method.upper() != "OPTIONS" and _requires_beta_gate(original_path):
+    if request.method.upper() != "OPTIONS" and _requires_beta_gate(request.method, original_path):
         if not _request_ip_is_allowed(client_ip):
             if _resolve_browser_audit_logging_enabled():
                 _best_effort_log_request_audit(
@@ -784,6 +982,47 @@ async def api_key_guard(request: Request, call_next):
                 ),
             )
         if not _request_has_valid_beta_auth(request):
+            beta_auth_limit = _resolve_beta_auth_rate_limit_count()
+            if beta_auth_limit > 0 and _request_has_beta_auth_attempt(request):
+                beta_auth_window_seconds = _resolve_beta_auth_rate_limit_window_seconds()
+                limiter_key = f"{client_ip or 'unknown'}:beta_auth"
+                allowed, seen_count, retry_after = _BETA_AUTH_LIMITER.allow(
+                    limiter_key,
+                    window_seconds=beta_auth_window_seconds,
+                    limit=beta_auth_limit,
+                )
+                if not allowed:
+                    if _resolve_browser_audit_logging_enabled():
+                        _best_effort_log_request_audit(
+                            source="browser_security",
+                            client_ip=client_ip,
+                            host=host,
+                            method=request.method,
+                            path=original_path,
+                            status_code=429,
+                            outcome="beta_auth_rate_limited",
+                            payload={
+                                "scope": "beta_gate",
+                                "limit": beta_auth_limit,
+                                "window_seconds": beta_auth_window_seconds,
+                                "seen_count": seen_count,
+                                "retry_after_seconds": retry_after,
+                            },
+                        )
+                    return _apply_security_headers(
+                        request,
+                        JSONResponse(
+                            status_code=429,
+                            headers={"Retry-After": str(retry_after)},
+                            content={
+                                "error_code": "BETA_AUTH_RATE_LIMITED",
+                                "message": "Beta auth retry limit exceeded.",
+                                "retry_after_seconds": retry_after,
+                                "limit": beta_auth_limit,
+                                "window_seconds": beta_auth_window_seconds,
+                            },
+                        ),
+                    )
             if _resolve_browser_audit_logging_enabled():
                 _best_effort_log_request_audit(
                     source="browser_security",
@@ -1000,6 +1239,12 @@ async def api_key_guard(request: Request, call_next):
         request.scope["raw_path"] = rewritten_path.encode("utf-8")
         if expected_key:
             MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
+    elif expected_key and _is_browser_api_path(original_path):
+        current_browser_path = (original_path.rstrip("/") or "/").rstrip("/") or "/"
+        if _requires_api_key(request.method, current_browser_path):
+            # Keep same-origin browser /api/* routes on the server-side secret boundary
+            # even when they do not rewrite to a root backend path.
+            MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
 
     if not expected_key:
         response = await call_next(request)
@@ -1082,6 +1327,7 @@ ARTIFACT_FILE_MAP: dict[str, str] = {
     "bootstrap_meta": "bootstrap_meta.json",
     "run_meta": "run_meta.json",
     "chunks": "chunks.jsonl",
+    "evidence_extraction_bundle": "evidence_extraction_bundle.json",
 }
 
 ARTIFACT_ALIAS_MAP: dict[str, str] = {
@@ -1099,6 +1345,8 @@ ARTIFACT_ALIAS_MAP: dict[str, str] = {
     "meta": "run_meta",
     "run_meta": "run_meta",
     "chunks": "chunks",
+    "evidence_extraction_bundle": "evidence_extraction_bundle",
+    "evidence-extraction-bundle": "evidence_extraction_bundle",
 }
 
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
@@ -1151,85 +1399,1677 @@ def _public_path(path_value: str | None) -> str | None:
     return mask_local_path(path_value)
 
 
-def _list_visible_paper_items(*, raw_limit: int = 5000) -> list[dict[str, Any]]:
-    conn = get_db_connection()
-    papers = conn.execute(
-        "SELECT * FROM papers ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-        (raw_limit, 0),
-    ).fetchall()
-    conn.close()
-    artifacts_path = artifacts_root()
+@dataclass(frozen=True)
+class _IndexedNoteItemLookup:
+    exact: dict[str, tuple[int, PaperNoteIndexItem]]
+    normalized: dict[str, tuple[int, PaperNoteIndexItem]]
+
+
+@dataclass(frozen=True)
+class _VisiblePaperCandidatePage:
+    selected_candidates: list[dict[str, Any]]
+    vault_path: Path | None
+    note_items: list[PaperNoteIndexItem] | None
+    note_slug_by_db_paper_id: dict[str, str]
+    paper_table_columns: set[str]
+
+
+@dataclass(frozen=True)
+class _HomeWorkspaceSummaryContext:
+    blocked: int
+    needs_review: int
+    note_context_limited: bool
+    saved_notes: int = 0
+    structured_notes: int = 0
+    latest_note_updated_at: str | None = None
+
+
+@dataclass(frozen=True)
+class _SelectedDbPaperPageContext:
+    selected_db_paper_ids: list[str]
+    selected_db_rows_by_id: dict[str, Any]
+    ops_candidate_ids_by_paper_id: dict[str, list[str]]
+    note_item_lookup: _IndexedNoteItemLookup | None
+    artifact_cache: ArtifactSnapshotCache
+
+
+def _build_note_item_lookup_for_paper_ids(
+    items: list[PaperNoteIndexItem],
+    paper_ids: list[str],
+) -> _IndexedNoteItemLookup:
+    requested_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        requested_paper_ids.append(paper_id)
+
+    if not requested_paper_ids:
+        return _IndexedNoteItemLookup(exact={}, normalized={})
+
+    exact: dict[str, tuple[int, PaperNoteIndexItem]] = {}
+    normalized: dict[str, tuple[int, PaperNoteIndexItem]] = {}
+    remaining_paper_ids = set(requested_paper_ids)
+    requested_exact_candidates: dict[str, set[str]] = {}
+    requested_normalized_candidates: dict[str, set[str]] = {}
+    for paper_id in requested_paper_ids:
+        for candidate in paper_notes._paper_note_lookup_candidates(paper_id):
+            requested_exact_candidates.setdefault(candidate, set()).add(paper_id)
+            normalized_candidate = paper_notes._normalize_paper_note_id(candidate)
+            if normalized_candidate:
+                requested_normalized_candidates.setdefault(normalized_candidate, set()).add(paper_id)
+
+    for order, item in enumerate(items):
+        raw_variants, normalized_variants = _paper_note_identity_sets(item)
+        for candidate in raw_variants:
+            if candidate in requested_exact_candidates and candidate not in exact:
+                exact[candidate] = (order, item)
+        for candidate in normalized_variants:
+            if candidate in requested_normalized_candidates and candidate not in normalized:
+                normalized[candidate] = (order, item)
+        resolved_now: set[str] = set()
+        for candidate in raw_variants:
+            resolved_now.update(requested_exact_candidates.get(candidate, ()))
+        for candidate in normalized_variants:
+            resolved_now.update(requested_normalized_candidates.get(candidate, ()))
+        resolved_now.intersection_update(remaining_paper_ids)
+        if not resolved_now:
+            continue
+        remaining_paper_ids.difference_update(resolved_now)
+        if not remaining_paper_ids:
+            break
+
+    return _IndexedNoteItemLookup(exact=exact, normalized=normalized)
+
+
+def _selected_db_paper_ids_needing_note_lookup(
+    selected_candidates: list[dict[str, Any]],
+    selected_db_rows_by_id: dict[str, Any],
+) -> list[str]:
+    paper_ids_needing_note_lookup: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in selected_candidates:
+        if candidate.get("kind") != "db":
+            continue
+        paper_id = str(candidate["row"]["paper_id"] or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        row = selected_db_rows_by_id.get(paper_id, candidate["row"])
+        if not _db_row_may_need_note_backed_pdf_lookup(row):
+            continue
+        seen_paper_ids.add(paper_id)
+        paper_ids_needing_note_lookup.append(paper_id)
+    return paper_ids_needing_note_lookup
+
+
+def _normalized_candidate_id_list(candidate_ids: Any) -> list[str]:
+    normalized_candidate_ids: list[str] = []
+    seen_candidate_ids: set[str] = set()
+    for candidate_id in candidate_ids:
+        normalized_candidate_id = str(candidate_id or "").strip()
+        if not normalized_candidate_id or normalized_candidate_id in seen_candidate_ids:
+            continue
+        seen_candidate_ids.add(normalized_candidate_id)
+        normalized_candidate_ids.append(normalized_candidate_id)
+    return normalized_candidate_ids
+
+
+def _latest_run_id_from_artifact_cache_for_candidate_ids(
+    candidate_ids: list[str],
+    artifact_cache: ArtifactSnapshotCache,
+) -> str | None:
+    snapshots = [
+        snapshot
+        for candidate_id in _normalized_candidate_id_list(candidate_ids)
+        if (snapshot := artifact_cache.get(candidate_id)) is not None and str(snapshot.run_id or "").strip()
+    ]
+    if not snapshots:
+        return None
+    selected = max(snapshots, key=lambda item: item.mtime)
+    return str(selected.run_id or "").strip() or None
+
+
+def _artifact_cache_covers_candidate_ids(
+    candidate_ids: list[str],
+    artifact_cache: ArtifactSnapshotCache,
+) -> bool:
+    normalized_candidate_ids = _normalized_candidate_id_list(candidate_ids)
+    if not normalized_candidate_ids:
+        return False
+    return all(candidate_id in artifact_cache for candidate_id in normalized_candidate_ids)
+
+
+_UNCACHED_ARTIFACT_GROUP = object()
+
+
+def _ops_summary_from_artifact_cache_for_candidate_ids(
+    candidate_ids: list[str],
+    artifact_cache: ArtifactSnapshotCache,
+) -> Any:
+    snapshots: list[ArtifactOperationalSnapshot] = []
+    for candidate_id in _normalized_candidate_id_list(candidate_ids):
+        if candidate_id not in artifact_cache:
+            return _UNCACHED_ARTIFACT_GROUP
+        snapshot = artifact_cache[candidate_id]
+        if snapshot is not None:
+            snapshots.append(snapshot)
+    if not snapshots:
+        return None
+    selected = max(snapshots, key=lambda item: item.mtime)
+    return build_ops_summary_from_snapshot(selected)
+
+
+def _normalized_candidate_id_group(candidate_ids: Any) -> tuple[str, ...]:
+    return tuple(sorted(_normalized_candidate_id_list(candidate_ids)))
+
+
+def _selected_db_paper_ids_needing_latest_run_lookup(
+    selected_db_paper_ids: list[str],
+    artifact_cache: ArtifactSnapshotCache,
+    *,
+    ops_candidate_ids_by_paper_id: dict[str, list[str]] | None = None,
+) -> list[str]:
+    paper_ids_needing_lookup: list[str] = []
+    seen_paper_ids: set[str] = set()
+    latest_run_from_cache_by_candidate_ids: dict[tuple[str, ...], str | None] = {}
+    artifact_coverage_by_candidate_ids: dict[tuple[str, ...], bool] = {}
+    for candidate in selected_db_paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        ops_candidate_ids = (
+            ops_candidate_ids_by_paper_id.get(paper_id)
+            if ops_candidate_ids_by_paper_id is not None
+            else None
+        ) or _ops_summary_candidate_ids(paper_id)
+        candidate_ids_key = _normalized_candidate_id_group(ops_candidate_ids)
+        if not candidate_ids_key:
+            continue
+        if candidate_ids_key not in latest_run_from_cache_by_candidate_ids:
+            latest_run_from_cache_by_candidate_ids[candidate_ids_key] = _latest_run_id_from_artifact_cache_for_candidate_ids(
+                list(candidate_ids_key),
+                artifact_cache,
+            )
+        if latest_run_from_cache_by_candidate_ids[candidate_ids_key]:
+            continue
+        if candidate_ids_key not in artifact_coverage_by_candidate_ids:
+            artifact_coverage_by_candidate_ids[candidate_ids_key] = _artifact_cache_covers_candidate_ids(
+                list(candidate_ids_key),
+                artifact_cache,
+            )
+        if artifact_coverage_by_candidate_ids[candidate_ids_key]:
+            continue
+        paper_ids_needing_lookup.append(paper_id)
+    return paper_ids_needing_lookup
+
+
+def _selected_db_paper_ids_missing_note_slug(
+    selected_db_paper_ids: list[str],
+    note_slug_by_db_paper_id: dict[str, str],
+) -> list[str]:
+    missing_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in selected_db_paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        if paper_id not in note_slug_by_db_paper_id:
+            missing_paper_ids.append(paper_id)
+    return missing_paper_ids
+
+
+def _combine_selected_db_paper_ids_for_note_lookup(
+    primary_paper_ids: list[str],
+    secondary_paper_ids: list[str],
+) -> list[str]:
+    combined_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in [*primary_paper_ids, *secondary_paper_ids]:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        combined_paper_ids.append(paper_id)
+    return combined_paper_ids
+
+
+def _backfill_note_slug_mapping_for_selected_db_paper_ids(
+    note_item_lookup: _IndexedNoteItemLookup | None,
+    note_items: list[PaperNoteIndexItem] | None,
+    selected_db_paper_ids: list[str],
+    note_slug_by_db_paper_id: dict[str, str],
+    *,
+    missing_note_slug_paper_ids: list[str] | None = None,
+) -> _IndexedNoteItemLookup | None:
+    if missing_note_slug_paper_ids is None:
+        missing_note_slug_paper_ids = _selected_db_paper_ids_missing_note_slug(
+            selected_db_paper_ids,
+            note_slug_by_db_paper_id,
+        )
+    if not missing_note_slug_paper_ids or note_items is None:
+        return note_item_lookup
+
+    if note_item_lookup is None:
+        remaining_paper_ids = set(missing_note_slug_paper_ids)
+        requested_exact_candidates: dict[str, set[str]] = {}
+        requested_normalized_candidates: dict[str, set[str]] = {}
+        for paper_id in missing_note_slug_paper_ids:
+            for candidate in paper_notes._paper_note_lookup_candidates(paper_id):
+                requested_exact_candidates.setdefault(candidate, set()).add(paper_id)
+                normalized_candidate = paper_notes._normalize_paper_note_id(candidate)
+                if normalized_candidate:
+                    requested_normalized_candidates.setdefault(normalized_candidate, set()).add(paper_id)
+
+        for item in note_items:
+            note_slug = str(getattr(item, "slug", "") or "").strip()
+            if not note_slug:
+                continue
+            direct_raw_variants: set[str] = set()
+            for candidate in (getattr(item, "id", None), note_slug):
+                if not candidate:
+                    continue
+                for variant in paper_notes._paper_id_variants(str(candidate)):
+                    if variant:
+                        direct_raw_variants.add(variant)
+            if not direct_raw_variants:
+                continue
+            direct_normalized_variants = {
+                normalized
+                for value in direct_raw_variants
+                if (normalized := paper_notes._normalize_paper_note_id(value))
+            }
+            resolved_now: set[str] = set()
+            for candidate in direct_raw_variants:
+                resolved_now.update(requested_exact_candidates.get(candidate, ()))
+            for candidate in direct_normalized_variants:
+                resolved_now.update(requested_normalized_candidates.get(candidate, ()))
+            resolved_now.intersection_update(remaining_paper_ids)
+            if not resolved_now:
+                continue
+            for paper_id in resolved_now:
+                note_slug_by_db_paper_id.setdefault(paper_id, note_slug)
+            remaining_paper_ids.difference_update(resolved_now)
+            if not remaining_paper_ids:
+                break
+        return note_item_lookup
+
+    for paper_id in missing_note_slug_paper_ids:
+        resolved_note_item = _resolve_note_item_for_paper_id_from_lookup(note_item_lookup, paper_id)
+        note_slug = str(getattr(resolved_note_item, "slug", "") or "").strip()
+        if note_slug:
+            note_slug_by_db_paper_id.setdefault(paper_id, note_slug)
+    return note_item_lookup
+
+
+def _prepare_selected_db_note_lookup_context(
+    *,
+    selected_candidates: list[dict[str, Any]],
+    note_items: list[PaperNoteIndexItem] | None,
+    selected_db_paper_ids: list[str],
+    selected_db_rows_by_id: dict[str, Any],
+    note_slug_by_db_paper_id: dict[str, str],
+) -> _IndexedNoteItemLookup | None:
+    if note_items is None or not selected_db_paper_ids:
+        return None
+
+    missing_note_slug_paper_ids = _selected_db_paper_ids_missing_note_slug(
+        selected_db_paper_ids,
+        note_slug_by_db_paper_id,
+    )
+    paper_ids_needing_note_lookup = _selected_db_paper_ids_needing_note_lookup(
+        selected_candidates,
+        selected_db_rows_by_id,
+    )
+    if not missing_note_slug_paper_ids and not paper_ids_needing_note_lookup:
+        return None
+    note_item_lookup: _IndexedNoteItemLookup | None = None
+    if paper_ids_needing_note_lookup:
+        note_item_lookup = _build_note_item_lookup_for_paper_ids(
+            note_items,
+            _combine_selected_db_paper_ids_for_note_lookup(
+                paper_ids_needing_note_lookup,
+                missing_note_slug_paper_ids,
+            ),
+        )
+    return _backfill_note_slug_mapping_for_selected_db_paper_ids(
+        note_item_lookup,
+        note_items,
+        selected_db_paper_ids,
+        note_slug_by_db_paper_id,
+        missing_note_slug_paper_ids=missing_note_slug_paper_ids,
+    )
+
+
+def _prepare_selected_db_paper_page_context(
+    *,
+    selected_candidates: list[dict[str, Any]],
+    note_items: list[PaperNoteIndexItem] | None,
+    note_slug_by_db_paper_id: dict[str, str],
+    row_loader: Callable[[list[str]], dict[str, Any]],
+) -> _SelectedDbPaperPageContext:
+    selected_db_paper_ids: list[str] = []
+    seen_selected_db_paper_ids: set[str] = set()
+    for candidate in selected_candidates:
+        if candidate.get("kind") != "db":
+            continue
+        paper_id = str(candidate["row"]["paper_id"] or "").strip()
+        if not paper_id or paper_id in seen_selected_db_paper_ids:
+            continue
+        seen_selected_db_paper_ids.add(paper_id)
+        selected_db_paper_ids.append(paper_id)
+    if not selected_db_paper_ids:
+        return _SelectedDbPaperPageContext(
+            selected_db_paper_ids=[],
+            selected_db_rows_by_id={},
+            ops_candidate_ids_by_paper_id={},
+            note_item_lookup=None,
+            artifact_cache={},
+        )
+    selected_db_rows_by_id = row_loader(selected_db_paper_ids)
+    ops_candidate_ids_by_paper_id = {
+        paper_id: _ops_summary_candidate_ids(paper_id)
+        for paper_id in selected_db_paper_ids
+    }
+    note_item_lookup = _prepare_selected_db_note_lookup_context(
+        selected_candidates=selected_candidates,
+        note_items=note_items,
+        selected_db_paper_ids=selected_db_paper_ids,
+        selected_db_rows_by_id=selected_db_rows_by_id,
+        note_slug_by_db_paper_id=note_slug_by_db_paper_id,
+    )
     artifact_cache: ArtifactSnapshotCache = {}
-    out: list[dict[str, Any]] = []
-    visible_raw_ids: set[str] = set()
-    visible_normalized_ids: set[str] = set()
-    vault_path: Path | None = None
-    note_index = None
+    _preload_artifact_snapshots_for_papers(
+        artifacts_root(),
+        selected_db_paper_ids,
+        artifact_cache,
+        ops_candidate_ids_by_paper_id=ops_candidate_ids_by_paper_id,
+    )
+    return _SelectedDbPaperPageContext(
+        selected_db_paper_ids=selected_db_paper_ids,
+        selected_db_rows_by_id=selected_db_rows_by_id,
+        ops_candidate_ids_by_paper_id=ops_candidate_ids_by_paper_id,
+        note_item_lookup=note_item_lookup,
+        artifact_cache=artifact_cache,
+    )
+
+
+def _load_papers_table_columns() -> set[str]:
+    conn = get_db_connection()
+    try:
+        try:
+            return {
+                str(row[1]).strip()
+                for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                if len(row) > 1 and str(row[1]).strip()
+            }
+        except sqlite3.OperationalError:
+            return set()
+    finally:
+        conn.close()
+
+
+def _load_paper_rows_for_listing(
+    *,
+    raw_limit: int = 5000,
+    raw_offset: int = 0,
+    lightweight: bool = False,
+    table_columns: set[str] | None = None,
+) -> list[Any]:
+    conn = get_db_connection()
+    try:
+        try:
+            select_columns = "*"
+            order_by = "updated_at DESC"
+            if lightweight:
+                if table_columns is None:
+                    table_columns = {
+                        str(row[1]).strip()
+                        for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                        if len(row) > 1 and str(row[1]).strip()
+                    }
+                selected_columns: list[str] = [
+                    column
+                    for column in ("paper_id", "title", "pdf_path")
+                    if column in table_columns
+                ]
+                if "updated_at" in table_columns:
+                    selected_columns.insert(2, "updated_at")
+                    order_by = "updated_at DESC"
+                elif "created_at" in table_columns:
+                    selected_columns.insert(2, "created_at AS updated_at")
+                    order_by = "created_at DESC"
+                else:
+                    selected_columns.insert(2, "NULL AS updated_at")
+                    order_by = "paper_id ASC"
+                select_columns = ", ".join(selected_columns) if selected_columns else "paper_id"
+            return conn.execute(
+                f"SELECT {select_columns} FROM papers ORDER BY {order_by} LIMIT ? OFFSET ?",
+                (raw_limit, raw_offset),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    finally:
+        conn.close()
+
+
+def _load_paper_rows_for_workspace_summary(*, raw_limit: int = 5000) -> list[Any]:
+    conn = get_db_connection()
+    try:
+        try:
+            table_columns = {
+                str(row[1]).strip()
+                for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                if len(row) > 1 and str(row[1]).strip()
+            }
+            selected_columns = [
+                column
+                for column in (
+                    "paper_id",
+                    "title",
+                    "pdf_path",
+                    "status",
+                    "issues",
+                    "issues_label",
+                    "issues_state",
+                )
+                if column in table_columns
+            ]
+            select_clause = ", ".join(selected_columns) if selected_columns else "paper_id"
+            if "updated_at" in table_columns:
+                order_by = "updated_at DESC"
+            elif "created_at" in table_columns:
+                order_by = "created_at DESC"
+            else:
+                order_by = "paper_id ASC"
+            return conn.execute(
+                f"SELECT {select_clause} FROM papers ORDER BY {order_by} LIMIT ? OFFSET 0",
+                (raw_limit,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    finally:
+        conn.close()
+
+
+def _initial_listing_scan_limit(
+    *,
+    limit: int,
+    offset: int,
+    max_scan_limit: int,
+) -> int:
+    return max(
+        limit,
+        min(
+            max_scan_limit,
+            offset + max(limit * 4, 200),
+        ),
+    )
+
+
+def _initial_listing_scan_limit_without_note_context(
+    *,
+    limit: int,
+    offset: int,
+    max_scan_limit: int,
+) -> int:
+    return max(
+        1,
+        min(
+            max_scan_limit,
+            offset + limit,
+        ),
+    )
+
+
+def _next_listing_scan_limit(current_scan_limit: int, *, max_scan_limit: int) -> int:
+    if current_scan_limit >= max_scan_limit:
+        return current_scan_limit
+    return min(max_scan_limit, max(current_scan_limit * 2, current_scan_limit + 200))
+
+
+def _fetch_listing_response_rows_by_ids(
+    paper_ids: list[str],
+    *,
+    table_columns: set[str] | None = None,
+) -> dict[str, Any]:
+    unique_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        unique_paper_ids.append(paper_id)
+
+    if not unique_paper_ids:
+        return {}
+
+    conn = get_db_connection()
+    try:
+        try:
+            if table_columns is None:
+                table_columns = {
+                    str(row[1]).strip()
+                    for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                    if len(row) > 1 and str(row[1]).strip()
+                }
+            selected_columns = [
+                column
+                for column in (
+                    "paper_id",
+                    "title",
+                    "authors",
+                    "year",
+                    "doi",
+                    "link",
+                    "pdf_link",
+                    "pdf_path",
+                    "pdf_status",
+                    "status",
+                    "issues",
+                    "issues_label",
+                    "issues_state",
+                    "latest_job_id",
+                    "is_escalated",
+                    "escalation_reason",
+                    "escalation_final_route",
+                    "escalation_in_biomedical_scope",
+                    "escalation_reason_codes",
+                )
+                if column in table_columns
+            ]
+            if "updated_at" in table_columns:
+                selected_columns.append("updated_at")
+            elif "created_at" in table_columns:
+                selected_columns.append("created_at AS updated_at")
+            else:
+                selected_columns.append("NULL AS updated_at")
+            escalation_columns = {
+                "is_escalated",
+                "escalation_reason",
+                "escalation_final_route",
+                "escalation_in_biomedical_scope",
+                "escalation_reason_codes",
+            }
+            if "feedback_json" in table_columns and not escalation_columns.issubset(table_columns):
+                selected_columns.append("feedback_json")
+            select_clause = ", ".join(selected_columns) if selected_columns else "paper_id"
+            placeholders = ", ".join("?" for _ in unique_paper_ids)
+            rows = conn.execute(
+                f"SELECT {select_clause} FROM papers WHERE paper_id IN ({placeholders})",
+                tuple(unique_paper_ids),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+    finally:
+        conn.close()
+
+    return {
+        str(row["paper_id"] or "").strip(): row
+        for row in rows
+        if str(row["paper_id"] or "").strip()
+    }
+
+
+def _fetch_listing_rail_rows_by_ids(
+    paper_ids: list[str],
+    *,
+    table_columns: set[str] | None = None,
+) -> dict[str, Any]:
+    unique_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    for candidate in paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        unique_paper_ids.append(paper_id)
+
+    if not unique_paper_ids:
+        return {}
+
+    conn = get_db_connection()
+    try:
+        try:
+            if table_columns is None:
+                table_columns = {
+                    str(row[1]).strip()
+                    for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                    if len(row) > 1 and str(row[1]).strip()
+                }
+            selected_columns = [
+                column
+                for column in (
+                    "paper_id",
+                    "title",
+                    "authors",
+                    "doi",
+                    "link",
+                    "pdf_link",
+                    "pdf_path",
+                    "status",
+                    "issues",
+                    "issues_label",
+                    "issues_state",
+                    "feedback_json",
+                )
+                if column in table_columns
+            ]
+            if "updated_at" in table_columns:
+                selected_columns.append("updated_at")
+            elif "created_at" in table_columns:
+                selected_columns.append("created_at AS updated_at")
+            else:
+                selected_columns.append("NULL AS updated_at")
+            select_clause = ", ".join(selected_columns) if selected_columns else "paper_id"
+            placeholders = ", ".join("?" for _ in unique_paper_ids)
+            rows = conn.execute(
+                f"SELECT {select_clause} FROM papers WHERE paper_id IN ({placeholders})",
+                tuple(unique_paper_ids),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+    finally:
+        conn.close()
+
+    return {
+        str(row["paper_id"] or "").strip(): row
+        for row in rows
+        if str(row["paper_id"] or "").strip()
+    }
+
+
+def _resolve_note_item_for_paper_id_from_lookup(
+    lookup: _IndexedNoteItemLookup,
+    paper_id: str,
+) -> PaperNoteIndexItem | None:
+    ordered_candidates = paper_notes._paper_note_lookup_candidates(paper_id)
+    if not ordered_candidates:
+        return None
+
+    for candidate in ordered_candidates:
+        match = lookup.exact.get(candidate)
+        if match is not None:
+            return match[1]
+
+    for candidate in ordered_candidates:
+        normalized = paper_notes._normalize_paper_note_id(candidate)
+        if not normalized:
+            continue
+        match = lookup.normalized.get(normalized)
+        if match is not None:
+            return match[1]
+    return None
+
+
+def _match_db_paper_id_for_note_variants(
+    raw_variants: set[str],
+    normalized_variants: set[str],
+    *,
+    db_paper_ids_by_exact_variant: dict[str, str],
+    db_paper_ids_by_normalized_variant: dict[str, str],
+) -> str | None:
+    for candidate in raw_variants:
+        matched = db_paper_ids_by_exact_variant.get(candidate)
+        if matched:
+            return matched
+    for candidate in normalized_variants:
+        matched = db_paper_ids_by_normalized_variant.get(candidate)
+        if matched:
+            return matched
+    return None
+
+
+def _push_visible_paper_candidate_window(
+    heap: list[tuple[float, int, dict[str, Any]]],
+    candidate: dict[str, Any],
+    *,
+    sequence: int,
+    target_count: int,
+) -> None:
+    if target_count <= 0:
+        return
+    rank = (
+        _parse_iso_timestamp_sort_key(candidate.get("sort_updated_at")),
+        -sequence,
+    )
+    entry = (rank[0], rank[1], candidate)
+    if len(heap) < target_count:
+        heapq.heappush(heap, entry)
+        return
+    if rank > (heap[0][0], heap[0][1]):
+        heapq.heapreplace(heap, entry)
+
+
+def _paper_listing_fixture_record_from_row(row: Any) -> dict[str, Any]:
+    def _value(column: str) -> Any:
+        getter = getattr(row, "get", None)
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    return {
+        "paper_id": str(_value("paper_id") or "").strip(),
+        "title": str(_value("title") or "").strip(),
+        "pdf_path": str(_value("pdf_path") or "").strip() or None,
+    }
+
+
+def _workspace_summary_issues_record_from_row(row: Any) -> dict[str, Any]:
+    def _value(column: str) -> Any:
+        getter = getattr(row, "get", None)
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    return {
+        "paper_id": str(_value("paper_id") or "").strip() or None,
+        "status": str(_value("status") or "").strip() or None,
+        "issues": _value("issues"),
+        "issues_label": str(_value("issues_label") or "").strip() or None,
+        "issues_state": str(_value("issues_state") or "").strip() or None,
+    }
+
+
+def _paper_access_record_from_row(row: Any) -> dict[str, Any]:
+    def _value(column: str) -> Any:
+        getter = getattr(row, "get", None)
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    return {
+        "doi": str(_value("doi") or "").strip() or None,
+        "link": str(_value("link") or "").strip() or None,
+        "publisher_url": str(_value("publisher_url") or "").strip() or None,
+        "pdf_link": str(_value("pdf_link") or "").strip() or None,
+        "feedback_json": _value("feedback_json"),
+    }
+
+
+def _recent_paper_preview_record_from_row(row: Any) -> dict[str, Any]:
+    def _value(column: str) -> Any:
+        getter = getattr(row, "get", None)
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    preview_record = {
+        "paper_id": str(_value("paper_id") or "").strip(),
+        "title": str(_value("title") or "").strip(),
+        "status": str(_value("status") or "").strip() or None,
+        "updated_at": str(_value("updated_at") or "").strip() or None,
+        "pdf_path": str(_value("pdf_path") or "").strip() or None,
+    }
+    preview_record["is_fixture"] = is_test_fixture_paper_record(preview_record)
+    return preview_record
+
+
+def _paper_summary_response_record_from_row(row: Any) -> dict[str, Any]:
+    def _value(column: str) -> Any:
+        getter = getattr(row, "get", None)
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    return {
+        "paper_id": _value("paper_id"),
+        "title": _value("title"),
+        "authors": _value("authors"),
+        "year": _value("year"),
+        "doi": _value("doi"),
+        "link": _value("link"),
+        "publisher_url": _value("publisher_url"),
+        "pdf_link": _value("pdf_link"),
+        "pdf_path": _value("pdf_path"),
+        "pdf_status": _value("pdf_status"),
+        "status": _value("status"),
+        "issues": _value("issues"),
+        "issues_label": _value("issues_label"),
+        "issues_state": _value("issues_state"),
+        "latest_job_id": _value("latest_job_id"),
+        "updated_at": _value("updated_at"),
+        "is_escalated": _value("is_escalated"),
+        "escalation_reason": _value("escalation_reason"),
+        "escalation_final_route": _value("escalation_final_route"),
+        "escalation_in_biomedical_scope": _value("escalation_in_biomedical_scope"),
+        "escalation_reason_codes": _value("escalation_reason_codes"),
+        "feedback_json": _value("feedback_json"),
+        "abstract": _value("abstract"),
+    }
+
+
+def _finalize_visible_paper_candidate_window(
+    *,
+    non_fixture_heap: list[tuple[float, int, dict[str, Any]]],
+    fixture_heap: list[tuple[float, int, dict[str, Any]]],
+    any_non_fixture: bool,
+    any_fixture: bool,
+    include_test_fixtures: bool,
+    offset: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    if include_test_fixtures:
+        candidate_entries = [*non_fixture_heap, *fixture_heap]
+    elif non_fixture_heap:
+        candidate_entries = non_fixture_heap
+    else:
+        candidate_entries = fixture_heap
+
+    visible_candidates = [
+        entry[2]
+        for entry in sorted(
+            candidate_entries,
+            key=lambda entry: (entry[0], entry[1]),
+            reverse=True,
+        )
+    ]
+    visible_candidates_are_only_fixtures = (
+        not include_test_fixtures
+        and any_fixture
+        and not any_non_fixture
+    )
+    return visible_candidates[offset : offset + limit], visible_candidates_are_only_fixtures
+
+def _select_visible_paper_candidates_page(
+    *,
+    limit: int,
+    offset: int,
+    raw_limit: int = 5000,
+) -> _VisiblePaperCandidatePage:
+    max_scan_limit = max(1, min(raw_limit, 5000))
+    paper_table_columns = _load_papers_table_columns()
     try:
         vault_path = paper_notes._resolve_vault_path()
-        note_index = paper_notes._build_index(vault_path)
+        note_items = _load_deduped_note_items_without_ops(vault_path)
+        if not note_items:
+            vault_path = None
+            note_items = None
     except Exception:
-        note_index = None
         vault_path = None
-
-    for p in papers:
-        item = _build_db_backed_paper_item_from_row(
-            p,
-            artifact_cache=artifact_cache,
-            vault_path=vault_path,
-            note_items=note_index.items if note_index is not None else None,
-            artifacts_path=artifacts_path,
+        note_items = None
+    has_note_context = note_items is not None and vault_path is not None
+    scan_limit = (
+        _initial_listing_scan_limit(limit=limit, offset=offset, max_scan_limit=max_scan_limit)
+        if has_note_context
+        else _initial_listing_scan_limit_without_note_context(
+            limit=limit,
+            offset=offset,
+            max_scan_limit=max_scan_limit,
         )
-        paper_id = str(item.get("paper_id") or "").strip()
-        out.append(item)
-        raw_variants, normalized_variants = _paper_id_identity_sets(paper_id)
-        visible_raw_ids.update(raw_variants)
-        visible_normalized_ids.update(normalized_variants)
+    )
+    papers = _load_paper_rows_for_listing(
+        raw_limit=scan_limit,
+        raw_offset=0,
+        lightweight=True,
+        table_columns=paper_table_columns,
+    )
 
-    if note_index is not None:
-        for note_item in note_index.items:
-            note_paper_id = str(note_item.id or note_item.slug or "").strip()
-            if not note_paper_id:
-                continue
-            raw_variants, normalized_variants = _paper_note_identity_sets(note_item)
-            if raw_variants & visible_raw_ids or normalized_variants & visible_normalized_ids:
-                continue
+    target_count = max(0, offset + limit)
+    include_test_fixtures = include_test_fixtures_enabled()
+    sorted_note_items_for_listing: list[PaperNoteIndexItem] | None = None
+    paper_identity_cache: dict[str, tuple[set[str], set[str]]] = {}
+    db_candidate_cache: dict[str, tuple[dict[str, Any], str | None, bool]] = {}
+    while True:
+        visible_raw_ids: set[str] = set()
+        visible_normalized_ids: set[str] = set()
+        provisional_fixture_db_raw_ids: set[str] = set()
+        provisional_fixture_db_normalized_ids: set[str] = set()
+        provisional_fixture_note_raw_ids: set[str] = set()
+        provisional_fixture_note_normalized_ids: set[str] = set()
+        db_paper_ids_by_exact_variant: dict[str, str] = {}
+        db_paper_ids_by_normalized_variant: dict[str, str] = {}
+        note_slug_by_db_paper_id: dict[str, str] = {}
+        note_slug_source_is_fixture_by_db_paper_id: dict[str, bool] = {}
+        non_fixture_heap: list[tuple[float, int, dict[str, Any]]] = []
+        fixture_heap: list[tuple[float, int, dict[str, Any]]] = []
+        any_non_fixture = False
+        any_fixture = False
+        sequence = 0
+
+        for row in papers:
+            paper_id = str(row["paper_id"] or "").strip()
+            cached_db_candidate = db_candidate_cache.get(paper_id)
+            if cached_db_candidate is None:
+                fixture_record = _paper_listing_fixture_record_from_row(row)
+                cached_db_candidate = (
+                    fixture_record,
+                    row["updated_at"],
+                    is_test_fixture_paper_record(fixture_record),
+                )
+                db_candidate_cache[paper_id] = cached_db_candidate
+            fixture_record, sort_updated_at, is_fixture = cached_db_candidate
+            hidden_fixture_db_candidate = is_fixture and any_non_fixture and not include_test_fixtures
+            candidate = {
+                "kind": "db",
+                "sort_updated_at": sort_updated_at,
+                "fixture_record": fixture_record,
+                "row": row,
+            }
+            if is_fixture:
+                any_fixture = True
+                if not hidden_fixture_db_candidate:
+                    _push_visible_paper_candidate_window(
+                        fixture_heap,
+                        candidate,
+                        sequence=sequence,
+                        target_count=target_count,
+                    )
+            else:
+                any_non_fixture = True
+                _push_visible_paper_candidate_window(
+                    non_fixture_heap,
+                    candidate,
+                    sequence=sequence,
+                    target_count=target_count,
+                )
+            sequence += 1
+            if has_note_context:
+                if hidden_fixture_db_candidate:
+                    continue
+                cached_identity_sets = paper_identity_cache.get(paper_id)
+                if cached_identity_sets is None:
+                    cached_identity_sets = _paper_id_identity_sets(paper_id)
+                    paper_identity_cache[paper_id] = cached_identity_sets
+                raw_variants, normalized_variants = cached_identity_sets
+                if include_test_fixtures or not is_fixture:
+                    visible_raw_ids.update(raw_variants)
+                    visible_normalized_ids.update(normalized_variants)
+                else:
+                    provisional_fixture_db_raw_ids.update(raw_variants)
+                    provisional_fixture_db_normalized_ids.update(normalized_variants)
+                for candidate_id in raw_variants:
+                    db_paper_ids_by_exact_variant.setdefault(candidate_id, paper_id)
+                for candidate_id in normalized_variants:
+                    db_paper_ids_by_normalized_variant.setdefault(candidate_id, paper_id)
+            elif target_count > 0:
+                if include_test_fixtures:
+                    if len(non_fixture_heap) + len(fixture_heap) >= target_count:
+                        break
+                elif any_non_fixture and len(non_fixture_heap) >= target_count:
+                    break
+
+        if has_note_context:
+            note_iteration = note_items
+            if target_count > 0:
+                if sorted_note_items_for_listing is None:
+                    sorted_note_items_for_listing = _note_items_sorted_for_listing(note_items)
+                note_iteration = sorted_note_items_for_listing
+            for note_item in note_iteration:
+                if target_count > 0 and (
+                    (any_non_fixture and len(non_fixture_heap) >= target_count)
+                    or (
+                        not any_non_fixture
+                        and include_test_fixtures
+                        and len(fixture_heap) >= target_count
+                    )
+                ):
+                    current_rank = (
+                        _parse_iso_timestamp_sort_key(getattr(note_item, "updated_at", None)),
+                        -sequence,
+                    )
+                    cutoff_heap = non_fixture_heap if any_non_fixture else fixture_heap
+                    if current_rank <= (cutoff_heap[0][0], cutoff_heap[0][1]):
+                        break
+                note_is_fixture_preview = False
+                if (
+                    not include_test_fixtures
+                    and (
+                        any_non_fixture
+                        or provisional_fixture_db_raw_ids
+                        or provisional_fixture_db_normalized_ids
+                    )
+                ):
+                    note_is_fixture_preview = _paper_note_fixture_preview_is_fixture(note_item)
+                note_slug = str(getattr(note_item, "slug", "") or "").strip()
+                if note_is_fixture_preview and any_non_fixture and not include_test_fixtures and not note_slug:
+                    continue
+                if (
+                    note_is_fixture_preview
+                    and any_non_fixture
+                    and not include_test_fixtures
+                    and not db_paper_ids_by_exact_variant
+                    and not db_paper_ids_by_normalized_variant
+                ):
+                    continue
+                raw_variants, normalized_variants = _paper_note_identity_sets(note_item)
+                matched_db_paper_id = _match_db_paper_id_for_note_variants(
+                    raw_variants,
+                    normalized_variants,
+                    db_paper_ids_by_exact_variant=db_paper_ids_by_exact_variant,
+                    db_paper_ids_by_normalized_variant=db_paper_ids_by_normalized_variant,
+                )
+                if matched_db_paper_id and note_slug:
+                    note_slug_source_is_fixture = _paper_note_fixture_preview_is_fixture(note_item)
+                    existing_note_slug = note_slug_by_db_paper_id.get(matched_db_paper_id)
+                    if existing_note_slug is None:
+                        note_slug_by_db_paper_id[matched_db_paper_id] = note_slug
+                        note_slug_source_is_fixture_by_db_paper_id[matched_db_paper_id] = (
+                            note_slug_source_is_fixture
+                        )
+                    elif (
+                        not include_test_fixtures
+                        and note_slug_source_is_fixture_by_db_paper_id.get(matched_db_paper_id, False)
+                        and not note_slug_source_is_fixture
+                    ):
+                        note_slug_by_db_paper_id[matched_db_paper_id] = note_slug
+                        note_slug_source_is_fixture_by_db_paper_id[matched_db_paper_id] = False
+                if raw_variants & visible_raw_ids or normalized_variants & visible_normalized_ids:
+                    continue
+                if note_is_fixture_preview and (
+                    raw_variants & provisional_fixture_db_raw_ids
+                    or normalized_variants & provisional_fixture_db_normalized_ids
+                    or raw_variants & provisional_fixture_note_raw_ids
+                    or normalized_variants & provisional_fixture_note_normalized_ids
+                ):
+                    continue
+                if note_is_fixture_preview and any_non_fixture and not include_test_fixtures:
+                    continue
+                note_candidate_metadata = _paper_note_listing_candidate_metadata(note_item)
+                if note_candidate_metadata is None:
+                    continue
+                note_paper_id, note_title, note_sort_updated_at, note_is_fixture = note_candidate_metadata
+                candidate = {
+                    "kind": "note",
+                    "sort_updated_at": note_sort_updated_at,
+                    "fixture_record": {
+                        "paper_id": note_paper_id,
+                        "title": note_title,
+                    },
+                    "note_item": note_item,
+                    "paper_id": note_paper_id,
+                }
+                if note_is_fixture:
+                    any_fixture = True
+                    if any_non_fixture and not include_test_fixtures:
+                        continue
+                    _push_visible_paper_candidate_window(
+                        fixture_heap,
+                        candidate,
+                        sequence=sequence,
+                        target_count=target_count,
+                    )
+                else:
+                    any_non_fixture = True
+                    _push_visible_paper_candidate_window(
+                        non_fixture_heap,
+                        candidate,
+                        sequence=sequence,
+                        target_count=target_count,
+                    )
+                sequence += 1
+                if note_is_fixture and not include_test_fixtures:
+                    provisional_fixture_note_raw_ids.update(raw_variants)
+                    provisional_fixture_note_normalized_ids.update(normalized_variants)
+                else:
+                    visible_raw_ids.update(raw_variants)
+                    visible_normalized_ids.update(normalized_variants)
+
+        selected_candidates, visible_candidates_are_only_fixtures = _finalize_visible_paper_candidate_window(
+            non_fixture_heap=non_fixture_heap,
+            fixture_heap=fixture_heap,
+            any_non_fixture=any_non_fixture,
+            any_fixture=any_fixture,
+            include_test_fixtures=include_test_fixtures,
+            offset=offset,
+            limit=limit,
+        )
+        needs_expanded_scan = (
+            scan_limit < max_scan_limit
+            and len(papers) >= scan_limit
+            and (
+                len(selected_candidates) < limit
+                or visible_candidates_are_only_fixtures
+            )
+        )
+        if not needs_expanded_scan:
+            break
+        next_scan_limit = _next_listing_scan_limit(scan_limit, max_scan_limit=max_scan_limit)
+        if next_scan_limit == scan_limit:
+            break
+        papers.extend(
+            _load_paper_rows_for_listing(
+                raw_limit=next_scan_limit - scan_limit,
+                raw_offset=scan_limit,
+                lightweight=True,
+                table_columns=paper_table_columns,
+            )
+        )
+        scan_limit = next_scan_limit
+
+    return _VisiblePaperCandidatePage(
+        selected_candidates=selected_candidates,
+        vault_path=vault_path,
+        note_items=note_items,
+        note_slug_by_db_paper_id=note_slug_by_db_paper_id,
+        paper_table_columns=paper_table_columns,
+    )
+
+
+def _list_visible_paper_items_page(
+    *,
+    limit: int,
+    offset: int,
+    raw_limit: int = 5000,
+) -> list[dict[str, Any]]:
+    page = _select_visible_paper_candidates_page(limit=limit, offset=offset, raw_limit=raw_limit)
+    selected_candidates = page.selected_candidates
+    vault_path = page.vault_path
+    note_items = page.note_items
+    note_slug_by_db_paper_id = page.note_slug_by_db_paper_id
+    selected_db_context = _prepare_selected_db_paper_page_context(
+        selected_candidates=selected_candidates,
+        note_items=note_items,
+        note_slug_by_db_paper_id=note_slug_by_db_paper_id,
+        row_loader=lambda paper_ids: _fetch_listing_response_rows_by_ids(
+            paper_ids,
+            table_columns=page.paper_table_columns,
+        ),
+    )
+
+    artifacts_path = artifacts_root()
+    note_window_artifact_cache: ArtifactSnapshotCache = {}
+    selected_note_candidate_groups = _selected_note_candidate_id_groups(selected_candidates)
+    if len(selected_note_candidate_groups) > 1:
+        _preload_artifact_snapshots_for_candidate_id_groups(
+            artifacts_path,
+            selected_note_candidate_groups,
+            note_window_artifact_cache,
+        )
+    paper_ids_needing_latest_run_lookup = (
+        _selected_db_paper_ids_needing_latest_run_lookup(
+            selected_db_context.selected_db_paper_ids,
+            selected_db_context.artifact_cache,
+            ops_candidate_ids_by_paper_id=selected_db_context.ops_candidate_ids_by_paper_id,
+        )
+        if len(selected_db_context.selected_db_paper_ids) > 1
+        else []
+    )
+    latest_run_id_lookup = (
+        _preload_latest_run_ids_for_papers(
+            paper_ids_needing_latest_run_lookup,
+            ops_candidate_ids_by_paper_id=selected_db_context.ops_candidate_ids_by_paper_id,
+            artifact_cache=selected_db_context.artifact_cache,
+        )
+        if paper_ids_needing_latest_run_lookup
+        else {}
+    )
+
+    window_items: list[dict[str, Any]] = []
+    for candidate in selected_candidates:
+        if candidate.get("kind") == "note":
             note_backed = _build_note_backed_paper_item_from_index_item(
                 vault_path,
-                note_item,
-                paper_id=note_paper_id,
+                candidate["note_item"],
+                paper_id=candidate["paper_id"],
+                artifact_cache=note_window_artifact_cache,
+                artifacts_path=artifacts_path,
             )
             if note_backed is None:
                 continue
-            out.append(note_backed[0])
-            visible_raw_ids.update(raw_variants)
-            visible_normalized_ids.update(normalized_variants)
-
-    out.sort(key=lambda item: _parse_iso_timestamp_sort_key(item.get("updated_at")), reverse=True)
-    return prefer_non_fixture_items(out, is_test_fixture_paper_record)
-
-
-def _build_home_workspace_summary() -> HomeWorkspaceSummaryResponse:
-    visible_papers = _list_visible_paper_items()
-
-    blocked = 0
-    needs_review = 0
-    for item in visible_papers:
-        ops_summary = item.get("ops_summary")
-        if getattr(ops_summary, "state", None) == "action_needed":
-            blocked += 1
+            window_items.append(note_backed[0])
             continue
-        if _derive_paper_issues_state(item) != "clear":
-            needs_review += 1
+        paper_id = str(candidate["row"]["paper_id"] or "").strip()
+        full_row = selected_db_context.selected_db_rows_by_id.get(paper_id, candidate["row"])
+        window_items.append(
+            _build_db_backed_paper_item_from_row(
+                full_row,
+                artifact_cache=selected_db_context.artifact_cache,
+                vault_path=vault_path,
+                note_items=note_items,
+                note_item_lookup=selected_db_context.note_item_lookup,
+                artifacts_path=artifacts_path,
+                latest_run_id_lookup=latest_run_id_lookup,
+                note_slug=note_slug_by_db_paper_id.get(paper_id),
+                ops_candidate_ids=selected_db_context.ops_candidate_ids_by_paper_id.get(paper_id),
+            )
+        )
+    return window_items
+
+
+def _list_visible_paper_rail_items_page(
+    *,
+    limit: int,
+    offset: int,
+    raw_limit: int = 5000,
+) -> list[dict[str, Any]]:
+    page = _select_visible_paper_candidates_page(limit=limit, offset=offset, raw_limit=raw_limit)
+    selected_candidates = page.selected_candidates
+    vault_path = page.vault_path
+    note_items = page.note_items
+    note_slug_by_db_paper_id = page.note_slug_by_db_paper_id
+    selected_db_context = _prepare_selected_db_paper_page_context(
+        selected_candidates=selected_candidates,
+        note_items=note_items,
+        note_slug_by_db_paper_id=note_slug_by_db_paper_id,
+        row_loader=lambda paper_ids: _fetch_listing_rail_rows_by_ids(
+            paper_ids,
+            table_columns=page.paper_table_columns,
+        ),
+    )
+
+    artifacts_path = artifacts_root()
+    note_window_artifact_cache: ArtifactSnapshotCache = {}
+    selected_note_candidate_groups = _selected_note_candidate_id_groups(selected_candidates)
+    if len(selected_note_candidate_groups) > 1:
+        _preload_artifact_snapshots_for_candidate_id_groups(
+            artifacts_path,
+            selected_note_candidate_groups,
+            note_window_artifact_cache,
+        )
+    window_items: list[dict[str, Any]] = []
+    for candidate in selected_candidates:
+        if candidate.get("kind") == "note":
+            note_backed = _build_note_backed_paper_rail_item_from_index_item(
+                vault_path,
+                candidate["note_item"],
+                paper_id=candidate["paper_id"],
+                artifact_cache=note_window_artifact_cache,
+                artifacts_path=artifacts_path,
+            )
+            if note_backed is None:
+                continue
+            window_items.append(note_backed)
+            continue
+        paper_id = str(candidate["row"]["paper_id"] or "").strip()
+        full_row = selected_db_context.selected_db_rows_by_id.get(paper_id, candidate["row"])
+        window_items.append(
+            _build_db_backed_paper_rail_item_from_row(
+                full_row,
+                artifact_cache=selected_db_context.artifact_cache,
+                vault_path=vault_path,
+                note_items=note_items,
+                note_item_lookup=selected_db_context.note_item_lookup,
+                artifacts_path=artifacts_path,
+                note_slug=note_slug_by_db_paper_id.get(paper_id),
+                ops_candidate_ids=selected_db_context.ops_candidate_ids_by_paper_id.get(paper_id),
+            )
+        )
+    return window_items
+
+
+def _preload_latest_run_ids_for_papers(
+    paper_ids: list[str],
+    *,
+    ops_candidate_ids_by_paper_id: dict[str, list[str]] | None = None,
+    artifact_cache: ArtifactSnapshotCache | None = None,
+) -> dict[str, str]:
+    unique_paper_ids: list[str] = []
+    seen_paper_ids: set[str] = set()
+    owners_by_candidate_id: dict[str, list[str]] = {}
+    candidate_ids: list[str] = []
+    seen_candidate_ids: set[str] = set()
+    for candidate in paper_ids:
+        paper_id = str(candidate or "").strip()
+        if not paper_id or paper_id in seen_paper_ids:
+            continue
+        seen_paper_ids.add(paper_id)
+        unique_paper_ids.append(paper_id)
+        ops_candidate_ids = (
+            ops_candidate_ids_by_paper_id.get(paper_id)
+            if ops_candidate_ids_by_paper_id is not None
+            else None
+        ) or _ops_summary_candidate_ids(paper_id)
+        for normalized_candidate_id in _normalized_candidate_id_list(ops_candidate_ids):
+            if artifact_cache is not None and normalized_candidate_id in artifact_cache:
+                continue
+            owners = owners_by_candidate_id.setdefault(normalized_candidate_id, [])
+            if paper_id not in owners:
+                owners.append(paper_id)
+            if normalized_candidate_id not in seen_candidate_ids:
+                seen_candidate_ids.add(normalized_candidate_id)
+                candidate_ids.append(normalized_candidate_id)
+
+    if not unique_paper_ids or not candidate_ids:
+        return {}
+
+    conn = get_db_connection()
+    resolved_run_ids: dict[str, str] = {}
+    try:
+        for start in range(0, len(candidate_ids), 400):
+            chunk = candidate_ids[start : start + 400]
+            placeholders = ", ".join("?" for _ in chunk)
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT paper_id, run_id, artifact_dir
+                    FROM jobs
+                    WHERE run_id IS NOT NULL
+                      AND paper_id IN ({placeholders})
+                    ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return {}
+
+            for row in rows:
+                paper_id = str(row["paper_id"] or "").strip()
+                run_id = str(row["run_id"] or "").strip()
+                if not paper_id or not run_id:
+                    continue
+                artifact_dir = str(row["artifact_dir"] or "").strip()
+                is_valid = False
+                if artifact_dir:
+                    if Path(artifact_dir).exists():
+                        is_valid = True
+                elif _artifact_run_dir(paper_id, run_id).exists():
+                    is_valid = True
+                if not is_valid:
+                    continue
+
+                for owner_paper_id in owners_by_candidate_id.get(paper_id, []):
+                    if owner_paper_id not in resolved_run_ids:
+                        resolved_run_ids[owner_paper_id] = run_id
+                if len(resolved_run_ids) == len(unique_paper_ids):
+                    break
+            if len(resolved_run_ids) == len(unique_paper_ids):
+                break
+        return resolved_run_ids
+    finally:
+        conn.close()
+
+
+def _preload_artifact_snapshots_for_papers(
+    artifacts_path: Path,
+    paper_ids: list[str],
+    cache: ArtifactSnapshotCache,
+    *,
+    ops_candidate_ids_by_paper_id: dict[str, list[str]] | None = None,
+) -> None:
+    _preload_artifact_snapshots_for_candidate_id_groups(
+        artifacts_path,
+        (
+            (
+                ops_candidate_ids_by_paper_id.get(paper_id)
+                if ops_candidate_ids_by_paper_id is not None
+                else None
+            ) or _ops_summary_candidate_ids(paper_id)
+            for paper_id in paper_ids
+        ),
+        cache,
+    )
+
+
+def _selected_note_candidate_id_groups(
+    selected_candidates: list[dict[str, Any]],
+) -> list[tuple[str, ...]]:
+    candidate_id_groups: list[tuple[str, ...]] = []
+    seen_group_keys: set[tuple[str, ...]] = set()
+    deferred_first_note_item: PaperNoteIndexItem | None = None
+    for candidate in selected_candidates:
+        if candidate.get("kind") != "note":
+            continue
+        note_item = candidate.get("note_item")
+        if note_item is None:
+            continue
+        if deferred_first_note_item is None and not candidate_id_groups:
+            deferred_first_note_item = note_item
+            continue
+        if deferred_first_note_item is not None:
+            first_group_key = _paper_note_ops_candidate_group_key(deferred_first_note_item)
+            if first_group_key and first_group_key not in seen_group_keys:
+                seen_group_keys.add(first_group_key)
+                candidate_id_groups.append(first_group_key)
+            deferred_first_note_item = None
+        group_key = _paper_note_ops_candidate_group_key(note_item)
+        if not group_key or group_key in seen_group_keys:
+            continue
+        seen_group_keys.add(group_key)
+        candidate_id_groups.append(group_key)
+    return candidate_id_groups
+
+
+def _preload_artifact_snapshots_for_candidate_id_groups(
+    artifacts_path: Path,
+    candidate_id_groups: Any,
+    cache: ArtifactSnapshotCache,
+) -> None:
+    candidate_ids: list[str] = []
+    seen_candidate_ids: set[str] = set()
+    for group in candidate_id_groups:
+        for candidate_id in _normalized_candidate_id_list(group):
+            if candidate_id in seen_candidate_ids:
+                continue
+            seen_candidate_ids.add(candidate_id)
+            if candidate_id in cache:
+                continue
+            candidate_ids.append(candidate_id)
+
+    if not candidate_ids:
+        return
+
+    conn = get_db_connection()
+    try:
+        for start in range(0, len(candidate_ids), 400):
+            chunk = candidate_ids[start : start + 400]
+            placeholders = ", ".join("?" for _ in chunk)
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT paper_id, run_id, artifact_dir
+                    FROM jobs
+                    WHERE run_id IS NOT NULL
+                      AND paper_id IN ({placeholders})
+                    ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return
+
+            for row in rows:
+                paper_id = str(row["paper_id"] or "").strip()
+                run_id = str(row["run_id"] or "").strip()
+                if not paper_id or not run_id or paper_id in cache:
+                    continue
+
+                artifact_dir = str(row["artifact_dir"] or "").strip()
+                run_dir: Path | None = None
+                if artifact_dir:
+                    candidate_path = Path(artifact_dir)
+                    if candidate_path.exists() and candidate_path.is_dir():
+                        run_dir = candidate_path
+                if run_dir is None:
+                    candidate_path = _artifact_run_dir(paper_id, run_id)
+                    if candidate_path.exists() and candidate_path.is_dir():
+                        run_dir = candidate_path
+                if run_dir is None:
+                    continue
+
+                snapshot: ArtifactOperationalSnapshot | None = artifact_snapshot_from_run_dir(paper_id, run_dir)
+                if snapshot is not None:
+                    cache[paper_id] = snapshot
+
+        # Keep file-system fallback alive for fs-only artifact dirs, but cache
+        # clear misses so later ops-summary evaluation does not re-scan them.
+        for candidate_id in candidate_ids:
+            if candidate_id in cache:
+                continue
+            paper_dir = preferred_artifact_paper_dir(candidate_id, root=artifacts_path)
+            if not paper_dir.exists() or not paper_dir.is_dir():
+                cache[candidate_id] = None
+    finally:
+        conn.close()
+
+
+def _load_recent_db_rows(
+    *,
+    raw_limit: int,
+    raw_offset: int = 0,
+    table_columns: set[str] | None = None,
+) -> list[Any]:
+    conn = get_db_connection()
+    try:
+        try:
+            if table_columns is None:
+                table_columns = {
+                    str(row[1]).strip()
+                    for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+                    if len(row) > 1 and str(row[1]).strip()
+                }
+            selected_columns = [
+                column
+                for column in ("paper_id", "title", "status", "pdf_path")
+                if column in table_columns
+            ]
+            if "updated_at" in table_columns:
+                selected_columns.append("updated_at")
+                order_by = "updated_at DESC"
+            elif "created_at" in table_columns:
+                selected_columns.append("created_at AS updated_at")
+                order_by = "created_at DESC"
+            else:
+                selected_columns.append("NULL AS updated_at")
+                order_by = "paper_id ASC"
+            select_clause = ", ".join(selected_columns) if selected_columns else "paper_id"
+            return conn.execute(
+                f"SELECT {select_clause} FROM papers ORDER BY {order_by} LIMIT ? OFFSET ?",
+                (raw_limit, raw_offset),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    finally:
+        conn.close()
+
+
+def _list_recent_db_paper_items(*, limit: int) -> list[dict[str, Any]]:
+    include_test_fixtures = include_test_fixtures_enabled()
+    scan_limit = max(1, min(limit, 200))
+    scan_offset = 0
+    paper_table_columns = _load_papers_table_columns()
+    rows: list[dict[str, Any]] = []
+    visible_non_fixture_rows: list[dict[str, Any]] = []
+    has_any_non_fixture_row = False
+    recent: list[dict[str, Any]] = []
+    while True:
+        chunk_rows = _load_recent_db_rows(
+            raw_limit=scan_limit,
+            raw_offset=scan_offset,
+            table_columns=paper_table_columns,
+        )
+        chunk_preview_rows = [_recent_paper_preview_record_from_row(row) for row in chunk_rows]
+        rows.extend(chunk_preview_rows)
+        if include_test_fixtures:
+            items = rows
+            visible_rows_are_only_fixtures = False
+        else:
+            for preview_row in chunk_preview_rows:
+                if bool(preview_row.get("is_fixture")):
+                    continue
+                has_any_non_fixture_row = True
+                visible_non_fixture_rows.append(preview_row)
+            items = visible_non_fixture_rows if has_any_non_fixture_row else rows
+            visible_rows_are_only_fixtures = bool(items) and not has_any_non_fixture_row
+
+        recent = []
+        seen_paper_ids: set[str] = set()
+        for row in items:
+            paper_id = str(row.get("paper_id") or "").strip()
+            title = str(row.get("title") or "").strip()
+            if not paper_id or not title or paper_id in seen_paper_ids:
+                continue
+            seen_paper_ids.add(paper_id)
+            recent.append(
+                {
+                    "paper_id": paper_id,
+                    "title": title,
+                    "status": str(row.get("status") or "").strip() or None,
+                    "updated_at": str(row.get("updated_at") or "").strip() or None,
+                }
+            )
+            if len(recent) >= limit:
+                break
+
+        if len(chunk_rows) < scan_limit:
+            break
+        if len(recent) >= limit and not visible_rows_are_only_fixtures:
+            break
+        scan_offset += scan_limit
+        scan_limit = min(200, max(scan_limit * 2, 200))
+
+    if len(recent) >= limit:
+        return recent[:limit]
+
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_items = _note_items_sorted_for_listing(_load_deduped_note_items_without_ops(vault_path))
+    except Exception:
+        return recent
+    if not note_items:
+        return recent
+
+    seen_raw_ids: set[str] = set()
+    seen_normalized_ids: set[str] = set()
+    for candidate in recent:
+        raw_variants, normalized_variants = _paper_id_identity_sets(str(candidate.get("paper_id") or "").strip())
+        seen_raw_ids.update(raw_variants)
+        seen_normalized_ids.update(normalized_variants)
+
+    for note_item in note_items:
+        if recent and not include_test_fixtures and _paper_note_fixture_preview_is_fixture(note_item):
+            continue
+        raw_variants, normalized_variants = _paper_note_identity_sets(note_item)
+        if raw_variants & seen_raw_ids or normalized_variants & seen_normalized_ids:
+            continue
+        note_candidate_metadata = _paper_note_listing_candidate_metadata(note_item)
+        if note_candidate_metadata is None:
+            continue
+        paper_id, title, updated_at, note_is_fixture = note_candidate_metadata
+        if not paper_id or not title or paper_id in seen_paper_ids:
+            continue
+        candidate = {
+            "paper_id": paper_id,
+            "title": title,
+            "status": str(getattr(note_item, "status", None) or "").strip() or None,
+            "updated_at": updated_at,
+        }
+        if note_is_fixture and not include_test_fixtures:
+            continue
+        seen_paper_ids.add(paper_id)
+        seen_raw_ids.update(raw_variants)
+        seen_normalized_ids.update(normalized_variants)
+        recent.append(candidate)
+        if len(recent) >= limit:
+            break
+    return recent
+
+
+def _load_home_workspace_summary_context(*, raw_limit: int = 5000) -> _HomeWorkspaceSummaryContext:
+    papers = _load_paper_rows_for_workspace_summary(raw_limit=raw_limit)
+    note_items: list[PaperNoteIndexItem] | None = None
+    note_context_limited = False
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_items = _load_deduped_note_items_without_ops(vault_path)
+        if not note_items:
+            note_items = None
+    except Exception:
+        note_context_limited = True
 
     saved_notes = 0
     structured_notes = 0
     latest_note_updated_at: str | None = None
-    note_context_limited = False
-    try:
-        vault_path = paper_notes._resolve_vault_path()
-        note_index = paper_notes._build_index(vault_path)
-        note_items = note_index.items
+    if note_items is not None:
         saved_notes = len(note_items)
         structured_notes = sum(1 for item in note_items if item.structured_state_present)
         latest_note_updated_at = max(
@@ -1237,16 +3077,243 @@ def _build_home_workspace_summary() -> HomeWorkspaceSummaryResponse:
             key=_parse_iso_timestamp_sort_key,
             default=None,
         )
-    except Exception:
-        note_context_limited = True
+
+    include_test_fixtures = include_test_fixtures_enabled()
+    artifacts_path = artifacts_root()
+    artifact_cache: ArtifactSnapshotCache = {}
+    ops_summary_by_candidate_id_group: dict[tuple[str, ...], Any] = {}
+    normalized_group_key_by_candidate_ids: dict[frozenset[str], tuple[str, ...]] = {}
+
+    def _cached_ops_summary_for_candidate_group(cache_key: tuple[str, ...]) -> Any:
+        if not cache_key:
+            return None
+        if cache_key not in ops_summary_by_candidate_id_group:
+            cached_ops_summary = _ops_summary_from_artifact_cache_for_candidate_ids(
+                list(cache_key),
+                artifact_cache,
+            )
+            if cached_ops_summary is _UNCACHED_ARTIFACT_GROUP:
+                cached_ops_summary = build_ops_summary_for_candidate_ids(
+                    artifacts_path,
+                    list(cache_key),
+                    artifact_cache,
+                )
+            ops_summary_by_candidate_id_group[cache_key] = cached_ops_summary
+        return ops_summary_by_candidate_id_group[cache_key]
+
+    def _cached_db_ops_candidate_group_key(paper_id: str) -> tuple[str, ...]:
+        normalized_paper_id = str(paper_id or "").strip()
+        if not normalized_paper_id:
+            return ()
+        candidate_ids = tuple(_ops_summary_candidate_ids(normalized_paper_id))
+        candidate_ids_cache_key = frozenset(_normalized_candidate_id_list(candidate_ids))
+        if not candidate_ids_cache_key:
+            return ()
+        if candidate_ids_cache_key not in normalized_group_key_by_candidate_ids:
+            normalized_group_key_by_candidate_ids[candidate_ids_cache_key] = tuple(
+                sorted(candidate_ids_cache_key)
+            )
+        return normalized_group_key_by_candidate_ids[candidate_ids_cache_key]
+
+    visible_raw_ids: set[str] = set()
+    visible_normalized_ids: set[str] = set()
+    provisional_fixture_db_raw_ids: set[str] = set()
+    provisional_fixture_db_normalized_ids: set[str] = set()
+    provisional_fixture_note_raw_ids: set[str] = set()
+    provisional_fixture_note_normalized_ids: set[str] = set()
+    db_rows_with_visibility: list[tuple[str, Any, bool]] = []
+    note_only_candidates: list[dict[str, Any]] = []
+
+    for row in papers:
+        paper_id = str(row["paper_id"] or "").strip()
+        db_rows_with_visibility.append(
+            (
+                paper_id,
+                row,
+                is_test_fixture_paper_record(_paper_listing_fixture_record_from_row(row)),
+            )
+        )
+
+    if include_test_fixtures:
+        visible_db_rows = db_rows_with_visibility
+    else:
+        non_fixture_db_rows = [
+            candidate
+            for candidate in db_rows_with_visibility
+            if not candidate[2]
+        ]
+        visible_db_rows = non_fixture_db_rows or db_rows_with_visibility
+    has_non_fixture_visible_db_row = any(not is_fixture for _, _, is_fixture in visible_db_rows)
+    has_non_fixture_note_only_candidate = False
+    if note_items is not None:
+        for paper_id, _, is_fixture in visible_db_rows:
+            raw_variants, normalized_variants = _paper_id_identity_sets(paper_id)
+            if include_test_fixtures or not is_fixture:
+                visible_raw_ids.update(raw_variants)
+                visible_normalized_ids.update(normalized_variants)
+            else:
+                provisional_fixture_db_raw_ids.update(raw_variants)
+                provisional_fixture_db_normalized_ids.update(normalized_variants)
+
+    if note_items is not None:
+        for note_item in note_items:
+            note_is_fixture_preview = False
+            if not include_test_fixtures and (
+                has_non_fixture_visible_db_row
+                or has_non_fixture_note_only_candidate
+                or provisional_fixture_db_raw_ids
+                or provisional_fixture_db_normalized_ids
+            ):
+                note_is_fixture_preview = _paper_note_fixture_preview_is_fixture(note_item)
+            if (
+                note_is_fixture_preview
+                and not include_test_fixtures
+                and (has_non_fixture_visible_db_row or has_non_fixture_note_only_candidate)
+            ):
+                continue
+            raw_variants, normalized_variants = _paper_note_identity_sets(note_item)
+            if raw_variants & visible_raw_ids or normalized_variants & visible_normalized_ids:
+                continue
+            if (
+                note_is_fixture_preview
+                and (
+                    raw_variants & provisional_fixture_db_raw_ids
+                    or normalized_variants & provisional_fixture_db_normalized_ids
+                    or raw_variants & provisional_fixture_note_raw_ids
+                    or normalized_variants & provisional_fixture_note_normalized_ids
+                )
+            ):
+                continue
+            note_candidate_metadata = _paper_note_listing_candidate_metadata(note_item)
+            if note_candidate_metadata is None:
+                continue
+            _, _, _, note_is_fixture = note_candidate_metadata
+            note_only_candidates.append(
+                {
+                    "note_item": note_item,
+                    "is_fixture": note_is_fixture,
+                }
+            )
+            if not note_is_fixture:
+                has_non_fixture_note_only_candidate = True
+                visible_raw_ids.update(raw_variants)
+                visible_normalized_ids.update(normalized_variants)
+            elif include_test_fixtures:
+                visible_raw_ids.update(raw_variants)
+                visible_normalized_ids.update(normalized_variants)
+            else:
+                provisional_fixture_note_raw_ids.update(raw_variants)
+                provisional_fixture_note_normalized_ids.update(normalized_variants)
+
+    combined_has_non_fixture_visible_item = (
+        include_test_fixtures
+        or has_non_fixture_visible_db_row
+        or has_non_fixture_note_only_candidate
+    )
+    if not include_test_fixtures and combined_has_non_fixture_visible_item:
+        visible_db_rows = [candidate for candidate in visible_db_rows if not candidate[2]]
+        note_only_candidates = [
+            candidate for candidate in note_only_candidates if not candidate["is_fixture"]
+        ]
+
+    for candidate in note_only_candidates:
+        note_item = candidate["note_item"]
+        note_status = str(getattr(note_item, "status", "") or "").strip().upper()
+        note_is_completed = note_item.structured_state_present or note_status == "INDEXED"
+        candidate["issues_state"] = "clear" if note_is_completed else "unavailable"
+        candidate["ops_candidate_group_key"] = _paper_note_ops_candidate_group_key(note_item)
+
+    visible_db_rows_with_groups = [
+        (
+            paper_id,
+            row,
+            is_fixture,
+            _cached_db_ops_candidate_group_key(paper_id),
+        )
+        for paper_id, row, is_fixture in visible_db_rows
+    ]
+
+    unique_visible_db_candidate_group_keys = list(
+        dict.fromkeys(
+            group_key
+            for _, _, _, group_key in visible_db_rows_with_groups
+            if group_key
+        )
+    )
+    unique_visible_note_only_candidate_group_keys = list(
+        dict.fromkeys(
+            candidate["ops_candidate_group_key"]
+            for candidate in note_only_candidates
+            if candidate["ops_candidate_group_key"]
+        )
+    )
+    preloaded_candidate_group_keys = list(
+        dict.fromkeys(
+            [*unique_visible_db_candidate_group_keys, *unique_visible_note_only_candidate_group_keys]
+        )
+    )
+    if len(preloaded_candidate_group_keys) > 1:
+        _preload_artifact_snapshots_for_candidate_id_groups(
+            artifacts_path,
+            preloaded_candidate_group_keys,
+            artifact_cache,
+        )
+
+    blocked = 0
+    needs_review = 0
+    for paper_id, row, _, ops_candidate_group_key in visible_db_rows_with_groups:
+        ops_summary = _cached_ops_summary_for_candidate_group(ops_candidate_group_key)
+        if getattr(ops_summary, "state", None) == "action_needed":
+            blocked += 1
+            continue
+        issues_state = _derive_paper_issues_state(_workspace_summary_issues_record_from_row(row))
+        if issues_state != "clear":
+            needs_review += 1
+
+    for candidate in note_only_candidates:
+        note_item = candidate.pop("note_item", None)
+        note_ops_summary = _cached_ops_summary_for_candidate_group(candidate["ops_candidate_group_key"])
+        if note_ops_summary is None and note_item is not None:
+            note_ops_summary = getattr(note_item, "ops_summary", None)
+        if getattr(note_ops_summary, "state", None) == "action_needed":
+            blocked += 1
+            continue
+        if candidate["issues_state"] != "clear":
+            needs_review += 1
+
+    return _HomeWorkspaceSummaryContext(
+        blocked=blocked,
+        needs_review=needs_review,
+        note_context_limited=note_context_limited,
+        saved_notes=saved_notes,
+        structured_notes=structured_notes,
+        latest_note_updated_at=latest_note_updated_at,
+    )
+
+
+def _build_home_workspace_summary() -> HomeWorkspaceSummaryResponse:
+    context = _load_home_workspace_summary_context()
+    saved_notes = context.saved_notes
+    structured_notes = context.structured_notes
+    latest_note_updated_at = context.latest_note_updated_at
+    note_context_limited = context.note_context_limited
 
     return HomeWorkspaceSummaryResponse(
         saved_notes=saved_notes,
         structured_notes=structured_notes,
-        needs_review=needs_review,
-        blocked=blocked,
+        needs_review=context.needs_review,
+        blocked=context.blocked,
         latest_note_updated_at=latest_note_updated_at,
         note_context_limited=note_context_limited,
+    )
+
+
+def _load_deduped_note_items_without_ops(vault_path: Path) -> list[PaperNoteIndexItem]:
+    note_index = paper_notes._build_index(vault_path)
+    return paper_notes._dedupe_equivalent_note_items_with_ops(
+        list(note_index.items),
+        artifacts_path=None,
+        artifact_cache=None,
     )
 
 
@@ -1324,7 +3391,86 @@ def _paper_id_identity_sets(paper_id: str) -> tuple[set[str], set[str]]:
     return raw_variants, normalized_variants
 
 
+def _paper_route_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    _append(text)
+    if text.startswith("zotero:"):
+        _append(text.split(":", 1)[1].strip())
+    elif ":" not in text:
+        _append(f"zotero:{text}")
+    return candidates
+
+
+def _lookup_paper_row_by_route_id(
+    conn: sqlite3.Connection,
+    paper_id: str,
+    *,
+    columns: str = "*",
+) -> Any | None:
+    candidate_ids = _paper_route_candidate_ids(paper_id)
+    if not candidate_ids:
+        return None
+
+    placeholders = ", ".join("?" for _ in candidate_ids)
+    rows = conn.execute(
+        f"SELECT {columns} FROM papers WHERE paper_id IN ({placeholders})",
+        tuple(candidate_ids),
+    ).fetchall()
+    if not rows:
+        return None
+
+    rows_by_paper_id = {
+        str(row["paper_id"] or "").strip(): row
+        for row in rows
+        if str(row["paper_id"] or "").strip()
+    }
+    for candidate_id in candidate_ids:
+        matched = rows_by_paper_id.get(candidate_id)
+        if matched is not None:
+            return matched
+    return rows[0]
+
+
+def _lookup_paper_row_by_note_identity(
+    conn: sqlite3.Connection,
+    paper_id: str,
+    *,
+    columns: str = "*",
+) -> tuple[Any | None, Path | None, list[PaperNoteIndexItem] | None, PaperNoteIndexItem | None]:
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_items = _load_deduped_note_items_without_ops(vault_path)
+        if not note_items:
+            return None, None, None, None
+    except (FileNotFoundError, HTTPException):
+        return None, None, None, None
+
+    target = paper_notes._find_note_item_for_paper_id(note_items, paper_id)
+    if target is None:
+        return None, vault_path, note_items, None
+
+    canonical_paper_id = str(getattr(target, "id", None) or "").strip()
+    if not canonical_paper_id:
+        return None, vault_path, note_items, target
+
+    row = _lookup_paper_row_by_route_id(conn, canonical_paper_id, columns=columns)
+    return row, vault_path, note_items, target
+
+
 def _paper_note_identity_sets(target: PaperNoteIndexItem) -> tuple[set[str], set[str]]:
+    if (cached := target.get_runtime_identity_sets()) is not None:
+        return cached
+
     raw_variants: set[str] = set()
     for candidate in (target.id, target.slug):
         if not candidate:
@@ -1336,7 +3482,104 @@ def _paper_note_identity_sets(target: PaperNoteIndexItem) -> tuple[set[str], set
         for value in raw_variants
         if (normalized := paper_notes._normalize_paper_note_id(value))
     }
-    return raw_variants, normalized_variants
+    target.set_runtime_identity_sets(
+        raw_variants=raw_variants,
+        normalized_variants=normalized_variants,
+    )
+    cached = target.get_runtime_identity_sets()
+    return cached if cached is not None else (frozenset(raw_variants), frozenset(normalized_variants))
+
+
+def _paper_note_listing_candidate_metadata(target: PaperNoteIndexItem) -> tuple[str, str, str | None, bool] | None:
+    if (cached := target.get_runtime_listing_candidate_metadata()) is not None:
+        return cached
+
+    paper_id = str(target.id or target.slug or "").strip()
+    if not paper_id:
+        return None
+    title = str(target.title or target.slug or paper_id).strip() or paper_id
+    fixture_record = {
+        "paper_id": paper_id,
+        "title": title,
+    }
+    target.set_runtime_listing_candidate_metadata(
+        paper_id=paper_id,
+        title=title,
+        sort_updated_at=getattr(target, "updated_at", None),
+        is_fixture=is_test_fixture_paper_record(fixture_record),
+    )
+    return target.get_runtime_listing_candidate_metadata()
+
+
+def _paper_note_fixture_preview_is_fixture(target: PaperNoteIndexItem) -> bool:
+    if (cached_listing_metadata := target.get_runtime_listing_candidate_metadata()) is not None:
+        return cached_listing_metadata[3]
+    if (cached_fixture_preview := target.get_runtime_fixture_preview_is_fixture()) is not None:
+        return cached_fixture_preview
+
+    preview_paper_id = str(getattr(target, "id", None) or getattr(target, "slug", None) or "").strip()
+    preview_title = str(
+        getattr(target, "title", None)
+        or getattr(target, "slug", None)
+        or preview_paper_id
+    ).strip() or preview_paper_id
+    is_fixture = is_test_fixture_paper_record({"paper_id": preview_paper_id, "title": preview_title})
+    target.set_runtime_fixture_preview_is_fixture(is_fixture)
+    return is_fixture
+
+
+def _paper_note_ops_candidate_group_key(target: PaperNoteIndexItem) -> tuple[str, ...]:
+    if (cached_group_key := target.get_runtime_ops_candidate_group_key()) is not None:
+        return cached_group_key
+    raw_variants, _ = _paper_note_identity_sets(target)
+    group_key = _normalized_candidate_id_group(raw_variants)
+    target.set_runtime_ops_candidate_group_key(group_key)
+    return group_key
+
+
+def _paper_note_artifact_candidate_ids(target: PaperNoteIndexItem) -> list[str]:
+    if (cached_group_key := target.get_runtime_ops_candidate_group_key()) is not None:
+        return list(cached_group_key)
+    raw_variants, _ = _paper_note_identity_sets(target)
+    group_key = _normalized_candidate_id_group(raw_variants)
+    target.set_runtime_ops_candidate_group_key(group_key)
+    return list(group_key)
+
+
+def _note_items_sorted_for_listing(note_items: list[PaperNoteIndexItem]) -> list[PaperNoteIndexItem]:
+    return [
+        item
+        for _, item in sorted(
+            enumerate(note_items),
+            key=lambda pair: (
+                _parse_iso_timestamp_sort_key(getattr(pair[1], "updated_at", None)),
+                -pair[0],
+            ),
+            reverse=True,
+        )
+    ]
+
+
+def _load_note_backed_frontmatter_from_index_item(
+    vault_path: Path,
+    target: PaperNoteIndexItem,
+) -> tuple[Path, dict[str, Any]] | None:
+    note_path = vault_path / target.note_path
+    if not note_path.exists():
+        return None
+
+    if target.has_runtime_source_metadata():
+        frontmatter = target.build_runtime_source_frontmatter()
+    else:
+        content = paper_notes._safe_read_text(note_path)
+        frontmatter, _ = paper_notes._parse_frontmatter(content)
+        target.set_runtime_source_metadata(
+            source_url=frontmatter.get("url"),
+            pdf_url=frontmatter.get("pdf_url"),
+            pdf_path=frontmatter.get("pdf_path"),
+            local_pdf_path=frontmatter.get("local_pdf_path"),
+        )
+    return note_path, frontmatter
 
 
 def _build_note_backed_paper_item_from_index_item(
@@ -1344,27 +3587,60 @@ def _build_note_backed_paper_item_from_index_item(
     target: PaperNoteIndexItem,
     *,
     paper_id: str,
+    artifact_cache: ArtifactSnapshotCache | None = None,
+    artifacts_path: Path | None = None,
 ) -> tuple[dict[str, Any], Path | None] | None:
-    note_path = vault_path / target.note_path
-    if not note_path.exists():
+    loaded = _load_note_backed_frontmatter_from_index_item(vault_path, target)
+    if loaded is None:
         return None
-
-    content = paper_notes._safe_read_text(note_path)
-    frontmatter, _ = paper_notes._parse_frontmatter(content)
+    _, frontmatter = loaded
     local_pdf_path = _resolve_note_backed_pdf_path(frontmatter)
-    ops_summary = target.ops_summary
-    if ops_summary is None:
-        ops_summary = paper_notes._build_ops_summary(
-            note_path,
-            frontmatter,
-            artifacts_path=artifacts_root(),
-            artifact_cache={},
+    resolved_artifacts_path = artifacts_path or artifacts_root()
+    resolved_artifact_cache = artifact_cache if artifact_cache is not None else {}
+    candidate_ids = _paper_note_artifact_candidate_ids(target)
+    ops_summary = _ops_summary_from_artifact_cache_for_candidate_ids(
+        candidate_ids,
+        resolved_artifact_cache,
+    )
+    if ops_summary is _UNCACHED_ARTIFACT_GROUP:
+        ops_summary = build_ops_summary_for_candidate_ids(
+            resolved_artifacts_path,
+            candidate_ids,
+            resolved_artifact_cache,
         )
-    latest_run_id = (getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None) or None
+    if ops_summary is None:
+        ops_summary = target.ops_summary
+    ops_summary_latest_run_id = getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+    artifact_latest_run_id = (
+        None
+        if ops_summary_latest_run_id
+        else _latest_run_id_from_artifact_cache_for_candidate_ids(
+            candidate_ids,
+            resolved_artifact_cache,
+        )
+    )
+    latest_run_id = (
+        ops_summary_latest_run_id
+        or artifact_latest_run_id
+        or (
+            None
+            if _artifact_cache_covers_candidate_ids(candidate_ids, resolved_artifact_cache)
+            else (
+                None
+                if _artifact_cache_covers_candidate_ids(
+                    latest_run_candidate_ids := _ops_summary_candidate_ids(paper_id),
+                    resolved_artifact_cache,
+                )
+                else _latest_run_id_for_candidate_ids(latest_run_candidate_ids)
+            )
+        )
+        or None
+    )
     note_status = str(getattr(target, "status", "") or "").strip().upper()
     status = "completed" if target.structured_state_present or note_status == "INDEXED" else "not_started"
     item = {
         "paper_id": paper_id,
+        "note_slug": target.slug,
         "title": target.title or target.slug or paper_id,
         "authors": None,
         "year": None,
@@ -1374,7 +3650,7 @@ def _build_note_backed_paper_item_from_index_item(
         "status": status,
         "issues": 0,
         "issues_label": "No critical issues",
-        "issues_state": "unavailable",
+        "issues_state": "clear" if status == "completed" else "unavailable",
         "latest_job_id": None,
         "latest_run_id": latest_run_id,
         "updated_at": getattr(target, "updated_at", None),
@@ -1389,11 +3665,94 @@ def _build_note_backed_paper_item_from_index_item(
     return item, local_pdf_path
 
 
+def _build_note_backed_paper_rail_item_from_index_item(
+    vault_path: Path,
+    target: PaperNoteIndexItem,
+    *,
+    paper_id: str,
+    artifact_cache: ArtifactSnapshotCache | None = None,
+    artifacts_path: Path | None = None,
+) -> dict[str, Any] | None:
+    loaded = _load_note_backed_frontmatter_from_index_item(vault_path, target)
+    if loaded is None:
+        return None
+    _, frontmatter = loaded
+    local_pdf_path = _resolve_note_backed_pdf_path(frontmatter)
+    resolved_artifacts_path = artifacts_path or artifacts_root()
+    resolved_artifact_cache = artifact_cache if artifact_cache is not None else {}
+    candidate_ids = _paper_note_artifact_candidate_ids(target)
+    ops_summary = _ops_summary_from_artifact_cache_for_candidate_ids(
+        candidate_ids,
+        resolved_artifact_cache,
+    )
+    if ops_summary is _UNCACHED_ARTIFACT_GROUP:
+        ops_summary = build_ops_summary_for_candidate_ids(
+            resolved_artifacts_path,
+            candidate_ids,
+            resolved_artifact_cache,
+        )
+    if ops_summary is None:
+        ops_summary = target.ops_summary
+    note_status = str(getattr(target, "status", "") or "").strip().upper()
+    status = "completed" if target.structured_state_present or note_status == "INDEXED" else "not_started"
+    return {
+        "paper_id": paper_id,
+        "note_slug": target.slug,
+        "title": target.title or target.slug or paper_id,
+        "authors": None,
+        "status": status,
+        "issues": 0,
+        "issues_label": "No critical issues",
+        "issues_state": "clear" if status == "completed" else "unavailable",
+        "updated_at": getattr(target, "updated_at", None),
+        "ops_summary": ops_summary,
+        "access_summary": _build_note_backed_paper_access_summary(
+            frontmatter,
+            paper_id=paper_id,
+            pdf_path=local_pdf_path,
+        ),
+    }
+
+
+def _resolve_note_backed_pdf_path_from_index_item(
+    vault_path: Path,
+    target: PaperNoteIndexItem,
+) -> Path | None:
+    loaded = _load_note_backed_frontmatter_from_index_item(vault_path, target)
+    if loaded is None:
+        return None
+    _, frontmatter = loaded
+    return _resolve_note_backed_pdf_path(frontmatter)
+
+
+def _resolve_note_backed_pdf_path_for_paper_id(
+    vault_path: Path,
+    note_items: list[PaperNoteIndexItem],
+    paper_id: str,
+    *,
+    note_item_lookup: _IndexedNoteItemLookup | None = None,
+) -> Path | None:
+    target = (
+        _resolve_note_item_for_paper_id_from_lookup(note_item_lookup, paper_id)
+        if note_item_lookup is not None
+        else paper_notes._find_note_item_for_paper_id(note_items, paper_id)
+    )
+    if not target:
+        return None
+    return _resolve_note_backed_pdf_path_from_index_item(vault_path, target)
+
+
 def _build_note_backed_paper_item(paper_id: str) -> tuple[dict[str, Any], Path | None] | None:
     try:
         vault_path = paper_notes._resolve_vault_path()
-        index = paper_notes._build_index(vault_path)
-        return _resolve_note_backed_paper_item(vault_path, index.items, paper_id)
+        note_items = _load_deduped_note_items_without_ops(vault_path)
+        if not note_items:
+            return None
+        return _resolve_note_backed_paper_item(
+            vault_path,
+            note_items,
+            paper_id,
+        )
     except (FileNotFoundError, HTTPException):
         return None
 
@@ -1402,11 +3761,76 @@ def _resolve_note_backed_paper_item(
     vault_path: Path,
     note_items: list[PaperNoteIndexItem],
     paper_id: str,
+    *,
+    note_item_lookup: _IndexedNoteItemLookup | None = None,
 ) -> tuple[dict[str, Any], Path | None] | None:
-    target = paper_notes._find_note_item_for_paper_id(note_items, paper_id)
+    target = (
+        _resolve_note_item_for_paper_id_from_lookup(note_item_lookup, paper_id)
+        if note_item_lookup is not None
+        else paper_notes._find_note_item_for_paper_id(note_items, paper_id)
+    )
     if not target:
         return None
-    return _build_note_backed_paper_item_from_index_item(vault_path, target, paper_id=paper_id)
+    resolved_paper_id = str(getattr(target, "id", None) or paper_id).strip() or paper_id
+    return _build_note_backed_paper_item_from_index_item(vault_path, target, paper_id=resolved_paper_id)
+
+
+def _build_note_backed_pdf_path(paper_id: str) -> Path | None:
+    try:
+        vault_path = paper_notes._resolve_vault_path()
+        note_items = _load_deduped_note_items_without_ops(vault_path)
+        if not note_items:
+            return None
+        return _resolve_note_backed_pdf_path_for_paper_id(
+            vault_path,
+            note_items,
+            paper_id,
+        )
+    except (FileNotFoundError, HTTPException):
+        return None
+
+
+def _resolve_db_backed_paper_pdf_availability(
+    paper_id: str,
+    raw_pdf_path: str | None,
+    *,
+    vault_path: Path | None = None,
+    note_items: list[PaperNoteIndexItem] | None = None,
+    note_item_lookup: _IndexedNoteItemLookup | None = None,
+    resolved_note_target: PaperNoteIndexItem | None = None,
+) -> tuple[str | None, bool]:
+    effective_pdf_path = raw_pdf_path
+    pdf_exists = bool(raw_pdf_path and os.path.exists(raw_pdf_path))
+    if not pdf_exists and paper_id:
+        if vault_path is not None and resolved_note_target is not None:
+            note_pdf_path = _resolve_note_backed_pdf_path_from_index_item(vault_path, resolved_note_target)
+        elif vault_path is not None and note_items is not None:
+            note_pdf_path = _resolve_note_backed_pdf_path_for_paper_id(
+                vault_path,
+                note_items,
+                paper_id,
+                note_item_lookup=note_item_lookup,
+            )
+        else:
+            note_pdf_path = _build_note_backed_pdf_path(paper_id)
+        if note_pdf_path is not None:
+            effective_pdf_path = str(note_pdf_path)
+            pdf_exists = True
+    return effective_pdf_path, pdf_exists
+
+
+def _db_row_may_need_note_backed_pdf_lookup(row: Any) -> bool:
+    getter = getattr(row, "get", None)
+    if callable(getter):
+        raw_pdf_path = str(getter("pdf_path") or "").strip()
+    else:
+        try:
+            raw_pdf_path = str(row["pdf_path"] or "").strip()
+        except Exception:
+            raw_pdf_path = ""
+    if not raw_pdf_path:
+        return True
+    return not os.path.exists(raw_pdf_path)
 
 
 def _build_db_backed_paper_item_from_row(
@@ -1416,21 +3840,25 @@ def _build_db_backed_paper_item_from_row(
     artifacts_path: Path,
     vault_path: Path | None = None,
     note_items: list[PaperNoteIndexItem] | None = None,
+    note_item_lookup: _IndexedNoteItemLookup | None = None,
+    resolved_note_target: PaperNoteIndexItem | None = None,
+    latest_run_id_lookup: dict[str, str] | None = None,
+    note_slug: str | None = None,
+    ops_candidate_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    item = dict(row)
+    item = _paper_summary_response_record_from_row(row)
     paper_id = str(item.get("paper_id") or "").strip()
+    ops_candidate_ids = list(ops_candidate_ids) if ops_candidate_ids is not None else _ops_summary_candidate_ids(paper_id)
+    item["note_slug"] = note_slug
     raw_pdf_path = str(item.get("pdf_path") or "").strip() or None
-    effective_pdf_path = raw_pdf_path
-    pdf_exists = bool(raw_pdf_path and os.path.exists(raw_pdf_path))
-    if not pdf_exists and paper_id:
-        note_backed: tuple[dict[str, Any], Path | None] | None = None
-        if vault_path is not None and note_items is not None:
-            note_backed = _resolve_note_backed_paper_item(vault_path, note_items, paper_id)
-        else:
-            note_backed = _build_note_backed_paper_item(paper_id)
-        if note_backed is not None and note_backed[1] is not None:
-            effective_pdf_path = str(note_backed[1])
-            pdf_exists = True
+    effective_pdf_path, pdf_exists = _resolve_db_backed_paper_pdf_availability(
+        paper_id,
+        raw_pdf_path,
+        vault_path=vault_path,
+        note_items=note_items,
+        note_item_lookup=note_item_lookup,
+        resolved_note_target=resolved_note_target,
+    )
 
     item["pdf_exists"] = pdf_exists
     item["pdf_path"] = _public_path(effective_pdf_path)
@@ -1439,18 +3867,102 @@ def _build_db_backed_paper_item_from_row(
     else:
         item["pdf_status"] = None
     item["issues_state"] = _derive_paper_issues_state(item)
-    ops_summary = build_ops_summary_for_candidate_ids(
-        artifacts_path,
-        _ops_summary_candidate_ids(paper_id),
+    ops_summary = _ops_summary_from_artifact_cache_for_candidate_ids(
+        ops_candidate_ids,
         artifact_cache,
     )
+    if ops_summary is _UNCACHED_ARTIFACT_GROUP:
+        ops_summary = build_ops_summary_for_candidate_ids(
+            artifacts_path,
+            ops_candidate_ids,
+            artifact_cache,
+        )
+    ops_summary_latest_run_id = getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
+    artifact_latest_run_id = (
+        None
+        if ops_summary_latest_run_id
+        else _latest_run_id_from_artifact_cache_for_candidate_ids(
+            ops_candidate_ids,
+            artifact_cache,
+        )
+    )
+    preloaded_latest_run_id = latest_run_id_lookup.get(paper_id) if latest_run_id_lookup is not None else None
     item["ops_summary"] = ops_summary
     item["latest_run_id"] = (
-        getattr(ops_summary, "latest_run_id", None) if ops_summary is not None else None
-    ) or _latest_run_id_for_paper(paper_id)
+        ops_summary_latest_run_id
+        or artifact_latest_run_id
+        or preloaded_latest_run_id
+        or (
+            None
+            if _artifact_cache_covers_candidate_ids(ops_candidate_ids, artifact_cache)
+            else _latest_run_id_for_candidate_ids(ops_candidate_ids)
+        )
+    )
     item["access_summary"] = _build_paper_access_summary(item, paper_id=paper_id, pdf_exists=pdf_exists)
     _apply_escalation_response_fields(item)
     return item
+
+
+def _build_db_backed_paper_rail_item_from_row(
+    row: Any,
+    *,
+    artifact_cache: ArtifactSnapshotCache,
+    artifacts_path: Path,
+    vault_path: Path | None = None,
+    note_items: list[PaperNoteIndexItem] | None = None,
+    note_item_lookup: _IndexedNoteItemLookup | None = None,
+    note_slug: str | None = None,
+    ops_candidate_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    getter = getattr(row, "get", None)
+
+    def _value(column: str) -> Any:
+        if callable(getter):
+            return getter(column)
+        try:
+            return row[column]
+        except Exception:
+            return None
+
+    paper_id = str(_value("paper_id") or "").strip()
+    ops_candidate_ids = list(ops_candidate_ids) if ops_candidate_ids is not None else _ops_summary_candidate_ids(paper_id)
+    raw_pdf_path = str(_value("pdf_path") or "").strip() or None
+    _, pdf_exists = _resolve_db_backed_paper_pdf_availability(
+        paper_id,
+        raw_pdf_path,
+        vault_path=vault_path,
+        note_items=note_items,
+        note_item_lookup=note_item_lookup,
+    )
+    issues_record = _workspace_summary_issues_record_from_row(row)
+    issues_state = _derive_paper_issues_state(issues_record)
+    ops_summary = _ops_summary_from_artifact_cache_for_candidate_ids(
+        ops_candidate_ids,
+        artifact_cache,
+    )
+    if ops_summary is _UNCACHED_ARTIFACT_GROUP:
+        ops_summary = build_ops_summary_for_candidate_ids(
+            artifacts_path,
+            ops_candidate_ids,
+            artifact_cache,
+        )
+    return {
+        "paper_id": paper_id,
+        "note_slug": note_slug,
+        "title": str(_value("title") or paper_id).strip() or paper_id,
+        "authors": str(_value("authors") or "").strip() or None,
+        "status": str(_value("status") or "").strip() or None,
+        "issues": issues_record.get("issues") if isinstance(issues_record.get("issues"), int) else None,
+        "issues_label": str(issues_record.get("issues_label") or "").strip() or None,
+        "issues_state": issues_state,
+        "updated_at": str(_value("updated_at") or "").strip() or None,
+        "ops_summary": ops_summary,
+        "access_summary": _build_paper_access_summary(
+            _paper_access_record_from_row(row),
+            paper_id=paper_id,
+            pdf_exists=pdf_exists,
+        ),
+    }
 
 
 def _apply_escalation_response_fields(item: dict[str, Any]) -> None:
@@ -1548,6 +4060,7 @@ def _with_bootstrap_meta_path(job: JobStatus) -> JobStatus:
             "artifact_dir": _public_path(getattr(job, "artifact_dir", None)),
             "log_path": _public_path(getattr(job, "log_path", None)),
             "bootstrap_meta_path": _public_path(meta_path),
+            "error_message": sanitize_event_text_for_log(getattr(job, "error_message", None)),
             "persona_id": selection.persona_id,
             "reasoning_persona": selection.reasoning_persona,
             "profile_id": selection.profile_id,
@@ -1585,12 +4098,118 @@ def _safe_read_json(path: Path) -> Any:
         return {"_parse_error": str(exc)}
 
 
+def _sanitize_operational_artifact_for_api(payload: Any) -> Any:
+    return sanitize_event_payload_for_log(payload)
+
+
+def _safe_read_artifact_json(key: str, path: Path) -> Any:
+    payload = _safe_read_json(path)
+    if key in {"run_meta", "bootstrap_meta"}:
+        return _sanitize_operational_artifact_for_api(payload)
+    return payload
+
+
+def _normalize_inference_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _summarize_inference_lanes(
+    lanes: dict[str, RunInferenceLaneSummary],
+) -> tuple[str, str, bool]:
+    backends = {
+        lane.selected_backend.strip()
+        for lane in lanes.values()
+        if lane.selected_backend.strip() and lane.selected_backend.strip() != "none"
+    }
+    payload_classes = {
+        lane.payload_class.strip()
+        for lane in lanes.values()
+        if lane.payload_class.strip() and lane.payload_class.strip() != "none"
+    }
+    selected_backend = next(iter(backends)) if len(backends) == 1 else ("mixed" if backends else "none")
+    payload_class = next(iter(payload_classes)) if len(payload_classes) == 1 else ("mixed" if payload_classes else "none")
+    redaction_applied = any(lane.redaction_applied for lane in lanes.values())
+    return selected_backend, payload_class, redaction_applied
+
+
+def _extract_lane_privacy_preflight(payload: Any) -> PrivacyPreflightResponse | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return PrivacyPreflightResponse.model_validate(payload)
+    except Exception:
+        return None
+
+
+def _extract_run_inference_summary(run_meta_payload: Any) -> RunInferenceSummary | None:
+    if not isinstance(run_meta_payload, dict) or "_parse_error" in run_meta_payload:
+        return None
+
+    lanes: dict[str, RunInferenceLaneSummary] = {}
+    raw_lanes = run_meta_payload.get("inference_lanes")
+    if isinstance(raw_lanes, dict):
+        for lane_name, lane_payload in raw_lanes.items():
+            normalized_name = str(lane_name or "").strip()
+            if not normalized_name or not isinstance(lane_payload, dict):
+                continue
+            selected_backend = _normalize_inference_text(lane_payload.get("selected_backend")) or "none"
+            payload_class = _normalize_inference_text(lane_payload.get("payload_class")) or "none"
+            provider_name = _normalize_inference_text(lane_payload.get("provider_name"))
+            provider_model = _normalize_inference_text(lane_payload.get("provider_model"))
+            redaction_applied = bool(lane_payload.get("redaction_applied"))
+            privacy_preflight = _extract_lane_privacy_preflight(lane_payload.get("privacy_preflight"))
+            if (
+                selected_backend == "none"
+                and payload_class == "none"
+                and not redaction_applied
+                and provider_name is None
+                and provider_model is None
+                and privacy_preflight is None
+            ):
+                continue
+            lanes[normalized_name] = RunInferenceLaneSummary(
+                selected_backend=selected_backend,
+                payload_class=payload_class,
+                redaction_applied=redaction_applied,
+                provider_name=provider_name,
+                provider_model=provider_model,
+                privacy_preflight=privacy_preflight,
+            )
+
+    lane_backend, lane_payload_class, lane_redaction = _summarize_inference_lanes(lanes)
+    selected_backend = _normalize_inference_text(run_meta_payload.get("selected_backend")) or lane_backend
+    payload_class = _normalize_inference_text(run_meta_payload.get("payload_class")) or lane_payload_class
+    if "redaction_applied" in run_meta_payload:
+        redaction_applied = bool(run_meta_payload.get("redaction_applied"))
+    else:
+        redaction_applied = lane_redaction
+
+    if selected_backend == "none" and payload_class == "none" and not redaction_applied and not lanes:
+        return None
+
+    return RunInferenceSummary(
+        selected_backend=selected_backend,
+        payload_class=payload_class,
+        redaction_applied=redaction_applied,
+        lanes=lanes,
+    )
+
+
 def _build_artifact_bundle(paper_id: str, run_id: str) -> ArtifactBundleResponse:
-    run_dir = _artifact_run_dir(paper_id, run_id)
-    if not run_dir.exists():
+    resolved_paper_id: str | None = None
+    run_dir: Path | None = None
+    for candidate_id in _paper_route_candidate_ids(paper_id):
+        candidate_run_dir = _artifact_run_dir(candidate_id, run_id)
+        if candidate_run_dir.exists():
+            resolved_paper_id = candidate_id
+            run_dir = candidate_run_dir
+            break
+    if run_dir is None or resolved_paper_id is None:
         raise HTTPException(status_code=404, detail=f"Artifacts not found for paper_id={paper_id}, run_id={run_id}")
 
     files: dict[str, ArtifactFileEntry] = {}
+    inference_summary: RunInferenceSummary | None = None
     for key, filename in ARTIFACT_FILE_MAP.items():
         path = run_dir / filename
         entry = ArtifactFileEntry(
@@ -1598,10 +4217,17 @@ def _build_artifact_bundle(paper_id: str, run_id: str) -> ArtifactBundleResponse
             path=_public_path(str(path)) if path.exists() else None,
         )
         if path.exists() and path.suffix == ".json":
-            entry.data = _safe_read_json(path)
+            entry.data = _safe_read_artifact_json(key, path)
+            if key == "run_meta":
+                inference_summary = _extract_run_inference_summary(entry.data)
         files[key] = entry
 
-    return ArtifactBundleResponse(paper_id=paper_id, run_id=run_id, files=files)
+    return ArtifactBundleResponse(
+        paper_id=resolved_paper_id,
+        run_id=run_id,
+        inference_summary=inference_summary,
+        files=files,
+    )
 
 
 def _resolve_artifact_key(artifact_name: str) -> str | None:
@@ -1609,19 +4235,27 @@ def _resolve_artifact_key(artifact_name: str) -> str | None:
     return ARTIFACT_ALIAS_MAP.get(normalized)
 
 
-def _latest_run_id_for_paper(paper_id: str) -> str | None:
+def _latest_run_id_for_candidate_ids(candidate_ids: list[str]) -> str | None:
+    normalized_candidate_ids = _normalized_candidate_id_list(candidate_ids)
+    if not normalized_candidate_ids:
+        return None
+
     conn = get_db_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT run_id, artifact_dir
-            FROM jobs
-            WHERE paper_id = ? AND run_id IS NOT NULL
-            ORDER BY COALESCE(finished_at, started_at, created_at) DESC
-            LIMIT 50
-            """,
-            (paper_id,),
-        ).fetchall()
+        placeholders = ", ".join("?" for _ in normalized_candidate_ids)
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT run_id, artifact_dir
+                FROM jobs
+                WHERE paper_id IN ({placeholders}) AND run_id IS NOT NULL
+                ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+                LIMIT 100
+                """,
+                tuple(normalized_candidate_ids),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
         for row in rows:
             run_id = str(row["run_id"] or "").strip()
             if not run_id:
@@ -1630,34 +4264,49 @@ def _latest_run_id_for_paper(paper_id: str) -> str | None:
             if artifact_dir:
                 if Path(artifact_dir).exists():
                     return run_id
-            elif _artifact_run_dir(paper_id, run_id).exists():
-                return run_id
+            else:
+                for candidate_id in normalized_candidate_ids:
+                    if _artifact_run_dir(candidate_id, run_id).exists():
+                        return run_id
     finally:
         conn.close()
 
-    paper_dir = artifact_paper_dir(paper_id)
-    if not paper_dir.exists():
-        return None
-    candidates = [p for p in paper_dir.iterdir() if p.is_dir()]
-    if not candidates:
-        return None
-    latest = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
-    return latest.name
+    latest_dir: Path | None = None
+    latest_mtime = -1.0
+    for candidate_id in normalized_candidate_ids:
+        paper_dir = artifact_paper_dir(candidate_id)
+        if not paper_dir.exists():
+            continue
+        for candidate in paper_dir.iterdir():
+            if not candidate.is_dir():
+                continue
+            candidate_mtime = candidate.stat().st_mtime
+            if candidate_mtime > latest_mtime:
+                latest_mtime = candidate_mtime
+                latest_dir = candidate
+    return latest_dir.name if latest_dir is not None else None
+
+
+def _latest_run_id_for_paper(paper_id: str) -> str | None:
+    return _latest_run_id_for_candidate_ids(_paper_route_candidate_ids(paper_id))
 
 
 def _job_for_run_id(run_id: str) -> JobStatus | None:
     conn = get_db_connection()
     try:
-        row = conn.execute(
-            """
-            SELECT *
-            FROM jobs
-            WHERE run_id = ?
-            ORDER BY COALESCE(finished_at, started_at, created_at) DESC
-            LIMIT 1
-            """,
-            (run_id,),
-        ).fetchone()
+        try:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM jobs
+                WHERE run_id = ?
+                ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
         if not row:
             return None
         return JobStatus(**dict(row))
@@ -1691,8 +4340,11 @@ def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[
         where: list[str] = []
         params: list[Any] = []
         if paper_id:
-            where.append("paper_id = ?")
-            params.append(paper_id)
+            candidate_ids = _paper_route_candidate_ids(paper_id)
+            if candidate_ids:
+                placeholders = ", ".join("?" for _ in candidate_ids)
+                where.append(f"paper_id IN ({placeholders})")
+                params.extend(candidate_ids)
         if status:
             where.append("status = ?")
             params.append(status)
@@ -1700,8 +4352,10 @@ def _list_jobs(*, paper_id: str | None, status: str | None, limit: int) -> list[
         query = "SELECT * FROM jobs"
         if where:
             query += " WHERE " + " AND ".join(where)
-
-        rows = conn.execute(query, params).fetchall()
+        try:
+            rows = conn.execute(query, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
         jobs = [_with_bootstrap_meta_path(JobStatus(**dict(row))) for row in rows]
         jobs.sort(key=_job_sort_timestamp, reverse=True)
         return jobs[:limit]
@@ -1762,7 +4416,9 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
         ]
         for raw in lines[-limit:]:
             try:
-                payload = json.loads(raw)
+                payload = sanitize_event_payload_for_log(json.loads(raw))
+                if not isinstance(payload, dict):
+                    raise ValueError("job log line is not an object")
                 level = str(payload.get("level") or "INFO")
                 evt = "error" if level.upper() == "ERROR" else "log"
                 log_events.append(
@@ -1770,10 +4426,10 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                         event=evt,
                         source="job_log",
                         ts=str(payload.get("timestamp") or ""),
-                        stage=payload.get("stage"),
+                        stage=sanitize_event_text_for_log(str(payload.get("stage") or "")) or None,
                         progress=int(payload.get("progress")) if payload.get("progress") is not None else None,
-                        level=level,
-                        message=payload.get("message"),
+                        level=sanitize_event_text_for_log(level),
+                        message=sanitize_event_text_for_log(str(payload.get("message") or "")),
                     )
                 )
             except Exception:
@@ -1781,7 +4437,7 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                     RunTimelineEvent(
                         event="log",
                         source="job_log",
-                        raw=raw,
+                        raw=sanitize_event_text_for_log(raw),
                     )
                 )
 
@@ -1820,7 +4476,7 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
                 stage=job.status,
                 progress=job.progress,
                 level="ERROR" if job.status == "failed" else "INFO",
-                message=job.error_message or job.status,
+                message=sanitize_event_text_for_log(job.error_message) or job.status,
             )
             if job.status in TERMINAL_JOB_STATUSES
             else RunTimelineEvent(
@@ -1852,7 +4508,7 @@ def _timeline_events_from_job(job: JobStatus, limit: int) -> list[RunTimelineEve
             stage=job.status,
             progress=job.progress,
             level="ERROR" if job.status == "failed" else "INFO",
-            message=job.error_message or job.status,
+            message=sanitize_event_text_for_log(job.error_message) or job.status,
         )
         if job.status in TERMINAL_JOB_STATUSES
         else RunTimelineEvent(
@@ -1878,7 +4534,19 @@ def _read_log_lines(log_path: str | None) -> list[str]:
     path = Path(log_path)
     if not path.exists():
         return []
-    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    sanitized_lines: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = sanitize_event_payload_for_log(json.loads(raw))
+            sanitized_lines.append(json.dumps(payload, ensure_ascii=False, default=str))
+        except Exception:
+            safe_raw = sanitize_event_text_for_log(raw)
+            if safe_raw:
+                sanitized_lines.append(safe_raw)
+    return sanitized_lines
 
 
 def _parse_last_event_cursor(last_event_id: str | None) -> tuple[int, str]:
@@ -1986,11 +4654,6 @@ def health_ready():
             for check in readiness.checks
         ],
     )
-
-
-@app.get("/api/health/ready", response_model=RuntimeReadinessResponse)
-def api_health_ready():
-    return health_ready()
 
 
 @app.post("/api/chat", response_model=ChatStubResponse)
@@ -2811,8 +5474,22 @@ def list_papers(
     limit: int = Query(default=50, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> list[PaperSummaryResponse]:
-    visible = _list_visible_paper_items()
-    return visible[offset : offset + limit]
+    return _list_visible_paper_items_page(limit=limit, offset=offset)
+
+
+@app.get("/papers/rail", response_model=list[PaperRailSummaryResponse])
+def list_paper_rail(
+    limit: int = Query(default=50, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+) -> list[PaperRailSummaryResponse]:
+    return _list_visible_paper_rail_items_page(limit=limit, offset=offset)
+
+
+@app.get("/papers/recent", response_model=list[PaperSummaryResponse])
+def list_recent_papers(
+    limit: int = Query(default=6, ge=1, le=20),
+) -> list[PaperSummaryResponse]:
+    return _list_recent_db_paper_items(limit=limit)
 
 
 @app.get("/workspace-summary", response_model=HomeWorkspaceSummaryResponse)
@@ -2823,21 +5500,63 @@ def get_workspace_summary() -> HomeWorkspaceSummaryResponse:
 @app.get("/papers/{paper_id}")
 def get_paper(paper_id: str) -> PaperDetailResponse:
     conn = get_db_connection()
+    vault_path: Path | None = None
+    note_items: list[PaperNoteIndexItem] | None = None
+    resolved_note_target: PaperNoteIndexItem | None = None
     try:
-        row = conn.execute("SELECT * FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+        row = _lookup_paper_row_by_route_id(conn, paper_id)
+        if row is None:
+            row, vault_path, note_items, resolved_note_target = _lookup_paper_row_by_note_identity(
+                conn,
+                paper_id,
+            )
     except sqlite3.OperationalError:
         row = None
     conn.close()
     if not row:
-        note_backed = _build_note_backed_paper_item(paper_id)
+        note_backed = (
+            _resolve_note_backed_paper_item(vault_path, note_items, paper_id)
+            if vault_path is not None and note_items is not None
+            else _build_note_backed_paper_item(paper_id)
+        )
         if note_backed is not None:
             return note_backed[0]
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    resolved_paper_id = str(row["paper_id"] or "").strip()
+    note_item_lookup: _IndexedNoteItemLookup | None = None
+    note_slug: str | None = str(getattr(resolved_note_target, "slug", "") or "").strip() or None
+    try:
+        if vault_path is None or note_items is None:
+            vault_path = paper_notes._resolve_vault_path()
+            note_items = _load_deduped_note_items_without_ops(vault_path)
+            if not note_items:
+                vault_path = None
+                note_items = None
+        target = resolved_note_target
+        if resolved_note_target is not None and note_items is not None:
+            if _db_row_may_need_note_backed_pdf_lookup(row):
+                note_item_lookup = _build_note_item_lookup_for_paper_ids([resolved_note_target], [resolved_paper_id])
+        elif note_items is not None:
+            note_item_lookup = _build_note_item_lookup_for_paper_ids(note_items, [resolved_paper_id])
+            target = _resolve_note_item_for_paper_id_from_lookup(note_item_lookup, resolved_paper_id)
+        if target is not None and note_slug is None:
+            note_slug = str(getattr(target, "slug", "") or "").strip() or None
+    except Exception:
+        vault_path = None
+        note_items = None
+        note_item_lookup = None
+        note_slug = None
 
     item = _build_db_backed_paper_item_from_row(
         row,
         artifact_cache={},
         artifacts_path=artifacts_root(),
+        vault_path=vault_path,
+        note_items=note_items,
+        note_item_lookup=note_item_lookup,
+        resolved_note_target=resolved_note_target,
+        note_slug=note_slug,
     )
     return item
 
@@ -2845,8 +5564,17 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
 @app.get("/papers/{paper_id}/pdf")
 def get_paper_pdf(paper_id: str):
     conn = get_db_connection()
+    vault_path: Path | None = None
+    note_items: list[PaperNoteIndexItem] | None = None
+    resolved_note_target: PaperNoteIndexItem | None = None
     try:
-        row = conn.execute("SELECT paper_id, pdf_path FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+        row = _lookup_paper_row_by_route_id(conn, paper_id, columns="paper_id, pdf_path")
+        if row is None:
+            row, vault_path, note_items, resolved_note_target = _lookup_paper_row_by_note_identity(
+                conn,
+                paper_id,
+                columns="paper_id, pdf_path",
+            )
     except sqlite3.OperationalError:
         row = None
     conn.close()
@@ -2863,19 +5591,33 @@ def get_paper_pdf(paper_id: str):
                 stale_db_pdf_path = True
 
     if pdf_path is None:
-        note_backed = _build_note_backed_paper_item(paper_id)
-        if note_backed is None:
-            if row:
+        note_pdf_path = (
+            _resolve_note_backed_pdf_path_from_index_item(vault_path, resolved_note_target)
+            if vault_path is not None and resolved_note_target is not None
+            else _resolve_note_backed_pdf_path_for_paper_id(vault_path, note_items, paper_id)
+            if vault_path is not None and note_items is not None
+            else _build_note_backed_pdf_path(paper_id)
+        )
+        if note_pdf_path is not None:
+            pdf_path = note_pdf_path
+        else:
+            note_backed = (
+                _resolve_note_backed_paper_item(vault_path, note_items, paper_id)
+                if vault_path is not None and note_items is not None
+                else _build_note_backed_paper_item(paper_id)
+            )
+            if note_backed is None:
+                if row:
+                    if stale_db_pdf_path:
+                        raise HTTPException(status_code=404, detail="PDF file not found")
+                    raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
+                raise HTTPException(status_code=404, detail="Paper not found")
+            _, note_pdf_path = note_backed
+            if note_pdf_path is None:
                 if stale_db_pdf_path:
                     raise HTTPException(status_code=404, detail="PDF file not found")
                 raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
-            raise HTTPException(status_code=404, detail="Paper not found")
-        _, note_pdf_path = note_backed
-        if note_pdf_path is None:
-            if stale_db_pdf_path:
-                raise HTTPException(status_code=404, detail="PDF file not found")
-            raise HTTPException(status_code=404, detail="PDF path not registered for this paper")
-        pdf_path = note_pdf_path
+            pdf_path = note_pdf_path
 
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
@@ -3112,7 +5854,8 @@ def get_job_bootstrap_meta(job_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="bootstrap_meta file not found")
     try:
-        return JobBootstrapMeta.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        payload = sanitize_event_payload_for_log(json.loads(path.read_text(encoding="utf-8")))
+        return JobBootstrapMeta.model_validate(payload)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to parse bootstrap_meta: {exc}")
 
@@ -3188,9 +5931,13 @@ async def job_events(job_id: str, request: Request):
     return EventSourceResponse(event_generator(), ping=20)
 
 app.include_router(obsidian.router)
+app.include_router(artifact_feedback.router)
+app.include_router(artifact_generation_outcomes.router)
 app.include_router(feedback.router)
 app.include_router(paper_notes.router)
+app.include_router(project_context_links.router)
 app.include_router(skills.router)
+app.include_router(talk_packs.router)
 app.include_router(meeting_packs.router)
 app.include_router(image_evidence.router)
 app.include_router(chart_packs.router)

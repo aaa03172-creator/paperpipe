@@ -15,7 +15,7 @@ Use these assets:
 - paper: `zotero:coricTargetingProdromalAlzheimer2015`
 - slug: `zoterocoricTargetingProdromalAlzheimer2015`
 - `Research DNA`: `dna_mci_medium_chain_triglycerides_probe_20260312`
-- `Meeting Pack`: `meetingpack_20260325T062516207912Z_journal_club_0409564f`
+- `Meeting Pack`: `meetingpack_20260328T003221552910Z_journal_club_0409564f`
 
 ## Script
 
@@ -80,8 +80,9 @@ What matters here is that it’s evidence-backed, traceable to the paper, and ca
 
 Action:
 
-- open `/meeting-packs/meetingpack_20260325T062516207912Z_journal_club_0409564f`
+- open `/meeting-packs/meetingpack_20260328T003221552910Z_journal_club_0409564f`
 - point at readiness
+- point at the uncertainty note
 - point at trace/regenerate state
 
 ### 2:50 - 3:00

@@ -4,6 +4,7 @@ from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, Field
 
+from src.schemas.privacy_preflight import PrivacyPreflightResponse
 from src.services.runtime_paths import artifacts_root
 
 
@@ -158,9 +159,26 @@ class ArtifactFileEntry(BaseModel):
     data: Optional[Any] = None
 
 
+class RunInferenceLaneSummary(BaseModel):
+    selected_backend: str = "none"
+    payload_class: str = "none"
+    redaction_applied: bool = False
+    provider_name: Optional[str] = None
+    provider_model: Optional[str] = None
+    privacy_preflight: Optional[PrivacyPreflightResponse] = None
+
+
+class RunInferenceSummary(BaseModel):
+    selected_backend: str = "none"
+    payload_class: str = "none"
+    redaction_applied: bool = False
+    lanes: dict[str, RunInferenceLaneSummary] = Field(default_factory=dict)
+
+
 class ArtifactBundleResponse(BaseModel):
     paper_id: str
     run_id: str
+    inference_summary: Optional[RunInferenceSummary] = None
     files: dict[str, ArtifactFileEntry] = Field(default_factory=dict)
 
 

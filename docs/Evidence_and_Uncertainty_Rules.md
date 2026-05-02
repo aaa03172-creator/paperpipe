@@ -1,10 +1,10 @@
 # Evidence and Uncertainty Rules
 
-Status: Active bounded rule  
-Date: 2026-03-24  
-Owner: Runtime/design maintainers  
-Canonical: `docs/Evidence_and_Uncertainty_Rules.md`  
-Canonical parent: `docs/Lattice_v3_Master_Spec.md`  
+Status: Active bounded rule
+Date: 2026-04-08
+Owner: Runtime/design maintainers
+Canonical: `docs/Evidence_and_Uncertainty_Rules.md`
+Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 Applies to: `ClaimSet`, `StatsReport`, `claimset.resolved.json`, Obsidian export, paper-note state, `Meeting Pack`, stub-only `/api/chat` compatibility surface
 
 Related docs:
@@ -67,6 +67,19 @@ The current repository already implements these rules across schemas, policy cod
 - When resolver output exists, downstream surfaces should preserve `grounded` and `resolution` instead of dropping them.
 - Failed or ambiguous grounding must remain visible as failed or ambiguous.
 - `claimset_readiness` and related operational badges are useful, but they are not the same thing as full citation verification.
+
+### 3.3A Compiled knowledge assets stay derivative
+
+- A compiled knowledge page or asset may summarize or connect current scientific state, but it does not become canonical truth by itself.
+- If a compiled asset presents biomedical content as evidence-backed, it must still point back to upstream claim/evidence/source lineage rather than relying on compiled prose alone.
+- If a compiled asset cannot preserve upstream support clearly enough, it should remain explicitly background-only, draft-like, stale, or uncertain instead of sounding fully grounded.
+- Compiled knowledge convenience must not erase freshness, conflict, or unresolved-grounding signals that exist upstream.
+
+### 3.3B Answer generation stays evidence-routed
+
+- A future answer surface, chat response, brief, or generated explanation should prefer current canonical structured state plus reusable evidence refs before consulting derived summaries.
+- Compiled knowledge assets, method comparisons, meeting packs, review gates, and raw-memory helpers may assist retrieval or phrasing, but they do not replace upstream evidence-linked support.
+- If an answer surface cannot jump back to canonical state and evidence lineage clearly enough, it should answer in explicitly uncertain or background-only terms rather than presenting itself as fully evidence-backed.
 
 ### 3.4 Approximate support must stay labeled
 
@@ -136,6 +149,8 @@ Recommended shared vocabulary:
   - example: `evidence_backed`, `background_only`
 - `warnings[]`
   - explicit caution messages or machine-generated validation notes
+- `canonical_status`
+  - example: `non_canonical`
 - `freshness_state`
   - `current`
   - `stale`
@@ -148,6 +163,7 @@ Recommended shared vocabulary:
 Rules:
 - these fields summarize trust or recoverability; they do not replace claim/evidence truth
 - `freshness_state=stale` or `unknown` must not be hidden by polished rendering
+- `canonical_status=non_canonical` should stay visible when a derived or memory lane could otherwise be mistaken for promoted truth
 - `trace_available=false` does not weaken evidence rules; it only says observability is limited
 - bounded lanes may extend this shape, but they should reuse the vocabulary when possible
 - current adoption is intentionally partial:

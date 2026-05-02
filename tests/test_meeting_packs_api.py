@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend import main as api_main
 from backend.routers import meeting_packs as meeting_packs_router
+from tests.meeting_pack_actual_paper_fixture import ACTUAL_PAPER_ALIGNED_TITLE, write_actual_paper_aligned_source
 
 
 def _write(path: Path, content: str) -> None:
@@ -21,6 +22,11 @@ def _write_state(
     vault_path: Path,
     slug: str,
     *,
+    claim_text: str = "Intervention changed the inflammatory pathway.",
+    claim_id: str = "claim_abc123",
+    source_claim_id: str | None = None,
+    evidence_id: str = "evidence_def456",
+    chunk_id: str | None = None,
     include_direct_evidence: bool = True,
     grounded: bool | None = None,
     resolution: str | None = None,
@@ -45,21 +51,23 @@ def _write_state(
                 "signals": {"has_claimset": True},
                 "claimset": [
                     {
-                        "id": "claim_abc123",
+                        "id": claim_id,
                         "run_id": "skill-20260313T000000Z-critical_appraisal",
-                        "claim": "Intervention changed the inflammatory pathway.",
-                        "evidence_ids": ["evidence_def456"] if include_direct_evidence else [],
+                        "source_claim_id": source_claim_id,
+                        "claim": claim_text,
+                        "evidence_ids": [evidence_id] if include_direct_evidence else [],
                         "evidence": (
                             [
                                 {
-                                    "id": "evidence_def456",
-                                    "claim_id": "claim_abc123",
+                                    "id": evidence_id,
+                                    "claim_id": claim_id,
                                     "run_id": "skill-20260313T000000Z-critical_appraisal",
                                     "text": "Evidence text",
                                     "locator": {
                                         "page": 2,
                                         "section": "Results",
                                         "source": "state.json",
+                                        "chunk_id": chunk_id,
                                     },
                                     "grounded": grounded,
                                     "resolution": resolution,
@@ -205,6 +213,189 @@ def test_meeting_packs_api_claim_without_direct_support_stays_background_only(tm
     assert "Structured evidence refs are missing" in (
         payload["one_page_summary"]["key_points"][0]["uncertainty_note"] or ""
     )
+
+
+def test_meeting_packs_api_validate_surfaces_content_risk_warnings(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "alz-clinical-biological-construct"
+    _write_state(
+        vault_dir,
+        slug,
+        claim_text="The intervention shows an initial improvement window during early follow-up.",
+    )
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "Alzheimer Disease as a Clinical-Biological Construct - An International Working Group Recommendation",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+    assert created.status_code == 200
+    pack_id = created.json()["pack"]["id"]
+
+    validation = client.get(f"/meeting-packs/{pack_id}/validate")
+    assert validation.status_code == 200
+    warnings = validation.json()["validation"]["warnings"]
+    assert any("Generic key-point wording was detected" in warning for warning in warnings)
+    assert any("do not appear semantically aligned" in warning for warning in warnings)
+
+
+def test_meeting_packs_api_keeps_abstract_aligned_actual_paper_probe_content_in_sync(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "jamaDuboisAlzheimerDiseaseClinicalBiologicalConstruct2024"
+    write_actual_paper_aligned_source(vault_dir, slug)
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    pack_id = payload["pack"]["id"]
+
+    assert payload["pack"]["readiness"] == "evidence_backed"
+    assert payload["pack"]["source_items"][0]["title"] == ACTUAL_PAPER_ALIGNED_TITLE
+    assert ACTUAL_PAPER_ALIGNED_TITLE in payload["pack"]["title"]
+    assert payload["markdown_sync"]["status"] == "in_sync"
+    assert len(payload["pack"]["evidence_refs"]) == 3
+    assert any(
+        "clinical-biological construct" in key_point["text"].lower()
+        for key_point in payload["pack"]["one_page_summary"]["key_points"]
+    )
+
+    gate = json.loads((meeting_root / pack_id / "quality_gate.json").read_text(encoding="utf-8"))
+    check_map = {check["name"]: check for check in gate["checks"]}
+    assert gate["overall_status"] == "pass"
+    assert gate["reason_codes"] == []
+    assert check_map["content_quality_risk_scan"]["status"] == "pass"
+
+    validation = client.get(f"/meeting-packs/{pack_id}/validate")
+    assert validation.status_code == 200
+    validation_payload = validation.json()["validation"]
+    assert validation_payload["markdown_sync"]["status"] == "in_sync"
+    assert validation_payload["can_regenerate"] is True
+    assert validation_payload["regenerate_strategy"] == "saved_request"
+    assert validation_payload["warnings"] == []
+
+    markdown = client.get(f"/meeting-packs/{pack_id}/markdown")
+    assert markdown.status_code == 200
+    assert "clinical-biological construct" in markdown.text.lower()
+
+
+def test_meeting_packs_api_rejects_fixture_like_structured_state_by_default(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "real-looking-paper"
+    _write_state(
+        vault_dir,
+        slug,
+        claim_text="Fixture-like claim.",
+        claim_id="claim_c0ffee000001",
+        source_claim_id="e2e-claim-1",
+        evidence_id="evidence_deadbeef0001",
+        chunk_id="chunk-e2e-001",
+    )
+
+    monkeypatch.delenv("PAPERPIPE_INCLUDE_TEST_FIXTURES", raising=False)
+    monkeypatch.delenv("LATTICE_INCLUDE_TEST_FIXTURES", raising=False)
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+    assert created.status_code == 400
+    assert "appears to be a test fixture" in created.json()["detail"]
+
+
+def test_meeting_packs_api_rejects_fixture_like_generation_request_by_default(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_dir, slug)
+
+    monkeypatch.delenv("PAPERPIPE_INCLUDE_TEST_FIXTURES", raising=False)
+    monkeypatch.delenv("LATTICE_INCLUDE_TEST_FIXTURES", raising=False)
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "Backend visual meeting pack fixture",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+
+    assert created.status_code == 400
+    assert "test fixture" in created.json()["detail"]
+
+
+def test_meeting_packs_api_allows_fixture_like_generation_request_in_e2e_runtime(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    meeting_root = tmp_path / "meeting_packs"
+    slug = "wenzelShortchainFattyAcids2020"
+    _write_state(vault_dir, slug)
+
+    monkeypatch.setenv("PAPERPIPE_INCLUDE_TEST_FIXTURES", "1")
+    monkeypatch.delenv("LATTICE_INCLUDE_TEST_FIXTURES", raising=False)
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/meeting-packs/generate",
+        json={
+            "mode": "journal_club",
+            "title": "Backend visual meeting pack fixture",
+            "source_items": [{"type": "paper_slug", "ref": slug}],
+            "max_slides": 5,
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["pack"]["title"] == "Backend visual meeting pack fixture"
 
 
 def test_meeting_packs_api_lists_saved_packs_with_recent_first_order(tmp_path, monkeypatch):

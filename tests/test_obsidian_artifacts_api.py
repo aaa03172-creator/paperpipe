@@ -176,6 +176,27 @@ def test_obsidian_mirror_returns_generated_payload(tmp_path, monkeypatch):
     assert "<!-- AI_AGENT_START -->" in payload["generated_markdown"]
 
 
+def test_obsidian_mirror_resolves_zotero_id_variants_from_run_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+
+    run_dir = tmp_path / "storage" / "artifacts" / "zotero:paper_mirror_variant" / "run_mirror_variant"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "claimset.resolved.json").write_text(
+        json.dumps(_claimset_payload("c-variant", "variant mirror claim", "variant mirror evidence")),
+        encoding="utf-8",
+    )
+
+    client = TestClient(api_main.app)
+    resp = client.get("/obsidian/mirror", params={"paper_id": "paper_mirror_variant", "run_id": "run_mirror_variant"})
+    assert resp.status_code == 200
+    payload = resp.json()
+
+    assert payload["paper_id"] == "paper_mirror_variant"
+    assert payload["has_claimset"] is True
+    assert payload["claims"][0]["statement"] == "variant mirror claim"
+
+
 def test_obsidian_mirror_exposes_grounding_fields(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
@@ -324,6 +345,83 @@ def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
         assert action_payload["run_id"] == "run_sync_001"
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_obsidian_sync_can_find_note_by_frontmatter_id_when_filename_is_cleaned(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    target_note = vault_dir / "Targeting Prodromal Alzheimer Disease With Avagacestat.md"
+    target_note.write_text(
+        "---\n"
+        "id: zotero:coricTargetingProdromalAlzheimer2015\n"
+        "aliases: [\"Targeting Prodromal Alzheimer Disease With Avagacestat\"]\n"
+        "---\n\n"
+        "# Targeting Prodromal Alzheimer Disease With Avagacestat\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        obsidian_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    run_dir = tmp_path / "storage" / "artifacts" / "zotero:coricTargetingProdromalAlzheimer2015" / "run_sync_clean_001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_claimset = _claimset_payload("c-clean", "cleaned filename claim", "cleaned filename evidence")
+    (run_dir / "claimset.resolved.json").write_text(json.dumps(resolved_claimset), encoding="utf-8")
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/obsidian/sync",
+        json={"paper_id": "zotero:coricTargetingProdromalAlzheimer2015", "run_id": "run_sync_clean_001"},
+    )
+    assert response.status_code == 200
+
+    content = target_note.read_text(encoding="utf-8")
+    assert "cleaned filename claim" in content
+
+
+def test_obsidian_sync_resolves_zotero_id_variants_for_existing_note_and_artifacts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    target_note = vault_dir / "Variant Existing Note.md"
+    target_note.write_text(
+        "---\n"
+        "id: zotero:variant-sync-note\n"
+        "aliases: [\"Variant Existing Note\"]\n"
+        "---\n\n"
+        "# Variant Existing Note\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        obsidian_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    run_dir = tmp_path / "storage" / "artifacts" / "zotero:variant-sync-note" / "run_sync_variant_001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_claimset = _claimset_payload("c-variant-sync", "variant sync claim", "variant sync evidence")
+    (run_dir / "claimset.resolved.json").write_text(json.dumps(resolved_claimset), encoding="utf-8")
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/obsidian/sync",
+        json={"paper_id": "variant-sync-note", "run_id": "run_sync_variant_001"},
+    )
+    assert response.status_code == 200
+
+    content = target_note.read_text(encoding="utf-8")
+    assert "variant sync claim" in content
+    assert not (vault_dir / "Inbox" / "variant-sync-note.md").exists()
 
 
 def test_obsidian_sync_replaces_existing_marker_block(tmp_path, monkeypatch):

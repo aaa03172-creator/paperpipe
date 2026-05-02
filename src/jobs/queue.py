@@ -10,7 +10,12 @@ from src.db_utils import get_db_connection
 from src.jobs.schemas import JobStatus
 from src.persona_modes import normalize_persona_selection
 from src.services.identity import new_job_id, new_run_id
-from src.services.event_log import ensure_execution_run, log_job_event, update_execution_run
+from src.services.event_log import (
+    ensure_execution_run,
+    log_job_event,
+    sanitize_event_text_for_log,
+    update_execution_run,
+)
 
 logger = logging.getLogger(__name__)
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
@@ -274,6 +279,11 @@ class JobQueue:
             conn.close()
 
     def update_job(self, job_id: str, updates: Dict) -> None:
+        if "error_message" in updates:
+            updates = dict(updates)
+            updates["error_message"] = sanitize_event_text_for_log(
+                str(updates["error_message"]) if updates["error_message"] is not None else None
+            )
         conn = get_db_connection()
         try:
             current = conn.execute(
@@ -282,6 +292,7 @@ class JobQueue:
             ).fetchone()
             if current is None:
                 return
+
             current_status = str(current["status"] or "").strip().lower()
             if current_status in TERMINAL_JOB_STATUSES:
                 logger.info(

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import fitz
 
-from scripts.eval.compare_ingest_backends import compare_backend_rows
+from scripts.eval.compare_ingest_backends import compare_backend_rows, evaluate_pdf_with_backend
 
 
 def _make_pdf(path: Path, lines: list[str]) -> None:
@@ -193,6 +193,91 @@ def test_compare_backend_rows_reclassifies_same_page_merge_as_non_loss() -> None
     assert report["decision"]["passed"] is True
 
 
+def test_compare_backend_rows_exposes_same_page_table_rescue_docs() -> None:
+    baseline_rows = [
+        {
+            "pdf_path": "/tmp/d.pdf",
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example4",
+            "table_count": 1,
+            "meaningful_table_count": 1,
+            "table_pages": [8],
+            "table_summaries": [
+                {"source_page": 8, "rows": 4, "cols": 4, "non_empty_cells": 16, "alpha_cells": 8},
+            ],
+            "text_char_count": 100,
+        }
+    ]
+    patched_cell = {
+        "source_page": 8,
+        "row_index": 2,
+        "column_index": 3,
+        "candidate": "amyloid unknown tau",
+        "fallback": "amyloid unknown tau unknown",
+    }
+    candidate_rows = [
+        {
+            "pdf_path": "/tmp/d.pdf",
+            "requested_backend": "docling",
+            "effective_backend": "docling",
+            "backend_available": True,
+            "backend_fallback_note": None,
+            "success": True,
+            "error": None,
+            "has_doi": True,
+            "doi": "10.1/example4",
+            "table_count": 1,
+            "meaningful_table_count": 1,
+            "table_pages": [8],
+            "table_fallback_used": False,
+            "table_fallback_pages": [],
+            "same_page_table_rescue_actions": ["patch"],
+            "same_page_table_rescue_pages": [8],
+            "same_page_table_rescue_patched_cells": [patched_cell],
+            "table_summaries": [
+                {"source_page": 8, "rows": 4, "cols": 4, "non_empty_cells": 16, "alpha_cells": 8},
+            ],
+            "text_char_count": 100,
+        }
+    ]
+
+    report = compare_backend_rows(
+        baseline_rows=baseline_rows,
+        candidate_rows=candidate_rows,
+        min_candidate_text_ratio=0.5,
+        max_backend_unavailable_docs=0,
+        max_error_increase_docs=0,
+        max_empty_text_increase_docs=0,
+        max_doi_loss_docs=0,
+        max_meaningful_table_loss_docs=0,
+        max_low_text_ratio_docs=0,
+    )
+
+    assert report["same_page_table_rescue_docs"] == [
+        {
+            "pdf_path": "/tmp/d.pdf",
+            "actions": ["patch"],
+            "pages": [8],
+            "patched_cells": [patched_cell],
+            "candidate_table_pages": [8],
+            "candidate_meaningful_table_count": 1,
+        }
+    ]
+    assert report["decision"]["passed"] is True
+
+
+def test_evaluate_pdf_with_backend_includes_rescue_fields_on_missing_pdf(tmp_path: Path) -> None:
+    row = evaluate_pdf_with_backend(tmp_path / "missing.pdf", "docling")
+
+    assert row["success"] is False
+    assert row["error"] == "PDF_NOT_FOUND"
+    assert row["same_page_table_rescue_actions"] == []
+    assert row["same_page_table_rescue_pages"] == []
+    assert row["same_page_table_rescue_patched_cells"] == []
+
+
 def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "eval" / "compare_ingest_backends.py"
@@ -240,5 +325,13 @@ def test_compare_ingest_backends_cli_writes_metrics_and_rows(tmp_path: Path) -> 
     assert all("meaningful_table_count" in row for row in rows)
     assert all("table_fallback_used" in row for row in rows)
     assert all("table_fallback_pages" in row for row in rows)
+    assert all("same_page_table_rescue_actions" in row for row in rows)
+    assert all("same_page_table_rescue_pages" in row for row in rows)
+    assert all("same_page_table_rescue_patched_cells" in row for row in rows)
     assert "docs_with_table_fallback_count" in metrics["backend_metrics"]["docling"]
+    assert "docs_with_same_page_table_rescue_count" in metrics["backend_metrics"]["docling"]
+    assert "same_page_table_rescue_page_event_count" in metrics["backend_metrics"]["docling"]
+    assert "same_page_table_rescue_patched_cell_count" in metrics["backend_metrics"]["docling"]
+    assert metrics["backend_metrics"]["docling"]["docs_with_same_page_table_rescue_count"] == 0
     assert "same_page_merge_docs" in metrics["comparison"]
+    assert "same_page_table_rescue_docs" in metrics["comparison"]

@@ -15,12 +15,26 @@ from src.meeting_packs.service import (
     rerender_meeting_pack,
     validate_meeting_pack,
 )
+from src.schemas.artifact_generation_outcome import (
+    ArtifactGenerationOutcome,
+    ArtifactGenerationOutcomeWriteRequest,
+)
+from src.schemas.artifact_review_feedback import (
+    ArtifactReviewFeedbackCase,
+    ArtifactReviewFeedbackWriteRequest,
+)
 from src.schemas.meeting_pack import (
     MeetingPackGenerateRequest,
     MeetingPackListResponse,
     MeetingPackResponse,
     MeetingPackTraceResponse,
     MeetingPackValidationResponse,
+)
+from src.services.artifact_generation_outcomes import append_artifact_generation_outcome
+from src.services.artifact_review_feedback import append_artifact_review_feedback
+from src.services.fixture_visibility import (
+    include_test_fixtures_enabled,
+    is_test_fixture_meeting_pack_request,
 )
 
 
@@ -47,6 +61,14 @@ def _resolve_vault_path_if_available() -> Path | None:
 
 @router.post("/generate", response_model=MeetingPackResponse)
 def post_generate_meeting_pack(payload: MeetingPackGenerateRequest) -> MeetingPackResponse:
+    if not include_test_fixtures_enabled() and is_test_fixture_meeting_pack_request(
+        title=payload.title,
+        source_refs=(selector.ref for selector in payload.source_items),
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Meeting Pack request appears to be a test fixture and is blocked outside isolated E2E runtimes.",
+        )
     try:
         return generate_meeting_pack(
             request=payload,
@@ -118,6 +140,50 @@ def post_regenerate_meeting_pack(pack_id: str) -> MeetingPackResponse:
 def post_rerender_meeting_pack(pack_id: str) -> MeetingPackResponse:
     try:
         return rerender_meeting_pack(pack_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{pack_id}/outcome")
+def post_meeting_pack_outcome(pack_id: str, payload: ArtifactGenerationOutcomeWriteRequest):
+    try:
+        get_meeting_pack(pack_id)
+        outcome = append_artifact_generation_outcome(
+            ArtifactGenerationOutcome(
+                artifact_type="meeting_pack",
+                artifact_id=pack_id,
+                **payload.model_dump(mode="python"),
+            )
+        )
+        return {
+            "status": "saved",
+            "message": "Artifact generation outcome recorded successfully.",
+            "outcome_id": outcome.outcome_id,
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{pack_id}/review")
+def post_meeting_pack_review(pack_id: str, payload: ArtifactReviewFeedbackWriteRequest):
+    try:
+        get_meeting_pack(pack_id)
+        feedback = append_artifact_review_feedback(
+            ArtifactReviewFeedbackCase(
+                artifact_type="meeting_pack",
+                artifact_id=pack_id,
+                **payload.model_dump(mode="python"),
+            )
+        )
+        return {
+            "status": "saved",
+            "message": "Artifact review feedback recorded successfully.",
+            "feedback_id": feedback.feedback_id,
+        }
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

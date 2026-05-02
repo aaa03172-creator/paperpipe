@@ -108,3 +108,100 @@ Reviewer: Codex
 1. translation을 위한 canonical-vs-display schema/API seam을 먼저 정의하기
 2. `/papers/:slug`에서 one-line summary / abstract / critical analysis만 다루는 summary-level paired translation PR로 좁히기
 3. `src/llm_provider.py`의 한국어 직접 생성 경로를 future derived-display contract 관점에서 정리하고, claim card 및 Meeting Pack translation은 각각 별도 follow-up으로 분리하기
+
+## 9) Implementation checkpoint (2026-04-04)
+- 첫 slice는 `StructuredPaperState.reading_assists[]`와 `PaperNoteDetailResponse.reading_assist`를 여는 additive seam으로 제한한다.
+- `/papers/:slug`에서는 Korean reading-assist를 collapsed-by-default panel로 노출한다.
+- trust signal은 viewer 안에서 명시적으로 유지한다:
+  - `Machine translated from English`
+  - `English/original text remains canonical`
+  - `Translation may be partial`
+- 첫 구현 범위는 summary-level blocks only:
+  - one-line summary
+  - abstract
+  - critical analysis
+- evidence quote, claim truth, search/screening path는 이번 slice에 포함하지 않는다.
+
+## 10) Implementation checkpoint (2026-04-07)
+- discoverability를 조금만 높이되 reading flow를 바꾸지 않는 방향으로 확장한다.
+- `/papers` 목록에서는 기존 state badge 줄 안에 `Korean assist` availability badge만 추가한다.
+- `/papers/:slug` 상세에서는 새 패널이나 toggle을 늘리지 않고 `Properties` 안에 `Korean available` availability row만 추가한다.
+- 이 표시는 `StructuredPaperState.signals.has_reading_assists` / `reading_assist_locales` 기반으로만 노출되고, relevance/search/filter 기준으로는 사용하지 않는다.
+- trust hierarchy는 그대로 유지한다:
+  - availability badge는 “있다”만 알려준다
+  - 실제 canonical-vs-derived 경계와 machine-translation 신호는 collapsed reading-assist panel 안에서 계속 설명한다
+
+## 11) Implementation checkpoint (2026-04-07, opt-in filter)
+- `/papers`에는 opt-in `Only Korean assist` filter를 추가할 수 있다.
+- 이 필터는 relevance ranking을 바꾸지 않고, availability가 이미 있는 note만 좁혀보는 utility control로만 동작해야 한다.
+- copy는 “한국어가 더 좋은 note”처럼 읽히면 안 되고, 단지 “derived reading assist is available”을 뜻해야 한다.
+- active filter chip과 empty-state copy에서도 같은 hierarchy를 유지한다:
+  - list narrowing only
+  - not a relevance or evidence-quality signal
+
+## 12) Implementation checkpoint (2026-04-07, availability-first filter)
+- `/papers`에서는 `Reading assist available`를 locale-agnostic 1차 narrowing control로 두고, `Only Korean assist`는 그보다 더 좁은 2차 control로 유지한다.
+- `Only Korean assist`는 독립적인 quality signal이 아니라 `has_reading_assist=true` 위에 얹히는 locale-specific narrowing으로 해석되어야 한다.
+- active-state UX도 같은 hierarchy를 따라야 한다:
+  - `Reading assist available` = any saved derived reading assist
+  - `Korean assist only` = saved derived reading assist 중 `ko` locale만
+- empty-state copy는 “관련성이 낮다”가 아니라 “저장된 derived assist availability가 아직 없다”는 뜻으로 끝나야 한다.
+- URL/query contract도 그 의도를 보존해야 한다:
+  - `has_reading_assist=true` for availability narrowing
+  - `reading_assist_locale=ko` only for locale narrowing within that availability set
+
+## 13) Implementation checkpoint (2026-04-07, response-driven locale controls)
+- `/paper-notes` list response는 현재 검색/태그/상태/structured 컨텍스트 안에서의 reading-assist metadata를 함께 내려야 한다:
+  - `available_reading_assist_note_count`
+  - `available_reading_assist_locales`
+- 이 metadata는 pagination 전, but reading-assist self-filter 적용 전 기준이 더 안전하다. 그래야 locale control이 자기 자신의 필터 때문에 사라지지 않는다.
+- `/papers` filter UI는 locale button을 하드코딩하지 않고 response metadata 기반으로 그린다.
+- locale label은 사용자-facing display concern일 뿐이며, sorting/ranking/evidence quality와 연결되면 안 된다.
+- 현재 locale이 `ko`뿐이어도 contract는 generic하게 유지하고, 실제 copy는 여전히 “reading assist availability”를 의미해야 한다.
+
+## 14) Implementation checkpoint (2026-04-07, detail locale-aware copy)
+- `/papers/:slug` detail panel 안에 남아 있던 locale-specific hardcoding은 response locale 기반 display label로 정리한다.
+- 안전한 대상은 copy layer만이다:
+  - panel title
+  - show/hide button label
+  - translated-column heading
+- canonical warning 문구와 display-only hierarchy는 그대로 유지한다.
+- 현재 `ko`에서는 화면상 텍스트가 거의 같아 보여도, contract는 future locale을 막지 않는 방향이어야 한다.
+
+## 15) Implementation checkpoint (2026-04-08, descriptive provenance)
+- detail reading-assist panel은 provenance를 더 보여줄 수 있지만, 그것은 어디까지나 descriptive metadata여야 한다.
+- 안전한 표시는 아래처럼 limited metadata만 포함한다:
+  - canonical locale
+  - source locale
+  - translator label
+  - model label
+  - version label
+- 이 정보는 trust calibration을 돕는 용도이지, quality score나 evidence strength처럼 해석되면 안 된다.
+- provenance는 block-level로 다를 수 있으므로, per-block metadata가 top-level 단정 문구보다 안전하다.
+
+## 16) Implementation checkpoint (2026-04-08, locale continuity into detail)
+- `/papers`에서 locale-specific reading-assist filter를 걸고 note detail로 들어갈 때, detail도 같은 locale preference를 유지하는 편이 더 자연스럽다.
+- 안전한 구현은 detail API에 optional `reading_assist_locale` query를 여는 것이다.
+- fallback behavior는 그대로 둔다:
+  - requested locale가 있으면 우선 시도
+  - 없거나 payload가 비어 있으면 기존 default preference (`ko`, then first available)로 복귀
+- 이 query는 display-locale continuity를 위한 것이지, canonical note routing이나 evidence semantics를 바꾸는 기능이 아니다.
+
+## 17) Implementation checkpoint (2026-04-13, detail in-screen locale switch)
+- list에서 detail로 넘어온 locale continuity만으로는, detail 안에서 다른 saved locale을 비교하거나 전환하기 어렵다.
+- 현재 contract 위에서 가장 안전한 확장은 detail panel 안에 explicit locale switch를 두는 것이다.
+- switch는 아래 조건을 지켜야 한다:
+  - available locale이 2개 이상일 때만 보인다
+  - existing `reading_assist_locale` query contract만 사용한다
+- selection은 display-only derived payload만 바꾸고 canonical markdown/body는 바꾸지 않는다
+- locale switch label은 locale-aware display concern일 뿐이며, quality score, trust rank, evidence strength처럼 보이면 안 된다.
+- multi-locale mock fixture (`ko`, `ja`)로 interaction을 검증해, future locale이 들어와도 현재 viewer contract를 유지할 수 있게 한다.
+
+## 18) Implementation checkpoint (2026-04-13, explicit auto/default view state)
+- locale switch가 생긴 뒤에는, 사용자가 현재 manual locale을 보고 있는지 아니면 note의 default/fallback view를 보고 있는지 더 명확히 드러내는 편이 안전하다.
+- 현재 contract 위에서 가장 작은 보강은 아래 두 가지다:
+  - detail panel locale switcher에 explicit `Auto` option 추가
+  - `Properties` rail에 현재 assist view 상태(`Manual selection` vs `Auto default`) 추가
+- `Auto`는 new backend semantics가 아니라 기존 `reading_assist_locale` query 제거를 의미해야 한다.
+- 이 affordance는 locale ranking이나 trust grading이 아니라 display-state clarity를 위한 것이어야 한다.
+- multi-locale detail flow는 `ko -> ja -> Auto(default)` 복귀까지 검증해서, active state와 fallback state를 모두 안전하게 고정한다.

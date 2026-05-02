@@ -48,7 +48,7 @@ Use these unless there is a clearly better fresh equivalent.
 Why:
 
 - this paper already has a fresh successful deep-read rerun
-- it has visible note-side `.pp/<slug>/state.json`
+- it has a visible paper-scoped `.pp/<slug>/state.json` sidecar
 - it is now discoverable from the default `/papers` first payload
 
 ### Representative Research DNA
@@ -61,14 +61,15 @@ Why:
 
 ### Representative Meeting Pack
 
-- `meetingpack_20260325T062516207912Z_journal_club_0409564f`
+- `meetingpack_20260328T003221552910Z_journal_club_0409564f`
 
 Why:
 
-- it is a newer non-fixture pack
+- it is the current refreshed non-fixture pack
 - it has `readiness = evidence_backed`
 - it has saved trace coverage
 - it validates and can regenerate
+- it now carries the current uncertainty surfacing used by fresh runtime output
 
 ## 3-Minute Demo
 
@@ -97,7 +98,7 @@ Use:
 
 Say:
 
-- this page shows whether canonical note-side structured state actually exists
+- this page shows whether the runtime-managed paper-scoped structured state sidecar actually exists
 - saved state and trace are visible
 
 Show:
@@ -160,12 +161,13 @@ Do not say:
 
 Use:
 
-- `/meeting-packs/meetingpack_20260325T062516207912Z_journal_club_0409564f`
+- `/meeting-packs/meetingpack_20260328T003221552910Z_journal_club_0409564f`
 
 Say:
 
 - this is the downstream draft artifact, not the truth store
-- it is evidence-backed and traceable to the representative paper
+- it is evidence-backed and traceable back to the representative paper and its saved state
+- it also keeps current caution visible when citation-grounding metadata is unresolved
 
 Show:
 
@@ -233,6 +235,8 @@ Not allowed fallback:
 
 ## Pre-Demo Checks
 
+Before trusting `localhost:8000`, prefer a fresh backend start if the local server has been running for a long time.
+
 Run only the narrow set:
 
 ```bash
@@ -242,6 +246,14 @@ cd frontend && npm run verify:frontend:backend
 ./scripts/run_meeting_pack_verify.sh
 python3 scripts/lint_docs.py
 cd frontend && npm run e2e:backend:real-smoke
+```
+
+If the current shell makes `npm` or `npx` wrappers die without useful output, use the direct frontend CLI fallbacks:
+
+```bash
+cd frontend && node node_modules/eslint/bin/eslint.js .
+cd frontend && node node_modules/typescript/bin/tsc -b --pretty false && node node_modules/vite/bin/vite.js build
+cd frontend && env PAPERPIPE_REAL_SMOKE=1 PAPERPIPE_REAL_SMOKE_REQUIRE_CANDIDATES=1 node node_modules/@playwright/test/cli.js test -c playwright.backend.real.config.ts e2e/backend.spec.ts -g 'backend real-paper smoke' --reporter=line
 ```
 
 ## Handoff Links

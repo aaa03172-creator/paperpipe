@@ -61,6 +61,19 @@ def _to_payload(report) -> dict[str, Any]:
     }
 
 
+def _compact_report_text(report) -> str:
+    parts = [f"mode={report.mode}"]
+    if report.relevant_files:
+        parts.append(f"relevant={len(report.relevant_files)}")
+    if report.continuity_files:
+        parts.append(f"continuity={len(report.continuity_files)}")
+    if report.cross_paper_files:
+        parts.append(f"cross_paper={len(report.cross_paper_files)}")
+    if report.ignored_doc_files:
+        parts.append(f"ignored_docs={len(report.ignored_doc_files)}")
+    return " ".join(parts)
+
+
 def _print_report(report) -> None:
     print(f"[DEEPREAD-HANDOFF-GATE] mode={report.mode}")
     print(f"[DEEPREAD-HANDOFF-GATE] reason={report.reason}")
@@ -104,6 +117,10 @@ def main() -> int:
 
     report = classify_deepread_handoff_gate_scope(files)
     if args.json:
+        print(
+            "[recommend_deepread_handoff_gate_mode] " + _compact_report_text(report),
+            file=sys.stderr,
+        )
         print(json.dumps(_to_payload(report), ensure_ascii=False, indent=2))
     else:
         _print_report(report)

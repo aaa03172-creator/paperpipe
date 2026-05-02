@@ -13,6 +13,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from src.db_utils import get_db_connection
+from src.services.runtime_paths import pdf_storage_root
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,7 @@ def process_downloaded_pdf(
     if not source.exists():
         return DownloadWatchResult(status="missing_file", destination=None, matched_paper_id=None, note="source_not_found")
 
-    storage_dir = Path(pdf_storage_dir or Path("storage/pdfs")).expanduser()
+    storage_dir = Path(pdf_storage_dir).expanduser() if pdf_storage_dir is not None else pdf_storage_root()
     unmatched_dir = storage_dir / "_unmatched"
     candidates = _load_manual_required_candidates()
 

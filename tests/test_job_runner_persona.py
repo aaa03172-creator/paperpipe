@@ -77,6 +77,37 @@ def test_load_similar_feedback_top3_ignores_same_paper_and_limits(tmp_path, monk
     assert top3[2]["paper_id"] == "p2"
 
 
+def test_load_similar_feedback_top3_sanitizes_legacy_fallback_preview(tmp_path, monkeypatch):
+    feedback_file = tmp_path / "feedback.jsonl"
+    feedback_file.write_text(
+        json.dumps(
+            {
+                "paper_id": "paper_secret_fallback",
+                "accepted": True,
+                "user_correction": "Never inject Authorization: Bearer fallback-feedback-token-123 into prompts.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FailingRetriever:
+        def query_relevant_feedback(self, query_text, limit=3):
+            raise RuntimeError("force fallback")
+
+    monkeypatch.setattr(job_runner, "FEEDBACK_FILE", feedback_file)
+    monkeypatch.setattr(job_runner, "FeedbackRetriever", lambda: FailingRetriever())
+
+    top = job_runner._load_similar_feedback_top3("other_paper", limit=1)
+
+    assert top == [
+        {
+            "paper_id": "paper_secret_fallback",
+            "preview": "Never inject Authorization: <redacted> into prompts.",
+        }
+    ]
+
+
 def test_run_deepread_job_injects_top3_feedback_into_persona_context(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
