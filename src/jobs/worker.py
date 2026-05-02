@@ -51,13 +51,13 @@ class Worker:
         log_file = log_dir / f"{job.job_id}.jsonl"
         heartbeat_stop = threading.Event()
         heartbeat_thread: threading.Thread | None = None
+
+        def current_state():
+            return self.queue.get_job(job.job_id)
         
         try:
             # Update log path
             self.queue.update_job(job.job_id, {"log_path": str(log_file)})
-
-            def current_state():
-                return self.queue.get_job(job.job_id)
 
             def has_left_running_state() -> bool:
                 state = current_state()
@@ -134,7 +134,7 @@ class Worker:
                     result = asyncio.run(run_deepread_job(**compatibility_kwargs))
 
             state = current_state()
-            if state and state.status in TERMINAL_STOP_STATUSES and state.status != "running":
+            if state and state.status in TERMINAL_STOP_STATUSES:
                 logger.info(
                     "Job %s left running state as %s before final worker write; preserving terminal state.",
                     job.job_id,
@@ -192,7 +192,7 @@ class Worker:
 
         except KeyboardInterrupt:
             state = current_state()
-            if state and state.status in TERMINAL_STOP_STATUSES and state.status != "running":
+            if state and state.status in TERMINAL_STOP_STATUSES:
                 logger.info(
                     "Worker interrupt observed after terminal state %s for job %s; preserving current state.",
                     state.status,
@@ -227,7 +227,7 @@ class Worker:
             safe_error = sanitize_event_text_for_log(str(e)) or type(e).__name__
             logger.error(f"Job failed: {safe_error}")
             state = current_state()
-            if state and state.status in TERMINAL_STOP_STATUSES and state.status != "running":
+            if state and state.status in TERMINAL_STOP_STATUSES:
                 logger.info(
                     "Worker exception observed after terminal state %s for job %s; preserving current state.",
                     state.status,
