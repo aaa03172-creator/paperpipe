@@ -434,6 +434,55 @@ def test_talk_packs_api_get_and_list_roundtrip(tmp_path, monkeypatch) -> None:
     )
     assert deck_artifact.content == b"PPTX placeholder bytes"
 
+    preview_dir = talk_root / "talkpack_api_demo" / "preview"
+    preview_dir.mkdir(parents=True)
+    (preview_dir / "slide-01.png").write_bytes(_PNG_1X1_BYTES)
+
+    preview = client.get("/talk-packs/talkpack_api_demo/preview/slide-01.png")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/png")
+    assert preview.headers["content-disposition"] == (
+        'inline; filename="talkpack_api_demo_slide-01.png"'
+    )
+    assert preview.content == _PNG_1X1_BYTES
+
+    preview_as_artifact = client.get(
+        "/talk-packs/talkpack_api_demo/artifacts/preview/slide-01.png"
+    )
+    assert preview_as_artifact.status_code == 404
+
+    invalid_preview = client.get("/talk-packs/talkpack_api_demo/preview/not-a-slide.png")
+    assert invalid_preview.status_code == 400
+
+    (preview_dir / "slide-02.png").write_bytes(b"not a png")
+    corrupt_preview = client.get("/talk-packs/talkpack_api_demo/preview/slide-02.png")
+    assert corrupt_preview.status_code == 400
+
+    blocked_pack = _sample_pack(
+        talk_pack_id="talkpack_api_blocked_preview_demo",
+        title="Blocked preview demo",
+        updated_at=datetime(2026, 4, 21, 1, 2, 3, tzinfo=timezone.utc),
+        output_statuses={"deck_pptx": "blocked"},
+    )
+    blocked_text, blocked_json, blocked_binary = _sample_bundle_payloads()
+    blocked_binary = {
+        key: value for key, value in blocked_binary.items() if key != "exports/deck.pptx"
+    }
+    save_talk_pack_bundle(
+        blocked_pack,
+        text_artifacts=blocked_text,
+        json_artifacts=blocked_json,
+        binary_artifacts=blocked_binary,
+        root=talk_root,
+    )
+    blocked_preview_dir = talk_root / blocked_pack.talk_pack_id / "preview"
+    blocked_preview_dir.mkdir(parents=True)
+    (blocked_preview_dir / "slide-01.png").write_bytes(_PNG_1X1_BYTES)
+    blocked_preview = client.get(
+        f"/talk-packs/{blocked_pack.talk_pack_id}/preview/slide-01.png"
+    )
+    assert blocked_preview.status_code == 400
+
 
 def test_talk_packs_api_lists_recent_first_and_skips_corrupt(tmp_path, monkeypatch) -> None:
     talk_root = tmp_path / "talk_packs"
@@ -576,6 +625,16 @@ def test_talk_packs_api_render_deck_generates_real_pptx(tmp_path, monkeypatch) -
     artifact = client.get(f"/talk-packs/{pack.talk_pack_id}/artifacts/exports/deck.pptx")
     assert artifact.status_code == 200
     assert artifact.content.startswith(b"PK")
+
+    preview = client.get(f"/talk-packs/{pack.talk_pack_id}/preview/slide-01.png")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/png")
+    assert preview.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+    preview_as_artifact = client.get(
+        f"/talk-packs/{pack.talk_pack_id}/artifacts/preview/slide-01.png"
+    )
+    assert preview_as_artifact.status_code == 404
 
     archive_path = tmp_path / "rendered_api.pptx"
     archive_path.write_bytes(artifact.content)

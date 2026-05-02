@@ -151,6 +151,22 @@ def load_declared_talk_pack_artifact(
     return pack, normalized_path, load_talk_pack_artifact_bytes(talk_pack_id, normalized_path, root)
 
 
+def load_talk_pack_deck_preview(
+    talk_pack_id: str,
+    preview_filename: str,
+    *,
+    root: Path | None = None,
+) -> tuple[TalkPack, str, bytes]:
+    pack = load_talk_pack(talk_pack_id, root)
+    _require_output_member(pack, kind="deck_pptx", status="generated")
+    filename = _normalize_preview_filename(preview_filename)
+    path = f"preview/{filename}"
+    content = load_talk_pack_artifact_bytes(talk_pack_id, path, root)
+    if not content.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError(f"Talk Pack deck preview is not a PNG file: {filename}")
+    return pack, path, content
+
+
 def list_talk_pack_summaries(*, root: Path | None = None) -> list[TalkPack]:
     items = load_available_items(
         list_talk_pack_ids(root),
@@ -212,6 +228,13 @@ def _normalize_artifact_path(path: str) -> str:
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         raise ValueError(f"artifact_path is invalid: {path}")
     return pure.as_posix()
+
+
+def _normalize_preview_filename(filename: str) -> str:
+    raw = str(filename or "").strip()
+    if not _STALE_PREVIEW_SLIDE_RE.fullmatch(raw):
+        raise ValueError(f"Talk Pack deck preview filename is invalid: {filename}")
+    return raw
 
 
 def _require_output_member(
