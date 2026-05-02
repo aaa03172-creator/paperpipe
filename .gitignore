@@ -70,6 +70,7 @@ run_manual_injection.py
 brain/
 .gemini/
 .codex/work/
+.codex/stage/
 .codex_trash/
 
 # Local UI audit artifacts
@@ -83,5 +84,10 @@ tmp_*.webp
 storage/_quarantine/
 storage/chart_packs/
 storage/image_evidence/
+storage/pdfs/
 storage/protocol_attachments/
 storage/protocol_cards/
+storage/reports/
+
+# Generated export documents
+output/
