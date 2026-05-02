@@ -16,6 +16,11 @@ from src.config import (
 import src.db_utils as db_utils
 
 
+@pytest.fixture(autouse=True)
+def clear_default_config_path(monkeypatch):
+    monkeypatch.delenv("PAPERPIPE_CONFIG_PATH", raising=False)
+
+
 def _write_config(path: Path, *, vault_name: str, extra_paths: str = "") -> None:
     path.write_text(
         f"""
