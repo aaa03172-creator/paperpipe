@@ -247,6 +247,11 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["verifier_status"] == "completed"
         assert meta["stats_report_written"] is True
         assert meta["artifact_document_written"] is True
+        assert meta["artifact_figure_captions_written"] is True
+        assert meta["figure_caption_artifact"].endswith("figure_captions.json")
+        assert meta["figure_caption_count"] == 0
+        assert run_meta["figure_caption_artifact"].endswith("figure_captions.json")
+        assert run_meta["figure_caption_count"] == 0
         assert meta["artifact_index_written"] is True
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_claimset_resolved_written"] is True
@@ -579,10 +584,24 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         assert meta["reader_timeout_triggered"] is True
         assert meta["reader_timeout_error_type"] == "ReadTimeout"
         assert meta["reader_provider_timeout_override_applied"] is False
+        assert meta["artifact_reader_timeout_written"] is True
+        assert meta["reader_timeout_artifact"].endswith("reader_timeout.json")
         assert run_meta["status"] == "failed"
         assert run_meta["reader_timeout_budget_sec"] == 123
         assert run_meta["reader_timeout_triggered"] is True
         assert run_meta["reader_timeout_error_type"] == "ReadTimeout"
+        assert run_meta["reader_timeout_artifact"].endswith("reader_timeout.json")
+        timeout_sidecar = json.loads((artifact_dir / "reader_timeout.json").read_text(encoding="utf-8"))
+        assert timeout_sidecar["schema_version"] == "reader_timeout.v1"
+        assert timeout_sidecar["layer"] == "review_gate_artifact"
+        assert timeout_sidecar["canonical_status"] == "non_canonical"
+        assert timeout_sidecar["paper_id"] == paper_id
+        assert timeout_sidecar["status"] == "timeout"
+        assert timeout_sidecar["timeout_budget_sec"] == 123
+        assert timeout_sidecar["page_count"] == 1
+        assert timeout_sidecar["table_count"] == 0
+        assert timeout_sidecar["error_type"] == "ReadTimeout"
+        assert timeout_sidecar["recommended_action"] == "retry_with_larger_reader_timeout_or_focused_first_reader_context"
         quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         assert quality_gate["overall_status"] == "fail"
         assert quality_gate["step_stability_summary"]["status"] == "fail"
