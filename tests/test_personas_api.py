@@ -12,8 +12,10 @@ def _write_profiles(path: Path, content: str) -> None:
 
 def test_personas_lists_default_and_enabled_yaml_profiles(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    profiles_path = tmp_path / "config" / "profiles.yaml"
+    monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(profiles_path))
     _write_profiles(
-        tmp_path / "config" / "profiles.yaml",
+        profiles_path,
         """
 profiles:
   - id: mechanism
@@ -57,8 +59,10 @@ defaults: {}
 
 def test_personas_include_disabled_when_requested(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    profiles_path = tmp_path / "config" / "profiles.yaml"
+    monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(profiles_path))
     _write_profiles(
-        tmp_path / "config" / "profiles.yaml",
+        profiles_path,
         """
 profiles:
   - id: enabled_profile
