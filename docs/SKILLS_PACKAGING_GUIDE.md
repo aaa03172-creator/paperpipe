@@ -127,6 +127,8 @@ These are developer tooling only. They must not be treated as product runtime fe
 Current minimal developer-workflow set:
 - `tool-intake-review`
 - `smallest-safe-patch`
+- `meeting-pack-verifier`
+- `chart-figure-hardening`
 - `code_mapper`
 - `architecture_guardian`
 

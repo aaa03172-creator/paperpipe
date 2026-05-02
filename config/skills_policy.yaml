@@ -11,6 +11,8 @@ project_scoped_skills:
   - citation-management
   - pyzotero
   - peer-review
+  - meeting-pack-verifier
+  - chart-figure-hardening
 
 actions:
   extract_markdown:
