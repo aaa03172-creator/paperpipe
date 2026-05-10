@@ -1,6 +1,6 @@
 {
   "run_id": "python_import_health_test_custom",
-  "generated_at": "2026-04-26T09:39:26.859596+00:00",
+  "generated_at": "2026-05-10T14:22:26.747911+00:00",
   "python_bin": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13",
   "timeout_seconds": 5,
   "probe_count": 2,
@@ -12,7 +12,7 @@
       "mode": "site",
       "module": "json",
       "status": "ok",
-      "elapsed_seconds": 0.022,
+      "elapsed_seconds": 0.021,
       "returncode": 0,
       "stdout": "ok",
       "stderr_tail": ""
@@ -21,7 +21,7 @@
       "mode": "no-site",
       "module": "math",
       "status": "ok",
-      "elapsed_seconds": 0.015,
+      "elapsed_seconds": 0.014,
       "returncode": 0,
       "stdout": "ok",
       "stderr_tail": ""
