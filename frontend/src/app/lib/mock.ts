@@ -54,6 +54,7 @@ import type {
 } from "./types";
 import { buildBestHighlightMap, getClaimLinkState, isClaimTextMissing } from "./claimGuard";
 import { hasPaperOperatorNoteText } from "./paperOperatorState";
+import { expandPaperIdCandidates } from "./paperNoteOps";
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -3328,7 +3329,9 @@ function paperNoteIdVariants(value?: string | null): string[] {
     append(suffix);
     append(suffix.replaceAll(":", ""));
   } else if (text.startsWith("zotero")) {
-    append(`zotero:${text.slice("zotero".length)}`);
+    for (const candidate of expandPaperIdCandidates(text)) {
+      append(candidate);
+    }
   }
 
   return variants;

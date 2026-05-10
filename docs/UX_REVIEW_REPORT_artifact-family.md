@@ -140,3 +140,60 @@ Reviewer: Codex
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend chart pack index can create a new chart pack from the browser|backend chart pack quick-pick journey stays connected in the browser|backend protocol knowledge index can create a new protocol card from the browser|backend paper note detail can start a protocol card with note context from the browser"`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "chart pack index layout|protocol knowledge index layout|mobile.*chart pack index layout|mobile.*protocol knowledge index layout" --update-snapshots`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "chart pack index layout|protocol knowledge index layout|mobile.*chart pack index layout|mobile.*protocol knowledge index layout"`
+
+## Lazyweb Artifact Review / Approval Boundary Checkpoint (2026-05-10)
+- Screen/Flow:
+  - artifact family detail and create/index routes: `/meeting-packs`, `/protocol-cards`, `/chart-packs`, `/method-comparisons`, `/image-evidence`
+- Goal action:
+  - users should inspect generated or reusable artifacts as downstream review objects, not as canonical biomedical truth or auto-approved outputs.
+- Primary persona:
+  - a research operator reopening saved drafts, chart bundles, protocol snapshots, image bundles, or method comparisons before sharing, exporting, or maintaining them.
+- Current friction:
+  - Lazyweb approval-flow references can suggest polished approval gates, status badges, and handoff CTAs that look complete but may not map to PaperPipe's local state/provenance layers.
+  - PaperPipe already has a stronger family rule: artifact pages must show purpose, derivation, upstream return path, review/readiness state, and guarded maintenance or export actions.
+- Success metric:
+  - reference-inspired artifact changes are accepted only if they keep generated/draft/reviewed/export states visibly downstream of canonical paper note and evidence review.
+- Quick Review:
+  - Lazyweb is useful for finding approval-flow patterns, but those patterns should be translated into PaperPipe's artifact-family contract before any UI change.
+  - no new approval engine, promotion route, export policy, schema, runtime dependency, or MCP config is introduced by this checkpoint.
+- Full Review:
+  - P0: do not add an `Approved` or `Promoted` artifact state unless a canonical schema/API contract exists for that state.
+  - P0: do not let review-state badges imply that claims, protocol steps, images, charts, or meeting slides are scientifically validated.
+  - P1: keep review/readiness state before maintenance/export actions on generated artifact detail pages.
+  - P1: keep `ArtifactHeaderContext` as the shared family primitive for `when to use`, `derived from`, and upstream return framing.
+  - P2: use Lazyweb output as source-labeled design notes only; avoid storing raw screenshot dumps or generated reports in git.
+- Full Review Coverage:
+  - 6P storyboard context: Problem is downstream artifacts looking more final than their upstream evidence; Emotion is cautious reuse; Action is opening a saved artifact before sharing/exporting; Struggle is knowing whether the artifact is ready or still draft-like; Attempt is state-first artifact review with upstream return links; Happy Ending is reuse only after provenance and review state are visible.
+  - BMAP: Motivation is high because artifacts are close to communication/export; Ability improves when readiness and derivation appear before action controls; Prompt is review-state-first rail/header framing.
+  - B.I.A.S: Block risk is polished output hiding limits; Interpret succeeds when generated/draft/reviewed stays explicit; Act succeeds when maintenance/export is guarded; Store succeeds when all artifact lanes repeat the same provenance rhythm.
+  - Peak-End: Peak is understanding the artifact's source and readiness immediately; pit is treating a polished output as approved evidence; transition is artifact review -> upstream paper note/evidence -> guarded reuse; end is a handoff that still remembers provenance.
+  - Ethics checks: Regret is reduced by not overstating readiness; Black Mirror risk is controlled by avoiding fake approval states; In Real-Life remains a careful review handoff rather than a rubber stamp.
+- BMAP diagnosis:
+  - Motivation: high at the artifact stage because users are near sharing, export, or reuse.
+  - Ability: depends on seeing review/readiness and upstream source context before actions.
+  - Prompt: should be state-first, then action; Lazyweb patterns that are action-first need adaptation.
+- B.I.A.S diagnosis:
+  - Block: glossy artifact cards can hide warnings and source gaps.
+  - Interpret: status language must distinguish draft/readiness from evidence truth.
+  - Act: rerender, regenerate, export, or share paths should stay downstream of review context.
+  - Store: repeated provenance framing teaches users to distrust unreviewed polish.
+- Peak-End design notes:
+  - Peak: artifact opens with purpose, derivation, and review state visible.
+  - Pit: an export/share CTA appears before limitations or upstream evidence.
+  - Transition: artifact detail -> upstream note/workbench -> artifact maintenance/export.
+  - End: user leaves with a reusable artifact and a memory of its source limits.
+- Concrete changes:
+  - docs-only checkpoint; no artifact runtime, schema, route, export, dependency, token, or MCP config change.
+  - future Lazyweb approval-flow findings must be summarized into source-labeled, non-canonical docs before implementation.
+  - PR-sized artifact UI changes must state which layer is affected: review/gate artifact, user-facing export, compiled knowledge, or canonical structured state.
+- Ethics check results:
+  - Regret: pass; prevents attractive approval UI from overstating readiness.
+  - Black Mirror: pass; fake approval or auto-promotion states remain blocked.
+  - In Real-Life: pass; a careful collaborator would ask users to check sources before handoff.
+- Next PR-sized actions:
+  - keep Meeting Pack, Protocol Card, Image Evidence, Chart Pack, and Method Comparison reviews aligned to the family matrix.
+  - only add approval/promote language after schema/API ownership is explicitly adopted.
+  - when Lazyweb is used for artifact approval research, record sanitized prompt, pattern summary, anti-patterns, and PaperPipe fit in a dated `docs/reports/` note.
+- Verification:
+  - inspected `ArtifactHeaderContext` usage and current artifact route copy for derivation, upstream evidence, and review-state language.
+  - inspected existing Meeting Pack, Protocol Card, Image Evidence, and Chart Pack UX reports for current review-before-action decisions.

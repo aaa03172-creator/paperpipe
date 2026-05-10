@@ -19,14 +19,6 @@ export function mapStage(stage?: string, status?: JobLifecycle): PipelineStage {
   return "ingest";
 }
 
-export function lifecycleToPaperStatus(status?: JobLifecycle): PaperUiStatus {
-  const raw = String(status ?? "").toLowerCase();
-  if (raw === "running" || raw === "queued") return "processing";
-  if (raw === "completed") return "completed";
-  if (raw === "failed" || raw === "cancelled") return "failed";
-  return "not_started";
-}
-
 export function statusLabel(status: PaperUiStatus): string {
   switch (status) {
     case "processing":

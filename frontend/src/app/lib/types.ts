@@ -666,8 +666,6 @@ export type ChartTransformKind = "field_mapping" | "filter" | "sort" | "coerce_n
 
 export type ChartArtifactKind = "data_csv" | "spec_json" | "render_png" | "render_svg";
 
-export type ChartValueKind = "text" | "numeric" | "boolean";
-
 export type ChartScalar = string | number | boolean;
 
 export interface ChartSourceRef {
@@ -993,7 +991,7 @@ export type PaperSynthesisFreshness = "current" | "stale" | "unknown";
 
 export type PaperSynthesisLineageSourceKind = "structured_state" | "claimset_resolved" | "run_meta";
 
-export type PaperSynthesisReviewArtifactKind = "quality_gate" | "acceptance_contract";
+export type PaperSynthesisReviewArtifactKind = "quality_gate" | "acceptance_contract" | "visual_evidence_ledger";
 
 export interface PaperSynthesisLineageSummary {
   minimum_required_source_kinds: PaperSynthesisLineageSourceKind[];
@@ -1054,11 +1052,6 @@ export interface PaperSynthesisManifest {
   warnings: string[];
   uncertainty_notes: string[];
   lineage_summary: PaperSynthesisLineageSummary;
-}
-
-export interface PaperSynthesisResponse {
-  synthesis: PaperSynthesisManifest;
-  markdown: string;
 }
 
 export type ImageSourceKind = "local_file" | "external_image_ref";

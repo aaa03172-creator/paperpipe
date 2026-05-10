@@ -80,6 +80,7 @@ import {
   updateMockPaperNoteOperatorState,
   SAMPLE_PDF,
 } from "./mock";
+import { expandPaperIdCandidates } from "./paperNoteOps";
 
 const FORCE_MOCK_REASON = "mock mode forced by VITE_FORCE_MOCK";
 const LIVE_PAPERS_CACHE_TTL_MS = 15_000;
@@ -474,16 +475,7 @@ async function firstSuccess<T>(paths: string[], init?: RequestInit): Promise<T> 
 }
 
 function buildPaperIdCandidates(paperId: string): string[] {
-  const raw = String(paperId ?? "").trim();
-  if (!raw) {
-    return [];
-  }
-  const stripped = raw.startsWith("zotero:") ? raw.slice("zotero:".length).trim() : "";
-  const candidates = stripped ? [raw, stripped] : [raw];
-  if (stripped && !candidates.includes(stripped)) {
-    candidates.push(stripped);
-  }
-  return candidates;
+  return expandPaperIdCandidates(paperId);
 }
 
 async function tryResolvePaperNoteLookupByPaperIdCandidates(
@@ -545,18 +537,16 @@ function synthesizePaperDetailFromStructuredLookup(
   const doiUrl = String(lookup.doi_url ?? "").trim();
   const localPdfUrl = pdfUrl.startsWith("/papers/") ? pdfUrl : null;
   const openPdfUrl = /^https?:\/\//i.test(pdfUrl) ? pdfUrl : null;
+  const completed = note.structured_state_present || String(note.status ?? "").trim().toUpperCase() === "INDEXED";
 
   return {
     paper_id: canonicalPaperId,
     note_slug: normalizeNoteDetailPaperId(note.slug),
     title: note.title || note.slug || canonicalPaperId,
-    status:
-      note.structured_state_present || String(note.status ?? "").trim().toUpperCase() === "INDEXED"
-        ? "completed"
-        : normalizePaperStatus(note.status ?? undefined),
+    status: completed ? "completed" : normalizePaperStatus(note.status ?? undefined),
     issues: 0,
     issues_label: "No critical issues",
-    issues_state: "unavailable",
+    issues_state: completed ? "clear" : "unavailable",
     pdf_exists: Boolean(localPdfUrl),
     updated_at: note.updated_at ?? undefined,
     latest_run_id: note.ops_summary?.latest_run_id ?? undefined,
@@ -1222,27 +1212,13 @@ export async function generateMeetingPack(
       reason: FORCE_MOCK_REASON,
     };
   }
-  try {
-    return {
-      data: await fetchJson<MeetingPackResponse>("/meeting-packs/generate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-      isMock: false,
-    };
-  } catch (error) {
-    if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
-      throw error;
-    }
-    if (!canFallbackForReadError(error)) {
-      throw error;
-    }
-    return {
-      data: createMockMeetingPack(payload),
-      isMock: true,
-      reason: "meeting pack generation unavailable, mock draft created",
-    };
-  }
+  return {
+    data: await fetchJson<MeetingPackResponse>("/meeting-packs/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    isMock: false,
+  };
 }
 
 export async function getMethodComparison(comparisonId: string): Promise<ApiResult<MethodComparisonResponse>> {
