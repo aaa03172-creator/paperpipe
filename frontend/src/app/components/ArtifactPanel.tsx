@@ -172,7 +172,7 @@ function formatPaperSynthesisSourceKind(kind: PaperSynthesisManifest["source_ref
   if (kind === "structured_state" || kind === "claimset_resolved" || kind === "run_meta") {
     return formatPaperSynthesisLineageKind(kind);
   }
-  if (kind === "quality_gate" || kind === "acceptance_contract") {
+  if (kind === "quality_gate" || kind === "acceptance_contract" || kind === "visual_evidence_ledger") {
     return formatPaperSynthesisReviewArtifactKind(kind);
   }
   if (kind === "document_artifact") {
@@ -186,6 +186,9 @@ function formatPaperSynthesisReviewArtifactKind(
 ): string {
   if (kind === "quality_gate") {
     return "quality gate";
+  }
+  if (kind === "visual_evidence_ledger") {
+    return "visual evidence ledger";
   }
   return "acceptance contract";
 }

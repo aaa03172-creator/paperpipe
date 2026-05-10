@@ -49,6 +49,7 @@ import { WorkspaceContextCard, WorkspaceContextStrip } from "../components/Works
 import { jobLabel } from "../lib/ui";
 import { sanitizeRenderableHref } from "../lib/safeLinks";
 import { formatFreeformStatusLabel, getFreeformStatusTone, getPaperLifecycleTone, getStatusToneClassName } from "../lib/statusSystem";
+import { paperNoteToWorkbenchPaperId } from "../lib/paperNoteOps";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { buttonClassName } from "../components/ui/buttonClassName";
@@ -948,17 +949,7 @@ function confidenceLabel(value?: number | null): string {
 }
 
 function resolveWorkbenchPaperId(note: PaperNoteDetailResponse["note"] | null): string | null {
-  if (!note) {
-    return null;
-  }
-  const id = (note.id ?? "").trim();
-  if (id.length > 0) {
-    return id;
-  }
-  if (note.slug.startsWith("zotero") && !note.slug.includes(":")) {
-    return `zotero:${note.slug.slice("zotero".length)}`;
-  }
-  return note.slug;
+  return paperNoteToWorkbenchPaperId(note);
 }
 
 function isCanonicalNoteSlugCandidate(value?: string | null): boolean {
@@ -2420,8 +2411,10 @@ function ActionsPanel({
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>Actions</CardTitle>
-        <CardDescription>Safe skill actions gated by license, network, and secret policy.</CardDescription>
+        <CardTitle>Guarded actions</CardTitle>
+        <CardDescription>
+          Policy-gated actions that can update generated summaries or downstream markdown after saved state is reviewed.
+        </CardDescription>
       </CardHeader>
       <Separator />
       <CardContent className="grid gap-3 pt-4">
@@ -2447,7 +2440,7 @@ function ActionsPanel({
           </div>
         </label>
         {actions.length === 0 ? (
-          <p className="text-sm text-[var(--pp-text-dim)]">No approved actions are available for this note.</p>
+          <p className="text-sm text-[var(--pp-text-dim)]">No policy-allowed actions are available for this note.</p>
         ) : (
           actions.map((action) => (
             <article key={action.action} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
@@ -3685,6 +3678,8 @@ export function PaperNoteDetailPage() {
                     onReset={handleResetOperatorState}
                     onSave={handleSaveOperatorState}
                   />
+                  <RelatedPapersPanel related={data.related} />
+                  <ReferencesPanel references={data.references} />
                   <ActionsPanel
                     actions={availableActions}
                     runningAction={runningAction}
@@ -3706,8 +3701,6 @@ export function PaperNoteDetailPage() {
                     readingAssist={readingAssist}
                     requestedReadingAssistLocale={requestedReadingAssistLocale}
                   />
-                  <RelatedPapersPanel related={data.related} />
-                  <ReferencesPanel references={data.references} />
                 </>
               ) : (
                 <>
@@ -3725,14 +3718,6 @@ export function PaperNoteDetailPage() {
                     onReset={handleResetOperatorState}
                     onSave={handleSaveOperatorState}
                   />
-                  <PropertiesPanel
-                    note={note}
-                    aliases={aliases}
-                    tags={tags}
-                    structuredState={structuredState}
-                    readingAssist={readingAssist}
-                    requestedReadingAssistLocale={requestedReadingAssistLocale}
-                  />
                   <RelatedPapersPanel related={data.related} />
                   <ReferencesPanel references={data.references} />
                   <ActionsPanel
@@ -3745,6 +3730,14 @@ export function PaperNoteDetailPage() {
                     onRun={handleRunAction}
                   />
                   <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                  <PropertiesPanel
+                    note={note}
+                    aliases={aliases}
+                    tags={tags}
+                    structuredState={structuredState}
+                    readingAssist={readingAssist}
+                    requestedReadingAssistLocale={requestedReadingAssistLocale}
+                  />
                 </>
               )}
             </div>
@@ -3776,6 +3769,8 @@ export function PaperNoteDetailPage() {
                   onReset={handleResetOperatorState}
                   onSave={handleSaveOperatorState}
                 />
+                <RelatedPapersPanel related={data.related} onNavigate={() => setSidePanelOpen(false)} />
+                <ReferencesPanel references={data.references} />
                 <ActionsPanel
                   actions={availableActions}
                   runningAction={runningAction}
@@ -3796,8 +3791,6 @@ export function PaperNoteDetailPage() {
                   stateLoaded={Boolean(structuredState)}
                   onNavigate={() => setSidePanelOpen(false)}
                 />
-                <RelatedPapersPanel related={data.related} onNavigate={() => setSidePanelOpen(false)} />
-                <ReferencesPanel references={data.references} />
               </>
             ) : (
               <>
@@ -3815,13 +3808,6 @@ export function PaperNoteDetailPage() {
                   onReset={handleResetOperatorState}
                   onSave={handleSaveOperatorState}
                 />
-                <PropertiesPanel note={note} aliases={aliases} tags={tags} structuredState={structuredState} />
-                <OutlinePanel outline={outline} onNavigate={() => setSidePanelOpen(false)} />
-                <SectionNavigatorPanel
-                  sections={sectionNavigator}
-                  stateLoaded={Boolean(structuredState)}
-                  onNavigate={() => setSidePanelOpen(false)}
-                />
                 <RelatedPapersPanel related={data.related} onNavigate={() => setSidePanelOpen(false)} />
                 <ReferencesPanel references={data.references} />
                 <ActionsPanel
@@ -3834,6 +3820,13 @@ export function PaperNoteDetailPage() {
                   onRun={handleRunAction}
                 />
                 <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
+                <PropertiesPanel note={note} aliases={aliases} tags={tags} structuredState={structuredState} />
+                <OutlinePanel outline={outline} onNavigate={() => setSidePanelOpen(false)} />
+                <SectionNavigatorPanel
+                  sections={sectionNavigator}
+                  stateLoaded={Boolean(structuredState)}
+                  onNavigate={() => setSidePanelOpen(false)}
+                />
               </>
             )}
           </div>

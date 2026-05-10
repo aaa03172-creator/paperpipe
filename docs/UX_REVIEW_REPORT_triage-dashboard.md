@@ -1,8 +1,8 @@
 # UX Review Report - Triage Dashboard
 
-Status: Current review artifact  
-Date: 2026-03-13  
-Owner: Lattice runtime maintainers  
+Status: Current review artifact
+Date: 2026-03-13
+Owner: Lattice runtime maintainers
 Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
 
 Date: 2026-03-13
@@ -738,3 +738,59 @@ Reviewer: Codex
   - `python3 scripts/lint_docs.py docs/UX_REVIEW_REPORT_triage-dashboard.md`
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend triage access links keep open and institution routes in user language"`
+
+## 21) Lazyweb Research Dashboard Fit Checkpoint (2026-05-10)
+- Screen/Flow:
+  - `/` triage dashboard hero, `Continue current work`, `Workspace context`, and `Saved outputs`
+- Goal action:
+  - users should resume one active paper thread before treating home as a generic project dashboard.
+- Primary persona:
+  - a returning biomedical reader who wants to continue reading, review blocked papers, or open downstream artifacts without losing evidence lineage.
+- Current friction:
+  - external research-dashboard references can make it tempting to add project cards, collection metaphors, or broad workspace chrome before PaperPipe has a runtime-backed project container.
+  - the current implementation already says `Paper-first workspace`, `Start with one paper and keep the evidence thread intact`, foregrounds `Continue current work`, and keeps `Saved outputs` downstream of the current paper thread.
+- Success metric:
+  - no UI redesign is introduced from Lazyweb reference browsing unless the proposed pattern improves paper-thread recovery, evidence review, or artifact handoff without weakening local-first state/provenance boundaries.
+- Quick Review:
+  - the dashboard is already aligned with the evidence-first direction: start from one paper, preserve review state, then open saved outputs.
+  - the safest product decision is to record the reference-fit boundary and avoid adding generic SaaS workspace patterns.
+- Full Review:
+  - P0: do not convert home into a project-management dashboard without a canonical project/runtime model.
+  - P0: keep paper-thread recovery ahead of saved artifacts and broad navigation.
+  - P1: Lazyweb references may inform future home copy or layout only when the pattern directly supports reading, review, blocker repair, or artifact handoff.
+  - P2: keep current visual system and route structure unchanged for this checkpoint.
+- Full Review Coverage:
+  - 6P storyboard context: Problem is returning to a biomedical reading queue; Emotion is uncertainty about where the evidence thread was left; Action is opening home; Struggle is separating active review from downstream artifacts; Attempt is `Continue current work` plus `Workspace context`; Happy Ending is reopening the correct paper or artifact with provenance intact.
+  - BMAP: Motivation is high when a user has active review or blockers; Ability stays high because the first screen names the next paper-thread action; Prompt is provided by the resume card and context counts.
+  - B.I.A.S: Block risk is generic dashboard noise; Interpret succeeds when home reads as paper-first; Act succeeds through one primary resume path; Store succeeds when the dashboard reinforces provenance continuity.
+  - Peak-End: Peak is seeing the next grounded action immediately; pit is over-broad workspace chrome; transition is home -> paper note/workbench -> saved output; end is artifact handoff without pretending references are product requirements.
+  - Ethics checks: Regret is reduced by avoiding decorative redesign; Black Mirror risk is low because no external reference output is treated as user data or canonical product truth; In Real-Life stays close to a teammate saying “continue this paper first.”
+- BMAP diagnosis:
+  - Motivation: users arrive with a live paper/review goal, not a desire to browse a generic dashboard.
+  - Ability: the existing hero, resume card, and context card reduce decision load by keeping the next step paper-scoped.
+  - Prompt: `Continue current work` is the correct prompt; Lazyweb should not add competing top-level prompts here.
+- B.I.A.S diagnosis:
+  - Block: extra project cards would make the dashboard look more polished but less legible.
+  - Interpret: `Paper-first workspace` correctly frames the surface as a reading/review launch point.
+  - Act: the current structure routes users to Paper Notes, queue lenses, and saved outputs in a sane order.
+  - Store: the repeated paper-thread language teaches users that artifacts are downstream of evidence work.
+- Peak-End design notes:
+  - Peak is immediate recovery of the current paper thread.
+  - Pit would be a glossy workspace overview that obscures what to verify next.
+  - Transition should remain home -> active paper/review -> downstream artifact.
+  - End should leave users confident that external references did not override local provenance.
+- Concrete changes:
+  - docs-only checkpoint; no runtime UI, route, state, dependency, or token/config changes.
+  - Lazyweb remains a developer-only reference tool for future UI research tasks, not a product runtime dependency.
+  - future dashboard proposals should cite stored reference artifacts and explain the evidence-workflow fit before implementation.
+- Ethics check:
+  - Regret: reduced; avoids spending user attention on decorative dashboard expansion.
+  - Black Mirror: avoided; no private paper/PDF/lab content is sent to Lazyweb as part of this checkpoint.
+  - In Real-Life: aligned; a careful collaborator would preserve the active paper thread before suggesting a broader redesign.
+- Next PR-sized actions:
+  - keep this dashboard unchanged until a concrete evidence-workflow issue is identified.
+  - if future Lazyweb references are used for home, store only summarized patterns and source links in `docs/ui_references.md` or a dated UI reference report.
+  - verify any later home UI change with `npm run build` plus the existing backend home Playwright coverage.
+- Verification:
+  - inspected `frontend/src/app/pages/TriageDashboard.tsx` for current home structure and copy
+  - inspected existing `docs/UX_REVIEW_REPORT_triage-dashboard.md` checkpoints for prior home decisions

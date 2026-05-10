@@ -4745,10 +4745,11 @@ test("backend workbench uses slug paper detail directly after a slug structured 
   expect(slugResolveRequestCount).toBe(1);
 });
 
-test("backend workbench reuses canonical paper detail before note-detail synthesis when the first slug structured lookup misses", async ({
+test("backend workbench reuses canonical structured lookup before note-detail synthesis when the first slug lookup misses", async ({
   page,
 }) => {
   let slugStructuredLookupRequestCount = 0;
+  let canonicalStructuredLookupRequestCount = 0;
   let slugPaperDetailRequestCount = 0;
   let canonicalPaperDetailRequestCount = 0;
   let slugNoteDetailRequestCount = 0;
@@ -4795,6 +4796,12 @@ test("backend workbench reuses canonical paper detail before note-detail synthes
   page.on("request", (request) => {
     const url = request.url();
     if (
+      url.includes("/api/paper-notes/resolve-by-paper-id") &&
+      url.includes(`paper_id=${encodeURIComponent(noteBackedWorkbenchPaperId)}`)
+    ) {
+      canonicalStructuredLookupRequestCount += 1;
+    }
+    if (
       url.includes(`/api/papers/${encodeURIComponent(noteBackedWorkbenchSlug)}`) &&
       !url.includes(`/api/papers/${encodeURIComponent(noteBackedWorkbenchSlug)}/pdf`)
     ) {
@@ -4819,9 +4826,10 @@ test("backend workbench reuses canonical paper detail before note-detail synthes
   await expect(page).toHaveURL(new RegExp(`/workbench/${noteBackedWorkbenchPaperId}$`));
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(250);
-  expect(slugStructuredLookupRequestCount).toBe(2);
+  expect(slugStructuredLookupRequestCount).toBe(1);
+  expect(canonicalStructuredLookupRequestCount).toBe(1);
   expect(slugPaperDetailRequestCount).toBe(1);
-  expect(canonicalPaperDetailRequestCount).toBe(1);
+  expect(canonicalPaperDetailRequestCount).toBe(0);
   expect(slugNoteDetailRequestCount).toBe(0);
 });
 
@@ -4829,6 +4837,7 @@ test("backend workbench synthesizes from structured lookup without note-detail f
   page,
 }) => {
   let slugStructuredLookupRequestCount = 0;
+  let canonicalStructuredLookupRequestCount = 0;
   let slugNoteDetailRequestCount = 0;
   let canonicalPaperDetailRequestCount = 0;
 
@@ -4889,6 +4898,12 @@ test("backend workbench synthesizes from structured lookup without note-detail f
 
   page.on("request", (request) => {
     const url = request.url();
+    if (
+      url.includes("/api/paper-notes/resolve-by-paper-id") &&
+      url.includes(`paper_id=${encodeURIComponent(noteBackedWorkbenchPaperId)}`)
+    ) {
+      canonicalStructuredLookupRequestCount += 1;
+    }
     if (url.includes(`/api/paper-notes/${encodeURIComponent(noteBackedWorkbenchSlug)}`)) {
       slugNoteDetailRequestCount += 1;
     }
@@ -4902,8 +4917,9 @@ test("backend workbench synthesizes from structured lookup without note-detail f
   await expect(page).toHaveURL(new RegExp(`/workbench/${noteBackedWorkbenchPaperId}$`));
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(250);
-  expect(slugStructuredLookupRequestCount).toBeGreaterThanOrEqual(2);
-  expect(canonicalPaperDetailRequestCount).toBeGreaterThanOrEqual(1);
+  expect(slugStructuredLookupRequestCount).toBe(1);
+  expect(canonicalStructuredLookupRequestCount).toBeGreaterThanOrEqual(1);
+  expect(canonicalPaperDetailRequestCount).toBe(0);
   expect(slugNoteDetailRequestCount).toBe(0);
 });
 
@@ -5115,7 +5131,7 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
-    await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Run history", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Saved claims", exact: true })).toBeVisible();
     await expect(sheet).toContainText("Strong: 2 claims, avg confidence 0.81, 0 inconsistent checks.");
@@ -5137,7 +5153,7 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading").nth(1)).toHaveText("Saved note state");
     await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
-    await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
   });
@@ -5227,7 +5243,7 @@ test("paper notes detail supports learner and builder debug view modes", async (
   const rightAside = page.locator("main > aside").nth(1);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Saved note state");
   await expect(rightAside.getByRole("heading").nth(1)).toHaveText("Saved claims");
-  await expect(rightAside.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
+  await expect(rightAside.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
   await expect(rightAside.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
   const appraisalPanel = page.getByTestId("paper-note-appraisal-panel");
   await expect(appraisalPanel).toContainText("Optional reviewer lane");
@@ -5300,7 +5316,7 @@ test("paper notes detail renders structured actions, run history, and structured
   await expect(propertiesPanel).toContainText("Strong");
   await expect(propertiesPanel.getByTestId("paper-note-section-navigation-signal")).toContainText("Saved signal ready");
 
-  const actionsPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Actions", exact: true }) }).first();
+  const actionsPanel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Guarded actions", exact: true }) }).first();
   await expect(actionsPanel.getByRole("button", { name: "Extract Markdown" })).toBeVisible();
   await expect(actionsPanel.getByRole("button", { name: "Validate Citations" })).toBeVisible();
   await expect(actionsPanel.getByRole("button", { name: "Critical Appraisal" })).toBeVisible();

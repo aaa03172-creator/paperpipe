@@ -1,9 +1,30 @@
 import { PaperNoteOpsSummary, PaperNoteSummary } from "./types";
-import { StatusTone, getStatusToneClassName, getStatusToneTextClassName } from "./statusSystem";
+import { StatusTone, getStatusToneTextClassName } from "./statusSystem";
 
 export function paperNoteToPaperIdCandidates(note: Pick<PaperNoteSummary, "id" | "slug">): string[] {
+  return expandPaperIdCandidates(note.id, note.slug);
+}
+
+export function paperNoteToWorkbenchPaperId(note: Pick<PaperNoteSummary, "id" | "slug"> | null): string | null {
+  if (!note) {
+    return null;
+  }
+  const id = String(note.id ?? "").trim();
+  if (id.length > 0) {
+    return id;
+  }
+  const slug = String(note.slug ?? "").trim();
+  if (!slug) {
+    return null;
+  }
+  if (slug.startsWith("zotero") && !slug.includes(":")) {
+    return `zotero:${slug.slice("zotero".length)}`;
+  }
+  return slug;
+}
+
+export function expandPaperIdCandidates(...rawValues: Array<string | null | undefined>): string[] {
   const candidates: string[] = [];
-  const rawValues = [note.id ?? "", note.slug ?? ""];
   for (const raw of rawValues) {
     const text = String(raw).trim();
     if (!text) {
@@ -27,19 +48,6 @@ export function paperNoteToPaperIdCandidates(note: Pick<PaperNoteSummary, "id" |
   return candidates;
 }
 
-export function buildPaperNoteOpsMap(items: PaperNoteSummary[]): Record<string, PaperNoteOpsSummary> {
-  const output: Record<string, PaperNoteOpsSummary> = {};
-  for (const item of items) {
-    if (!item.ops_summary) {
-      continue;
-    }
-    for (const candidate of paperNoteToPaperIdCandidates(item)) {
-      output[candidate] = item.ops_summary;
-    }
-  }
-  return output;
-}
-
 export function getPaperNoteOpsTone(summary?: PaperNoteOpsSummary | null): StatusTone {
   if (!summary) {
     return "muted";
@@ -51,10 +59,6 @@ export function getPaperNoteOpsTone(summary?: PaperNoteOpsSummary | null): Statu
     return "warning";
   }
   return "muted";
-}
-
-export function getPaperNoteOpsClassName(summary?: PaperNoteOpsSummary | null): string {
-  return getStatusToneClassName(getPaperNoteOpsTone(summary));
 }
 
 export function getPaperNoteOpsReasonClassName(summary?: PaperNoteOpsSummary | null): string {
