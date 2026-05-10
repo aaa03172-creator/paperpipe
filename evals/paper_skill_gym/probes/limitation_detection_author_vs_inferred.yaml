@@ -1,0 +1,15 @@
+probe_id: limitation_detection_author_vs_inferred
+taxonomy: limitation_detection
+difficulty: hard
+source_excerpt: "Discussion: The authors note the small sample size. The study was conducted at a single center, though this is not listed in the limitation paragraph."
+prompt: "List one author-stated limitation and one inferred limitation without conflating them."
+rubrics:
+  - rubric_id: author_stated
+    description: "Answer preserves small sample as author-stated."
+    kind: answer_contains_all
+    terms: ["author", "small sample"]
+  - rubric_id: inferred
+    description: "Answer labels single-center as inferred."
+    kind: answer_contains_all
+    terms: ["inferred", "single-center"]
+

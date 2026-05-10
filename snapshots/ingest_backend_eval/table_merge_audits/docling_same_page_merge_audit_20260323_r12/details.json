@@ -1,0 +1,68 @@
+{
+  "schema_version": "table_merge_semantics_audit.v1",
+  "generated_at": "2026-03-23T06:37:41.319447+00:00",
+  "run_id": "docling_same_page_merge_audit_20260323_r12",
+  "metrics_path": "/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/docling_pilot_manifest_expanded_20260323_r11/metrics.json",
+  "baseline_backend": "fitz_pdfplumber",
+  "candidate_backend": "docling",
+  "documents": [
+    {
+      "pdf_path": "/Users/jangseongjin/Zotero/storage/E7ZTE656/Benedict 등 - 2020 - Cognitive impairment in multiple sclerosis clinical management, MRI, and therapeutic avenues.pdf",
+      "baseline_backend": "fitz_pdfplumber",
+      "candidate_backend": "docling",
+      "classification": {
+        "baseline_pages": [
+          7
+        ],
+        "candidate_pages": [
+          7
+        ],
+        "missing_pages": [],
+        "missing_cells_total": 0,
+        "extra_cells_total": 17,
+        "semantic_merge_preserved": true,
+        "missing_cells_by_page": {},
+        "extra_cells_by_page": {
+          "7": {
+            "compensatoryapproaches": 6,
+            "restorativeapproaches": 6,
+            "description": 1,
+            "effectsize*": 1,
+            "rctcharacteristics": 1,
+            "testused": 1,
+            "treatmentduration": 1
+          }
+        }
+      }
+    },
+    {
+      "pdf_path": "/Users/jangseongjin/Zotero/storage/ET3F22PQ/Dubois 등 - 2021 - Clinical diagnosis of Alzheimer's disease recommendations of the International Working Group.pdf",
+      "baseline_backend": "fitz_pdfplumber",
+      "candidate_backend": "docling",
+      "classification": {
+        "baseline_pages": [
+          8
+        ],
+        "candidate_pages": [
+          3,
+          8
+        ],
+        "missing_pages": [],
+        "missing_cells_total": 0,
+        "extra_cells_total": 14,
+        "semantic_merge_preserved": true,
+        "missing_cells_by_page": {},
+        "extra_cells_by_page": {
+          "8": {
+            "commonalzheimersdiseasephenotypesamnesticvariantlogopenicvariantofprimaryprogressive": 3,
+            "notethatbiomarkerpositivitystatusreliesonlocallaboratorystandardsseebiomarkerthresholdssection*fullinvestigationofcausedependsonthespecificclinicalphenotypeandcanimplyforexamplef-fluorodeoxyglucosepetdopamineimagingprogranulinserumdosagegeneticanalysisoculomotorrecordingsorelectromyoneurography†consideranewalzheimersdiseasebiomarkerinvestigationonlyifthereisareasonabledoubtaboutthevalidityofthe": 3,
+            "otherphenotypesegdementiawithlewybodiesrichardsonsyndromehuntingtonsdiseaseandamyotrophiclateralsclerosis": 3,
+            "uncommonalzheimersdiseasephenotypesbehaviouralordysexecutivevariantcorticobasalsyndromenon-fluentvariantofprimaryprogressiveaphasiaandsemanticvariantofprimary": 3,
+            "furtherinvestigation": 1,
+            "likelihoodofalzheimersdiseaseasaprimarydiagnosis": 1
+          }
+        }
+      }
+    }
+  ]
+}

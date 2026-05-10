@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "paperpipe"
 version = "0.1.0"
@@ -5,15 +9,47 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "anthropic>=0.18.0",
+    "chromadb",
     "feedparser>=6.0.12",
+    "fastapi>=0.111.0",
     "jinja2>=3.1.6",
+    "langgraph",
+    "numpy>=1.26.0",
+    "ollama>=0.4.0",
     "openai>=2.14.0",
+    "pdfplumber",
     "pydantic>=2.12.5",
+    "pymupdf",
     "python-dotenv>=1.2.1",
+    "python-multipart>=0.0.20",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
     "rich>=14.2.0",
     "pypdf>=5.0.0",
+    "sse-starlette>=2.1.0",
     "tenacity>=9.1.2",
     "typer>=0.20.1",
+    "uvicorn>=0.30.0",
+    "watchdog",
 ]
+
+[project.optional-dependencies]
+parser-eval = [
+    "docling>=2.18.0,<3.0.0",
+]
+packaging = [
+    "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+paperpipe = "src.cli:entrypoint"
+lattice = "src.cli:entrypoint"
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*", "backend*"]
+namespaces = true

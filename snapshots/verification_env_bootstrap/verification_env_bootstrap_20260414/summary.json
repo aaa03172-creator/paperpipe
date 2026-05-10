@@ -1,0 +1,152 @@
+{
+  "run_id": "verification_env_bootstrap_20260414",
+  "generated_at": "2026-04-14T07:43:54.514216+00:00",
+  "dry_run": false,
+  "probe_runner": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+  "chosen_python_bin": "/opt/homebrew/bin/python3.14",
+  "venv_dir": "/Users/jangseongjin/paperpipe/.venv314",
+  "venv_python": "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+  "requirements_file": "/Users/jangseongjin/paperpipe/requirements.txt",
+  "extra_packages": [
+    "pytest"
+  ],
+  "candidate_probe_results": [
+    {
+      "run_id": "verification_env_bootstrap_20260414_candidate_1",
+      "generated_at": "2026-04-14T07:43:52.457660+00:00",
+      "python_bin": "/opt/homebrew/bin/python3.14",
+      "timeout_seconds": 5,
+      "probe_count": 2,
+      "ok_count": 2,
+      "error_count": 0,
+      "timeout_count": 0,
+      "results": [
+        {
+          "mode": "no-site",
+          "module": "select",
+          "status": "ok",
+          "elapsed_seconds": 0.018,
+          "returncode": 0,
+          "stdout": "ok",
+          "stderr_tail": ""
+        },
+        {
+          "mode": "no-site",
+          "module": "subprocess",
+          "status": "ok",
+          "elapsed_seconds": 0.03,
+          "returncode": 0,
+          "stdout": "ok",
+          "stderr_tail": ""
+        }
+      ]
+    }
+  ],
+  "create_command": [
+    "/Users/jangseongjin/.local/bin/uv",
+    "venv",
+    "/Users/jangseongjin/paperpipe/.venv314",
+    "--python",
+    "/opt/homebrew/bin/python3.14"
+  ],
+  "install_command": [
+    "/Users/jangseongjin/.local/bin/uv",
+    "pip",
+    "install",
+    "--python",
+    "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "-r",
+    "/Users/jangseongjin/paperpipe/requirements.txt",
+    "pytest"
+  ],
+  "venv_import_health_command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/jangseongjin/paperpipe/scripts/check_python_import_health.py",
+    "--python-bin",
+    "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "--timeout-seconds",
+    "5",
+    "--run-id",
+    "verification_env_bootstrap_20260414_venv_import_health"
+  ],
+  "executed_steps": [
+    {
+      "step": "create_venv",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "Using CPython 3.14.3 interpreter at: /opt/homebrew/opt/python@3.14/bin/python3.14\nCreating virtual environment at: .venv314\nwarning: A virtual environment already exists at `.venv314`. In the future, uv will require `--clear` to replace it\nActivate with: source .venv314/bin/activate"
+    },
+    {
+      "step": "install_requirements",
+      "returncode": 0,
+      "stdout_tail": "",
+      "stderr_tail": "Using Python 3.14.3 environment at: .venv314\nAudited 23 packages in 42ms"
+    }
+  ],
+  "venv_import_health_summary": {
+    "run_id": "verification_env_bootstrap_20260414_venv_import_health",
+    "generated_at": "2026-04-14T07:43:54.508803+00:00",
+    "python_bin": "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "timeout_seconds": 5,
+    "probe_count": 6,
+    "ok_count": 6,
+    "error_count": 0,
+    "timeout_count": 0,
+    "results": [
+      {
+        "mode": "no-site",
+        "module": "select",
+        "status": "ok",
+        "elapsed_seconds": 0.013,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "no-site",
+        "module": "subprocess",
+        "status": "ok",
+        "elapsed_seconds": 0.023,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "typer",
+        "status": "ok",
+        "elapsed_seconds": 0.044,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "fastapi",
+        "status": "ok",
+        "elapsed_seconds": 0.18,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "src.cli",
+        "status": "ok",
+        "elapsed_seconds": 0.736,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": "INFO:paperpipe:Logging initialized at level INFO\n"
+      },
+      {
+        "mode": "site",
+        "module": "backend.main",
+        "status": "ok",
+        "elapsed_seconds": 0.937,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": "INFO:httpx:HTTP Request: GET http://localhost:11434/api/tags \"HTTP/1.1 200 OK\"\nINFO:src.llm_provider:Ollama connected successfully at http://localhost:11434\n"
+      }
+    ]
+  }
+}

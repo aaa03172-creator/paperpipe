@@ -1,0 +1,17 @@
+{
+  "schema_version": "processor_candidate_selection_fixture_audit.v1",
+  "generated_at": "2026-04-29T03:15:20.422338Z",
+  "run_id": "processor_candidate_selection_fixture_audit_20260429_r2",
+  "inputs": {
+    "fixture_path": "/Users/jangseongjin/paperpipe/tests/fixtures/processor_candidate_selection_pools_20260429.json",
+    "schema_version": "processor_candidate_selection_fixture.v1",
+    "fixed_now": "2026-04-29"
+  },
+  "metrics": {
+    "pool_count": 3,
+    "matched_count": 3,
+    "mismatch_count": 0,
+    "accuracy": 1.0
+  },
+  "pools_with_mismatch": []
+}

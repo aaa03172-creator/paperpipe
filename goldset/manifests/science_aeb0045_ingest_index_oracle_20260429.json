@@ -1,0 +1,27 @@
+{
+  "schema_version": "local_pdf_ingest_index_oracle.v1",
+  "generated_at": "2026-04-29",
+  "manifest_batch_id": "science_aeb0045_ingest_index_oracle_20260429",
+  "layer": "review_gate_artifact",
+  "canonical_status": "non_canonical",
+  "notes": "Local-only golden oracle for the Science NAMs review PDF. The PDF itself is not stored in the repo; this manifest checks deterministic ingest and chunking/index expectations when the operator has the local source PDF.",
+  "documents": [
+    {
+      "document_id": "science-aeb0045",
+      "paper_id": "doi:10.1126/science.aeb0045",
+      "local_path": "~/Downloads/science.aeb0045.pdf",
+      "payload_class": "local_only",
+      "source_pdf_sha256": "8c5ea9ed7e2192df429e1552661b8daa3d06c2a29875e49b0a39c2c2deea123c",
+      "parser_backend": "fitz_pdfplumber",
+      "expected": {
+        "title_contains": "Reimagining human-centric drug development with new approach methodologies",
+        "page_count": 9,
+        "table_count": 0,
+        "min_chunk_count": 70,
+        "require_page_hints": true,
+        "required_chunk_ids": ["p01_c01", "p09_c01"]
+      },
+      "notes": "Review paper with conceptual figures and no parsed data tables. Useful for local import/deepread continuity and page-linked chunking checks."
+    }
+  ]
+}

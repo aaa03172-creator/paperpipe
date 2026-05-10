@@ -1,0 +1,75 @@
+{
+  "schema_version": "eval_compare.v1",
+  "generated_at": "2026-03-09T22:53:34.389358+00:00",
+  "baseline": {
+    "path": "/Users/jangseongjin/paperpipe/baselines/quality_eval_teacher_probe_20260309.metrics.json",
+    "run_id": "quality_eval_teacher_probe_20260309",
+    "metrics": {
+      "schema_valid_rate": 1.0,
+      "evidence_location_rate": 1.0,
+      "summary_artifact_rate": 1.0,
+      "manual_correction_rate": 0.0
+    }
+  },
+  "new": {
+    "path": "/Users/jangseongjin/paperpipe/snapshots/quality_eval_teacher_compare_20260310/metrics.json",
+    "run_id": "quality_eval_teacher_compare_20260310",
+    "metrics": {
+      "schema_valid_rate": 1.0,
+      "evidence_location_rate": 1.0,
+      "summary_artifact_rate": 1.0,
+      "manual_correction_rate": 0.0
+    }
+  },
+  "thresholds": {
+    "delta_schema": 0.0,
+    "delta_evidence": 0.0,
+    "delta_summary": 0.0,
+    "allow_manual_increase": 0.0
+  },
+  "decision": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "schema_valid_rate",
+        "baseline": 1.0,
+        "new": 1.0,
+        "required": 1.0,
+        "passed": true,
+        "direction": "higher_is_better"
+      },
+      {
+        "name": "evidence_location_rate",
+        "baseline": 1.0,
+        "new": 1.0,
+        "required": 1.0,
+        "passed": true,
+        "direction": "higher_is_better"
+      },
+      {
+        "name": "summary_artifact_rate",
+        "baseline": 1.0,
+        "new": 1.0,
+        "required": 1.0,
+        "passed": true,
+        "direction": "higher_is_better"
+      },
+      {
+        "name": "manual_correction_rate",
+        "baseline": 0.0,
+        "new": 0.0,
+        "required": 0.0,
+        "passed": true,
+        "direction": "lower_is_better"
+      }
+    ],
+    "failed_checks": [],
+    "regressions": [],
+    "deltas": {
+      "schema_valid_rate": 0.0,
+      "evidence_location_rate": 0.0,
+      "summary_artifact_rate": 0.0,
+      "manual_correction_rate": 0.0
+    }
+  }
+}

@@ -1,0 +1,104 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --pp-font-sans: "Inter", "Segoe UI", sans-serif;
+  --pp-font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+  --pp-radius-sm: 8px;
+  --pp-radius-md: 12px;
+  --pp-radius-lg: 16px;
+
+  --pp-canvas: #f4f6f7;
+  --pp-surface: #ffffff;
+  --pp-surface-raised: #fbfcfc;
+  --pp-surface-muted: #f0f3f4;
+  --pp-surface-selected: #e8f0ef;
+
+  --pp-text-primary: #192127;
+  --pp-text-secondary: #32414d;
+  --pp-text-dim: #6d7a84;
+  --pp-border: #d5dde2;
+
+  --pp-accent-text: #2a6355;
+  --pp-accent-border: #9bc4b7;
+  --pp-accent-soft: #def0ea;
+  --pp-accent: #5a9886;
+
+  --pp-status-idle-bg: #f1f4f5;
+  --pp-status-idle-border: #d4dde1;
+  --pp-status-idle-text: #60717e;
+
+  --pp-status-processing-bg: #e8f0fa;
+  --pp-status-processing-border: #a9c2e8;
+  --pp-status-processing-text: #29558b;
+
+  --pp-status-completed-bg: #e4f3ea;
+  --pp-status-completed-border: #9ec7ad;
+  --pp-status-completed-text: #2b6f47;
+
+  --pp-status-failed-bg: #f8e8e8;
+  --pp-status-failed-border: #e5b7b7;
+  --pp-status-failed-text: #9b3f3f;
+
+  --pp-warning-bg: #f9efdf;
+  --pp-warning-border: #e2c59b;
+  --pp-warning-text: #8b5a18;
+
+  --pp-log-bg: #0f1214;
+  --pp-log-text: #d7dee2;
+
+  --pp-shadow: 0 10px 24px rgba(13, 23, 30, 0.08);
+}
+
+[data-theme="dark"] {
+  --pp-canvas: #121212;
+  --pp-surface: #1e1e1e;
+  --pp-surface-raised: #232323;
+  --pp-surface-muted: #282828;
+  --pp-surface-selected: #1f2a29;
+
+  --pp-text-primary: #ececec;
+  --pp-text-secondary: #c4c8cb;
+  --pp-text-dim: #8a9198;
+  --pp-border: #343434;
+
+  --pp-accent-text: #98c5b7;
+  --pp-accent-border: #466459;
+  --pp-accent-soft: #1b2522;
+  --pp-accent: #79ad9d;
+
+  --pp-status-idle-bg: #27292b;
+  --pp-status-idle-border: #3a3f43;
+  --pp-status-idle-text: #b5bcc2;
+
+  --pp-status-processing-bg: #1c2735;
+  --pp-status-processing-border: #34557d;
+  --pp-status-processing-text: #9bc1ef;
+
+  --pp-status-completed-bg: #1b2a23;
+  --pp-status-completed-border: #335645;
+  --pp-status-completed-text: #9dd1b2;
+
+  --pp-status-failed-bg: #2b1f1f;
+  --pp-status-failed-border: #5f3b3b;
+  --pp-status-failed-text: #e1a6a6;
+
+  --pp-warning-bg: #2d2519;
+  --pp-warning-border: #685031;
+  --pp-warning-text: #f1c27f;
+
+  --pp-log-bg: #131619;
+  --pp-log-text: #d5dde1;
+
+  --pp-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

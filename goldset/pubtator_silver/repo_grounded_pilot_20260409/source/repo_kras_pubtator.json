@@ -1,0 +1,82 @@
+{
+  "doc_id": "repo-pubtator-kras",
+  "passages": [
+    {
+      "offset": 0,
+      "infons": {
+        "type": "title"
+      },
+      "text": "KRAS variant associates with pancreatic cancer"
+    },
+    {
+      "offset": 0,
+      "infons": {
+        "type": "abstract"
+      },
+      "text": "KRAS G12D is associated with pancreatic cancer.",
+      "annotations": [
+        {
+          "annotation_id": "T1",
+          "infons": {
+            "type": "Gene",
+            "identifier": "NCBIGene:3845"
+          },
+          "text": "KRAS",
+          "locations": [
+            {
+              "offset": 0,
+              "length": 4
+            }
+          ]
+        },
+        {
+          "annotation_id": "T2",
+          "infons": {
+            "type": "SequenceVariant",
+            "identifier": "dbSNP:rs121913529"
+          },
+          "text": "G12D",
+          "locations": [
+            {
+              "offset": 5,
+              "length": 4
+            }
+          ]
+        },
+        {
+          "annotation_id": "T3",
+          "infons": {
+            "type": "Disease",
+            "identifier": "MESH:D010190"
+          },
+          "text": "pancreatic cancer",
+          "locations": [
+            {
+              "offset": 29,
+              "length": 17
+            }
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "relation_id": "R1",
+          "infons": {
+            "type": "Association",
+            "novelty": "background"
+          },
+          "nodes": [
+            {
+              "refid": "T2",
+              "role": "head"
+            },
+            {
+              "refid": "T3",
+              "role": "tail"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

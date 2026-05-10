@@ -1,0 +1,18 @@
+probe_id: figure_table_conflict
+taxonomy: figure_grounding
+difficulty: hard
+source_excerpt: "Figure 3 visually trends upward. Table 2 reports p=0.18 for the same endpoint. The authors describe this as non-significant."
+prompt: "Resolve the figure/table tension without overstating significance."
+rubrics:
+  - rubric_id: table_p_value
+    description: "Answer includes the p=0.18 table value."
+    kind: answer_contains_all
+    terms: ["p=0.18"]
+  - rubric_id: non_significant
+    description: "Answer preserves the non-significant interpretation."
+    kind: answer_contains_any
+    terms: ["non-significant", "not significant"]
+  - rubric_id: locator
+    description: "Answer includes locator evidence."
+    kind: locator_present
+

@@ -1,0 +1,14 @@
+{
+  "run_id": "docling_section_quality_audit_broad_20260324_r18",
+  "status": "ok",
+  "document_count": 12,
+  "page_coverage_preserved_count": 12,
+  "missing_page_docs_count": 0,
+  "low_page_text_ratio_docs_count": 0,
+  "low_page_text_ratio_doc_bucket_counts": {},
+  "low_page_text_ratio_page_bucket_counts": {},
+  "low_page_text_ratio_unclassified_docs_count": 0,
+  "low_total_text_ratio_docs_count": 0,
+  "section_collapse_docs_count": 0,
+  "details_path": "/Users/jangseongjin/paperpipe/snapshots/ingest_backend_eval/section_quality_audits/docling_section_quality_audit_broad_20260324_r18/details.json"
+}

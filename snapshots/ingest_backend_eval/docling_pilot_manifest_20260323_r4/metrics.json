@@ -1,0 +1,96 @@
+{
+  "schema_version": "ingest_backend_eval.v1",
+  "generated_at": "2026-03-22T15:20:48.160771+00:00",
+  "run_id": "docling_pilot_manifest_20260323_r4",
+  "baseline_backend": "fitz_pdfplumber",
+  "candidate_backend": "docling",
+  "document_count": 6,
+  "inputs": {
+    "manifest": "goldset/manifests/ingest_backend_pilot_20260323.json",
+    "pdf_paths": [
+      "/Users/jangseongjin/paperpipe/Library/1411.2441.pdf",
+      "/Users/jangseongjin/Zotero/storage/IQPFBRQU/Barulli 및 Stern - 2013 - Efficiency, capacity, compensation, maintenance, plasticity emerging concepts in cognitive reserve.pdf",
+      "/Users/jangseongjin/Zotero/storage/LQ6XZ64E/Chandra 등 - 2023 - The gut microbiome in Alzheimer’s disease what we know and what remains to be explored.pdf",
+      "/Users/jangseongjin/Zotero/storage/5CWPKD7Z/Hansson 등 - 2023 - Blood biomarkers for Alzheimer’s disease in clinical practice and trials.pdf",
+      "/Users/jangseongjin/Zotero/storage/7SJCXXT3/Pichet Binette 등 - 2023 - Confounding factors of Alzheimer's disease plasma biomarkers and their impact on clinical performanc.pdf",
+      "/Users/jangseongjin/Zotero/storage/9KHDG3BE/Therriault 등 - 2022 - Biomarker modeling of Alzheimer’s disease using PET-based Braak staging.pdf"
+    ]
+  },
+  "backend_metrics": {
+    "fitz_pdfplumber": {
+      "document_count": 6,
+      "success_count": 6,
+      "error_count": 0,
+      "backend_unavailable_count": 0,
+      "docs_with_doi_count": 6,
+      "docs_with_tables_count": 2,
+      "docs_with_text_count": 6,
+      "avg_text_char_count": 76521.16666666667,
+      "table_failure_taxonomy_counts": {
+        "DEGENERATE_SHAPE": 2,
+        "NO_TABLE_FOUND": 4
+      }
+    },
+    "docling": {
+      "document_count": 6,
+      "success_count": 6,
+      "error_count": 0,
+      "backend_unavailable_count": 0,
+      "docs_with_doi_count": 6,
+      "docs_with_tables_count": 4,
+      "docs_with_text_count": 6,
+      "avg_text_char_count": 79521,
+      "table_failure_taxonomy_counts": {
+        "NO_TABLE_FOUND": 2
+      }
+    }
+  },
+  "comparison": {
+    "compared_document_count": 6,
+    "backend_unavailable_docs": [],
+    "error_increase_docs": [],
+    "empty_text_increase_docs": [],
+    "doi_loss_docs": [],
+    "doi_gain_docs": [],
+    "table_loss_docs": [
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/5CWPKD7Z/Hansson 등 - 2023 - Blood biomarkers for Alzheimer’s disease in clinical practice and trials.pdf",
+        "baseline_table_count": 3,
+        "candidate_table_count": 2
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/9KHDG3BE/Therriault 등 - 2022 - Biomarker modeling of Alzheimer’s disease using PET-based Braak staging.pdf",
+        "baseline_table_count": 7,
+        "candidate_table_count": 1
+      }
+    ],
+    "table_gain_docs": [
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/7SJCXXT3/Pichet Binette 등 - 2023 - Confounding factors of Alzheimer's disease plasma biomarkers and their impact on clinical performanc.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 4
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/LQ6XZ64E/Chandra 등 - 2023 - The gut microbiome in Alzheimer’s disease what we know and what remains to be explored.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 2
+      }
+    ],
+    "low_text_ratio_docs": [],
+    "decision": {
+      "passed": false,
+      "failed_checks": [
+        "table_loss_docs"
+      ],
+      "thresholds": {
+        "min_candidate_text_ratio": 0.5,
+        "max_backend_unavailable_docs": 0,
+        "max_error_increase_docs": 0,
+        "max_empty_text_increase_docs": 0,
+        "max_doi_loss_docs": 0,
+        "max_table_loss_docs": 0,
+        "max_low_text_ratio_docs": 0
+      }
+    }
+  }
+}
