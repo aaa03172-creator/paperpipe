@@ -96,6 +96,8 @@ storage/pdfs/
 storage/protocol_attachments/
 storage/protocol_cards/
 storage/reports/
+/<MagicMock name=*/
+chroma.sqlite3
 
 # Generated export documents
 output/
