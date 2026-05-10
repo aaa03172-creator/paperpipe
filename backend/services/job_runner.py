@@ -49,6 +49,10 @@ from src.services.figure_caption_sidecar import (
     build_figure_caption_sidecar,
     write_figure_caption_sidecar,
 )
+from src.services.claimset_coverage_sidecar import (
+    build_claimset_coverage_sidecar,
+    write_claimset_coverage_sidecar,
+)
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
     build_stats_fallback_eval_sidecar,
@@ -1110,6 +1114,7 @@ async def run_deepread_job(
             "artifact_document_written": False,
             "artifact_index_written": False,
             "artifact_claimset_written": False,
+            "artifact_claimset_coverage_written": False,
             "artifact_figure_captions_written": False,
             "artifact_reader_timeout_written": False,
             "artifact_stats_written": False,
@@ -1192,6 +1197,7 @@ async def run_deepread_job(
             doc_artifact.model_dump_json(indent=2),
         )
         bootstrap_meta["artifact_document_written"] = True
+        figure_caption_sidecar = None
         try:
             figure_caption_sidecar = build_figure_caption_sidecar(
                 paper_id=paper_id,
@@ -1545,6 +1551,7 @@ async def run_deepread_job(
         )
         bootstrap_meta["artifact_claimset_written"] = True
         bootstrap_meta["artifact_claimset_resolved_written"] = True
+        bootstrap_meta["artifact_claimset_coverage_written"] = False
         bootstrap_meta["artifact_reader_eval_written"] = False
         claim_count = len(claim_set.claims)
         bootstrap_meta["claimset_claim_count"] = claim_count
@@ -1568,6 +1575,36 @@ async def run_deepread_job(
                 run_meta["section_summary"] = section_summary
             else:
                 run_meta.pop("section_summary", None)
+        try:
+            claimset_coverage = build_claimset_coverage_sidecar(
+                paper_id=paper_id,
+                run_id=run_id,
+                document_artifact=doc_artifact,
+                index_artifact=index_artifact,
+                resolved_claimset=resolved_claim_set,
+                figure_captions=figure_caption_sidecar,
+            )
+            claimset_coverage_path = write_claimset_coverage_sidecar(claimset_coverage, artifact_dir)
+            bootstrap_meta["artifact_claimset_coverage_written"] = True
+            bootstrap_meta["claimset_coverage_status"] = claimset_coverage.coverage_status
+            bootstrap_meta["claimset_coverage_artifact"] = str(claimset_coverage_path)
+            bootstrap_meta["claimset_coverage_page_coverage_ratio"] = (
+                claimset_coverage.metrics.page_coverage_ratio
+            )
+            bootstrap_meta["claimset_coverage_missing_topic_signal_count"] = (
+                claimset_coverage.metrics.missing_topic_signal_count
+            )
+            if run_meta is not None:
+                run_meta["claimset_coverage"] = {
+                    "status": claimset_coverage.coverage_status,
+                    "artifact": str(claimset_coverage_path),
+                    "page_coverage_ratio": claimset_coverage.metrics.page_coverage_ratio,
+                    "missing_topic_signal_count": claimset_coverage.metrics.missing_topic_signal_count,
+                }
+        except Exception as exc:
+            logger.warning("Failed to build claimset_coverage sidecar: %s", exc)
+            bootstrap_meta["artifact_claimset_coverage_written"] = False
+            bootstrap_meta["claimset_coverage_error"] = str(exc)
         try:
             reader_eval = build_reader_eval_sidecar(
                 paper_id=paper_id,

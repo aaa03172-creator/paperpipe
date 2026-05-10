@@ -224,6 +224,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert (artifact_dir / "index_artifact.json").exists()
         assert (artifact_dir / "claimset.json").exists()
         assert (artifact_dir / "claimset.resolved.json").exists()
+        assert (artifact_dir / "claimset_coverage.json").exists()
         assert (artifact_dir / "stats_report.json").exists()
         assert (artifact_dir / "bootstrap_meta.json").exists()
         assert (artifact_dir / "run_meta.json").exists()
@@ -234,6 +235,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         resolved_claimset = json.loads((artifact_dir / "claimset.resolved.json").read_text(encoding="utf-8"))
         evidence_bundle = json.loads((artifact_dir / "evidence_extraction_bundle.json").read_text(encoding="utf-8"))
+        claimset_coverage = json.loads((artifact_dir / "claimset_coverage.json").read_text(encoding="utf-8"))
         run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
         quality_gate = json.loads((artifact_dir / "quality_gate.json").read_text(encoding="utf-8"))
         context_manifest = json.loads((artifact_dir / "context_manifest.json").read_text(encoding="utf-8"))
@@ -272,6 +274,9 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["artifact_index_written"] is True
         assert meta["artifact_claimset_written"] is True
         assert meta["artifact_claimset_resolved_written"] is True
+        assert meta["artifact_claimset_coverage_written"] is True
+        assert meta["claimset_coverage_status"] == "pass"
+        assert meta["claimset_coverage_artifact"].endswith("claimset_coverage.json")
         assert meta["artifact_evidence_extraction_bundle_written"] is True
         assert meta["artifact_acceptance_contract_written"] is True
         assert meta["artifact_quality_gate_written"] is True
@@ -319,6 +324,10 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert span["grounded"] is True
         assert span["resolution"] == "OK"
         assert run_meta["section_count"] == 1
+        assert run_meta["claimset_coverage"]["status"] == "pass"
+        assert run_meta["claimset_coverage"]["artifact"].endswith("claimset_coverage.json")
+        assert claimset_coverage["coverage_status"] == "pass"
+        assert claimset_coverage["page_summary"]["covered_pages"] == [1]
         assert len(run_meta["section_summary"]) == 1
         section_entry = run_meta["section_summary"][0]
         assert section_entry["key"] == "results"

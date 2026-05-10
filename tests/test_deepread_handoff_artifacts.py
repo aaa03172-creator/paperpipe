@@ -24,6 +24,7 @@ def test_build_deepread_handoff_artifacts_for_review_ready_bundle():
         "reasoning_persona": "researcher",
         "profile_id": None,
         "artifact_claimset_resolved_written": True,
+        "artifact_claimset_coverage_written": True,
         "artifact_reader_eval_written": True,
         "reader_eval_bbox_span_count": 1,
         "reader_eval_text_match_span_count": 2,
@@ -83,7 +84,13 @@ def test_build_deepread_handoff_artifacts_for_review_ready_bundle():
 
     assert contract.workflow == "deep_read"
     assert "claimset.resolved.json" in contract.expected_outputs
+    assert "claimset_coverage.json" in contract.expected_outputs
     assert "stats_report.json" in contract.expected_outputs
+    acceptance_check_map = {check.name: check for check in contract.acceptance_checks}
+    assert acceptance_check_map["claimset_coverage_written"].required is False
+    assert acceptance_check_map["claimset_coverage_written"].source == (
+        "bootstrap_meta.artifact_claimset_coverage_written"
+    )
     assert [item.code for item in contract.hard_fail_conditions] == [
         "RUN_NOT_SUCCEEDED",
         "MISSING_CLAIMSET_RESOLVED",

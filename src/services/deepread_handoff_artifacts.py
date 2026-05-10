@@ -36,6 +36,8 @@ def build_deepread_acceptance_contract(
     ]
     if run_verify:
         expected_outputs.append("stats_report.json")
+    if bool(bootstrap_meta.get("artifact_claimset_coverage_written")):
+        expected_outputs.append("claimset_coverage.json")
 
     checks = [
         DeepReadAcceptanceCheck(
@@ -58,6 +60,12 @@ def build_deepread_acceptance_contract(
             required=False,
             source="bootstrap_meta.artifact_reader_eval_written",
             description="Reader eval sidecar exists for bounded post-read review.",
+        ),
+        DeepReadAcceptanceCheck(
+            name="claimset_coverage_written",
+            required=False,
+            source="bootstrap_meta.artifact_claimset_coverage_written",
+            description="Coverage sidecar exists for advisory post-read coverage review.",
         ),
         DeepReadAcceptanceCheck(
             name="verification_completed",
