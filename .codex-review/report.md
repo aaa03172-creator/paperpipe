@@ -124,6 +124,10 @@ Additional subagent verification:
   - Result reported by subagent: `41 passed, 5 warnings`.
 - Canonical-schema unmatched-download reproduction.
   - Result reported by subagent: `status=unmatched`, `review_queue_count=0`, FK failure.
+- Artifact route-matching probe.
+  - Result reported by subagent: `/artifacts/foo/bar/run1` matched the file route as `paper_id=foo`, `run_id=bar`, `artifact_name=run1`.
+- Feedback/import-health focused checks.
+  - Result reported by subagent: feedback/import-health tests passed, but default import-health probes can still hit import-time Ollama initialization.
 
 Failures:
 No command failures in the final targeted verification set.
@@ -138,12 +142,13 @@ Commands not run and why:
 - Research DNA was route-mapped but not deeply behavior-traced across every service branch.
 - Artifact path-boundary analysis outside Image Evidence is incomplete; standardizing store validation is still recommended.
 - Real browser download rename behavior should be verified with watchdog or an integration test.
+- Default import-health behavior should be rechecked after lazy feedback/Ollama initialization is implemented.
 - Live deployment auth/reverse proxy assumptions were not inspected.
 - Scientific correctness of biomedical outputs was out of scope.
 
 ## 10. Recommended next actions
 
-1. Fix unresolved P1s first: `/api/*` bridge auth, Image Evidence ID/root validation, and unmatched-download triage persistence.
-2. Repair remaining wiring P2s: visual evidence ledger frontend contract and watcher `on_moved`.
-3. Add targeted tests before broad refactors: unauthenticated `/api/*`, Image Evidence traversal, canonical unmatched download, visual evidence ledger UI, and watcher rename handling.
+1. Fix unresolved P1s first: `/api/*` bridge auth, Image Evidence ID/root validation, unmatched-download triage persistence, slash-bearing artifact route ambiguity, and import-time Ollama initialization.
+2. Repair remaining wiring P2s: visual evidence ledger frontend contract, meeting-pack no-mock write behavior, import-health default coverage, and watcher `on_moved`.
+3. Add targeted tests before broad refactors: unauthenticated `/api/*`, Image Evidence traversal, canonical unmatched download, slash-bearing artifact routes, backend import without Ollama, meeting-pack no-mock write, visual evidence ledger UI, and watcher rename handling.
 4. Clarify Research DNA frontend intent and either mark API-only in docs or wire a route/navigation path.
