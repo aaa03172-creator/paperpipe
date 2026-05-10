@@ -22,6 +22,12 @@
 - On failure paths, inspect partial writes, orphan records, and stale cache risks first.
 - If documentation and implementation differ, explicitly call it out.
 - Actively look for dead code, duplicate abstractions, and hidden side effects.
+- Review output should list findings first, ordered by severity, with file/line evidence when available.
+- Each finding should explain the impact, the concrete failure mode, and the smallest plausible fix direction.
+- Separate confirmed defects from open questions, test gaps, residual risks, and optional cleanup suggestions.
+- Do not present unverified assumptions as findings; mark uncertain items as questions or residual risk.
+- Mention relevant tests or checks that were run, and explicitly state when verification was not run.
+- Avoid broad rewrite recommendations unless the current implementation creates a concrete correctness, security, data-integrity, or maintainability risk.
 
 ## 2. MCP & Cost Control Guardrails (CRITICAL)
 If you are equipped with the Google Developer Knowledge MCP (or any external search tool):

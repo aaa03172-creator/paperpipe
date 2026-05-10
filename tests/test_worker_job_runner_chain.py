@@ -8,6 +8,7 @@ import src.db_utils as db_utils
 import src.jobs.worker as worker_mod
 from src.jobs.queue import JobQueue
 import backend.services.job_runner as job_runner_mod
+from backend.services.job_runner import _ingest_runtime_options_for_run_meta
 
 from src.contracts.document_artifact_v2 import (
     DocumentArtifactV2,
@@ -27,6 +28,22 @@ from src.schemas.agent_artifacts import (
     StatCheckEntry,
     VerificationStatus,
 )
+
+
+def test_ingest_runtime_options_for_run_meta_redacts_cloud_table_api_key():
+    persisted = _ingest_runtime_options_for_run_meta(
+        {
+            "parser_backend": "docling",
+            "cloud_table_fallback_enabled": True,
+            "cloud_table_api_key": "sk-secret-value",
+        }
+    )
+
+    assert persisted["parser_backend"] == "docling"
+    assert persisted["cloud_table_fallback_enabled"] is True
+    assert persisted["cloud_table_api_key_configured"] is True
+    assert "cloud_table_api_key" not in persisted
+    assert "sk-secret-value" not in json.dumps(persisted)
 
 
 def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):

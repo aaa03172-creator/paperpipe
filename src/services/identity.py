@@ -71,7 +71,7 @@ def new_job_id() -> str:
 
 def new_run_id(now: datetime | None = None) -> str:
     dt = now.astimezone(timezone.utc) if now is not None else datetime.now(timezone.utc)
-    return f"run_{dt.strftime('%Y%m%d_%H%M%S')}"
+    return f"run_{dt.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
 
 def make_chunk_id(*, page_hint: int | None, section_ordinal: int, chunk_ordinal: int) -> str:

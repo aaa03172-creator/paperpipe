@@ -41,10 +41,12 @@ def test_new_job_id_returns_uuid_string():
     assert isinstance(uuid.UUID(new_job_id()), uuid.UUID)
 
 
-def test_new_run_id_matches_current_format():
+def test_new_run_id_includes_timestamp_and_unique_suffix():
     run_id = new_run_id(datetime(2026, 3, 13, 12, 34, 56, tzinfo=timezone.utc))
-    assert run_id == "run_20260313_123456"
-    assert re.fullmatch(r"run_\d{8}_\d{6}", run_id)
+    second_run_id = new_run_id(datetime(2026, 3, 13, 12, 34, 56, tzinfo=timezone.utc))
+    assert run_id.startswith("run_20260313_123456_")
+    assert re.fullmatch(r"run_\d{8}_\d{6}_[0-9a-f]{8}", run_id)
+    assert second_run_id != run_id
 
 
 def test_make_paper_key_is_stable_and_safe():

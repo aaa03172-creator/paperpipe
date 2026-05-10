@@ -183,6 +183,8 @@ def init_db():
     if cursor.fetchone():
         try:
             paper_cols = _get_paper_columns(cursor)
+            if "summary" not in paper_cols:
+                cursor.execute("ALTER TABLE papers ADD COLUMN summary TEXT")
             if "download_attempts" not in paper_cols:
                 cursor.execute("ALTER TABLE papers ADD COLUMN download_attempts TEXT")
             if "issues_state" not in paper_cols:
