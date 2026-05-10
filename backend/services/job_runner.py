@@ -1575,6 +1575,7 @@ async def run_deepread_job(
                 run_meta["section_summary"] = section_summary
             else:
                 run_meta.pop("section_summary", None)
+        claimset_coverage = None
         try:
             claimset_coverage = build_claimset_coverage_sidecar(
                 paper_id=paper_id,
@@ -1822,6 +1823,7 @@ async def run_deepread_job(
                     claims_set=resolved_claim_set,
                     stats_md=stats_md,
                     clinical_md=clinical_md,
+                    coverage=claimset_coverage,
                 )
                 note_content = note_path.read_text(encoding="utf-8")
                 note_updated = upsert_deepread_section(note_content, deepread_md)
