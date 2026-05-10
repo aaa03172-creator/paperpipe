@@ -335,7 +335,7 @@ function canFallbackForReadError(error: unknown): boolean {
   if (isApiHttpError(error)) {
     return isProxyAvailabilityHttpError(error);
   }
-  return true;
+  return error instanceof TypeError;
 }
 
 function requestHeaders(init?: RequestInit, includeJsonContentType = true): HeadersInit {
