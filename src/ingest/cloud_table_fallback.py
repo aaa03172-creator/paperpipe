@@ -128,6 +128,10 @@ class CloudTableFallbackExtractor:
                         caption=f"Cloud fallback table (page {page})",
                         data=normalized,
                         source_page=page,
+                        source_ref=f"{pdf_path}#page={page - 1}",
+                        extraction_method=f"cloud_table_fallback.{self.model}",
+                        confidence=0.4,
+                        provenance_note="LLM-reconstructed fallback table from page text; cell bbox provenance is unavailable.",
                     )
                 )
                 table_idx += 1

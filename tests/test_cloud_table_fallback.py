@@ -75,6 +75,32 @@ def test_extract_tables_records_quality_taxonomy_when_invalid(monkeypatch, tmp_p
     assert "LOW_ACCURACY" in result.diagnostics.table_failure_taxonomy
 
 
+def test_extract_tables_marks_successful_fallback_provenance(monkeypatch, tmp_path: Path) -> None:
+    pdf = tmp_path / "dummy.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    extractor = CloudTableFallbackExtractor(api_key="", model="test-table-model")
+    extractor.client = object()  # bypass NO_API guard
+
+    monkeypatch.setattr(extractor, "_select_candidate_pages", lambda _p, _b: [2])
+    monkeypatch.setattr(extractor, "_extract_page_text", lambda _p, _n: "table text")
+    monkeypatch.setattr(
+        extractor,
+        "_extract_page_tables_with_llm",
+        lambda _t, _n: [[["Marker", "Value"], ["Delayed recall", "20.5"]]],
+    )
+
+    result = extractor.extract_tables(pdf, page_budget=1)
+
+    assert len(result.tables) == 1
+    table = result.tables[0]
+    assert table.source_page == 2
+    assert table.source_ref == f"{pdf}#page=1"
+    assert table.extraction_method == "cloud_table_fallback.test-table-model"
+    assert table.confidence == 0.4
+    assert "cell bbox provenance is unavailable" in str(table.provenance_note)
+
+
 def test_extract_tables_skips_llm_when_preflight_blocks(monkeypatch, tmp_path: Path) -> None:
     pdf = tmp_path / "dummy.pdf"
     pdf.write_bytes(b"%PDF-1.4\n%fake\n")
