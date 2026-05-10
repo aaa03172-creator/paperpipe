@@ -7,8 +7,10 @@ from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.ingest.cloud_table_fallback import CloudTableFallbackExtractor
 from src.ingest.ocr_fallback import build_ocr_cache_path, detect_need_ocr, run_ocr
 from src.ingest.parser_backends import (
+    PARSER_FAIL_CORRUPTED,
     TABLE_FAIL_BUDGET_EXCEEDED,
     TABLE_FAIL_OCR_LOW_CONF,
+    ParserFailure,
     ParserBackend,
     TableExtractionResult,
     create_parser_backend,
@@ -21,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TABLE_EXTRACTION_META = {
     "parser_backend": "fitz_pdfplumber",
+    "parser_failure_code": None,
+    "parser_failure_reason": None,
     "table_extraction_pass": "pass1",
     "table_failure_taxonomy": [],
     "fallback_used": False,
@@ -51,6 +55,7 @@ class IngestAgent:
         cloud_table_timeout_seconds: int = 30,
         cloud_table_preflight_callback: Callable[[str, int], bool] | None = None,
     ):
+        self.requested_parser_backend = str(parser_backend or "fitz_pdfplumber").strip().lower()
         self.backend: ParserBackend = create_parser_backend(parser_backend)
         self.enable_ocr_fallback = bool(enable_ocr_fallback)
         self.ocr_lang = str(ocr_lang or "eng")
@@ -64,7 +69,25 @@ class IngestAgent:
         self.cloud_table_timeout_seconds = int(cloud_table_timeout_seconds)
         self.cloud_table_preflight_callback = cloud_table_preflight_callback
         self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
-        self.last_table_extraction_meta["parser_backend"] = self.backend.name()
+        self.last_table_extraction_meta.update(self._parser_backend_meta())
+        self.last_effective_ingest_path: Path | None = None
+
+    def _set_parser_failure(self, code: str, reason: str) -> None:
+        self.last_table_extraction_meta = {
+            **self.last_table_extraction_meta,
+            **self._parser_backend_meta(),
+            "parser_failure_code": code,
+            "parser_failure_reason": reason,
+        }
+
+    def _parser_backend_meta(self) -> dict[str, object]:
+        effective_name = getattr(self.backend, "effective_name", self.backend.name)
+        fallback_used = getattr(self.backend, "fallback_used", lambda: False)
+        return {
+            "requested_parser_backend": self.requested_parser_backend,
+            "parser_backend": str(effective_name()),
+            "parser_backend_fallback_used": bool(fallback_used()),
+        }
 
     @staticmethod
     def _safe_parse_year(creation_date: str | None) -> int:
@@ -118,8 +141,23 @@ class IngestAgent:
         Main entry point. Parses PDF and returns a structured artifact.
         """
         path = Path(pdf_path)
+        self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
+        self.last_table_extraction_meta.update(self._parser_backend_meta())
         if not path.exists():
             logger.error("PDF file not found: %s", pdf_path)
+            self._set_parser_failure("PDF_NOT_FOUND", "PDF file was not found.")
+            return None
+        try:
+            if path.stat().st_size == 0:
+                self._set_parser_failure("PDF_EMPTY", "PDF file is empty.")
+                return None
+            with path.open("rb") as handle:
+                header = handle.read(5)
+            if header != b"%PDF-":
+                self._set_parser_failure("PDF_INVALID_HEADER", "File does not start with a PDF header.")
+                return None
+        except OSError as exc:
+            self._set_parser_failure(PARSER_FAIL_CORRUPTED, f"PDF file could not be read: {exc}")
             return None
 
         enable_ocr_fallback_resolved = self.enable_ocr_fallback if enable_ocr_fallback is None else bool(enable_ocr_fallback)
@@ -158,6 +196,7 @@ class IngestAgent:
         )
 
         ingest_path = path
+        self.last_effective_ingest_path = path
         ocr_meta = {
             "ocr_applied": False,
             "ocr_engine": None,
@@ -166,9 +205,6 @@ class IngestAgent:
             "ocr_output_path": None,
             "error": None,
         }
-        self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
-        self.last_table_extraction_meta["parser_backend"] = self.backend.name()
-
         try:
             if enable_ocr_fallback_resolved and detect_need_ocr(path, min_text_chars=ocr_min_text_chars_resolved):
                 ocr_cache_path = build_ocr_cache_path(path, cache_dir=ocr_cache_root(), lang=ocr_lang_resolved)
@@ -178,7 +214,9 @@ class IngestAgent:
                     if candidate.exists():
                         ingest_path = candidate
 
+            self.last_effective_ingest_path = ingest_path
             doc_meta, sections, _ = self._extract_text_and_meta(ingest_path)
+            section_text_len = sum(len((section.text or "").strip()) for section in sections)
             pass1 = self.backend.extract_tables(ingest_path)
             tables = pass1.tables
             table_extraction_pass = pass1.diagnostics.table_extraction_pass or "pass1"
@@ -263,7 +301,13 @@ class IngestAgent:
             doc_meta.ocr_output_path = ocr_meta.get("ocr_output_path")
 
             self.last_table_extraction_meta = {
-                "parser_backend": self.backend.name(),
+                **self._parser_backend_meta(),
+                "parser_failure_code": "PDF_TEXTLESS" if section_text_len <= 0 else None,
+                "parser_failure_reason": (
+                    "PDF opened but text extraction produced no text."
+                    if section_text_len <= 0
+                    else None
+                ),
                 "table_extraction_pass": table_extraction_pass,
                 "table_failure_taxonomy": sorted(table_failure_taxonomy),
                 "fallback_used": bool(fallback_used),
@@ -296,6 +340,10 @@ class IngestAgent:
 
         except Exception as exc:
             logger.error("Failed to ingest PDF %s: %s", pdf_path, exc)
+            if isinstance(exc, ParserFailure):
+                self._set_parser_failure(exc.code, exc.reason)
+            else:
+                self._set_parser_failure(PARSER_FAIL_CORRUPTED, f"{type(exc).__name__}: {exc}")
             return None
 
     def process_v2(self, pdf_path: str) -> Optional[DocumentArtifactV2]:
@@ -306,7 +354,8 @@ class IngestAgent:
         legacy = self.process(pdf_path)
         if not legacy:
             return None
-        return self._build_v2_from_pdf(Path(pdf_path), legacy)
+        effective_path = self.last_effective_ingest_path or Path(pdf_path)
+        return self._build_v2_from_pdf(effective_path, legacy)
 
     def _extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         return self.backend.extract_text_and_meta(path)
@@ -314,7 +363,7 @@ class IngestAgent:
     def _extract_tables(self, path: Path) -> List[TableData]:
         table_result = self.backend.extract_tables(path)
         self.last_table_extraction_meta = {
-            "parser_backend": self.backend.name(),
+            **self._parser_backend_meta(),
             "table_extraction_pass": table_result.diagnostics.table_extraction_pass,
             "table_failure_taxonomy": list(table_result.diagnostics.table_failure_taxonomy or []),
             "fallback_used": bool(table_result.diagnostics.fallback_used),
