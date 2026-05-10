@@ -674,6 +674,8 @@ Follow these strict directives:
                 normalized = " ".join(sentence.strip().split())
                 if not (50 <= len(normalized) <= 360):
                     continue
+                if normalized[-1:] not in {".", "?", "!"}:
+                    continue
                 lowered = normalized.lower()
                 if not any(keyword and keyword in lowered for keyword in keywords):
                     continue
