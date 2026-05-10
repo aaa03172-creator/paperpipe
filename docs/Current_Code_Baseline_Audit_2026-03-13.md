@@ -4,6 +4,8 @@ Status: Working baseline audit
 Date: 2026-03-13
 Branch observed: `codex/agents-smoke-ci-check`
 Scope: product intent, development status, runtime architecture, code reality, test status, and immediate regressions
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical code-baseline evidence for the 2026-03 audit; verify current behavior against code and the current posture docs before using any finding as implementation guidance.
 
 ## 0. Executive Summary
 

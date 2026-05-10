@@ -3,6 +3,8 @@
 Status: Working infrastructure audit  
 Date: 2026-03-13  
 Scope: claim evidence policy, citation-link generation, review queue escalation, and actual grounding behavior in the current deepread path
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical grounding audit evidence; do not treat as the current citation contract without checking active schemas, routes, and bounded specs.
 
 ## 0. Executive Summary
 

@@ -1,9 +1,11 @@
 # Lattice UI/UX Adoption Filter (2026-02-25)
 
-Status: Active  
-Date: 2026-03-09  
-Owner: Frontend maintainers  
+Status: Active adoption record
+Date: 2026-03-09
+Owner: Frontend maintainers
 Canonical parent: `docs/Lattice_v3_Master_Spec.md`
+Current entrypoint: `docs/Lattice_v3_Master_Spec.md`, `AGENTS.md`, and active viewer specs
+Current use: UI adoption/exclusion record for the imported reference materials; do not use as a standalone UI system, token contract, or permission to bypass current product-psychology and `--pp-*` viewer rules.
 
 ## 기준
 - 1순위: `docs/Lattice_v3_Master_Spec.md`의 레이아웃/플로우/토큰/인지부하 가드레일

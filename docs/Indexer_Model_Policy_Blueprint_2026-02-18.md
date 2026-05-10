@@ -1,9 +1,11 @@
 # Indexer Model Policy Blueprint (2026-02-18)
 
-Status: Active policy blueprint  
-Date: 2026-02-18  
-Owner: Indexing maintainers  
+Status: Historical policy blueprint
+Date: 2026-02-18
+Owner: Indexing maintainers
 Canonical: `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
+Current entrypoint: `docs/README.md` and active indexer code/tests
+Current use: historical policy context for indexer model defaults; verify current behavior in `src/indexer.py` and `tests/test_indexer.py` before using this as implementation guidance.
 
 ## 1) Current Snapshot (as-is)
 - Branch/HEAD: `master` @ `d61cdd2`
