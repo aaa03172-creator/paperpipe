@@ -228,6 +228,49 @@ def _best_effort_log_request_audit(
         # Security audit logging must stay best-effort.
         pass
 
+
+def _rate_limit_response(
+    *,
+    error_code: str,
+    message: str,
+    retry_after: int,
+    limit: int,
+    window_seconds: int,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        headers={"Retry-After": str(retry_after)},
+        content={
+            "error_code": error_code,
+            "message": message,
+            "retry_after_seconds": retry_after,
+            "limit": limit,
+            "window_seconds": window_seconds,
+        },
+    )
+
+
+def _rate_limit_audit_payload(
+    *,
+    scope: str,
+    window_seconds: int,
+    limit: int,
+    seen_count: int,
+    retry_after: int,
+    rewritten_path: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "scope": scope,
+        "window_seconds": window_seconds,
+        "limit": limit,
+        "seen_count": seen_count,
+        "retry_after_seconds": retry_after,
+    }
+    if rewritten_path is not None:
+        payload["rewritten_path"] = rewritten_path
+    return payload
+
+
 def _resolve_cors_allow_origins() -> list[str]:
     raw = (
         os.getenv("LATTICE_CORS_ALLOW_ORIGINS")
@@ -736,6 +779,41 @@ def _request_has_valid_browser_origin(request: Request, original_path: str) -> b
     return _is_loopback_host(_host_for_request(request)) and _is_loopback_host(_origin_host(origin))
 
 
+def _request_has_browser_bridge_signal(request: Request, original_path: str) -> bool:
+    if not _is_browser_api_path(original_path):
+        return False
+
+    origin = _normalize_origin(request.headers.get("origin"))
+    if origin:
+        if origin in _allowed_browser_origins_for_request(request):
+            return True
+        return _is_loopback_host(_host_for_request(request)) and _is_loopback_host(_origin_host(origin))
+
+    fetch_site = str(request.headers.get("sec-fetch-site") or "").strip().lower()
+    fetch_mode = str(request.headers.get("sec-fetch-mode") or "").strip().lower()
+    fetch_dest = str(request.headers.get("sec-fetch-dest") or "").strip().lower()
+    if fetch_site in {"same-origin", "same-site", "none"}:
+        return fetch_mode != "navigate" and fetch_dest not in {"document", "iframe"}
+    return False
+
+
+def _browser_api_bridge_can_inject_api_key(
+    request: Request,
+    expected_key: str,
+    original_path: str,
+    protected_path: str,
+) -> bool:
+    if not expected_key or not _is_browser_api_path(original_path):
+        return False
+    if not _requires_api_key(request.method, protected_path):
+        return True
+    if _request_has_valid_api_key_header(request, expected_key):
+        return True
+    if _resolve_beta_password() and _request_has_valid_beta_auth(request):
+        return True
+    return _request_has_browser_bridge_signal(request, original_path)
+
+
 def _beta_gate_response() -> Response:
     return Response(
         status_code=401,
@@ -1134,27 +1212,23 @@ async def api_key_guard(request: Request, call_next):
                         path=original_path,
                         status_code=429,
                         outcome="rate_limited",
-                        payload={
-                            "scope": "browser_read",
-                            "window_seconds": window_seconds,
-                            "limit": rate_limit_count,
-                            "seen_count": seen_count,
-                            "retry_after_seconds": retry_after,
-                            "rewritten_path": rewritten_path,
-                        },
+                        payload=_rate_limit_audit_payload(
+                            scope="browser_read",
+                            window_seconds=window_seconds,
+                            limit=rate_limit_count,
+                            seen_count=seen_count,
+                            retry_after=retry_after,
+                            rewritten_path=rewritten_path,
+                        ),
                     )
                 return _apply_security_headers(
                     request,
-                    JSONResponse(
-                        status_code=429,
-                        headers={"Retry-After": str(retry_after)},
-                        content={
-                            "error_code": "BROWSER_READ_RATE_LIMITED",
-                            "message": "Browser read rate limit exceeded",
-                            "retry_after_seconds": retry_after,
-                            "limit": rate_limit_count,
-                            "window_seconds": window_seconds,
-                        },
+                    _rate_limit_response(
+                        error_code="BROWSER_READ_RATE_LIMITED",
+                        message="Browser read rate limit exceeded",
+                        retry_after=retry_after,
+                        limit=rate_limit_count,
+                        window_seconds=window_seconds,
                     ),
                 )
 
@@ -1178,27 +1252,23 @@ async def api_key_guard(request: Request, call_next):
                         path=original_path,
                         status_code=429,
                         outcome="rate_limited",
-                        payload={
-                            "scope": "browser_write",
-                            "window_seconds": window_seconds,
-                            "limit": rate_limit_count,
-                            "seen_count": seen_count,
-                            "retry_after_seconds": retry_after,
-                            "rewritten_path": rewritten_path,
-                        },
+                        payload=_rate_limit_audit_payload(
+                            scope="browser_write",
+                            window_seconds=window_seconds,
+                            limit=rate_limit_count,
+                            seen_count=seen_count,
+                            retry_after=retry_after,
+                            rewritten_path=rewritten_path,
+                        ),
                     )
                 return _apply_security_headers(
                     request,
-                    JSONResponse(
-                        status_code=429,
-                        headers={"Retry-After": str(retry_after)},
-                        content={
-                            "error_code": "BROWSER_WRITE_RATE_LIMITED",
-                            "message": "Browser write rate limit exceeded",
-                            "retry_after_seconds": retry_after,
-                            "limit": rate_limit_count,
-                            "window_seconds": window_seconds,
-                        },
+                    _rate_limit_response(
+                        error_code="BROWSER_WRITE_RATE_LIMITED",
+                        message="Browser write rate limit exceeded",
+                        retry_after=retry_after,
+                        limit=rate_limit_count,
+                        window_seconds=window_seconds,
                     ),
                 )
 
@@ -1224,26 +1294,22 @@ async def api_key_guard(request: Request, call_next):
                             path=original_path,
                             status_code=429,
                             outcome="rate_limited",
-                            payload={
-                                "scope": "protected_read",
-                                "window_seconds": window_seconds,
-                                "limit": rate_limit_count,
-                                "seen_count": seen_count,
-                                "retry_after_seconds": retry_after,
-                            },
+                            payload=_rate_limit_audit_payload(
+                                scope="protected_read",
+                                window_seconds=window_seconds,
+                                limit=rate_limit_count,
+                                seen_count=seen_count,
+                                retry_after=retry_after,
+                            ),
                         )
                     return _apply_security_headers(
                         request,
-                        JSONResponse(
-                            status_code=429,
-                            headers={"Retry-After": str(retry_after)},
-                            content={
-                                "error_code": "PROTECTED_READ_RATE_LIMITED",
-                                "message": "Protected read rate limit exceeded",
-                                "retry_after_seconds": retry_after,
-                                "limit": rate_limit_count,
-                                "window_seconds": window_seconds,
-                            },
+                        _rate_limit_response(
+                            error_code="PROTECTED_READ_RATE_LIMITED",
+                            message="Protected read rate limit exceeded",
+                            retry_after=retry_after,
+                            limit=rate_limit_count,
+                            window_seconds=window_seconds,
                         ),
                     )
     if _should_throttle_direct_protected_write(request.method, original_path):
@@ -1267,29 +1333,45 @@ async def api_key_guard(request: Request, call_next):
                             path=original_path,
                             status_code=429,
                             outcome="rate_limited",
-                            payload={
-                                "scope": "protected_write",
-                                "window_seconds": window_seconds,
-                                "limit": rate_limit_count,
-                                "seen_count": seen_count,
-                                "retry_after_seconds": retry_after,
-                            },
+                            payload=_rate_limit_audit_payload(
+                                scope="protected_write",
+                                window_seconds=window_seconds,
+                                limit=rate_limit_count,
+                                seen_count=seen_count,
+                                retry_after=retry_after,
+                            ),
                         )
                     return _apply_security_headers(
                         request,
-                        JSONResponse(
-                            status_code=429,
-                            headers={"Retry-After": str(retry_after)},
-                            content={
-                                "error_code": "PROTECTED_WRITE_RATE_LIMITED",
-                                "message": "Protected write rate limit exceeded",
-                                "retry_after_seconds": retry_after,
-                                "limit": rate_limit_count,
-                                "window_seconds": window_seconds,
-                            },
+                        _rate_limit_response(
+                            error_code="PROTECTED_WRITE_RATE_LIMITED",
+                            message="Protected write rate limit exceeded",
+                            retry_after=retry_after,
+                            limit=rate_limit_count,
+                            window_seconds=window_seconds,
                         ),
                     )
     if rewritten_path is not None:
+        if (
+            expected_key
+            and _requires_api_key(request.method, rewritten_path)
+            and not _browser_api_bridge_can_inject_api_key(
+                request,
+                expected_key,
+                original_path,
+                rewritten_path,
+            )
+        ):
+            return _apply_security_headers(
+                request,
+                JSONResponse(
+                    status_code=401,
+                    content={
+                        "error_code": "UNAUTHORIZED",
+                        "message": "Valid API key required.",
+                    },
+                ),
+            )
         request.scope["path"] = rewritten_path
         request.scope["raw_path"] = rewritten_path.encode("utf-8")
         if expected_key:
@@ -1297,6 +1379,22 @@ async def api_key_guard(request: Request, call_next):
     elif expected_key and _is_browser_api_path(original_path):
         current_browser_path = (original_path.rstrip("/") or "/").rstrip("/") or "/"
         if _requires_api_key(request.method, current_browser_path):
+            if not _browser_api_bridge_can_inject_api_key(
+                request,
+                expected_key,
+                original_path,
+                current_browser_path,
+            ):
+                return _apply_security_headers(
+                    request,
+                    JSONResponse(
+                        status_code=401,
+                        content={
+                            "error_code": "UNAUTHORIZED",
+                            "message": "Valid API key required.",
+                        },
+                    ),
+                )
             # Keep same-origin browser /api/* routes on the server-side secret boundary
             # even when they do not rewrite to a root backend path.
             MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
@@ -5686,10 +5784,16 @@ def get_artifacts_for_run_query(paper_id: str, run_id: str):
     return _build_artifact_bundle(paper_id, run_id)
 
 
-@app.get("/artifacts/{paper_id:path}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry)
+@app.get("/artifacts/{paper_id:path}/{run_id}/{artifact_name}", response_model=ArtifactFileEntry | ArtifactBundleResponse)
 def get_artifact_file(paper_id: str, run_id: str, artifact_name: str):
     artifact_key = _resolve_artifact_key(artifact_name)
     if not artifact_key:
+        ambiguous_paper_id = f"{paper_id}/{run_id}".strip("/")
+        try:
+            return _build_artifact_bundle(ambiguous_paper_id, artifact_name)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
         raise HTTPException(status_code=404, detail=f"Unsupported artifact_name={artifact_name}")
 
     bundle = _build_artifact_bundle(paper_id, run_id)
