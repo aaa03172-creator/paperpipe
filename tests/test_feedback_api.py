@@ -5,6 +5,33 @@ from fastapi.testclient import TestClient
 
 from backend import main as api_main
 from backend.routers import feedback as feedback_router
+from src.schemas.agent_artifacts import FeedbackCase
+
+
+def test_feedback_retriever_is_lazy_until_indexing(monkeypatch):
+    constructed = []
+
+    class FakeFeedbackRetriever:
+        def __init__(self):
+            constructed.append(True)
+
+        def add_feedback(self, _case):
+            return True
+
+    monkeypatch.setattr(feedback_router, "FeedbackRetriever", FakeFeedbackRetriever)
+    retriever = feedback_router._LazyFeedbackRetriever()
+
+    assert constructed == []
+
+    assert retriever.add_feedback(
+        FeedbackCase(
+            paper_id="paper_feedback_lazy",
+            run_id="run_feedback_lazy",
+            user_correction="lazy construction",
+            accepted=True,
+        )
+    ) is True
+    assert constructed == [True]
 
 
 def test_feedback_post_persists_generated_feedback_id(tmp_path, monkeypatch):
