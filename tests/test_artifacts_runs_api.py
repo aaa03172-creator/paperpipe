@@ -324,6 +324,26 @@ def test_artifacts_routes_support_unsafe_paper_ids(tmp_path, monkeypatch):
         db_utils.DB_PATH = original_db_path
 
 
+def test_artifacts_routes_do_not_resolve_traversal_ids_outside_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts = tmp_path / "storage" / "artifacts"
+    _set_artifacts_root(monkeypatch, artifacts)
+
+    outside_run = tmp_path / "outside" / "run_escape"
+    outside_run.mkdir(parents=True, exist_ok=True)
+    (outside_run / "document_artifact.json").write_text(json.dumps({"doc_id": "escaped"}), encoding="utf-8")
+
+    client = TestClient(api_main.app)
+
+    paper_escape = client.get("/artifacts/..%2Foutside/run_escape")
+    assert paper_escape.status_code == 404
+    assert "escaped" not in paper_escape.text
+
+    run_escape = client.get("/artifacts/paper_safe_001/..%2F..%2Foutside%2Frun_escape")
+    assert run_escape.status_code == 404
+    assert "escaped" not in run_escape.text
+
+
 def test_runs_status_and_timeline_from_job_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

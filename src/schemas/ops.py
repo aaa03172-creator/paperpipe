@@ -28,6 +28,14 @@ class DownloaderOpsMetricsResponse(BaseModel):
     alerts: list[str] = Field(default_factory=list)
 
 
+class ErrorResponse(BaseModel):
+    error_code: str
+    message: str
+    trace_id: str
+    details: Any | None = None
+    detail: Any | None = None
+
+
 class StaleJobDiagnosticEntry(BaseModel):
     job_id: str
     paper_id: Optional[str] = None
