@@ -49,9 +49,17 @@ from src.services.figure_caption_sidecar import (
     build_figure_caption_sidecar,
     write_figure_caption_sidecar,
 )
+from src.services.visual_evidence_ledger import (
+    build_visual_evidence_ledger,
+    write_visual_evidence_ledger,
+)
 from src.services.claimset_coverage_sidecar import (
     build_claimset_coverage_sidecar,
     write_claimset_coverage_sidecar,
+)
+from src.services.claimset_coverage_focus_sidecar import (
+    build_claimset_coverage_focus_sidecar,
+    write_claimset_coverage_focus_sidecar,
 )
 from src.services.reader_eval_sidecar import build_reader_eval_sidecar, write_reader_eval_sidecar
 from src.services.stats_fallback_eval_sidecar import (
@@ -432,6 +440,64 @@ def _ingest_runtime_options_for_run_meta(options: Dict[str, Any]) -> Dict[str, A
     api_key = persisted.pop("cloud_table_api_key", None)
     persisted["cloud_table_api_key_configured"] = bool(str(api_key or "").strip())
     return persisted
+
+
+def _build_cloud_table_preflight_callback(
+    *,
+    run_meta: Dict[str, Any],
+    bootstrap_meta: Dict[str, Any],
+    artifact_dir: Path,
+    paper_id: str,
+    run_id: str,
+    model: str,
+):
+    def _callback(page_text: str, page_number: int) -> bool:
+        _record_inference_lane(
+            run_meta,
+            lane="cloud_table_fallback",
+            selected_backend="openai",
+            payload_class="external_allowed",
+            redaction_applied=False,
+            provider_name="CloudTableFallbackExtractor",
+            provider_model=model,
+        )
+        try:
+            preflight = build_privacy_preflight_response(
+                mode=resolve_privacy_preflight_mode(),
+                payload_class="external_allowed",
+                scope="cloud_table_fallback_external_payload",
+                payload_texts=[(f"pdf_page_{int(page_number)}_text", page_text)],
+                input_refs=[f"paper:{paper_id}", f"run:{run_id}", f"page:{int(page_number)}"],
+                redaction_applied=False,
+            )
+        except ValueError as exc:
+            if "LATTICE_PRIVACY_PREFLIGHT_MODE" not in str(exc):
+                raise
+            bootstrap_meta["cloud_table_fallback_status"] = "failed:invalid_privacy_preflight_mode"
+            run_meta["cloud_table_fallback_status"] = "failed:invalid_privacy_preflight_mode"
+            run_meta["privacy_preflight_error"] = str(exc)
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            _write_run_meta(artifact_dir, run_meta)
+            return False
+        if preflight.mode != "off":
+            _record_privacy_preflight(
+                run_meta,
+                lane="cloud_table_fallback",
+                payload=preflight.model_dump(mode="json"),
+            )
+        if privacy_preflight_should_block(preflight):
+            bootstrap_meta["cloud_table_fallback_status"] = "privacy_preflight_blocked"
+            run_meta["cloud_table_fallback_status"] = "privacy_preflight_blocked"
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            _write_run_meta(artifact_dir, run_meta)
+            return False
+        bootstrap_meta["cloud_table_fallback_status"] = "privacy_preflight_passed"
+        run_meta["cloud_table_fallback_status"] = "privacy_preflight_passed"
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        _write_run_meta(artifact_dir, run_meta)
+        return True
+
+    return _callback
 
 
 def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
@@ -996,6 +1062,13 @@ async def run_deepread_job(
         run_meta.update(extra)
         _write_run_meta(artifact_dir, run_meta)
 
+    def _job_result(status: str, **extra: Any) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"status": status, "run_id": run_id}
+        if artifact_dir is not None:
+            result["artifact_dir"] = str(artifact_dir)
+        result.update(extra)
+        return result
+
     def _persist_reader_analysis_metrics(reader_obj: Any) -> None:
         metrics = getattr(reader_obj, "last_analysis_metrics", None)
         if run_meta is not None:
@@ -1018,7 +1091,7 @@ async def run_deepread_job(
 
     try:
         if await is_cancelled():
-            return {"status": "cancelled", "run_id": run_id}
+            return _job_result("cancelled")
 
         await emit("init", 0, f"Starting Deep Read for {paper_id}")
         
@@ -1051,7 +1124,7 @@ async def run_deepread_job(
         if not pdf_path or not pdf_path.exists():
             logger.error(f"❌ PDF not found for {paper_id} in {config.paths.library_dir}")
             await emit("init", 0, f"PDF not found for {paper_id}", level="ERROR")
-            return {"status": "failed", "error": f"PDF not found for {paper_id}", "run_id": run_id}
+            return _job_result("failed", error=f"PDF not found for {paper_id}")
             
         logger.info(f"✅ Found PDF: {pdf_path}")
 
@@ -1115,7 +1188,9 @@ async def run_deepread_job(
             "artifact_index_written": False,
             "artifact_claimset_written": False,
             "artifact_claimset_coverage_written": False,
+            "artifact_claimset_coverage_focus_written": False,
             "artifact_figure_captions_written": False,
+            "artifact_visual_evidence_ledger_written": False,
             "artifact_reader_timeout_written": False,
             "artifact_stats_written": False,
             "claimset_readiness": "unknown",
@@ -1137,6 +1212,7 @@ async def run_deepread_job(
             "table_pass2_enabled": False,
             "table_pass3_enabled": False,
             "table_page_budget": 0,
+            "cloud_table_fallback_status": "not_run",
             "artifact_clinical_extraction_written": False,
             "clinical_extraction_status": "not_run",
             "clinical_extraction_note_type": "unknown",
@@ -1147,7 +1223,7 @@ async def run_deepread_job(
         # 2. Ingest
         if await is_cancelled():
             _mark_run_meta("cancelled")
-            return {"status": "cancelled", "run_id": run_id}
+            return _job_result("cancelled")
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
         parser_backend = _resolve_ingest_parser_backend(config, override_backend=parser_backend)
@@ -1168,6 +1244,15 @@ async def run_deepread_job(
         except TypeError:
             # Test doubles may expose a simplified constructor.
             ingest_agent = IngestAgent()
+        if run_meta is not None and bool(ingest_runtime_options.get("enable_cloud_table_fallback", False)):
+            ingest_agent.cloud_table_preflight_callback = _build_cloud_table_preflight_callback(
+                run_meta=run_meta,
+                bootstrap_meta=bootstrap_meta,
+                artifact_dir=artifact_dir,
+                paper_id=paper_id,
+                run_id=run_id,
+                model=str(ingest_runtime_options.get("cloud_table_model") or "gpt-4o-mini"),
+            )
         doc_artifact = ingest_agent.process_v2(str(pdf_path))
         
         if not doc_artifact:
@@ -1351,7 +1436,7 @@ async def run_deepread_job(
         # 3. Index
         if await is_cancelled():
             _mark_run_meta("cancelled")
-            return {"status": "cancelled", "run_id": run_id}
+            return _job_result("cancelled")
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
         if clean_reindex:
@@ -1379,7 +1464,7 @@ async def run_deepread_job(
         # 4. Read (Claim Extraction)
         if await is_cancelled():
             _mark_run_meta("cancelled")
-            return {"status": "cancelled", "run_id": run_id}
+            return _job_result("cancelled")
         await emit("read", 50, "Reader Agent analyzing...")
         hint_sections: list[str] = []
         reasoning_hint = resolve_reasoning_persona_hint(selection.reasoning_persona)
@@ -1553,6 +1638,7 @@ async def run_deepread_job(
         bootstrap_meta["artifact_claimset_resolved_written"] = True
         bootstrap_meta["artifact_claimset_coverage_written"] = False
         bootstrap_meta["artifact_reader_eval_written"] = False
+        bootstrap_meta["artifact_visual_evidence_ledger_written"] = False
         claim_count = len(claim_set.claims)
         bootstrap_meta["claimset_claim_count"] = claim_count
         bootstrap_meta["claimset_grounded_span_count"] = sum(
@@ -1575,6 +1661,36 @@ async def run_deepread_job(
                 run_meta["section_summary"] = section_summary
             else:
                 run_meta.pop("section_summary", None)
+        visual_evidence_ledger = None
+        try:
+            visual_evidence_ledger = build_visual_evidence_ledger(
+                paper_id=paper_id,
+                run_id=run_id,
+                document_artifact=doc_artifact,
+                figure_captions=figure_caption_sidecar,
+                resolved_claimset=resolved_claim_set,
+            )
+            visual_evidence_ledger_path = write_visual_evidence_ledger(visual_evidence_ledger, artifact_dir)
+            bootstrap_meta["artifact_visual_evidence_ledger_written"] = True
+            bootstrap_meta["visual_evidence_ledger_artifact"] = str(visual_evidence_ledger_path)
+            bootstrap_meta["visual_evidence_entry_count"] = visual_evidence_ledger.metrics.entry_count
+            bootstrap_meta["visual_evidence_unknown_count"] = visual_evidence_ledger.metrics.unknown_count
+            bootstrap_meta["visual_evidence_partially_observed_count"] = (
+                visual_evidence_ledger.metrics.partially_observed_count
+            )
+            if run_meta is not None:
+                run_meta["visual_evidence_ledger"] = {
+                    "artifact": str(visual_evidence_ledger_path),
+                    "entry_count": visual_evidence_ledger.metrics.entry_count,
+                    "unknown_count": visual_evidence_ledger.metrics.unknown_count,
+                    "partially_observed_count": visual_evidence_ledger.metrics.partially_observed_count,
+                    "generation_replay_required": visual_evidence_ledger.generation_replay_required,
+                    "final_answer_validation_required": visual_evidence_ledger.final_answer_validation_required,
+                }
+        except Exception as exc:
+            logger.warning("Failed to build visual_evidence_ledger sidecar: %s", exc)
+            bootstrap_meta["artifact_visual_evidence_ledger_written"] = False
+            bootstrap_meta["visual_evidence_ledger_error"] = str(exc)
         claimset_coverage = None
         try:
             claimset_coverage = build_claimset_coverage_sidecar(
@@ -1606,6 +1722,72 @@ async def run_deepread_job(
             logger.warning("Failed to build claimset_coverage sidecar: %s", exc)
             bootstrap_meta["artifact_claimset_coverage_written"] = False
             bootstrap_meta["claimset_coverage_error"] = str(exc)
+        bootstrap_meta["artifact_claimset_coverage_focus_written"] = False
+        if claimset_coverage is not None and claimset_coverage.coverage_status in {"warn", "fail"}:
+            try:
+                focus_claimset = reader_agent.analyze_coverage_focus(
+                    doc_artifact,
+                    coverage=claimset_coverage,
+                    existing_claimset=resolved_claim_set,
+                )
+                resolved_focus_claimset = resolve_claimset_grounding(
+                    focus_claimset,
+                    index_artifact,
+                    document_artifact=doc_artifact if isinstance(doc_artifact, DocumentArtifactV2) else None,
+                )
+                coverage_focus_metrics = dict(getattr(reader_agent, "last_coverage_focus_metrics", {}) or {})
+                coverage_focus_metric_status = str(coverage_focus_metrics.get("status") or "").strip()
+                coverage_focus_status = "generated"
+                if coverage_focus_metric_status.startswith("skipped"):
+                    coverage_focus_status = "skipped"
+                elif coverage_focus_metric_status == "parse_failed":
+                    coverage_focus_status = "error"
+                coverage_focus = build_claimset_coverage_focus_sidecar(
+                    paper_id=paper_id,
+                    run_id=run_id,
+                    coverage=claimset_coverage,
+                    candidate_claimset=resolved_focus_claimset,
+                    focus_status=coverage_focus_status,
+                    reason=coverage_focus_metric_status or None,
+                )
+                coverage_focus_path = write_claimset_coverage_focus_sidecar(coverage_focus, artifact_dir)
+                bootstrap_meta["artifact_claimset_coverage_focus_written"] = True
+                bootstrap_meta["claimset_coverage_focus_artifact"] = str(coverage_focus_path)
+                bootstrap_meta["claimset_coverage_focus_status"] = coverage_focus.focus_status
+                bootstrap_meta["claimset_coverage_focus_claim_count"] = coverage_focus.metrics.generated_claim_count
+                if run_meta is not None:
+                    run_meta["claimset_coverage_focus"] = {
+                        "status": coverage_focus.focus_status,
+                        "artifact": str(coverage_focus_path),
+                        "generated_claim_count": coverage_focus.metrics.generated_claim_count,
+                        "target_count": coverage_focus.metrics.target_count,
+                    }
+                    run_meta["coverage_focus_analysis"] = coverage_focus_metrics
+            except Exception as exc:
+                logger.warning("Failed to build claimset_coverage_focus sidecar: %s", exc)
+                bootstrap_meta["claimset_coverage_focus_status"] = "error"
+                bootstrap_meta["claimset_coverage_focus_error"] = str(exc)
+                try:
+                    coverage_focus = build_claimset_coverage_focus_sidecar(
+                        paper_id=paper_id,
+                        run_id=run_id,
+                        coverage=claimset_coverage,
+                        focus_status="error",
+                        reason=str(exc),
+                    )
+                    coverage_focus_path = write_claimset_coverage_focus_sidecar(coverage_focus, artifact_dir)
+                    bootstrap_meta["artifact_claimset_coverage_focus_written"] = True
+                    bootstrap_meta["claimset_coverage_focus_artifact"] = str(coverage_focus_path)
+                    if run_meta is not None:
+                        run_meta["claimset_coverage_focus"] = {
+                            "status": coverage_focus.focus_status,
+                            "artifact": str(coverage_focus_path),
+                            "generated_claim_count": coverage_focus.metrics.generated_claim_count,
+                            "target_count": coverage_focus.metrics.target_count,
+                        }
+                except Exception as sidecar_exc:
+                    logger.warning("Failed to write claimset_coverage_focus error sidecar: %s", sidecar_exc)
+                    bootstrap_meta["artifact_claimset_coverage_focus_written"] = False
         try:
             reader_eval = build_reader_eval_sidecar(
                 paper_id=paper_id,
@@ -1691,7 +1873,7 @@ async def run_deepread_job(
         if run_verify:
             if await is_cancelled():
                 _mark_run_meta("cancelled")
-                return {"status": "cancelled", "run_id": run_id}
+                return _job_result("cancelled")
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
                 if StatsVerificationAgent is None:
@@ -1824,6 +2006,7 @@ async def run_deepread_job(
                     stats_md=stats_md,
                     clinical_md=clinical_md,
                     coverage=claimset_coverage,
+                    visual_evidence=visual_evidence_ledger,
                 )
                 note_content = note_path.read_text(encoding="utf-8")
                 note_updated = upsert_deepread_section(note_content, deepread_md)
@@ -1833,7 +2016,7 @@ async def run_deepread_job(
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
-        return {"status": "succeeded", "run_id": run_id, "artifact_dir": str(artifact_dir)}
+        return _job_result("succeeded")
 
     except Exception as e:
         safe_error = sanitize_event_text_for_log(str(e)) or type(e).__name__
@@ -1863,4 +2046,4 @@ async def run_deepread_job(
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
         await emit("error", 0, safe_error, level="ERROR")
-        return {"status": "failed", "error": safe_error, "run_id": run_id}
+        return _job_result("failed", error=safe_error)

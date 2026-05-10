@@ -3,6 +3,7 @@ import re
 from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 from src.schemas.claimset_coverage import ClaimsetCoverageSidecar
+from src.schemas.visual_evidence import VisualEvidenceLedger
 
 
 DEEPREAD_HEADER = "## 🤖 Agent Deep Read"
@@ -100,6 +101,7 @@ def build_deepread_markdown(
     stats_md: str = "",
     clinical_md: str = "",
     coverage: ClaimsetCoverageSidecar | None = None,
+    visual_evidence: VisualEvidenceLedger | None = None,
 ) -> str:
     md_output = f"{DEEPREAD_HEADER}\n"
     md_output += f"**Analyzed via {model_name}**\n\n"
@@ -109,6 +111,10 @@ def build_deepread_markdown(
 
     if clinical_md:
         md_output += clinical_md
+
+    visual_evidence_md = build_visual_evidence_replay_markdown(visual_evidence)
+    if visual_evidence_md:
+        md_output += visual_evidence_md
 
     for i, claim in enumerate(claims_set.claims, 1):
         icon = "✅" if claim.confidence > 0.8 else "⚠️"
@@ -128,6 +134,46 @@ def build_deepread_markdown(
     if stats_md:
         md_output += stats_md
     return md_output
+
+
+def build_visual_evidence_replay_markdown(visual_evidence: VisualEvidenceLedger | None) -> str:
+    if visual_evidence is None or not visual_evidence.entries:
+        return ""
+
+    parts = [
+        "### Visual Evidence Replay",
+        "- **Gate**: Required before promoting figure/table-backed claims",
+        (
+            f"- **Entries**: {visual_evidence.metrics.entry_count} "
+            f"(observed={visual_evidence.metrics.observed_count}, "
+            f"partial={visual_evidence.metrics.partially_observed_count}, "
+            f"unknown={visual_evidence.metrics.unknown_count})"
+        ),
+    ]
+    for entry in visual_evidence.entries[:8]:
+        locator = entry.figure_id or entry.table_id or entry.evidence_id
+        parts.append(f"- **{locator}**: page {entry.page}, status={entry.status}")
+        if entry.caption:
+            parts.append(f"  - Caption: {_truncate_inline(entry.caption, 180)}")
+        if entry.observed_elements:
+            parts.append(f"  - Observed: {'; '.join(_truncate_inline(value, 100) for value in entry.observed_elements[:3])}")
+        if entry.observed_text:
+            parts.append(f"  - Visible text: {'; '.join(_truncate_inline(value, 100) for value in entry.observed_text[:3])}")
+        if entry.extracted_values:
+            cells = [
+                f"{value.cell_id or value.label}={_truncate_inline(value.value, 60)}"
+                for value in entry.extracted_values[:5]
+            ]
+            parts.append(f"  - Parsed values: {'; '.join(cells)}")
+        if entry.allowed_claims:
+            parts.append(f"  - Allowed: {'; '.join(_truncate_inline(value, 120) for value in entry.allowed_claims[:2])}")
+        if entry.not_allowed_claims:
+            parts.append(f"  - Not allowed: {'; '.join(_truncate_inline(value, 120) for value in entry.not_allowed_claims[:2])}")
+        if entry.failure_reason:
+            parts.append(f"  - Failure reason: {entry.failure_reason}")
+    if len(visual_evidence.entries) > 8:
+        parts.append(f"- Additional visual evidence entries omitted from note replay: {len(visual_evidence.entries) - 8}")
+    return "\n".join(parts) + "\n\n"
 
 
 def build_coverage_review_markdown(coverage: ClaimsetCoverageSidecar | None) -> str:
@@ -156,6 +202,13 @@ def build_coverage_review_markdown(coverage: ClaimsetCoverageSidecar | None) -> 
     parts.append(f"- **Evidence Grounding**: {coverage.evidence_summary.grounded_ratio:.0%} grounded")
     parts.append(f"- **Recommended Next Action**: {coverage.recommended_next_action.replace('_', ' ')}")
     return "\n".join(parts) + "\n\n"
+
+
+def _truncate_inline(value: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 def upsert_deepread_section(content: str, new_section: str) -> str:

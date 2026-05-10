@@ -143,13 +143,21 @@ class Worker:
                 return
 
             if result and result.get("status") == "cancelled":
+                updates = {
+                    "status": "cancelled",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "stage": "cancelled",
+                }
+                if result.get("artifact_dir"):
+                    updates["artifact_dir"] = result.get("artifact_dir")
+                self.queue.update_job(job.job_id, updates)
                 log_job_event(
                     job_id=job.job_id,
                     run_id=job.run_id,
                     level="INFO",
                     event_type="job_cancelled",
                     message="cancelled during execution",
-                    payload={"status": "cancelled"},
+                    payload={"status": "cancelled", "artifact_dir": result.get("artifact_dir")},
                 )
                 logger.info(f"🛑 Job {job.job_id} cancelled during execution.")
                 return
@@ -179,6 +187,7 @@ class Worker:
                     "status": "failed",
                     "error_message": error_message,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "artifact_dir": (result or {}).get("artifact_dir"),
                 })
                 log_job_event(
                     job_id=job.job_id,
@@ -186,7 +195,7 @@ class Worker:
                     level="ERROR",
                     event_type="job_failed",
                     message=error_message,
-                    payload={"status": "failed", "error": error_message},
+                    payload={"status": "failed", "error": error_message, "artifact_dir": (result or {}).get("artifact_dir")},
                 )
                 logger.error(f"❌ Job {job.job_id} failed: {error_message}")
 

@@ -38,6 +38,8 @@ def build_deepread_acceptance_contract(
         expected_outputs.append("stats_report.json")
     if bool(bootstrap_meta.get("artifact_claimset_coverage_written")):
         expected_outputs.append("claimset_coverage.json")
+    if bool(bootstrap_meta.get("artifact_claimset_coverage_focus_written")):
+        expected_outputs.append("claimset_coverage_focus.json")
 
     checks = [
         DeepReadAcceptanceCheck(
@@ -66,6 +68,12 @@ def build_deepread_acceptance_contract(
             required=False,
             source="bootstrap_meta.artifact_claimset_coverage_written",
             description="Coverage sidecar exists for advisory post-read coverage review.",
+        ),
+        DeepReadAcceptanceCheck(
+            name="claimset_coverage_focus_written",
+            required=False,
+            source="bootstrap_meta.artifact_claimset_coverage_focus_written",
+            description="Focused coverage candidate sidecar exists when coverage review requests a focused pass.",
         ),
         DeepReadAcceptanceCheck(
             name="verification_completed",

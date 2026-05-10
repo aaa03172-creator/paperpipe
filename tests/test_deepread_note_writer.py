@@ -17,6 +17,12 @@ from src.schemas.claimset_coverage import (
     ClaimsetCoverageSidecar,
     ClaimsetCoverageTopicSignal,
 )
+from src.schemas.visual_evidence import (
+    VisualEvidenceLedger,
+    VisualEvidenceMetrics,
+    VisualEvidenceObject,
+    VisualExtractedValue,
+)
 from src.services.deepread_note_writer import (
     DEEPREAD_HEADER,
     _format_evidence_text_for_display,
@@ -45,6 +51,60 @@ def test_build_deepread_markdown_renders_claims():
     assert "Analyzed via llama3:latest" in md
     assert "Drug A improved outcome." in md
     assert "Result section evidence" in md
+
+
+def test_build_deepread_markdown_replays_visual_evidence_without_interpreting_unknowns():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="finding",
+                statement="Table T1 reports a treated mean.",
+                confidence=0.91,
+            )
+        ],
+    )
+    visual_evidence = VisualEvidenceLedger(
+        paper_id="doc1",
+        run_id="run1",
+        generated_at=datetime.now(timezone.utc),
+        metrics=VisualEvidenceMetrics(entry_count=2, partially_observed_count=1, unknown_count=1),
+        entries=[
+            VisualEvidenceObject(
+                evidence_id="visual_fig_2",
+                kind="microscopy",
+                page=2,
+                figure_id="fig_2",
+                caption="Representative microscopy panels after treatment.",
+                status="unknown",
+                failure_reason="caption_only",
+                not_allowed_claims=["Do not infer visual measurements from the caption alone."],
+            ),
+            VisualEvidenceObject(
+                evidence_id="visual_T1",
+                kind="table",
+                page=3,
+                table_id="T1",
+                caption="Outcome measures.",
+                status="partially_observed",
+                extracted_values=[
+                    VisualExtractedValue(label="mean", value="12.4", table_id="T1", cell_id="r2c2")
+                ],
+                allowed_claims=["Table T1 exposes parsed cell values."],
+                not_allowed_claims=["Do not infer significance from parsed table cells alone."],
+            ),
+        ],
+    )
+
+    md = build_deepread_markdown("reader", claimset, visual_evidence=visual_evidence)
+
+    assert "### Visual Evidence Replay" in md
+    assert "status=unknown" in md
+    assert "Failure reason: caption_only" in md
+    assert "Do not infer visual measurements" in md
+    assert "r2c2=12.4" in md
+    assert "Do not infer significance" in md
 
 
 def test_build_deepread_markdown_renders_coverage_warning_for_warn_or_fail():

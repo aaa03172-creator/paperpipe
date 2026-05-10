@@ -1,8 +1,16 @@
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 from src.agents import reader_agent as reader_mod
-from src.contracts.document_artifact_v2 import ArtifactMetaV2, DocumentArtifactV2
+from src.contracts.document_artifact_v2 import ArtifactMetaV2, BlockV2, DocumentArtifactV2, LineV2, PageV2
 from src.schemas.agent_artifacts import ClaimSet, ScientificClaim
+from src.schemas.claimset_coverage import (
+    ClaimsetCoverageEvidenceSummary,
+    ClaimsetCoverageMetrics,
+    ClaimsetCoveragePageSummary,
+    ClaimsetCoverageSidecar,
+    ClaimsetCoverageTopicSignal,
+)
 
 
 def test_reader_agent_records_attempt_metrics(monkeypatch):
@@ -202,6 +210,106 @@ def test_reader_agent_supports_focused_first_attempt_order(monkeypatch):
     assert metrics["attempts"][0]["attempt_wall_seconds"] >= 0
     assert metrics["attempts"][0]["provider_request_wall_seconds"] == 0.75
     assert metrics["attempts"][0]["provider_done_reason"] == "stop"
+
+
+def test_reader_agent_coverage_focus_uses_missing_topic_targets(monkeypatch):
+    captured: dict[str, str] = {}
+
+    class FakeAdapter:
+        def __init__(self, model_name: str = "fake-model"):
+            self.last_request_meta = {}
+
+        def generate(self, prompt: str, format: str | None = None):
+            captured["prompt"] = prompt
+            self.last_request_meta = {"status": "ok", "provider": "ollama", "model": "fake-model"}
+            return SimpleNamespace(
+                text=(
+                    '{"doc_id":"doc:test","claims":[{"claim_id":"x","type":"methods",'
+                    '"statement":"AI and machine learning prioritize therapeutic candidates.",'
+                    '"confidence":0.84,"evidence_spans":[{"chunk_id":"p04_c01","page":3,'
+                    '"raw_text":"AI and machine learning prioritize therapeutic candidates.",'
+                    '"quote":"AI and machine learning prioritize therapeutic candidates.",'
+                    '"rationale":"Direct evidence."}]}]}'
+                )
+            )
+
+        def count_tokens(self, text: str):
+            return SimpleNamespace(total_tokens=max(1, len(text) // 4))
+
+    monkeypatch.setattr(reader_mod, "OllamaModelAdapter", FakeAdapter)
+    reader = reader_mod.ReaderAgent(model_name="fake-model")
+    doc = DocumentArtifactV2(
+        document_id="doc:test",
+        meta=ArtifactMetaV2(title="Coverage Focus", authors=["Kim"], source_ref="file.pdf"),
+        pages=[
+            PageV2(page_index=0, width=595, height=842, blocks=[]),
+            PageV2(
+                page_index=1,
+                width=595,
+                height=842,
+                blocks=[BlockV2(block_id="b2", lines=[LineV2(line_id="l2", text="Existing iPSC claim text.")])],
+            ),
+            PageV2(page_index=2, width=595, height=842, blocks=[]),
+            PageV2(
+                page_index=3,
+                width=595,
+                height=842,
+                blocks=[
+                    BlockV2(
+                        block_id="b4",
+                        lines=[
+                            LineV2(
+                                line_id="l4",
+                                text="AI and machine learning prioritize therapeutic candidates.",
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ],
+        tables=[],
+    )
+    coverage = ClaimsetCoverageSidecar(
+        paper_id="paper-1",
+        doc_id="doc:test",
+        run_id="run-1",
+        generated_at=datetime.now(timezone.utc),
+        coverage_status="warn",
+        metrics=ClaimsetCoverageMetrics(document_page_count=4, missing_topic_signal_count=1),
+        page_summary=ClaimsetCoveragePageSummary(covered_pages=[2], missing_page_ranges=["4"]),
+        topic_signals=[
+            ClaimsetCoverageTopicSignal(
+                key="ai_computational",
+                label="AI and computational methods",
+                keywords=["AI", "machine learning"],
+                present_in_document=True,
+                covered_by_claimset=False,
+            )
+        ],
+        evidence_summary=ClaimsetCoverageEvidenceSummary(total_spans=1, grounded_spans=1, grounded_ratio=1.0),
+        recommended_next_action="run_focused_coverage_review_for_missing_topics",
+    )
+    existing = ClaimSet(
+        doc_id="doc:test",
+        claims=[
+            ScientificClaim(
+                claim_id="CLM-001",
+                type="methods",
+                statement="Existing iPSC claim text.",
+                confidence=0.8,
+            )
+        ],
+    )
+
+    result = reader.analyze_coverage_focus(doc, coverage=coverage, existing_claimset=existing)
+
+    assert len(result.claims) == 1
+    assert result.claims[0].claim_id == "CLM-COV-001"
+    assert result.claims[0].evidence_spans[0].chunk_id == "p04_c01"
+    assert "AI and computational methods" in captured["prompt"]
+    assert "Existing iPSC claim text." in captured["prompt"]
+    assert reader.last_coverage_focus_metrics["status"] == "generated"
+    assert reader.last_coverage_focus_metrics["generated_claim_count"] == 1
 
 
 def test_reader_agent_focused_context_includes_methods_sections(monkeypatch):

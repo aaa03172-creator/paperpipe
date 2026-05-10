@@ -73,3 +73,24 @@ def test_extract_tables_records_quality_taxonomy_when_invalid(monkeypatch, tmp_p
     assert result.tables == []
     assert "CELL_COVERAGE_LOW" in result.diagnostics.table_failure_taxonomy
     assert "LOW_ACCURACY" in result.diagnostics.table_failure_taxonomy
+
+
+def test_extract_tables_skips_llm_when_preflight_blocks(monkeypatch, tmp_path: Path) -> None:
+    pdf = tmp_path / "dummy.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    extractor = CloudTableFallbackExtractor(api_key="", preflight_callback=lambda _text, _page: False)
+    extractor.client = object()  # bypass NO_API guard
+
+    monkeypatch.setattr(extractor, "_select_candidate_pages", lambda _p, _b: [1])
+    monkeypatch.setattr(extractor, "_extract_page_text", lambda _p, _n: "table text")
+
+    def fail_if_called(_text: str, _page: int):
+        raise AssertionError("LLM extraction should not run when preflight blocks")
+
+    monkeypatch.setattr(extractor, "_extract_page_tables_with_llm", fail_if_called)
+
+    result = extractor.extract_tables(pdf, page_budget=1)
+
+    assert result.tables == []
+    assert "PRIVACY_PREFLIGHT_BLOCKED" in result.diagnostics.table_failure_taxonomy
