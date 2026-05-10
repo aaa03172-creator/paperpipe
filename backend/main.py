@@ -141,6 +141,7 @@ from src.services.paper_ops_summary import (
     build_ops_summary_for_candidate_ids,
 )
 from src.services.fixture_visibility import include_test_fixtures_enabled, is_test_fixture_paper_record
+from src.services.identity import paper_id_candidate_ids, paper_id_search_variants, paper_id_self_and_suffix_candidate_ids
 from src.services.runtime_readiness import (
     collect_runtime_readiness,
     summarize_browser_runtime_readiness,
@@ -151,7 +152,7 @@ from src.services.stale_jobs import capture_stale_running_incident_snapshot
 from src.services.stale_jobs import reclaim_stale_running_job
 from src.services.stale_jobs import requeue_reclaimed_job
 from src.services.runtime_paths import (
-    artifact_paper_dir,
+    artifact_paper_dir_candidates,
     artifact_run_dir,
     artifacts_root,
     frontend_runtime_dir,
@@ -256,15 +257,7 @@ def _resolve_cors_allow_origins() -> list[str]:
 
 
 def _ops_summary_candidate_ids(paper_id: str) -> list[str]:
-    text = str(paper_id or "").strip()
-    if not text:
-        return []
-
-    candidates: list[str] = []
-    for candidate in (text, text.split(":", 1)[1].strip() if ":" in text else ""):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    return candidates
+    return paper_id_self_and_suffix_candidate_ids(paper_id)
 
 
 def _resolve_api_key() -> str:
@@ -3456,7 +3449,7 @@ def _build_note_backed_paper_access_summary(
 
 
 def _paper_id_identity_sets(paper_id: str) -> tuple[set[str], set[str]]:
-    raw_variants = {value for value in paper_notes._paper_id_variants(paper_id) if value}
+    raw_variants = {value for value in paper_id_search_variants(paper_id) if value}
     normalized_variants = {
         normalized
         for value in raw_variants
@@ -3466,23 +3459,7 @@ def _paper_id_identity_sets(paper_id: str) -> tuple[set[str], set[str]]:
 
 
 def _paper_route_candidate_ids(paper_id: str) -> list[str]:
-    text = str(paper_id or "").strip()
-    if not text:
-        return []
-
-    candidates: list[str] = []
-
-    def _append(value: str) -> None:
-        candidate = value.strip()
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-
-    _append(text)
-    if text.startswith("zotero:"):
-        _append(text.split(":", 1)[1].strip())
-    elif ":" not in text:
-        _append(f"zotero:{text}")
-    return candidates
+    return paper_id_candidate_ids(paper_id)
 
 
 def _lookup_paper_row_by_route_id(
@@ -4348,16 +4325,16 @@ def _latest_run_id_for_candidate_ids(candidate_ids: list[str]) -> str | None:
     latest_dir: Path | None = None
     latest_mtime = -1.0
     for candidate_id in normalized_candidate_ids:
-        paper_dir = artifact_paper_dir(candidate_id)
-        if not paper_dir.exists():
-            continue
-        for candidate in paper_dir.iterdir():
-            if not candidate.is_dir():
+        for paper_dir in artifact_paper_dir_candidates(candidate_id):
+            if not paper_dir.exists():
                 continue
-            candidate_mtime = candidate.stat().st_mtime
-            if candidate_mtime > latest_mtime:
-                latest_mtime = candidate_mtime
-                latest_dir = candidate
+            for candidate in paper_dir.iterdir():
+                if not candidate.is_dir():
+                    continue
+                candidate_mtime = candidate.stat().st_mtime
+                if candidate_mtime > latest_mtime:
+                    latest_mtime = candidate_mtime
+                    latest_dir = candidate
     return latest_dir.name if latest_dir is not None else None
 
 

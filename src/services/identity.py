@@ -65,6 +65,72 @@ def make_runtime_paper_id(
     raise ValueError("Unable to determine runtime paper_id")
 
 
+def paper_id_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    _append(text)
+    if text.startswith("zotero:"):
+        _append(text.split(":", 1)[1].strip())
+    elif ":" not in text:
+        _append(f"zotero:{text}")
+    return candidates
+
+
+def paper_id_self_and_suffix_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for candidate in (text, text.split(":", 1)[1].strip() if ":" in text else ""):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def paper_id_search_variants(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    variants: list[str] = []
+
+    def _append(value: str) -> None:
+        candidate = value.strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    _append(text)
+    _append(text.replace(":", ""))
+    if ":" in text:
+        suffix = text.split(":", 1)[1].strip()
+        _append(suffix)
+        _append(suffix.replace(":", ""))
+    return variants
+
+
+def paper_note_lookup_candidate_ids(paper_id: str) -> list[str]:
+    text = str(paper_id or "").strip()
+    if not text:
+        return []
+
+    candidates = paper_id_search_variants(text)
+    if ":" not in text:
+        for candidate in paper_id_search_variants(f"zotero:{text}"):
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return candidates
+
+
 def new_job_id() -> str:
     return str(uuid.uuid4())
 

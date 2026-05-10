@@ -152,6 +152,50 @@ def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
     return None
 
 
+def _mark_paper_deepread_indexed(paper_id: str) -> bool:
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(papers)").fetchall()}
+        if "paper_id" not in columns or "status" not in columns:
+            return False
+
+        assignments = ["status = ?"]
+        params: list[Any] = ["INDEXED"]
+        now = datetime.now(timezone.utc).isoformat()
+        if "processed_at" in columns:
+            assignments.append("processed_at = ?")
+            params.append(now)
+        if "updated_at" in columns:
+            assignments.append("updated_at = ?")
+            params.append(now)
+        params.append(paper_id)
+
+        cursor = conn.execute(
+            f"""
+            UPDATE papers
+            SET {', '.join(assignments)}
+            WHERE paper_id = ?
+              AND (status IS NULL OR status IN ('NEW', 'FETCHED', 'PDF_DOWNLOADED', 'APPROVED'))
+            """,
+            tuple(params),
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0) > 0
+    except Exception as exc:
+        logger.warning("Failed to mark paper %s as INDEXED after Deep Read: %s", paper_id, exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def _resolve_pdf_path_from_note_frontmatter(paper_id: str) -> Optional[Path]:
     try:
         vault_path = paper_notes._resolve_vault_path()
@@ -2017,6 +2061,9 @@ async def run_deepread_job(
         except Exception as note_err:
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
+        if _mark_paper_deepread_indexed(paper_id):
+            await emit("completed", 98, "Paper status updated: INDEXED")
+
         await emit("completed", 100, "Pipeline Completed Successfully")
         return _job_result("succeeded")
 
@@ -2032,20 +2079,39 @@ async def run_deepread_job(
             bootstrap_meta["claimset_ops_action"] = "retry_suggested"
             bootstrap_meta["claimset_ops_alert"] = True
             bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
+            bootstrap_meta["artifact_acceptance_contract_written"] = False
+            bootstrap_meta["artifact_quality_gate_written"] = False
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             if run_meta is not None:
-                handoff_artifacts = write_deepread_handoff_artifacts(
-                    artifact_dir,
-                    paper_id=paper_id,
-                    run_id=run_id,
-                    run_meta=run_meta,
-                    bootstrap_meta=bootstrap_meta,
-                )
-                bootstrap_meta["artifact_acceptance_contract_written"] = True
-                bootstrap_meta["artifact_quality_gate_written"] = True
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                run_meta["handoff_artifacts"] = handoff_artifacts
-                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-                _write_run_meta(artifact_dir, run_meta)
+                try:
+                    handoff_artifacts = write_deepread_handoff_artifacts(
+                        artifact_dir,
+                        paper_id=paper_id,
+                        run_id=run_id,
+                        run_meta=run_meta,
+                        bootstrap_meta=bootstrap_meta,
+                    )
+                    bootstrap_meta["artifact_acceptance_contract_written"] = True
+                    bootstrap_meta["artifact_quality_gate_written"] = True
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    run_meta["handoff_artifacts"] = handoff_artifacts
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
+                except Exception as handoff_err:
+                    safe_handoff_error = sanitize_event_text_for_log(str(handoff_err)) or type(handoff_err).__name__
+                    logger.warning("Failed to write deep-read failure handoff artifacts: %s", safe_handoff_error)
+                    try:
+                        bootstrap_meta["handoff_write_error"] = safe_handoff_error
+                        bootstrap_meta["artifact_acceptance_contract_written"] = False
+                        bootstrap_meta["artifact_quality_gate_written"] = False
+                        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                        run_meta["handoff_write_error"] = safe_handoff_error
+                        run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                        _write_run_meta(artifact_dir, run_meta)
+                    except Exception as handoff_meta_err:
+                        logger.warning(
+                            "Failed to record deep-read failure handoff error metadata: %s",
+                            sanitize_event_text_for_log(str(handoff_meta_err)) or type(handoff_meta_err).__name__,
+                        )
         await emit("error", 0, safe_error, level="ERROR")
         return _job_result("failed", error=safe_error)

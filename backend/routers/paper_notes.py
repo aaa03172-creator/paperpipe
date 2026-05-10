@@ -47,6 +47,7 @@ from src.services.fixture_visibility import (
     is_test_fixture_paper_record,
     is_test_fixture_structured_state,
 )
+from src.services.identity import normalize_doi, paper_id_search_variants, paper_note_lookup_candidate_ids
 from src.services.path_masking import is_path_masking_enabled
 from src.services.paper_operator_state_store import (
     build_default_operator_state,
@@ -267,6 +268,17 @@ def _paper_state_persisted(paper_id: str) -> bool:
     finally:
         conn.close()
 
+
+def _delete_imported_paper_state(paper_id: str) -> None:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM papers WHERE paper_id = ?", (paper_id,))
+        conn.commit()
+    except sqlite3.OperationalError:
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 def _safe_read_text(path: Path) -> str:
@@ -905,6 +917,29 @@ def _upsert_imported_note_doi(note_path: Path, *, paper_id: str, doi: str | None
     return True
 
 
+def _find_imported_paper_id_by_doi(doi: str | None) -> str | None:
+    doi = _normalize_import_doi(doi or "")
+    if not doi:
+        return None
+    normalized_doi = normalize_doi(doi)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(papers)")
+        columns = {str(row[1]) for row in cursor.fetchall()}
+        if "paper_id" not in columns or "doi" not in columns:
+            return None
+        cursor.execute("SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL")
+        for row in cursor.fetchall():
+            if normalize_doi(str(row["doi"] or "")) == normalized_doi:
+                return str(row["paper_id"] or "").strip() or None
+        return None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+
 def _persist_imported_note_path(paper_id: str, note_path: str) -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -955,6 +990,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
     created_pdf = False
     created_note = False
     should_upsert_existing_note_doi = False
+    paper_state_existed_before_import = _paper_state_persisted(paper_id)
     try:
         if not pdf_path.exists():
             _atomic_write_bytes(pdf_path, payload)
@@ -962,6 +998,12 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
 
         title = _extract_import_title(pdf_path, fallback_name=Path(filename).stem)
         doi = _extract_import_doi(pdf_path)
+        existing_paper_id = _find_imported_paper_id_by_doi(doi)
+        if existing_paper_id and existing_paper_id != paper_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A paper with DOI {doi} already exists.",
+            )
         slug = f"{_slugify_import_title(title)}-{digest[:8]}"
         note_path = note_dir / f"{slug}.md"
         note_relative_path = note_path.relative_to(vault_path).as_posix()
@@ -1012,6 +1054,8 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
             note_path.unlink(missing_ok=True)
         if created_pdf:
             pdf_path.unlink(missing_ok=True)
+        if not paper_state_existed_before_import and _paper_state_persisted(paper_id):
+            _delete_imported_paper_state(paper_id)
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(status_code=500, detail="Failed to persist imported paper state.") from exc
@@ -1642,38 +1686,11 @@ def _normalize_paper_note_id(value: str) -> str:
 
 
 def _paper_id_variants(paper_id: str) -> list[str]:
-    text = str(paper_id or "").strip()
-    if not text:
-        return []
-
-    variants: list[str] = []
-
-    def _append(value: str) -> None:
-        candidate = value.strip()
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-
-    _append(text)
-    _append(text.replace(":", ""))
-    if ":" in text:
-        suffix = text.split(":", 1)[1].strip()
-        _append(suffix)
-        _append(suffix.replace(":", ""))
-    return variants
+    return paper_id_search_variants(paper_id)
 
 
 def _paper_note_lookup_candidates(paper_id: str) -> list[str]:
-    text = str(paper_id or "").strip()
-    if not text:
-        return []
-
-    candidates = _paper_id_variants(text)
-    if ":" not in text:
-        prefixed = f"zotero:{text}"
-        for candidate in _paper_id_variants(prefixed):
-            if candidate not in candidates:
-                candidates.append(candidate)
-    return candidates
+    return paper_note_lookup_candidate_ids(paper_id)
 
 
 def _paper_note_identity_sets(item: PaperNoteIndexItem) -> tuple[frozenset[str], frozenset[str]]:

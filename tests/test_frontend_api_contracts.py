@@ -53,6 +53,16 @@ def test_frontend_paper_notes_types_include_backend_response_contract_fields() -
             )
 
 
+def test_frontend_paper_note_import_response_keeps_backend_doi_contract() -> None:
+    types_text = FRONTEND_TYPES.read_text(encoding="utf-8")
+
+    backend_fields = _openapi_schema_fields("PaperNoteImportResponse")
+    frontend_body = _interface_body(types_text, "PaperNoteImportResponse")
+
+    assert "doi" in backend_fields
+    assert re.search(r"^\s*doi\??:\s*string\s*\|\s*null;", frontend_body, re.M)
+
+
 def test_frontend_artifact_types_include_backend_response_contract_fields() -> None:
     types_text = FRONTEND_TYPES.read_text(encoding="utf-8")
 
