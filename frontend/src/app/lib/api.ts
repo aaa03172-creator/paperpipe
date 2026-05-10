@@ -908,7 +908,7 @@ export async function getPaper(
     lastError = error;
   }
 
-  if (!canUseAutoMockFallback()) {
+  if (!canFallbackForReadError(lastError)) {
     throw lastError instanceof Error ? lastError : new Error("paper detail unavailable");
   }
 
@@ -1101,7 +1101,7 @@ export async function getPaperNoteStructuredStateByPaperId(
         reason: "structured paper note not found",
       };
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1234,7 +1234,7 @@ export async function generateMeetingPack(
     if (isApiHttpError(error) && !isProxyAvailabilityHttpError(error)) {
       throw error;
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1666,7 +1666,7 @@ export async function getArtifactsLatest(paperId: string): Promise<ApiResult<Art
         reason: "artifact not generated yet",
       };
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1698,7 +1698,7 @@ export async function getRunTimeline(runId: string): Promise<ApiResult<TimelineR
         reason: "timeline not generated yet",
       };
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1745,7 +1745,7 @@ export async function getObsidianMirror(paperId: string, runId: string): Promise
         reason: "obsidian mirror not generated yet",
       };
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1781,7 +1781,7 @@ export async function syncToObsidian(paperId: string, runId: string): Promise<Ap
     if (isApiHttpError(error) && error.status >= 400 && error.status < 500) {
       throw error;
     }
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return {
@@ -1858,7 +1858,7 @@ export async function getPaperPdfBlobUrl(
       isMock: false,
     };
   } catch (error) {
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return buildPlaceholderPdfResult("paper pdf unavailable, placeholder sample loaded (not source evidence)");
