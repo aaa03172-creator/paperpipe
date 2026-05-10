@@ -65,6 +65,16 @@ def test_method_comparison_store_roundtrip_creates_expected_layout(tmp_path):
     assert list_method_comparison_ids(root) == [comparison.comparison_id]
 
 
+def test_method_comparison_store_rejects_path_like_ids(tmp_path):
+    root = tmp_path / "method_comparisons"
+
+    with pytest.raises(ValueError, match="comparison_id"):
+        method_comparison_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="comparison_id"):
+        method_comparison_csv_path("methodcmp_nested/escape", root)
+
+
 def test_method_comparison_store_overwrites_same_id_without_duplicate_dump(tmp_path):
     root = tmp_path / "method_comparisons"
     comparison = _sample_comparison(title="First title")
@@ -87,6 +97,8 @@ def test_method_comparison_store_rolls_back_bundle_if_markdown_write_fails(tmp_p
     root = tmp_path / "method_comparisons"
     original = _sample_comparison(title="First title")
     save_method_comparison_bundle(original, "a,b\n", "# First", root)
+    note_path = method_comparison_json_path(original.comparison_id, root).parent / "operator_notes.txt"
+    note_path.write_text("keep operator note\n", encoding="utf-8")
 
     updated = _sample_comparison(title="Updated title")
     original_atomic_write_text = method_comparison_store._atomic_write_text
@@ -109,6 +121,7 @@ def test_method_comparison_store_rolls_back_bundle_if_markdown_write_fails(tmp_p
     assert loaded.title == "First title"
     assert loaded_csv == "a,b\n"
     assert loaded_markdown == "# First"
+    assert note_path.read_text(encoding="utf-8") == "keep operator note\n"
 
 
 def test_method_comparison_store_does_not_leave_partial_new_bundle_if_write_fails(tmp_path, monkeypatch):
