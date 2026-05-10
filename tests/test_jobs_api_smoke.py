@@ -656,7 +656,11 @@ def test_jobs_deepread_rejects_duplicate_open_job(tmp_path, monkeypatch):
 
         second = client.post("/jobs/deepread", json={"paper_id": "paper_duplicate_001"})
         assert second.status_code == 409
-        detail = second.json()["detail"]
+        payload = second.json()
+        assert payload["error_code"] == "JOB_ALREADY_OPEN"
+        assert payload["message"] == "Open job already exists for paper_id=paper_duplicate_001"
+        assert isinstance(payload["trace_id"], str)
+        detail = payload["detail"]
         assert detail["error_code"] == "JOB_ALREADY_OPEN"
         assert detail["paper_id"] == "paper_duplicate_001"
         assert detail["job_id"] == first_job_id
@@ -680,10 +684,43 @@ def test_jobs_deepread_rejects_when_queue_is_full(tmp_path, monkeypatch):
 
         second = client.post("/jobs/deepread", json={"paper_id": "paper_queue_full_002"})
         assert second.status_code == 429
-        detail = second.json()["detail"]
+        payload = second.json()
+        assert payload["error_code"] == "QUEUE_FULL"
+        assert payload["message"] == "Queued jobs limit reached"
+        assert isinstance(payload["trace_id"], str)
+        detail = payload["detail"]
         assert detail["error_code"] == "QUEUE_FULL"
         assert detail["limit"] == 1
         assert detail["queued_count"] == 1
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_api_errors_include_canonical_envelope_fields(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        client = TestClient(api_main.app)
+
+        not_found = client.get("/papers/missing-contract-paper")
+        assert not_found.status_code == 404
+        not_found_payload = not_found.json()
+        assert not_found_payload["error_code"] == "HTTP_404"
+        assert not_found_payload["message"] == "Paper not found"
+        assert isinstance(not_found_payload["trace_id"], str)
+        assert not_found_payload["detail"] == "Paper not found"
+
+        validation = client.post("/jobs/deepread", json={})
+        assert validation.status_code == 422
+        validation_payload = validation.json()
+        assert validation_payload["error_code"] == "VALIDATION_ERROR"
+        assert validation_payload["message"] == "Request validation failed"
+        assert isinstance(validation_payload["trace_id"], str)
+        assert isinstance(validation_payload["detail"], list)
+        assert validation_payload["details"] == validation_payload["detail"]
     finally:
         db_utils.DB_PATH = original_db_path
 

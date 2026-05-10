@@ -20,6 +20,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, unquote, urlparse
@@ -36,6 +37,7 @@ from src.schemas.ops import (
     ArtifactBundleResponse,
     ArtifactFileEntry,
     DownloaderOpsMetricsResponse,
+    ErrorResponse,
     HomeWorkspaceSummaryResponse,
     PersonaListResponse,
     PersonaOption,
@@ -912,6 +914,41 @@ def _sanitize_request_validation_errors(exc: RequestValidationError) -> Any:
     return _drop_validation_input_echo(_sanitize_exception_detail_for_response(errors))
 
 
+def _request_trace_id(request: Request) -> str:
+    raw = request.headers.get("x-request-id") or request.headers.get("x-correlation-id")
+    value = str(raw or "").strip()
+    return value or f"trace_{uuid.uuid4().hex}"
+
+
+def _error_response_payload(
+    *,
+    request: Request,
+    status_code: int,
+    detail: Any,
+    default_message: str,
+    error_code: str | None = None,
+) -> dict[str, Any]:
+    message = default_message
+    details: Any | None = detail
+    resolved_error_code = error_code or f"HTTP_{status_code}"
+    if isinstance(detail, dict):
+        resolved_error_code = str(detail.get("error_code") or resolved_error_code)
+        raw_message = detail.get("message")
+        if raw_message is not None:
+            message = str(raw_message)
+    elif isinstance(detail, str) and detail.strip():
+        message = detail.strip()
+        details = None
+
+    return ErrorResponse(
+        error_code=resolved_error_code,
+        message=message,
+        trace_id=_request_trace_id(request),
+        details=details,
+        detail=detail,
+    ).model_dump(exclude_none=True)
+
+
 API_DOCS_ENABLED = _resolve_api_docs_enabled()
 _BETA_AUTH_LIMITER = _SlidingWindowLimiter()
 _BROWSER_READ_LIMITER = _SlidingWindowLimiter()
@@ -928,19 +965,32 @@ app = FastAPI(
 
 @app.exception_handler(StarletteHTTPException)
 async def sanitized_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    detail = _sanitize_exception_detail_for_response(exc.detail)
     response = JSONResponse(
         status_code=exc.status_code,
         headers=exc.headers,
-        content={"detail": _sanitize_exception_detail_for_response(exc.detail)},
+        content=_error_response_payload(
+            request=request,
+            status_code=exc.status_code,
+            detail=detail,
+            default_message=str(exc.detail or exc.status_code),
+        ),
     )
     return _apply_security_headers(request, response)
 
 
 @app.exception_handler(RequestValidationError)
 async def sanitized_request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    detail = _sanitize_request_validation_errors(exc)
     response = JSONResponse(
         status_code=422,
-        content={"detail": _sanitize_request_validation_errors(exc)},
+        content=_error_response_payload(
+            request=request,
+            status_code=422,
+            detail=detail,
+            default_message="Request validation failed",
+            error_code="VALIDATION_ERROR",
+        ),
     )
     return _apply_security_headers(request, response)
 
