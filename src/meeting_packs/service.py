@@ -53,6 +53,7 @@ from src.schemas.meeting_pack import (
     MeetingPackReadiness,
     MeetingPackRequestSnapshot,
     MeetingPackResponse,
+    MeetingPackReviewArtifact,
     MeetingPackSlide,
     MeetingPackSourceItem,
     MeetingPackSpeakerNote,
@@ -558,6 +559,14 @@ def _build_meeting_pack(
     )
 
     normalized_request_title = _normalized_requested_title(request.title, selected_ref_titles[0])
+    review_artifacts = _collect_visual_evidence_review_artifacts(bundle)
+    if any(artifact.unknown_count > 0 for artifact in review_artifacts):
+        uncertainty = (
+            "Visual evidence ledger contains unknown figure/table evidence; replay source pages before promoting "
+            "figure/table-backed discussion claims."
+        )
+        if uncertainty not in uncertainties:
+            uncertainties.append(uncertainty)
 
     pack = MeetingPack(
         id=pack_id,
@@ -604,6 +613,7 @@ def _build_meeting_pack(
             screening_contexts,
         ),
         evidence_refs=ledger.evidence_refs,
+        review_artifacts=review_artifacts,
     )
     artifact_brief, artifact_brief_review = build_meeting_pack_artifact_brief(
         request=request,
@@ -928,6 +938,59 @@ def _pack_source_items(bundle: ResolvedMeetingPackBundle) -> list[MeetingPackSou
         seen.add(key)
         merged.append(item)
     return merged
+
+
+def _collect_visual_evidence_review_artifacts(bundle: ResolvedMeetingPackBundle) -> list[MeetingPackReviewArtifact]:
+    artifacts: list[MeetingPackReviewArtifact] = []
+    seen: set[tuple[str, str | None, str | None]] = set()
+    for source in bundle.sources:
+        paper_slug = source.source_item.ref
+        for run in source.structured_state.runs[:1]:
+            path = _visual_evidence_ledger_path_from_run(run.artifacts)
+            if path is None:
+                continue
+            payload = _load_json_dict(path)
+            if payload is None:
+                continue
+            metrics = payload.get("metrics")
+            metrics = metrics if isinstance(metrics, dict) else {}
+            run_id = str(payload.get("run_id") or run.id or "").strip() or None
+            key = (paper_slug, run_id, str(path))
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(
+                MeetingPackReviewArtifact(
+                    kind="visual_evidence_ledger",
+                    paper_slug=paper_slug,
+                    run_id=run_id,
+                    path=str(path),
+                    entry_count=int(metrics.get("entry_count") or 0),
+                    unknown_count=int(metrics.get("unknown_count") or 0),
+                    partially_observed_count=int(metrics.get("partially_observed_count") or 0),
+                    replay_required=bool(payload.get("generation_replay_required", True)),
+                    note="Review gate artifact only; not canonical scientific truth.",
+                )
+            )
+    return artifacts
+
+
+def _visual_evidence_ledger_path_from_run(artifacts: dict[str, Any]) -> Path | None:
+    raw_path = artifacts.get("visual_evidence_ledger_path")
+    if not raw_path and artifacts.get("artifact_dir"):
+        raw_path = str(Path(str(artifacts["artifact_dir"])) / "visual_evidence_ledger.json")
+    if not raw_path:
+        return None
+    path = Path(str(raw_path)).expanduser()
+    return path if path.exists() else None
+
+
+def _load_json_dict(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _display_ref_titles(bundle: ResolvedMeetingPackBundle) -> list[str]:

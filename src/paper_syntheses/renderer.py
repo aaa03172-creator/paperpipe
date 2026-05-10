@@ -13,6 +13,7 @@ def render_paper_synthesis_markdown(
     state: StructuredPaperState,
     claim_cards: list[SkillClaimCard],
     run_meta: dict[str, Any],
+    visual_evidence_ledger: dict[str, Any] | None = None,
 ) -> str:
     lines: list[str] = [
         "---",
@@ -128,6 +129,10 @@ def render_paper_synthesis_markdown(
         lines.extend(f"- {note}" for note in synthesis.uncertainty_notes)
         lines.append("")
 
+    visual_replay = _render_visual_evidence_replay(visual_evidence_ledger)
+    if visual_replay:
+        lines.extend(visual_replay)
+
     lines.extend(
         [
             "## Promotion guardrail",
@@ -139,6 +144,57 @@ def render_paper_synthesis_markdown(
     )
 
     return "\n".join(lines).strip() + "\n"
+
+
+def _render_visual_evidence_replay(ledger: dict[str, Any] | None) -> list[str]:
+    if not isinstance(ledger, dict):
+        return []
+    entries = ledger.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return []
+    metrics = ledger.get("metrics")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    lines = [
+        "## Visual evidence replay",
+        "",
+        "- Gate: required before promoting figure/table-backed claims from this synthesis.",
+        (
+            f"- Entries: `{int(metrics.get('entry_count') or len(entries))}` "
+            f"(partial=`{int(metrics.get('partially_observed_count') or 0)}`, "
+            f"unknown=`{int(metrics.get('unknown_count') or 0)}`)"
+        ),
+        "",
+    ]
+    for entry in entries[:8]:
+        if not isinstance(entry, dict):
+            continue
+        locator = entry.get("figure_id") or entry.get("table_id") or entry.get("evidence_id") or "visual_evidence"
+        page = entry.get("page")
+        status = entry.get("status") or "unknown"
+        lines.append(f"- `{locator}`: page `{page}`, status=`{status}`")
+        caption = _compact(entry.get("caption"), limit=180)
+        if caption:
+            lines.append(f"  - Caption: {caption}")
+        extracted_values = entry.get("extracted_values")
+        if isinstance(extracted_values, list) and extracted_values:
+            cells = []
+            for value in extracted_values[:5]:
+                if not isinstance(value, dict):
+                    continue
+                label = value.get("cell_id") or value.get("label") or "value"
+                cells.append(f"{label}={_compact(value.get('value'), limit=60)}")
+            if cells:
+                lines.append(f"  - Parsed values: {'; '.join(cells)}")
+        not_allowed = _compact_list(entry.get("not_allowed_claims"), limit=120)
+        if not_allowed:
+            lines.append(f"  - Not allowed: {'; '.join(not_allowed)}")
+        failure_reason = entry.get("failure_reason")
+        if failure_reason:
+            lines.append(f"  - Failure reason: {failure_reason}")
+    if len(entries) > 8:
+        lines.append(f"- Additional visual evidence entries omitted from replay: `{len(entries) - 8}`")
+    lines.append("")
+    return lines
 
 
 def _render_source_ref_line(kind: str, paper_slug: str, run_id: str | None, path: str | None) -> str:
@@ -170,6 +226,19 @@ def _render_source_ref_frontmatter_lines(
 def _display_text(value: str) -> str:
     text = str(value or "").strip()
     return text or "unknown"
+
+
+def _compact(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _compact_list(values: Any, *, limit: int) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [text for text in (_compact(value, limit=limit) for value in values[:3]) if text]
 
 
 def _yaml_scalar(value: str) -> str:

@@ -94,6 +94,42 @@ def _write_state(
     write_structured_state(state_path, state)
 
 
+def _write_state_with_visual_evidence_ledger(vault_path: Path, slug: str, artifact_dir: Path) -> None:
+    _write_state(vault_path, slug)
+    ledger_path = artifact_dir / "visual_evidence_ledger.json"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "visual_evidence_ledger.v1",
+                "layer": "review_gate_artifact",
+                "canonical_status": "non_canonical",
+                "paper_id": slug,
+                "run_id": "skill-20260313T000000Z-critical_appraisal",
+                "generated_at": "2026-03-13T00:00:00Z",
+                "metrics": {
+                    "entry_count": 1,
+                    "observed_count": 0,
+                    "partially_observed_count": 0,
+                    "unknown_count": 1,
+                    "unsupported_count": 0,
+                    "linked_claim_count": 0,
+                },
+                "generation_replay_required": True,
+                "entries": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path = vault_path / ".pp" / slug / "state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["runs"][0]["artifacts"] = {
+        "artifact_dir": str(artifact_dir),
+        "visual_evidence_ledger_path": str(ledger_path),
+    }
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _write_state_with_claims(
     vault_path: Path,
     slug: str,
@@ -363,6 +399,32 @@ def test_generate_meeting_pack_persists_json_and_markdown(tmp_path):
     assert "- Layer: user_facing_artifact" in (response.markdown or "")
     assert "## Artifact Brief Review" in (response.markdown or "")
     assert "Promoted biomedical answers must jump back" in (response.markdown or "")
+
+
+def test_generate_meeting_pack_surfaces_visual_evidence_review_artifact(tmp_path):
+    vault_path = tmp_path / "vault"
+    root = tmp_path / "meeting_packs"
+    slug = "visualPaper2026"
+    _write_state_with_visual_evidence_ledger(vault_path, slug, tmp_path / "artifacts" / slug / "run-1")
+
+    response = generate_meeting_pack(
+        request=MeetingPackGenerateRequest(
+            mode="journal_club",
+            source_items=[{"type": "paper_slug", "ref": slug}],
+            max_slides=5,
+        ),
+        vault_path=vault_path,
+        root=root,
+    )
+
+    assert len(response.pack.review_artifacts) == 1
+    artifact = response.pack.review_artifacts[0]
+    assert artifact.kind == "visual_evidence_ledger"
+    assert artifact.paper_slug == slug
+    assert artifact.unknown_count == 1
+    assert any("Visual evidence ledger contains unknown" in item for item in response.pack.one_page_summary.uncertainties)
+    assert "## Review Artifacts" in (response.markdown or "")
+    assert "Replay required before promoting figure/table-backed claims" in (response.markdown or "")
     assert "## Slide Outline" in (response.markdown or "")
     assert list_meeting_pack_ids(root) == [response.pack.id]
     stored = get_meeting_pack(response.pack.id, root=root)
