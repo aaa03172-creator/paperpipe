@@ -1271,3 +1271,125 @@ Reviewer: Codex
   - `git diff --check -- backend/routers/paper_notes.py src/cli.py tests/test_cli_import_pdf.py README.md docs/CLI_WORKFLOW_REFERENCE.md docs/UX_REVIEW_REPORT_first-paper-activation.md docs/UX_REVIEW_REPORT_paper-notes-viewer.md`
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend paper notes index can import a local PDF from the browser|mobile imported paper note keeps sticky actions aligned with the import bridge"`
+
+## 23) External UI Reference Research Checkpoint (2026-05-10)
+- Screen/Flow:
+  - `/papers/:slug` detail viewer, note -> workbench handoff, evidence/provenance side panels
+- Goal action:
+  - use external UI references to sharpen evidence-first layout decisions without turning reference screenshots into requirements.
+- Primary persona:
+  - a researcher reading a paper note, checking claim/evidence provenance, and deciding whether to open deeper review.
+- Current friction:
+  - the viewer already has the right three-zone shape, but future polish can still drift toward generic SaaS dashboards if reference research is not constrained.
+  - Lazyweb search produced useful analogies, but also many marketing pages and unrelated results.
+- Success metric:
+  - future viewer changes cite curated reference patterns only when they preserve PaperPipe's canonical state, provenance, and local-first boundaries.
+- Source artifact:
+  - `docs/ui_references.md`
+  - `docs/reports/UI_Reference_Research_evidence_reader_2026-05-10.md`
+- Quick Review:
+  - Block: reference research must filter out landing-page noise before it affects UI decisions.
+  - Interpret: useful references are those that clarify source, review state, provenance, and next action.
+  - Act: the next UI action should remain PR-sized: hierarchy, labels, grouping, or review-state visibility.
+  - Store: keep curated summaries in docs, not raw screenshot dumps.
+  - Ethics: no PaperPipe PDFs, notes, lab context, screenshots, or local paths should be sent to external UI tools.
+- Full Review:
+  - P0: Lazyweb stays developer-local and non-runtime; no external reference result can replace canonical structured state or evidence lineage.
+  - P1: future detail-viewer polish should preserve the current left/context, center/read, right/evidence-support shape.
+  - P2: references can tune density, source/provenance grouping, draft/reviewed labels, and side-panel hierarchy.
+- Full Review Coverage:
+  - 6P storyboard context: researcher opens a paper note, wants to verify whether claims are supported, struggles when generated or derived artifacts look too final, uses provenance and review state to decide what can be reused, and ends with a grounded or explicitly unresolved judgment.
+  - BMAP: Motivation is high; ability improves when provenance and review state sit near the reading surface; prompt should be a state badge or specific next action, not broad dashboard navigation.
+  - B.I.A.S: block generic SaaS/marketing patterns, interpret references through evidence workflow, act only on the smallest safe UI implication, store decisions as non-canonical review notes.
+  - Peak-End: peak is seeing the source/provenance status before trusting a claim; pit is a polished generated artifact that hides uncertainty; end is saved state or explicit unresolved status.
+  - Ethics: the reference workflow is acceptable only while private research content stays local and uncertainty remains visible.
+- BMAP diagnosis:
+  - Motivation: high because the user explicitly wants a research workspace, not plausible SaaS.
+  - Ability: improved by adding sanitized prompts and a curated report template.
+  - Prompt: future UI tasks should start from `docs/ui_references.md` before invoking Lazyweb again.
+- B.I.A.S diagnosis:
+  - Block: reject references that are mostly hero sections, conversion CTAs, or generic card galleries.
+  - Interpret: borrow interaction structure only when it helps claim-to-source traceability, provenance, or guarded reuse.
+  - Act: keep follow-up patches narrow and tied to existing components/routes.
+  - Store: preserve Lazyweb findings as non-canonical docs with source/tool/date and explicit "do not copy" notes.
+- Peak-End design notes:
+  - Peak: a paper detail screen that immediately shows what is saved, grounded, unresolved, and reusable.
+  - Pit: visual polish that makes generated outputs feel reviewed.
+  - Transition: reading -> review -> reuse/export should show state changes rather than hiding them in generic action menus.
+  - End: the user leaves with either a grounded evidence path or an honest unresolved state.
+- Concrete changes:
+  - added `docs/ui_references.md` as the operating note for developer-local UI reference research.
+  - added `docs/reports/UI_Reference_Research_evidence_reader_2026-05-10.md` as the first curated Lazyweb pilot report.
+  - added `.gitignore` coverage for `.lazyweb/`, MCP config files, and Lazyweb token filenames.
+  - configured Lazyweb only in local Codex MCP config outside the repository.
+- Ethics check results:
+  - Regret: improved because the workflow now warns against sending private paper/user content externally.
+  - Black Mirror: reduced by making "reference result is not product truth" explicit.
+  - In Real-Life: closer to a careful design researcher who brings examples, then asks what evidence workflow they actually support.
+- Next PR-sized actions:
+  - audit paper detail right-rail hierarchy for saved state, claim/evidence, references, and operator notes.
+  - audit image/figure evidence viewer grouping for source, warning, derived output, viewport, and reuse boundary.
+  - audit artifact review labels for draft/generated/reviewed/stale state clarity.
+- Verification:
+  - Lazyweb MCP bridge initialized and `lazyweb_search` ran through local Codex config.
+  - docs safety check confirmed no signed screenshot URLs, bearer tokens, or signed URL query-token values were stored.
+  - no frontend/backend runtime files changed for this checkpoint.
+
+## 24) Evidence-First Right Rail Checkpoint (2026-05-10)
+- Screen/Flow:
+  - `/papers/:slug` desktop right rail and mobile note panel sheet
+- Goal action:
+  - users should see saved state and saved claims/evidence before lower-priority operator notes, actions, and run history.
+- Primary persona:
+  - a researcher reading a saved note and deciding whether the extracted claims and evidence are grounded enough to reuse or review.
+- Current friction:
+  - `Saved claims` existed, but in both desktop and mobile support panels it sat after actions/run history in some modes.
+  - this made claim/evidence review feel like a downstream debug artifact instead of the immediate evidence support for the note.
+- Success metric:
+  - `Saved note state` remains first, and `Saved claims` follows it in both read and review support panels without changing state contracts.
+- Quick Review:
+  - Block: reduce scan effort by putting evidence state before action machinery.
+  - Interpret: claims/evidence now read as part of the evidence workflow, not as a late automation detail.
+  - Act: user can deep-link or inspect saved claims before deciding to run actions.
+  - Store: the first memory of the support rail becomes saved state -> saved claims -> personal paper note.
+  - Ethics: avoids overemphasizing generated actions before showing what evidence is already saved.
+- Full Review:
+  - P0: no API, schema, artifact, or canonical-state contract changes.
+  - P1: reorder existing panels only; preserve learner/review mode semantics and mobile sheet contents.
+  - P2: defer any denser claim-card redesign until usage or visual evidence shows the current cards are insufficient.
+- Full Review Coverage:
+  - 6P storyboard context: researcher opens a note, wants to know whether claims are supported, sees saved note state and saved claims first, then chooses personal note/actions/run history only after evidence context is clear.
+  - BMAP: Motivation is high; ability improves by reducing the distance between saved-state readiness and claim/evidence cards; prompt becomes the `Saved claims` panel itself.
+  - B.I.A.S: block is reduced by moving claim/evidence above action noise; interpret improves by grouping evidence-adjacent panels; act stays unchanged because all existing buttons/deep links remain.
+  - Peak-End: peak is seeing saved claims immediately after saved state; pit is treating claim cards as an afterthought below automation controls; end is a clearer review-readiness impression.
+  - Ethics: showing evidence before actions reduces the chance that users over-trust or over-run generated workflows.
+- BMAP diagnosis:
+  - Motivation: high for claim/evidence verification.
+  - Ability: improved by panel order only; no new concept is introduced.
+  - Prompt: `Saved claims` now appears where evidence workflow naturally begins.
+- B.I.A.S diagnosis:
+  - Block: action/run panels no longer interrupt the saved-state -> saved-claims relationship.
+  - Interpret: `My note` stays visibly separate from canonical saved claims.
+  - Act: existing deep links and action buttons remain available.
+  - Store: state-first, evidence-second ordering reinforces provenance-first reading.
+- Peak-End design notes:
+  - Peak: support rail opens with saved state followed by saved claims.
+  - Pit: evidence buried after action machinery.
+  - Transition: read note -> inspect saved claims -> open workbench or run actions.
+  - End: user can leave with a stronger sense of what is grounded.
+- Concrete changes:
+  - moved `ClaimSetPanel` immediately after `SavedStatePanel` in desktop read mode.
+  - moved `ClaimSetPanel` immediately after `SavedStatePanel` in desktop review mode.
+  - moved `ClaimSetPanel` immediately after `SavedStatePanel` in both mobile sheet mode orderings.
+  - did not add new props, state, routes, schemas, or dependencies.
+- Ethics check results:
+  - Regret: improved; the user sees available evidence before optional actions.
+  - Black Mirror: reduced; generated/automation affordances do not visually outrank saved evidence.
+  - In Real-Life: closer to a careful reviewer saying "here is what is already saved" before suggesting more actions.
+- Next PR-sized actions:
+  - verify whether `Saved claims` cards need a compact summary header once real notes contain many claims.
+  - audit image/figure evidence viewer grouping for source, warning, derived output, viewport, and reuse boundary.
+  - audit artifact review labels for draft/generated/reviewed/stale state clarity.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "paper notes detail supports learner and builder debug view modes|mobile paper notes detail keeps builder debug mode in the sheet ordering|mobile paper notes sheet includes structured actions and structured claims cards|paper notes detail renders structured actions, run history, and structured claims cards"`

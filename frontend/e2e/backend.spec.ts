@@ -1738,6 +1738,10 @@ test("backend meeting pack create keeps the continuation card and note handoff o
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("Derived artifact");
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("When to use");
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("Derived from");
+  const meetingPackRail = page.locator("main > div").nth(1);
+  await expect(meetingPackRail.getByRole("heading").nth(0)).toHaveText("Review state");
+  await expect(meetingPackRail.getByRole("heading").nth(1)).toHaveText("Continue from this draft");
+  await expect(meetingPackRail.getByRole("heading").nth(2)).toHaveText("Validation");
   await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
   await expect(page.getByText("Continue in note").first()).toBeVisible();
   await expect(page.getByTestId("meeting-pack-recommended-order")).toContainText("Recommended order");
@@ -2188,6 +2192,8 @@ test("backend protocol knowledge inspector loads a saved protocol card and keeps
   await expect(page.getByTestId("protocol-card-header-context")).toContainText("When to use");
   await expect(page.getByTestId("protocol-card-header-context")).toContainText("Derived from");
   await expect(page.getByRole("heading", { name: "Version review" })).toBeVisible();
+  await expect(page.getByTestId("protocol-card-review-state-card")).toContainText("Review state");
+  await expect(page.getByTestId("protocol-card-review-state-card")).toContainText("Protocol cards are reusable review artifacts");
   await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Source refs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trust boundary" })).toBeVisible();
@@ -2938,6 +2944,10 @@ test("backend image evidence viewer loads a registered bundle and keeps note han
   await expect(meetingPackFollowUp).toHaveAttribute("href", "/meeting-packs");
   await expect(page.getByText("Reopen the meeting draft when this image needs discussion-ready framing", { exact: false })).toBeVisible();
   await expect(page.getByText("Saved targets preserve viewer context after note review.", { exact: false })).toBeVisible();
+  const imageEvidenceRail = page.locator("aside");
+  await expect(imageEvidenceRail.getByRole("heading").nth(0)).toHaveText("Bundle Summary");
+  await expect(imageEvidenceRail.getByRole("heading").nth(1)).toHaveText("Trust Boundary");
+  await expect(imageEvidenceRail.getByRole("heading").nth(2)).toHaveText("Metadata");
   await expectNoUiOverlap(
     page.getByRole("link", { name: "Home" }),
     page.getByRole("link", { name: "Open note" }),
@@ -5104,6 +5114,7 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
     await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Run history", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Saved claims", exact: true })).toBeVisible();
@@ -5125,6 +5136,7 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading").nth(1)).toHaveText("Saved note state");
+    await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
     await expect(sheet.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
@@ -5214,6 +5226,7 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText(PAPER_NOTE_REVIEW_MODE_SUMMARY);
   const rightAside = page.locator("main > aside").nth(1);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Saved note state");
+  await expect(rightAside.getByRole("heading").nth(1)).toHaveText("Saved claims");
   await expect(rightAside.getByRole("heading", { name: "Actions", exact: true })).toBeVisible();
   await expect(rightAside.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
   const appraisalPanel = page.getByTestId("paper-note-appraisal-panel");
@@ -5235,6 +5248,7 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await expect(page).toHaveURL(new RegExp(`/papers/${structuredNoteSlug}$`));
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText(PAPER_NOTE_READ_MODE_SUMMARY);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Saved note state");
+  await expect(rightAside.getByRole("heading").nth(1)).toHaveText("Saved claims");
   await expect(rightAside.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
 });
 

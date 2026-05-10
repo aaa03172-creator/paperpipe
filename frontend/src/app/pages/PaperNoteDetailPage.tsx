@@ -47,6 +47,7 @@ import { OperationalStateSummary } from "../components/OperationalStateSummary";
 import { StatusBadge } from "../components/StatusBadge";
 import { WorkspaceContextCard, WorkspaceContextStrip } from "../components/WorkspaceContextStrip";
 import { jobLabel } from "../lib/ui";
+import { sanitizeRenderableHref } from "../lib/safeLinks";
 import { formatFreeformStatusLabel, getFreeformStatusTone, getPaperLifecycleTone, getStatusToneClassName } from "../lib/statusSystem";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -2354,34 +2355,43 @@ function ReferencesPanel({ references }: { references: PaperNoteReference[] }) {
             </section>
 
             <ul className="space-y-3">
-              {references.map((reference, idx) => (
-                <li key={`reference-${idx}`} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <a
-                      href={reference.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="paper-note-link inline-flex min-w-0 items-center gap-1 text-sm font-medium"
-                    >
-                      <span className="truncate">{reference.label}</span>
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    </a>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                      {idx === 0 ? <Badge variant="outline">Preferred</Badge> : null}
-                      <Badge variant="muted" className="uppercase">
-                        {reference.source}
-                      </Badge>
+              {references.map((reference, idx) => {
+                const safeHref = sanitizeRenderableHref(reference.url);
+                return (
+                  <li key={`reference-${idx}`} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      {safeHref ? (
+                        <a
+                          href={safeHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="paper-note-link inline-flex min-w-0 items-center gap-1 text-sm font-medium"
+                        >
+                          <span className="truncate">{reference.label}</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-[var(--pp-text)]">
+                          <span className="truncate">{reference.label}</span>
+                        </span>
+                      )}
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                        {idx === 0 ? <Badge variant="outline">Preferred</Badge> : null}
+                        <Badge variant="muted" className="uppercase">
+                          {reference.source}
+                        </Badge>
+                      </div>
                     </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2 text-xs text-[var(--pp-text-dim)]">
-                    {reference.source === "pdf" ? <FileText className="h-3.5 w-3.5" /> : null}
-                    {reference.source === "doi" ? <Link2 className="h-3.5 w-3.5" /> : null}
-                    {reference.source === "zotero" ? <LibraryBig className="h-3.5 w-3.5" /> : null}
-                    {reference.source === "external" ? <ExternalLink className="h-3.5 w-3.5" /> : null}
-                    <span>{getReferenceSourceDescription(reference.source)}</span>
-                  </div>
-                </li>
-              ))}
+                    <div className="mt-2 flex items-center gap-2 text-xs text-[var(--pp-text-dim)]">
+                      {reference.source === "pdf" ? <FileText className="h-3.5 w-3.5" /> : null}
+                      {reference.source === "doi" ? <Link2 className="h-3.5 w-3.5" /> : null}
+                      {reference.source === "zotero" ? <LibraryBig className="h-3.5 w-3.5" /> : null}
+                      {reference.source === "external" ? <ExternalLink className="h-3.5 w-3.5" /> : null}
+                      <span>{getReferenceSourceDescription(reference.source)}</span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -3655,6 +3665,7 @@ export function PaperNoteDetailPage() {
               {viewerMode === "builder_debug" ? (
                 <>
                   <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
+                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                   <OperatorStatePanel
                     operatorState={operatorState}
                     dirty={operatorStateDirty}
@@ -3680,7 +3691,6 @@ export function PaperNoteDetailPage() {
                     <AppraisalPanel report={criticalAppraisalReport} run={latestCriticalAppraisalRun} />
                   ) : null}
                   <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
-                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                   <PropertiesPanel
                     note={note}
                     aliases={aliases}
@@ -3695,6 +3705,7 @@ export function PaperNoteDetailPage() {
               ) : (
                 <>
                   <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
+                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                   <OperatorStatePanel
                     operatorState={operatorState}
                     dirty={operatorStateDirty}
@@ -3727,7 +3738,6 @@ export function PaperNoteDetailPage() {
                     onRun={handleRunAction}
                   />
                   <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
-                  <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 </>
               )}
             </div>
@@ -3746,6 +3756,7 @@ export function PaperNoteDetailPage() {
             {viewerMode === "builder_debug" ? (
               <>
                 <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
+                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 <OperatorStatePanel
                   operatorState={operatorState}
                   dirty={operatorStateDirty}
@@ -3771,7 +3782,6 @@ export function PaperNoteDetailPage() {
                   <AppraisalPanel report={criticalAppraisalReport} run={latestCriticalAppraisalRun} />
                 ) : null}
                 <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
-                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 <PropertiesPanel note={note} aliases={aliases} tags={tags} structuredState={structuredState} />
                 <OutlinePanel outline={outline} onNavigate={() => setSidePanelOpen(false)} />
                 <SectionNavigatorPanel
@@ -3785,6 +3795,7 @@ export function PaperNoteDetailPage() {
             ) : (
               <>
                 <SavedStatePanel note={note} state={structuredState} contextTrace={contextTrace} />
+                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
                 <OperatorStatePanel
                   operatorState={operatorState}
                   dirty={operatorStateDirty}
@@ -3816,7 +3827,6 @@ export function PaperNoteDetailPage() {
                   onRun={handleRunAction}
                 />
                 <AutomationResultsPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
-                <ClaimSetPanel state={structuredState} focusTarget={focusTarget} structuredStatePath={structuredStatePath} />
               </>
             )}
           </div>

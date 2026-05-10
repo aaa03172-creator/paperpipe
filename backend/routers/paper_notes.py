@@ -59,6 +59,9 @@ from src.services.event_log import sanitize_event_text_for_log
 
 router = APIRouter(prefix="/paper-notes", tags=["paper-notes"])
 
+_ALLOWED_REFERENCE_URL_SCHEMES = {"http", "https", "file", "zotero"}
+_ALLOWED_REFERENCE_INTERNAL_PREFIXES = ("/papers/",)
+
 EXCLUDED_DIR_NAMES = {".obsidian", "_backup"}
 DEFAULT_PAGE_SIZE = 30
 WIKILINK_PATTERN = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]")
@@ -1411,6 +1414,11 @@ def _normalize_link_url(url: str) -> str:
                 return Path(local_path).expanduser().as_uri()
             except Exception:
                 return text
+    if text.startswith(_ALLOWED_REFERENCE_INTERNAL_PREFIXES):
+        return text
+    parsed = urlparse(text)
+    if parsed.scheme.lower() not in _ALLOWED_REFERENCE_URL_SCHEMES:
+        return ""
     return text
 
 

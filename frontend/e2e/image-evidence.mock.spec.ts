@@ -26,6 +26,10 @@ test("image evidence viewer filters saved bundles and opens warning-forward deta
   await expect(page.getByRole("heading", { name: "Derived Outputs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "View State" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trust Boundary" })).toBeVisible();
+  const detailRail = page.locator("aside");
+  await expect(detailRail.getByRole("heading").nth(0)).toHaveText("Bundle Summary");
+  await expect(detailRail.getByRole("heading").nth(1)).toHaveText("Trust Boundary");
+  await expect(detailRail.getByRole("heading").nth(2)).toHaveText("Metadata");
   await expect(page.getByText("Bundle captures a representative crop rather than the full acquisition stack.")).toBeVisible();
   await expect(page.locator("pre").filter({ hasText: "/Users/jangseongjin/mock-data/imaging/hippocampus-alpha.tif" }).first()).toBeVisible();
   await expect(page.locator("article").filter({ hasText: "Thumbnail" }).first()).toBeVisible();

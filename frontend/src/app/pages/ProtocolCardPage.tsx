@@ -1923,6 +1923,40 @@ export function ProtocolCardPage() {
           <div className="space-y-4">
             {protocolCard ? (
               <>
+                <Card data-testid="protocol-card-review-state-card" className="border-[var(--pp-border)] bg-[var(--pp-surface)]">
+                  <CardHeader>
+                    <CardTitle className="text-sm">Review state</CardTitle>
+                    <CardDescription>Read saved status and source density before citing or reusing this protocol card.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs ${validationBadgeClassName(protocolCard.validation_status)}`}>
+                        {validationStatusLabel(protocolCard.validation_status)}
+                      </span>
+                      {selectedVersion ? (
+                        <span className={`rounded-full border px-2 py-0.5 text-xs ${versionStatusBadgeClassName(selectedVersion.status)}`}>
+                          {versionStatusLabel(selectedVersion.status)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">Versions</div>
+                        <div className="mt-1 text-lg font-semibold text-[var(--pp-text-primary)]">{versions.length}</div>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">Source refs</div>
+                        <div className="mt-1 text-lg font-semibold text-[var(--pp-text-primary)]">
+                          {selectedVersion?.source_refs.length ?? 0}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3 text-xs">
+                      Protocol cards are reusable review artifacts, not execution-ready SOPs. Re-open linked notes when the source basis needs challenge.
+                    </p>
+                  </CardContent>
+                </Card>
+
                 <Card className="border-[var(--pp-border)] bg-[var(--pp-surface)]">
                   <CardHeader>
                     <CardTitle className="text-sm">Version history</CardTitle>

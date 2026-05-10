@@ -797,3 +797,30 @@ Canonical parent: `docs/ux-review.md`
     - the readiness strip now says the rest of the form is optional or already defaulted
     - the optional-context explainer is visible before the non-required fields
     - the vertical order is `Protocol title -> Current version snapshot -> Purpose`
+
+## 7.12) Review State Rail Checkpoint (2026-05-10)
+- Screen/Flow: `/protocol-cards/:protocolId` detail right rail
+- Goal action: 사용자가 protocol card를 cite/reuse하기 전에 validation status, selected version status, version count, source-ref density를 먼저 확인한다.
+- Primary persona: note-linked protocol snapshot을 reusable reference로 쓰기 전에 draft/reviewed/verified 상태와 source basis를 점검하는 연구 운영자
+- Current friction:
+  - 본문 첫 카드에는 `Version review`가 있었지만, right rail은 `Version history`부터 시작하고 `Trust boundary`가 끝에 있었다.
+  - Lazyweb reference pilot의 approval/review workflow 패턴상, generated/reusable artifact는 action 또는 history navigation 전에 state cue가 먼저 보여야 한다.
+- Quick Review (5 min):
+  - 새 approval workflow, execution console, schema, route는 추가하지 않는다.
+  - read-only `Review state` card를 right rail 맨 위에 추가해 saved status와 source-ref density를 먼저 보여준다.
+- Full Review:
+  - P0: 통과. protocol card를 execution-ready SOP나 experimentally validated truth로 승격하지 않는다.
+  - P1: 통과. version history 탐색 전에 draft/reviewed/current/source-ref 상태가 먼저 보인다.
+  - P2: 통과. 기존 `Version review`, `Source refs`, `Trust boundary` copy와 read-only contract는 유지한다.
+  - 6P: problem은 protocol snapshot 재사용 전 과신이고, action은 detail inspection이며, happy ending은 status/source basis를 확인한 뒤 note-linked reference로만 쓰는 것이다.
+  - BMAP: motivation은 높고, ability는 compact rail summary로 좋아지며, prompt는 rail 상단 review-state card다.
+  - B.I.A.S: Block은 history-first rail, Interpret는 status/source-density proximity, Act는 safer cite/reuse decision, Store는 protocol lane을 review artifact로 기억하는 것이다.
+  - Peak-End: peak는 detail 진입 직후 status와 source refs를 읽는 순간이고, end는 trust boundary가 여전히 execution-console 오해를 막는 것이다.
+  - Ethics: Regret/Black Mirror/In Real-Life 모두 통과. 자동화나 실행 가능성을 암시하지 않고, read-only review artifact로 남긴다.
+- Concrete changes:
+  - `frontend/src/app/pages/ProtocolCardPage.tsx` right rail 상단에 read-only `Review state` card를 추가한다.
+  - mock/backend Playwright tests에 right-rail heading order assertion을 추가한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/protocol-card.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend protocol knowledge inspector loads a saved protocol card and keeps note handoff on the real route"`

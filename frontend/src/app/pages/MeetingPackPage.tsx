@@ -1395,6 +1395,39 @@ export function MeetingPackPage() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
+                <CardTitle>Review state</CardTitle>
+                <CardDescription>
+                  Read this safety snapshot before note handoff, rerender, regenerate, or sharing.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-[var(--pp-text-secondary)]">
+                <div className="flex flex-wrap gap-2">
+                  <Badge className={badgeToneClass(readinessTone(pack.readiness))}>{pack.readiness.replace("_", " ")}</Badge>
+                  <Badge className={badgeToneClass(syncTone(validation.markdown_sync.status))}>
+                    {validation.markdown_sync.status === "drifted" ? "Markdown drifted" : "Markdown in sync"}
+                  </Badge>
+                  <Badge className={badgeToneClass(validation.warnings.length > 0 ? "warning" : "success")}>
+                    {validation.warnings.length} validation warnings
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Linked notes</div>
+                    <div className="mt-1 text-lg font-semibold text-[var(--pp-text-primary)]">{sourceNotes.length}</div>
+                  </div>
+                  <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Evidence refs</div>
+                    <div className="mt-1 text-lg font-semibold text-[var(--pp-text-primary)]">{pack.evidence_refs.length}</div>
+                  </div>
+                </div>
+                <p className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs">
+                  This draft is generated downstream of paper notes. Treat readiness as a reuse gate, not proof that claims are reviewed.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle>Continue from this draft</CardTitle>
                 <CardDescription>
                   Re-open the upstream paper note before rerendering or sharing when you need to challenge the canonical evidence behind this draft.
