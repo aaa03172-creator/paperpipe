@@ -194,6 +194,105 @@ def test_artifacts_routes_support_unsafe_paper_ids(tmp_path, monkeypatch):
         db_utils.DB_PATH = original_db_path
 
 
+def test_artifacts_routes_do_not_resolve_traversal_ids_outside_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts = tmp_path / "storage" / "artifacts"
+    _set_artifacts_root(monkeypatch, artifacts)
+
+    outside_run = tmp_path / "outside" / "run_escape"
+    outside_run.mkdir(parents=True, exist_ok=True)
+    (outside_run / "document_artifact.json").write_text(json.dumps({"doc_id": "escaped"}), encoding="utf-8")
+
+    client = TestClient(api_main.app)
+
+    paper_escape = client.get("/artifacts/..%2Foutside/run_escape")
+    assert paper_escape.status_code == 404
+    assert "escaped" not in paper_escape.text
+
+    run_escape = client.get("/artifacts/paper_safe_001/..%2F..%2Foutside%2Frun_escape")
+    assert run_escape.status_code == 404
+    assert "escaped" not in run_escape.text
+
+    query_escape = client.get(
+        "/artifacts",
+        params={"paper_id": "paper_safe_001", "run_id": "../../outside/run_escape"},
+    )
+    assert query_escape.status_code == 404
+    assert "escaped" not in query_escape.text
+
+
+def test_artifacts_latest_does_not_serve_db_artifact_dir_outside_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts = tmp_path / "storage" / "artifacts"
+    _set_artifacts_root(monkeypatch, artifacts)
+
+    outside_run = tmp_path / "outside-artifacts" / "paper_db_pointer_001" / "run_outside"
+    outside_run.mkdir(parents=True, exist_ok=True)
+    (outside_run / "document_artifact.json").write_text(json.dumps({"doc_id": "outside"}), encoding="utf-8")
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, run_id, paper_id, status, progress, stage, created_at, finished_at, artifact_dir
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "job_outside_pointer",
+                "run_outside",
+                "paper_db_pointer_001",
+                "completed",
+                100,
+                "completed",
+                "2026-02-24 00:03:00",
+                "2026-02-24 00:03:05",
+                str(outside_run),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        client = TestClient(api_main.app)
+        response = client.get("/artifacts/paper_db_pointer_001/latest")
+
+        assert response.status_code == 404
+        assert "doc_id" not in response.text
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_artifacts_bundle_reports_malformed_json_sidecar_without_breaking_contract(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts = tmp_path / "storage" / "artifacts"
+    _set_artifacts_root(monkeypatch, artifacts)
+
+    run_dir = artifacts / "paper_malformed_sidecar" / "run_bad_json"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "document_artifact.json").write_text('{"doc_id": "ok"}', encoding="utf-8")
+    (run_dir / "run_meta.json").write_text('{"selected_backend": ', encoding="utf-8")
+
+    client = TestClient(api_main.app)
+
+    bundle = client.get("/artifacts/paper_malformed_sidecar/run_bad_json")
+    assert bundle.status_code == 200
+    payload = bundle.json()
+    assert payload["paper_id"] == "paper_malformed_sidecar"
+    assert payload["run_id"] == "run_bad_json"
+    assert payload["files"]["document_artifact"]["exists"] is True
+    assert payload["files"]["document_artifact"]["data"]["doc_id"] == "ok"
+    assert payload["files"]["run_meta"]["exists"] is True
+    assert "_parse_error" in payload["files"]["run_meta"]["data"]
+
+    run_meta = client.get("/artifacts/paper_malformed_sidecar/run_bad_json/meta")
+    assert run_meta.status_code == 200
+    assert run_meta.json()["exists"] is True
+    assert "_parse_error" in run_meta.json()["data"]
+
+
 def test_runs_status_and_timeline_from_job_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
