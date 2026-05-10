@@ -1243,6 +1243,47 @@ def test_operator_state_put_requires_api_key_when_configured(tmp_path, monkeypat
         db_utils.DB_PATH = original_db_path
 
 
+def test_api_prefixed_protected_reads_require_browser_signal_or_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        client = TestClient(api_main.app)
+
+        for path in ("/api/jobs", "/api/papers", "/api/paper-notes"):
+            blocked = client.get(path)
+            assert blocked.status_code == 401
+            assert blocked.json()["error_code"] == "UNAUTHORIZED"
+
+        browser_read = client.get("/api/jobs", headers=_browser_headers())
+        assert browser_read.status_code == 200
+
+        browser_fetch_read = client.get(
+            "/api/jobs",
+            headers={
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Dest": "empty",
+            },
+        )
+        assert browser_fetch_read.status_code == 200
+
+        navigation_read = client.get(
+            "/api/jobs",
+            headers={
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Dest": "document",
+            },
+        )
+        assert navigation_read.status_code == 401
+        assert navigation_read.json()["error_code"] == "UNAUTHORIZED"
+
+        api_key_read = client.get("/api/jobs", headers={"X-API-Key": "secret-key"})
+        assert api_key_read.status_code == 200
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_api_prefixed_routes_bridge_browser_calls_without_exposing_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("LATTICE_API_KEY", "secret-key")
     original_db_path = _init_temp_db(tmp_path, monkeypatch)
@@ -1300,46 +1341,48 @@ def test_api_prefixed_routes_bridge_browser_calls_without_exposing_api_key(tmp_p
         user_actions = client.get(
             "/api/user-actions",
             params={"paper_id": "paper_browser_api_001", "limit": 10},
+            headers=_browser_headers(),
         )
         assert user_actions.status_code == 200
         assert len(user_actions.json()["actions"]) >= 1
 
-        jobs = client.get("/api/jobs")
+        jobs = client.get("/api/jobs", headers=_browser_headers())
         assert jobs.status_code == 200
         assert any(item["job_id"] == "job_browser_api_001" for item in jobs.json())
 
-        job_status = client.get("/api/jobs/job_browser_api_001")
+        job_status = client.get("/api/jobs/job_browser_api_001", headers=_browser_headers())
         assert job_status.status_code == 200
         assert job_status.json()["run_id"] == "run_browser_api_001"
 
-        bootstrap_meta = client.get("/api/jobs/job_browser_api_001/bootstrap-meta")
+        bootstrap_meta = client.get("/api/jobs/job_browser_api_001/bootstrap-meta", headers=_browser_headers())
         assert bootstrap_meta.status_code == 200
         assert bootstrap_meta.json()["claimset_readiness_badge"] == "READY"
 
-        run_status = client.get("/api/runs/run_browser_api_001")
+        run_status = client.get("/api/runs/run_browser_api_001", headers=_browser_headers())
         assert run_status.status_code == 200
         assert run_status.json()["job_id"] == "job_browser_api_001"
 
         artifact_bundle = client.get(
             "/api/artifacts",
             params={"paper_id": "paper_browser_api_001", "run_id": "run_browser_api_001"},
+            headers=_browser_headers(),
         )
         assert artifact_bundle.status_code == 200
         assert artifact_bundle.json()["files"]["document_artifact"]["exists"] is True
 
-        artifact_latest = client.get("/api/artifacts/paper_browser_api_001/latest")
+        artifact_latest = client.get("/api/artifacts/paper_browser_api_001/latest", headers=_browser_headers())
         assert artifact_latest.status_code == 200
         assert artifact_latest.json()["run_id"] == "run_browser_api_001"
 
-        stale_jobs = client.get("/api/ops/stale-jobs")
+        stale_jobs = client.get("/api/ops/stale-jobs", headers=_browser_headers())
         assert stale_jobs.status_code == 200
         assert stale_jobs.json()["running_jobs_total"] == 0
 
-        paper_pdf = client.get("/api/papers/paper_browser_api_001/pdf")
+        paper_pdf = client.get("/api/papers/paper_browser_api_001/pdf", headers=_browser_headers())
         assert paper_pdf.status_code == 200
         assert paper_pdf.content.startswith(b"%PDF")
 
-        events = client.get("/api/jobs/job_browser_api_001/events")
+        events = client.get("/api/jobs/job_browser_api_001/events", headers=_browser_headers())
         assert events.status_code == 200
         assert "event: status" in events.text
     finally:
@@ -1412,7 +1455,7 @@ def test_api_prefixed_ops_reclaim_stale_job_bridges_browser_calls_without_exposi
         assert reclaim.status_code == 200
         assert reclaim.json()["error_code"] == "STALE_RUNNING_RECLAIMED"
 
-        job_status = client.get("/api/jobs/job_browser_reclaim_001")
+        job_status = client.get("/api/jobs/job_browser_reclaim_001", headers=_browser_headers())
         assert job_status.status_code == 200
         assert job_status.json()["status"] == "failed"
         assert job_status.json()["error_code"] == "STALE_RUNNING_RECLAIMED"

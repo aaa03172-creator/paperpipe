@@ -108,6 +108,9 @@ def test_browser_write_rate_limit_returns_429_and_logs_audit_rows(tmp_path, monk
         assert third.status_code == 429
         payload = third.json()
         assert payload["error_code"] == "BROWSER_WRITE_RATE_LIMITED"
+        assert payload["message"] == "Browser write rate limit exceeded"
+        assert payload["limit"] == 2
+        assert payload["window_seconds"] == 60
         assert payload["retry_after_seconds"] >= 1
         assert third.headers["retry-after"] == str(payload["retry_after_seconds"])
 
@@ -117,6 +120,11 @@ def test_browser_write_rate_limit_returns_429_and_logs_audit_rows(tmp_path, monk
         assert outcomes.count("allowed") == 2
         assert outcomes.count("rate_limited") == 1
         assert any(item["client_ip"] == "10.0.0.8" for item in audits)
+        limited = next(item for item in audits if item["outcome"] == "rate_limited")
+        assert limited["payload"]["scope"] == "browser_write"
+        assert limited["payload"]["limit"] == 2
+        assert limited["payload"]["window_seconds"] == 60
+        assert limited["payload"]["rewritten_path"] == "/jobs/deepread"
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -180,6 +188,9 @@ def test_browser_read_rate_limit_returns_429_and_logs_audit_rows(tmp_path, monke
         assert third.status_code == 429
         payload = third.json()
         assert payload["error_code"] == "BROWSER_READ_RATE_LIMITED"
+        assert payload["message"] == "Browser read rate limit exceeded"
+        assert payload["limit"] == 2
+        assert payload["window_seconds"] == 60
         assert payload["retry_after_seconds"] >= 1
         assert third.headers["retry-after"] == str(payload["retry_after_seconds"])
 
@@ -187,6 +198,9 @@ def test_browser_read_rate_limit_returns_429_and_logs_audit_rows(tmp_path, monke
         assert len(audits) == 1
         assert audits[0]["outcome"] == "rate_limited"
         assert audits[0]["payload"]["scope"] == "browser_read"
+        assert audits[0]["payload"]["limit"] == 2
+        assert audits[0]["payload"]["window_seconds"] == 60
+        assert audits[0]["payload"]["rewritten_path"] == "/papers"
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -214,6 +228,9 @@ def test_direct_protected_read_rate_limit_returns_429_and_logs_audit_rows(tmp_pa
         assert third.status_code == 429
         payload = third.json()
         assert payload["error_code"] == "PROTECTED_READ_RATE_LIMITED"
+        assert payload["message"] == "Protected read rate limit exceeded"
+        assert payload["limit"] == 2
+        assert payload["window_seconds"] == 60
         assert payload["retry_after_seconds"] >= 1
         assert third.headers["retry-after"] == str(payload["retry_after_seconds"])
 
@@ -221,6 +238,8 @@ def test_direct_protected_read_rate_limit_returns_429_and_logs_audit_rows(tmp_pa
         assert len(audits) == 1
         assert audits[0]["outcome"] == "rate_limited"
         assert audits[0]["payload"]["scope"] == "protected_read"
+        assert audits[0]["payload"]["limit"] == 2
+        assert audits[0]["payload"]["window_seconds"] == 60
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -248,6 +267,9 @@ def test_direct_protected_write_rate_limit_returns_429_and_logs_audit_rows(tmp_p
         assert third.status_code == 429
         payload = third.json()
         assert payload["error_code"] == "PROTECTED_WRITE_RATE_LIMITED"
+        assert payload["message"] == "Protected write rate limit exceeded"
+        assert payload["limit"] == 2
+        assert payload["window_seconds"] == 60
         assert payload["retry_after_seconds"] >= 1
         assert third.headers["retry-after"] == str(payload["retry_after_seconds"])
 
@@ -255,6 +277,8 @@ def test_direct_protected_write_rate_limit_returns_429_and_logs_audit_rows(tmp_p
         assert len(audits) == 1
         assert audits[0]["outcome"] == "rate_limited"
         assert audits[0]["payload"]["scope"] == "protected_write"
+        assert audits[0]["payload"]["limit"] == 2
+        assert audits[0]["payload"]["window_seconds"] == 60
     finally:
         db_utils.DB_PATH = original_db_path
 
