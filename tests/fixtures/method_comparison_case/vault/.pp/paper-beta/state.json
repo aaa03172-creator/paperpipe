@@ -1,0 +1,13 @@
+{
+  "schema_version": "2026-03-09.chat-hooks.v1",
+  "paper_slug": "paper-beta",
+  "updated_at": "2026-03-18T00:00:00Z",
+  "runs": [],
+  "signals": {
+    "has_claimset": false
+  },
+  "claimset": [],
+  "entities": [],
+  "mesh": [],
+  "outcomes": []
+}

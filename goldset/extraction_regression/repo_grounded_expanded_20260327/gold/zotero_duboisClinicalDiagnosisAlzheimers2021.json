@@ -1,0 +1,35 @@
+{
+  "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+  "citation": {
+    "title": "Clinical diagnosis of Alzheimer's disease: recommendations of the International Working Group",
+    "authors_first": "Dubois",
+    "year": 2021,
+    "journal_or_server": "Lancet Neurology"
+  },
+  "study_design": {
+    "design": "other",
+    "control_type": "none"
+  },
+  "population": {
+    "mci_only": false
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "Clinical diagnosis of Alzheimer's disease"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false,
+    "reason_if_excluded": "Clinical recommendations paper rather than an MCI-only intervention cohort."
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention",
+      "sample_size",
+      "duration"
+    ]
+  }
+}

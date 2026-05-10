@@ -1,0 +1,18 @@
+{
+  "schema_version": "pubtator_silver_manifest.v1",
+  "created_at": "2026-04-09T00:00:00+09:00",
+  "notes": [
+    "Repo-resident bounded PubTatorCentral silver bootstrap manifest for evidence_extraction_bundle projection.",
+    "This pilot intentionally mixes one BioC collection-style sample and one direct-document sample."
+  ],
+  "documents": [
+    {
+      "paper_id": "repo-pubtator-egfr",
+      "source_path": "../pubtator_silver/repo_grounded_pilot_20260409/source/repo_egfr_pubtator.json"
+    },
+    {
+      "paper_id": "repo-pubtator-kras",
+      "source_path": "../pubtator_silver/repo_grounded_pilot_20260409/source/repo_kras_pubtator.json"
+    }
+  ]
+}

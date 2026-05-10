@@ -1,0 +1,14 @@
+probe_id: unsupported_unknown_logging_mechanism
+taxonomy: unsupported_unknown_logging
+difficulty: hard
+source_excerpt: "Results: ATP levels increased after compound exposure. No mitochondrial assay, inhibitor experiment, or causal pathway test is described."
+prompt: "Assess whether a causal mitochondrial mechanism is supported."
+rubrics:
+  - rubric_id: unsupported_mechanism
+    description: "Answer states the mechanism is unsupported or not established."
+    kind: answer_contains_any
+    terms: ["unsupported", "not establish", "does not establish"]
+  - rubric_id: unknown_logged
+    description: "Unsupported mechanism is logged as unknown."
+    kind: unknown_logged
+

@@ -1,0 +1,203 @@
+{
+  "summary": {
+    "generated_at": "2026-03-06T02:56:31.464554+00:00",
+    "sample_size": 12,
+    "pass_distribution": {
+      "pass1": 12
+    },
+    "pass_ratio": {
+      "pass1": 1.0
+    },
+    "table_failure_taxonomy_counts": {
+      "NO_TABLE_FOUND": 7,
+      "DEGENERATE_SHAPE": 6
+    },
+    "total_checks": 12,
+    "no_api_checks": 11,
+    "no_api_ratio": 0.9167,
+    "no_table_data_checks": 7,
+    "no_table_data_ratio": 0.5833
+  },
+  "rows": [
+    {
+      "pdf": "1411.2441.pdf",
+      "doc_id": "file:1411.2441.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "arnstenNeuromodulationThoughtFlexibilities2012.pdf",
+      "doc_id": "file:arnstenNeuromodulationThoughtFlexibilities2012.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "barulliEfficiencyCapacityCompensation2013.pdf",
+      "doc_id": "file:barulliEfficiencyCapacityCompensation2013.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "benedictCognitiveImpairmentMultiple2020.pdf",
+      "doc_id": "file:benedictCognitiveImpairmentMultiple2020.pdf",
+      "table_count": 2,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 0,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "bialystokBilingualismConsequencesMind2012.pdf",
+      "doc_id": "file:bialystokBilingualismConsequencesMind2012.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "chandraGutMicrobiomeAlzheimers2023.pdf",
+      "doc_id": "file:chandraGutMicrobiomeAlzheimers2023.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "chiaravallotiCognitiveImpairmentMultiple.pdf",
+      "doc_id": "file:chiaravallotiCognitiveImpairmentMultiple.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE",
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "colomboMicrobiotaderivedShortChain2021.pdf",
+      "doc_id": "file:colomboMicrobiotaderivedShortChain2021.pdf",
+      "table_count": 2,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 0,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "coricTargetingProdromalAlzheimer2015.pdf",
+      "doc_id": "file:coricTargetingProdromalAlzheimer2015.pdf",
+      "table_count": 4,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 0,
+      "no_table_data_checks": 0,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "craftSafetyEfficacyFeasibility2020.pdf",
+      "doc_id": "file:craftSafetyEfficacyFeasibility2020.pdf",
+      "table_count": 7,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 0,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "decarliMildCognitiveImpairment2003.pdf",
+      "doc_id": "file:decarliMildCognitiveImpairment2003.pdf",
+      "table_count": 0,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE",
+        "NO_TABLE_FOUND"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 1,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    },
+    {
+      "pdf": "duboisAlzheimerDiseaseClinicalBiological2024.pdf",
+      "doc_id": "file:duboisAlzheimerDiseaseClinicalBiological2024.pdf",
+      "table_count": 2,
+      "table_pass": "pass1",
+      "table_failure_taxonomy": [
+        "DEGENERATE_SHAPE"
+      ],
+      "fallback_pages": [],
+      "checks": 1,
+      "no_api": 1,
+      "no_table_data_checks": 0,
+      "anchor_api_provider": "none",
+      "anchor_api_status": "no_doi"
+    }
+  ]
+}

@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -41,12 +41,67 @@ state.db
 logs/
 *.log
 export/
+storage/artifacts/
+storage/rag/
+storage/feedback_index/
+storage/sandbox/
+storage/*.json
+storage/*.jsonl
+storage/*.db
+storage/state.db.bak.*
+storage/state.db.pre_rollback_*
+storage/state.db.orphan_cleanup.bak.*
+storage/*.db-shm
+storage/*.db-wal
+storage/backups/
+obsidian/00_Index/*.bak.*
+Library/
+*.zip
+
 Inbox/
 NotebookLM_Upload/
 tests/temp_vault/
 tests/mock_downloads/
 tests/mock_notebooklm_upload/
+tests/test_feedback_manual.py
+run_manual_injection.py
 
 # User Data
 brain/
 .gemini/
+.codex/work/
+.codex/stage/
+.codex_trash/
+
+# Local MCP / UI reference research
+.lazyweb/
+*.mcp.json
+.mcp.json
+mcp.json
+.lazyweb_mcp_token
+lazyweb_mcp_token
+
+# Local UI audit artifacts
+tmp_*.png
+tmp_*.jpg
+tmp_*.jpeg
+tmp_*.webp
+.playwright-cli/
+
+# Local runtime output stores
+storage/_quarantine/
+storage/chart_packs/
+storage/image_evidence/
+storage/pdfs/
+storage/protocol_attachments/
+storage/protocol_cards/
+storage/reports/
+/<MagicMock name=*/
+chroma.sqlite3
+
+# Generated export documents
+output/
+
+# Generated eval snapshot outputs.
+# Keep tracked snapshots intact; force-add a curated snapshot when it is durable evidence.
+snapshots/*/

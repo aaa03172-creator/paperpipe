@@ -1,0 +1,35 @@
+{
+  "paper_id": "zotero:jessenCharacterisationSubjectiveCognitive2020",
+  "citation": {
+    "title": "The characterisation of subjective cognitive decline",
+    "authors_first": "Jessen",
+    "year": 2020,
+    "journal_or_server": "Lancet Neurology"
+  },
+  "study_design": {
+    "design": "other",
+    "control_type": "none"
+  },
+  "population": {
+    "mci_only": false
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "Subjective cognitive decline"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false,
+    "reason_if_excluded": "Personal view on subjective cognitive decline rather than an MCI-only intervention cohort."
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention",
+      "sample_size",
+      "duration"
+    ]
+  }
+}

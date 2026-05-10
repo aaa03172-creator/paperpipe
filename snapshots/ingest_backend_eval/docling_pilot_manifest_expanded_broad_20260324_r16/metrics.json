@@ -1,0 +1,168 @@
+{
+  "schema_version": "ingest_backend_eval.v1",
+  "generated_at": "2026-03-24T02:14:46.791919+00:00",
+  "run_id": "docling_pilot_manifest_expanded_broad_20260324_r16",
+  "baseline_backend": "fitz_pdfplumber",
+  "candidate_backend": "docling",
+  "document_count": 12,
+  "inputs": {
+    "manifest": "/Users/jangseongjin/paperpipe/goldset/manifests/ingest_backend_pilot_expanded_broad_20260324.json",
+    "pdf_paths": [
+      "/Users/jangseongjin/Zotero/storage/TAGKHDQ7/Chiaravalloti 및 DeLuca - Cognitive impairment in multiple sclerosis.pdf",
+      "/Users/jangseongjin/Zotero/storage/XXM5QV4C/Coric 등 - 2015 - Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial.pdf",
+      "/Users/jangseongjin/Zotero/storage/8CC55SSK/DeCarli - 2003 - Mild cognitive impairment prevalence, prognosis, aetiology, and treatment.pdf",
+      "/Users/jangseongjin/Zotero/storage/V4JIVUGR/Dubois 등 - 2024 - Alzheimer Disease as a Clinical-Biological Construct—An International Working Group Recommendation.pdf",
+      "/Users/jangseongjin/Zotero/storage/8WWUU6ZP/Dubois 및 Albert - 2004 - Amnestic MCI or prodromal Alzheimer's disease.pdf",
+      "/Users/jangseongjin/Zotero/storage/QML537WA/Hansson 등 - 2022 - The Alzheimer's Association appropriate use recommendations for blood biomarkers in Alzheimer's dise.pdf",
+      "/Users/jangseongjin/Zotero/storage/TBESINXA/Kowalski 및 Mulak - 2019 - Brain-Gut-Microbiota Axis in Alzheimer’s Disease.pdf",
+      "/Users/jangseongjin/Zotero/storage/TK34LP2Y/Liu 등 - 2020 - Gut Microbiota and Dysbiosis in Alzheimer’s Disease Implications for Pathogenesis and Treatment.pdf",
+      "/Users/jangseongjin/Zotero/storage/H3W98XCU/Mårtensson 등 - 2020 - The reliability of a deep learning model in clinical out-of-distribution MRI data A multicohort stu.pdf",
+      "/Users/jangseongjin/Zotero/storage/SSRY2H8J/Mashour 등 - 2020 - Conscious Processing and the Global Neuronal Workspace Hypothesis.pdf",
+      "/Users/jangseongjin/Zotero/storage/D2L3389R/Oddo 등 - 2019 - Advances in Microfluidic Blood–Brain Barrier (BBB) Models.pdf",
+      "/Users/jangseongjin/Zotero/storage/9MBQAUSQ/Fenton 등 - 2018 - Advances in Biomaterials for Drug Delivery.pdf"
+    ]
+  },
+  "backend_metrics": {
+    "fitz_pdfplumber": {
+      "document_count": 12,
+      "success_count": 12,
+      "error_count": 0,
+      "backend_unavailable_count": 0,
+      "docs_with_doi_count": 12,
+      "docs_with_tables_count": 5,
+      "docs_with_meaningful_tables_count": 3,
+      "docs_with_table_fallback_count": 0,
+      "docs_with_text_count": 12,
+      "avg_text_char_count": 83970.41666666667,
+      "table_failure_taxonomy_counts": {
+        "DEGENERATE_SHAPE": 7,
+        "NO_TABLE_FOUND": 7
+      }
+    },
+    "docling": {
+      "document_count": 12,
+      "success_count": 12,
+      "error_count": 0,
+      "backend_unavailable_count": 0,
+      "docs_with_doi_count": 12,
+      "docs_with_tables_count": 9,
+      "docs_with_meaningful_tables_count": 9,
+      "docs_with_table_fallback_count": 0,
+      "docs_with_text_count": 12,
+      "avg_text_char_count": 88262.25,
+      "table_failure_taxonomy_counts": {
+        "DEGENERATE_SHAPE": 1,
+        "NO_TABLE_FOUND": 3
+      }
+    }
+  },
+  "comparison": {
+    "compared_document_count": 12,
+    "backend_unavailable_docs": [],
+    "error_increase_docs": [],
+    "empty_text_increase_docs": [],
+    "doi_loss_docs": [],
+    "doi_gain_docs": [],
+    "table_fallback_docs": [],
+    "same_page_merge_docs": [],
+    "meaningful_table_page_loss_docs": [],
+    "meaningful_table_loss_docs": [],
+    "meaningful_table_gain_docs": [
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/8CC55SSK/DeCarli - 2003 - Mild cognitive impairment prevalence, prognosis, aetiology, and treatment.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 1,
+        "baseline_table_count": 0,
+        "candidate_table_count": 1
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/9MBQAUSQ/Fenton 등 - 2018 - Advances in Biomaterials for Drug Delivery.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 2,
+        "baseline_table_count": 0,
+        "candidate_table_count": 2
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/H3W98XCU/Mårtensson 등 - 2020 - The reliability of a deep learning model in clinical out-of-distribution MRI data A multicohort stu.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 3,
+        "baseline_table_count": 0,
+        "candidate_table_count": 3
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/TBESINXA/Kowalski 및 Mulak - 2019 - Brain-Gut-Microbiota Axis in Alzheimer’s Disease.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 3,
+        "baseline_table_count": 3,
+        "candidate_table_count": 3
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/TK34LP2Y/Liu 등 - 2020 - Gut Microbiota and Dysbiosis in Alzheimer’s Disease Implications for Pathogenesis and Treatment.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 2,
+        "baseline_table_count": 0,
+        "candidate_table_count": 2
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/XXM5QV4C/Coric 등 - 2015 - Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial.pdf",
+        "baseline_meaningful_table_count": 0,
+        "candidate_meaningful_table_count": 3,
+        "baseline_table_count": 4,
+        "candidate_table_count": 3
+      }
+    ],
+    "raw_table_loss_docs": [
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/D2L3389R/Oddo 등 - 2019 - Advances in Microfluidic Blood–Brain Barrier (BBB) Models.pdf",
+        "baseline_table_count": 12,
+        "candidate_table_count": 4
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/V4JIVUGR/Dubois 등 - 2024 - Alzheimer Disease as a Clinical-Biological Construct—An International Working Group Recommendation.pdf",
+        "baseline_table_count": 2,
+        "candidate_table_count": 1
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/XXM5QV4C/Coric 등 - 2015 - Targeting Prodromal Alzheimer Disease With Avagacestat A Randomized Clinical Trial.pdf",
+        "baseline_table_count": 4,
+        "candidate_table_count": 3
+      }
+    ],
+    "raw_table_gain_docs": [
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/8CC55SSK/DeCarli - 2003 - Mild cognitive impairment prevalence, prognosis, aetiology, and treatment.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 1
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/9MBQAUSQ/Fenton 등 - 2018 - Advances in Biomaterials for Drug Delivery.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 2
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/H3W98XCU/Mårtensson 등 - 2020 - The reliability of a deep learning model in clinical out-of-distribution MRI data A multicohort stu.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 3
+      },
+      {
+        "pdf_path": "/Users/jangseongjin/Zotero/storage/TK34LP2Y/Liu 등 - 2020 - Gut Microbiota and Dysbiosis in Alzheimer’s Disease Implications for Pathogenesis and Treatment.pdf",
+        "baseline_table_count": 0,
+        "candidate_table_count": 2
+      }
+    ],
+    "low_text_ratio_docs": [],
+    "decision": {
+      "passed": true,
+      "failed_checks": [],
+      "thresholds": {
+        "min_candidate_text_ratio": 0.5,
+        "max_backend_unavailable_docs": 0,
+        "max_error_increase_docs": 0,
+        "max_empty_text_increase_docs": 0,
+        "max_doi_loss_docs": 0,
+        "max_meaningful_table_loss_docs": 0,
+        "max_low_text_ratio_docs": 0
+      }
+    }
+  }
+}
