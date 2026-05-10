@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -8,6 +9,7 @@ from pathlib import Path
 
 
 def _build_wheel(*, repo_root: Path, wheel_dir: Path) -> Path:
+    shutil.rmtree(repo_root / "build", ignore_errors=True)
     completed = subprocess.run(
         [
             sys.executable,
@@ -16,7 +18,6 @@ def _build_wheel(*, repo_root: Path, wheel_dir: Path) -> Path:
             "wheel",
             ".",
             "--no-deps",
-            "--no-build-isolation",
             "-w",
             str(wheel_dir),
         ],
@@ -123,7 +124,6 @@ def test_fresh_venv_console_script_can_launch_help(tmp_path: Path) -> None:
             sys.executable,
             "-m",
             "venv",
-            "--system-site-packages",
             str(venv_dir),
         ],
         cwd=repo_root,
@@ -146,7 +146,6 @@ def test_fresh_venv_console_script_can_launch_help(tmp_path: Path) -> None:
             "-m",
             "pip",
             "install",
-            "--no-deps",
             str(wheel),
         ],
         cwd=repo_root,

@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+import asyncio
 import json
 import sqlite3
 
@@ -44,6 +45,73 @@ def test_ingest_runtime_options_for_run_meta_redacts_cloud_table_api_key():
     assert persisted["cloud_table_api_key_configured"] is True
     assert "cloud_table_api_key" not in persisted
     assert "sk-secret-value" not in json.dumps(persisted)
+
+
+def test_run_meta_redacts_cloud_table_api_key_on_failed_ingest(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    library_dir = tmp_path / "Library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+    vault_dir = tmp_path / "Vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    paper_id = "paper_secret_redaction_001"
+    run_id = "run_secret_redaction"
+    secret = "sk-live-runmeta-secret-abcdef123456"
+    (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+
+    monkeypatch.setattr(
+        job_runner_mod,
+        "load_config",
+        lambda: SimpleNamespace(
+            paths=SimpleNamespace(
+                library_dir=library_dir,
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            ),
+            ingest=SimpleNamespace(
+                parser_backend="fitz_pdfplumber",
+                enable_docling=False,
+                enable_ocr_fallback=False,
+                ocr_lang="eng",
+                ocr_min_text_chars=200,
+                enable_table_pass2_ocr=False,
+                enable_cloud_table_fallback=True,
+                cloud_table_page_budget=2,
+                cloud_table_model="gpt-4o-mini",
+                cloud_table_base_url=None,
+                cloud_table_api_key=secret,
+                cloud_table_timeout_seconds=30,
+            ),
+        ),
+    )
+
+    class FakeIngestAgent:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def process_v2(self, pdf_path: str):
+            return None
+
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job-secret-redaction",
+            paper_id=paper_id,
+            run_id=run_id,
+        )
+    )
+
+    assert result["status"] == "failed"
+    artifact_dir = job_runner_mod.artifact_run_dir(paper_id, run_id)
+    run_meta_path = artifact_dir / "run_meta.json"
+    raw_run_meta = run_meta_path.read_text(encoding="utf-8")
+    run_meta = json.loads(raw_run_meta)
+
+    assert secret not in raw_run_meta
+    assert "cloud_table_api_key" not in run_meta["ingest_options"]
+    assert run_meta["ingest_options"]["cloud_table_api_key_configured"] is True
+    assert run_meta["status"] == "failed"
 
 
 def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):

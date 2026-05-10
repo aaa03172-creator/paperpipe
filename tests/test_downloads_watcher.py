@@ -1,4 +1,5 @@
 import sqlite3
+from types import SimpleNamespace
 
 import src.db_utils as db_utils
 import src.downloads_watcher as downloads_watcher
@@ -345,3 +346,55 @@ def test_downloads_watcher_allows_metadata_doi_match_without_title_overlap(tmp_p
         assert result.destination is not None and result.destination.exists()
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_wait_for_stable_file_waits_through_growth(tmp_path, monkeypatch):
+    source_pdf = tmp_path / "growing.pdf"
+    source_pdf.write_bytes(b"%PDF-1.4\n")
+    sleeps = {"count": 0}
+
+    def fake_sleep(_seconds: float) -> None:
+        if sleeps["count"] == 0:
+            source_pdf.write_bytes(source_pdf.read_bytes() + b"%more\n")
+        sleeps["count"] += 1
+
+    monkeypatch.setattr(downloads_watcher.time, "sleep", fake_sleep)
+
+    assert downloads_watcher._wait_for_stable_file(
+        source_pdf,
+        stable_checks=2,
+        interval_seconds=0.01,
+        max_wait_seconds=1.0,
+    ) is True
+    assert sleeps["count"] >= 2
+
+
+def test_downloads_handler_skips_unstable_pdf(monkeypatch, tmp_path):
+    source_pdf = tmp_path / "still-growing.pdf"
+    source_pdf.write_bytes(b"%PDF-1.4\n")
+    handler = downloads_watcher.DownloadsFileHandler(pdf_storage_dir=tmp_path / "pdfs")
+
+    monkeypatch.setattr(downloads_watcher, "_wait_for_stable_file", lambda _path: False)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("unstable PDF should not be processed")
+
+    monkeypatch.setattr(downloads_watcher, "process_downloaded_pdf", fail_if_called)
+
+    handler.on_created(SimpleNamespace(is_directory=False, src_path=str(source_pdf)))
+    assert source_pdf.exists()
+
+
+def test_downloads_handler_ignores_temporary_download_suffix(monkeypatch, tmp_path):
+    temp_pdf = tmp_path / "paper.pdf.part"
+    temp_pdf.write_bytes(b"%PDF-1.4\n")
+    handler = downloads_watcher.DownloadsFileHandler(pdf_storage_dir=tmp_path / "pdfs")
+
+    monkeypatch.setattr(
+        downloads_watcher,
+        "_wait_for_stable_file",
+        lambda _path: (_ for _ in ()).throw(AssertionError("temporary downloads should be ignored")),
+    )
+
+    handler.on_created(SimpleNamespace(is_directory=False, src_path=str(temp_pdf)))
+    assert temp_pdf.exists()

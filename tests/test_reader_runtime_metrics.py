@@ -312,6 +312,82 @@ def test_reader_agent_coverage_focus_uses_missing_topic_targets(monkeypatch):
     assert reader.last_coverage_focus_metrics["generated_claim_count"] == 1
 
 
+def test_reader_agent_coverage_focus_uses_heuristic_fallback_when_model_returns_empty(monkeypatch):
+    class FakeAdapter:
+        def __init__(self, model_name: str = "fake-model"):
+            self.last_request_meta = {}
+
+        def generate(self, prompt: str, format: str | None = None):
+            self.last_request_meta = {"status": "ok", "provider": "ollama", "model": "fake-model"}
+            return SimpleNamespace(text='{"doc_id":"doc:test","claims":[]}')
+
+        def count_tokens(self, text: str):
+            return SimpleNamespace(total_tokens=max(1, len(text) // 4))
+
+    monkeypatch.setattr(reader_mod, "OllamaModelAdapter", FakeAdapter)
+    reader = reader_mod.ReaderAgent(model_name="fake-model")
+    doc = DocumentArtifactV2(
+        document_id="doc:test",
+        meta=ArtifactMetaV2(title="Coverage Focus", authors=["Kim"], source_ref="file.pdf"),
+        pages=[
+            PageV2(
+                page_index=3,
+                width=595,
+                height=842,
+                blocks=[
+                    BlockV2(
+                        block_id="b4",
+                        lines=[
+                            LineV2(
+                                line_id="l4",
+                                text=(
+                                    "AI and machine learning can integrate multimodal data to prioritize "
+                                    "therapeutic candidates for validation. AI models can also produce"
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        tables=[],
+    )
+    coverage = ClaimsetCoverageSidecar(
+        paper_id="paper-1",
+        doc_id="doc:test",
+        run_id="run-1",
+        generated_at=datetime.now(timezone.utc),
+        coverage_status="warn",
+        metrics=ClaimsetCoverageMetrics(document_page_count=4, missing_topic_signal_count=1),
+        page_summary=ClaimsetCoveragePageSummary(covered_pages=[2], missing_page_ranges=["4"]),
+        topic_signals=[
+            ClaimsetCoverageTopicSignal(
+                key="ai_computational",
+                label="AI and computational methods",
+                keywords=["AI", "machine learning"],
+                present_in_document=True,
+                covered_by_claimset=False,
+            )
+        ],
+        evidence_summary=ClaimsetCoverageEvidenceSummary(total_spans=1, grounded_spans=1, grounded_ratio=1.0),
+        recommended_next_action="run_focused_coverage_review_for_missing_topics",
+    )
+
+    result = reader.analyze_coverage_focus(
+        doc,
+        coverage=coverage,
+        existing_claimset=ClaimSet(doc_id="doc:test", claims=[]),
+    )
+
+    assert len(result.claims) == 1
+    assert result.claims[0].unknown is True
+    assert result.claims[0].unknown_reason == "HEURISTIC_COVERAGE_FOCUS"
+    assert result.claims[0].statement.endswith(".")
+    assert result.claims[0].evidence_spans[0].chunk_id == "p04_c01"
+    assert reader.last_coverage_focus_metrics["used_heuristic_fallback"] is True
+    assert reader.last_coverage_focus_metrics["generated_claim_count"] == 1
+
+
 def test_reader_agent_focused_context_includes_methods_sections(monkeypatch):
     class FakeAdapter:
         def __init__(self, model_name: str = "fake-model"):

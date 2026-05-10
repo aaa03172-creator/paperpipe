@@ -11,7 +11,13 @@ from typing import Any
 
 
 DEFAULT_BACKUP_GLOB = "storage/backups/*.db"
-DEFAULT_REQUIRED_TABLES = ("papers",)
+DEFAULT_REQUIRED_TABLES = (
+    "papers",
+    "jobs",
+    "execution_runs",
+    "job_events",
+    "review_queue",
+)
 
 
 def _latest_backup(pattern: str) -> Path | None:
@@ -152,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         "--required-table",
         action="append",
         dest="required_tables",
-        help="Required table name. Repeatable. Default: papers.",
+        help="Required table name. Repeatable. Defaults to core operational tables.",
     )
     parser.add_argument(
         "--work-dir",

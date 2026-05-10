@@ -82,6 +82,7 @@ Representative API examples:
 ```bash
 git submodule update --init --recursive
 python -m pip install -r requirements.txt
+python -m pip install -e .
 paperpipe self-test --json
 lattice start
 ```
@@ -184,6 +185,14 @@ Key runtime controls:
 - `LATTICE_CORS_ALLOW_ORIGINS`
 - `LATTICE_MAX_CONCURRENT_JOBS`
 - `LATTICE_MAX_QUEUED_JOBS`
+
+Local secret guard:
+
+```bash
+python scripts/check_no_live_secrets.py
+```
+
+The guard scans tracked files plus local `.env` for live-looking provider keys. Keep real provider secrets in your shell, OS secret store, or deployment secret manager, and keep `.env.example` placeholder-only.
 
 Browser/runtime boundary:
 - backend-served `/ui` and the dev frontend both call same-origin `/api/*`

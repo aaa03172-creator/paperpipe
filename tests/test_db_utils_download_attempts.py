@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -29,6 +30,41 @@ def test_init_db_adds_download_attempts_column_when_papers_exists(tmp_path: Path
         cols = {row[1] for row in conn.execute("PRAGMA table_info(papers)").fetchall()}
         conn.close()
         assert "download_attempts" in cols
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_save_paper_state_logs_schema_write_failure(tmp_path: Path, caplog):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT,
+                title TEXT,
+                source TEXT
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        caplog.set_level(logging.WARNING, logger="src.db_utils")
+        db_utils.save_paper_state(
+            "10.5000/broken-schema",
+            "Broken Schema Paper",
+            "pubmed",
+            "2026-02-24",
+        )
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        rows = conn.execute("SELECT paper_id FROM papers").fetchall()
+        conn.close()
+
+        assert rows == []
+        assert "Failed to save paper state for 10.5000/broken-schema" in caplog.text
     finally:
         db_utils.DB_PATH = original_db_path
 

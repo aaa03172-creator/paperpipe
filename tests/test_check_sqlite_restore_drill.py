@@ -13,6 +13,15 @@ def _write_db(path: Path, *, table_name: str = "papers") -> None:
     conn.close()
 
 
+def _write_operational_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    for table_name in ("papers", "jobs", "execution_runs", "job_events", "review_queue"):
+        conn.execute(f'CREATE TABLE "{table_name}" (id TEXT PRIMARY KEY)')
+        conn.execute(f'INSERT INTO "{table_name}" (id) VALUES (?)', ("one",))
+    conn.commit()
+    conn.close()
+
+
 def _backup_db(source: Path, backup: Path) -> None:
     src = sqlite3.connect(source)
     dst = sqlite3.connect(backup)
@@ -38,6 +47,39 @@ def test_restore_drill_validates_backup_copy(tmp_path: Path) -> None:
     assert result["row_counts"] == {"papers": 1}
     assert Path(result["restored_copy"]).exists()
     assert result["backup_path"] == str(backup)
+
+
+def test_restore_drill_default_tables_cover_operational_state(tmp_path: Path) -> None:
+    source = tmp_path / "state.db"
+    backup = tmp_path / "state_backup.db"
+    _write_operational_db(source)
+    _backup_db(source, backup)
+
+    result = run_restore_drill(backup_path=backup, work_dir=tmp_path / "drill")
+
+    assert result["status"] == "ok"
+    assert result["missing_tables"] == []
+    assert result["required_tables"] == ["papers", "jobs", "execution_runs", "job_events", "review_queue"]
+    assert result["row_counts"] == {
+        "papers": 1,
+        "jobs": 1,
+        "execution_runs": 1,
+        "job_events": 1,
+        "review_queue": 1,
+    }
+
+
+def test_restore_drill_default_tables_report_missing_operational_state(tmp_path: Path) -> None:
+    source = tmp_path / "state.db"
+    backup = tmp_path / "state_backup.db"
+    _write_db(source)
+    _backup_db(source, backup)
+
+    result = run_restore_drill(backup_path=backup, work_dir=tmp_path / "drill")
+
+    assert result["status"] == "error"
+    assert result["error"] == "required_tables_missing"
+    assert result["missing_tables"] == ["jobs", "execution_runs", "job_events", "review_queue"]
 
 
 def test_restore_drill_reports_missing_required_table(tmp_path: Path) -> None:
