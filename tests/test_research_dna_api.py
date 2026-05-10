@@ -6,7 +6,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend import main as api_main
+from src.profiles.profile_schema import Profile, ProfileConfig
 from src.profiles.profile_store import load_profiles
+from src.profiles.profile_store import save_profiles_snapshot
+from src.profiles.research_dna_projection import projected_profile_id
 from src.schemas import Paper
 
 
@@ -524,6 +527,87 @@ def test_research_dna_api_allows_update_and_draft_query_version(tmp_path, monkey
     assert config.profiles[0].schedule == "manual"
 
 
+def test_research_dna_api_project_profile_collision_does_not_overwrite_manual_profile(tmp_path, monkeypatch):
+    research_dna_root = tmp_path / "research_dna"
+    profiles_path = tmp_path / "profiles.yaml"
+    monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(research_dna_root))
+    monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(profiles_path))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    client = TestClient(api_main.app)
+
+    dna_id = "dna_projection_collision"
+    created = client.post(
+        "/research-dna",
+        json={
+            "topic": "Projection collision guard",
+            "intent": "systematic_review",
+            "dna_id": dna_id,
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "create via api",
+            "available_databases": ["pubmed"],
+        },
+    )
+    assert created.status_code == 200
+    refined = client.post(
+        f"/research-dna/{dna_id}/refine",
+        json={
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "draft query",
+            "query_version": {
+                "version": "v1",
+                "mode": "recall",
+                "per_db": {"pubmed": "projection collision"},
+                "change_summary": "initial query draft",
+                "created_at": "2026-03-12T00:00:00Z",
+                "created_by": "human_api:tester",
+            },
+        },
+    )
+    assert refined.status_code == 200
+
+    manual_profile = Profile(
+        id=projected_profile_id(dna_id),
+        title="Manual profile with colliding id",
+        enabled=True,
+        schedule="daily",
+        notes="This is not a ResearchDNA projection.",
+    )
+    save_profiles_snapshot(
+        ProfileConfig(profiles=[manual_profile]),
+        profiles_path,
+        allow_unsafe_overwrite=True,
+    )
+    before_profiles = profiles_path.read_text(encoding="utf-8")
+
+    projected = client.post(
+        f"/research-dna/{dna_id}/project-profile",
+        json={
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "must not overwrite manual profile",
+        },
+    )
+    assert projected.status_code == 409
+    assert "existing profile is not owned" in projected.json()["detail"]
+    assert profiles_path.read_text(encoding="utf-8") == before_profiles
+
+    config = load_profiles(profiles_path)
+    assert len(config.profiles) == 1
+    assert config.profiles[0].title == "Manual profile with colliding id"
+    assert config.profiles[0].enabled is True
+    assert config.profiles[0].schedule == "daily"
+
+    approval_rows = [
+        json.loads(line)
+        for line in (research_dna_root / dna_id / "logs" / "approval_audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["action"] for row in approval_rows] == ["create", "refine"]
+
+
 def test_research_dna_api_rejects_duplicate_create_for_same_dna_id(tmp_path, monkeypatch):
     monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(tmp_path / "research_dna"))
     monkeypatch.delenv("LATTICE_API_KEY", raising=False)
@@ -631,3 +715,217 @@ def test_research_dna_api_blocks_interview_logging_when_locked(tmp_path, monkeyp
         },
     )
     assert interview.status_code == 409
+
+
+def test_research_dna_api_locked_write_failures_leave_profile_unchanged(tmp_path, monkeypatch):
+    research_dna_root = tmp_path / "research_dna"
+    monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(research_dna_root))
+    monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(tmp_path / "profiles.yaml"))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    client = TestClient(api_main.app)
+
+    created = client.post(
+        "/research-dna",
+        json={
+            "topic": "Locked Research DNA mutation guard",
+            "intent": "systematic_review",
+            "dna_id": "dna_locked_guard",
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "create via api",
+        },
+    )
+    assert created.status_code == 200
+    dna_id = created.json()["dna"]["id"]
+
+    approved = client.post(
+        f"/research-dna/{dna_id}/approve-pilot",
+        json={"actor_type": "human_api", "actor_id": "tester", "reason": "approve pilot"},
+    )
+    assert approved.status_code == 200
+    locked = client.post(
+        f"/research-dna/{dna_id}/lock",
+        json={"actor_type": "human_api", "actor_id": "tester", "reason": "lock baseline"},
+    )
+    assert locked.status_code == 200
+    locked_profile = locked.json()["dna"]
+
+    update = client.post(
+        f"/research-dna/{dna_id}/update",
+        json={
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "should not apply while locked",
+            "patch": {"title": "Mutated title"},
+        },
+    )
+    assert update.status_code == 409
+    assert "LOCKED" in update.json()["detail"]
+
+    refine = client.post(
+        f"/research-dna/{dna_id}/refine",
+        json={
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "should not add query while locked",
+            "query_version": {
+                "version": "v1",
+                "mode": "recall",
+                "per_db": {"pubmed": "locked guard"},
+                "change_summary": "locked write attempt",
+                "created_at": "2026-03-12T00:00:00Z",
+                "created_by": "human_api:tester",
+            },
+        },
+    )
+    assert refine.status_code == 409
+    assert "LOCKED" in refine.json()["detail"]
+
+    fetched = client.get(f"/research-dna/{dna_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["dna"]["status"] == "LOCKED"
+    assert fetched.json()["dna"]["revision"] == locked_profile["revision"]
+    assert fetched.json()["dna"]["title"] == locked_profile["title"]
+    assert fetched.json()["dna"]["query_versions"] == locked_profile["query_versions"]
+
+    approval_log = research_dna_root / dna_id / "logs" / "approval_audit.jsonl"
+    actions = [json.loads(line)["action"] for line in approval_log.read_text(encoding="utf-8").splitlines()]
+    assert actions == ["create", "approve_pilot", "lock"]
+
+
+def test_research_dna_api_current_candidate_mismatch_does_not_append_screening_log(tmp_path, monkeypatch):
+    research_dna_root = tmp_path / "research_dna"
+    search_eval_root = tmp_path / "search_eval"
+    monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(research_dna_root))
+    monkeypatch.setenv("PAPERPIPE_SEARCH_EVAL_DIR", str(search_eval_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    monkeypatch.setattr(
+        "src.profiles.research_dna_service._default_source_fetchers",
+        lambda: {
+            "pubmed": _FakeFetcher(
+                [
+                    Paper(
+                        id="PMID:123",
+                        title="Study A",
+                        authors=["Kim J"],
+                        published="2024-01-01",
+                        source="PubMed",
+                        summary="A",
+                        link="https://pubmed.ncbi.nlm.nih.gov/123/",
+                        doi=None,
+                    ),
+                    Paper(
+                        id="PMID:456",
+                        title="Study B",
+                        authors=["Lee H"],
+                        published="2024-02-01",
+                        source="PubMed",
+                        summary="B",
+                        link="https://pubmed.ncbi.nlm.nih.gov/456/",
+                        doi=None,
+                    ),
+                ]
+            )
+        },
+    )
+    client = TestClient(api_main.app)
+
+    created = client.post(
+        "/research-dna",
+        json={
+            "topic": "Current candidate mismatch guard",
+            "intent": "systematic_review",
+            "dna_id": "dna_candidate_guard",
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "create via api",
+            "available_databases": ["pubmed"],
+            "recommended_databases": ["pubmed"],
+        },
+    )
+    assert created.status_code == 200
+    dna_id = created.json()["dna"]["id"]
+    assert client.post(
+        f"/research-dna/{dna_id}/approve-pilot",
+        json={"actor_type": "human_api", "actor_id": "tester", "reason": "approve pilot"},
+    ).status_code == 200
+    assert client.post(
+        f"/research-dna/{dna_id}/refine",
+        json={
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "draft v1 query",
+            "query_version": {
+                "version": "v1",
+                "mode": "recall",
+                "per_db": {"pubmed": "candidate guard"},
+                "change_summary": "initial query draft",
+                "created_at": "2026-03-12T00:00:00Z",
+                "created_by": "human_api:tester",
+            },
+        },
+    ).status_code == 200
+    pilot = client.post(
+        f"/research-dna/{dna_id}/pilot",
+        json={"actor_type": "human_api", "actor_id": "tester", "run_id": "pilot_candidate_guard"},
+    )
+    assert pilot.status_code == 200
+
+    mismatch = client.post(
+        f"/research-dna/{dna_id}/screening/current",
+        json={
+            "run_id": "pilot_candidate_guard",
+            "decision": "include",
+            "reason_code": "other_noise",
+            "expected_candidate_id": "pmid:999",
+            "actor_type": "human_api",
+            "actor_id": "tester",
+        },
+    )
+    assert mismatch.status_code == 409
+    assert "current next candidate mismatch" in mismatch.json()["detail"]
+
+    screening_log = research_dna_root / dna_id / "logs" / "screening.jsonl"
+    assert not screening_log.exists()
+    next_candidate = client.get(
+        f"/research-dna/{dna_id}/runs/pilot_candidate_guard/next-screening-candidate",
+    )
+    assert next_candidate.status_code == 200
+    assert next_candidate.json()["next_candidate"]["candidate"]["candidate_id"] == "pmid:123"
+    assert next_candidate.json()["next_candidate"]["labeled_count"] == 0
+
+
+def test_research_dna_api_screening_latest_run_requires_existing_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERPIPE_RESEARCH_DNA_DIR", str(tmp_path / "research_dna"))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    client = TestClient(api_main.app)
+
+    created = client.post(
+        "/research-dna",
+        json={
+            "topic": "Latest run selector without pilot",
+            "intent": "systematic_review",
+            "dna_id": "dna_latest_run_guard",
+            "actor_type": "human_api",
+            "actor_id": "tester",
+            "reason": "create via api",
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.post(
+        "/research-dna/dna_latest_run_guard/screening/current",
+        json={
+            "latest_run": True,
+            "decision": "exclude",
+            "reason_code": "wrong_population",
+            "actor_type": "human_api",
+            "actor_id": "tester",
+        },
+    )
+    assert response.status_code == 409
+    assert "pilot a run first" in response.json()["detail"]

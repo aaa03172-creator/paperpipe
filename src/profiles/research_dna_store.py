@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, TypeVar, cast
@@ -24,6 +25,7 @@ from src.services.runtime_paths import research_dna_root as default_research_dna
 TModel = TypeVar("TModel", bound=BaseModel)
 
 PROFILE_FILE = "profile.yaml"
+_RESEARCH_DNA_SAFE_ID_RE = re.compile(r"^[a-z0-9_]+$")
 LOG_FILE_NAMES = {
     "interview": "interview.jsonl",
     "runs": "runs.jsonl",
@@ -38,7 +40,8 @@ class ResearchDNARevisionConflictError(RuntimeError):
 
 def research_dna_dir(dna_id: str, root: Path | None = None) -> Path:
     base = (root or default_research_dna_root()).expanduser().resolve()
-    return base / dna_id
+    safe_dna_id = _normalize_research_dna_id(dna_id, field_name="dna_id")
+    return _confined_child(base, safe_dna_id, field_name="dna_id")
 
 
 def research_dna_profile_path(dna_id: str, root: Path | None = None) -> Path:
@@ -64,7 +67,8 @@ def research_dna_log_path(dna_id: str, log_name: str, root: Path | None = None) 
 
 
 def research_dna_benchmark_manifest_path(dna_id: str, manifest_id: str, root: Path | None = None) -> Path:
-    return research_dna_benchmarks_dir(dna_id, root) / f"{manifest_id}.yaml"
+    safe_manifest_id = _normalize_research_dna_id(manifest_id, field_name="manifest_id")
+    return research_dna_benchmarks_dir(dna_id, root) / f"{safe_manifest_id}.yaml"
 
 
 def load_research_dna(dna_id: str, root: Path | None = None) -> ResearchDNA:
@@ -170,6 +174,22 @@ def sanitize_research_dna_log_payload(payload: dict[str, Any]) -> dict[str, Any]
 def sanitize_research_dna_log_model(model: TModel) -> TModel:
     payload = sanitize_research_dna_log_payload(model.model_dump(mode="json", exclude_none=True))
     return cast(TModel, model.__class__.model_validate(payload))
+
+
+def _normalize_research_dna_id(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _RESEARCH_DNA_SAFE_ID_RE.fullmatch(text):
+        raise ValueError(f"Research DNA {field_name} must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str, *, field_name: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Research DNA {field_name} escapes storage root") from exc
+    return candidate
 
 
 def _sync_query_version_snapshots(dna: ResearchDNA, root: Path | None = None) -> None:

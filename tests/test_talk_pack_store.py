@@ -150,6 +150,16 @@ def test_talk_pack_store_roundtrip_creates_expected_layout(tmp_path) -> None:
     assert list_talk_pack_ids(root) == [pack.talk_pack_id]
 
 
+def test_talk_pack_store_rejects_path_like_ids(tmp_path) -> None:
+    root = tmp_path / "talk_packs"
+
+    with pytest.raises(ValueError, match="talk_pack_id"):
+        talk_pack_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="talk_pack_id"):
+        talk_pack_artifact_path("talkpack_nested/escape", "slide_manifest.json", root)
+
+
 def test_talk_pack_store_overwrites_same_id_without_duplicate_dump(tmp_path) -> None:
     root = tmp_path / "talk_packs"
     original = _sample_pack(title="First title")
@@ -190,6 +200,13 @@ def test_talk_pack_store_rolls_back_bundle_if_text_write_fails(tmp_path, monkeyp
         binary_artifacts=original_binary,
         root=root,
     )
+    pack_dir = talk_pack_json_path(original.talk_pack_id, root).parent
+    note_path = pack_dir / "operator_notes.txt"
+    note_path.write_text("keep operator note\n", encoding="utf-8")
+    exports_note_path = talk_pack_artifact_path(original.talk_pack_id, "exports/README.txt", root)
+    exports_note_path.write_text("keep exports note\n", encoding="utf-8")
+    review_note_path = talk_pack_artifact_path(original.talk_pack_id, "review/README.txt", root)
+    review_note_path.write_text("keep review note\n", encoding="utf-8")
 
     updated = _sample_pack(title="Updated title")
     updated_text, updated_json, updated_binary = _sample_bundle_payloads()
@@ -217,6 +234,10 @@ def test_talk_pack_store_rolls_back_bundle_if_text_write_fails(tmp_path, monkeyp
     loaded_key_numbers = load_talk_pack_artifact_text(updated.talk_pack_id, "key_numbers.md", root)
     assert loaded.title == "First title"
     assert loaded_key_numbers == "# First\n"
+    assert load_talk_pack_artifact_bytes(updated.talk_pack_id, "exports/deck.pptx", root) == b"PPTX placeholder bytes"
+    assert note_path.read_text(encoding="utf-8") == "keep operator note\n"
+    assert exports_note_path.read_text(encoding="utf-8") == "keep exports note\n"
+    assert review_note_path.read_text(encoding="utf-8") == "keep review note\n"
 
 
 def test_talk_pack_store_does_not_leave_partial_new_bundle_if_text_write_fails(tmp_path, monkeypatch) -> None:

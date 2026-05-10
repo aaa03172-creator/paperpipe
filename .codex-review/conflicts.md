@@ -2,7 +2,7 @@
 
 ## Conflict: `/api/*` bridge bypasses protected root-route API-key behavior
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `backend/main.py:570`, `backend/main.py:1249`, `backend/main.py:1252`, `backend/main.py:1305`, `tests/test_api_key_auth.py:1246`
 Type of conflict:
@@ -18,7 +18,7 @@ With `LATTICE_API_KEY` set, assert unauthenticated `GET /api/jobs`, `GET /api/pa
 
 ## Conflict: Image Evidence request IDs conflict with filesystem-root ownership
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `src/schemas/image_evidence.py:240`, `src/schemas/image_evidence.py:257`, `src/image_evidence/service.py:55`, `src/image_evidence/store.py:17`, `src/image_evidence/store.py:169`
 Type of conflict:
@@ -32,9 +32,25 @@ Constrain image evidence IDs with a strict pattern such as `^imageev_[A-Za-z0-9.
 Suggested test:
 POST `/image-evidence/register` with `../escape` and encoded separator variants; assert 422/400 and no filesystem writes outside root.
 
+## Conflict: Artifact/profile/memory/state paths conflicted with filesystem-root ownership
+
+Status: Resolved in working tree
+Files involved:
+`src/chart_packs/store.py:17`, `src/chart_packs/store.py:48`, `src/meeting_packs/store.py:15`, `src/method_comparisons/store.py:15`, `src/paper_syntheses/store.py:15`, `src/protocol_cards/store.py:15`, `src/protocol_cards/store.py:36`, `src/protocol_attachments/store.py:15`, `src/talk_packs/store.py:16`, `src/project_memory/store.py:18`, `src/skills/storage.py:115`, `src/skills/storage.py:318`, `src/skills/storage.py:323`, `src/skills/storage.py:328`, `src/profiles/research_dna_store.py:41`, `src/profiles/research_dna_store.py:69`, `src/exporter.py:233`, `backend/services/job_runner.py:213`, `backend/services/job_runner.py:240`, `src/services/cli_workflows.py:52`, `src/services/cli_workflows.py:161`, `src/obsidian.py:719`, `src/meeting_packs/source_resolver.py:778`
+Type of conflict:
+Schema/path-boundary conflict
+Evidence:
+Artifact/profile/memory helpers build bundle directories and artifact filenames from caller IDs, structured paper-state helpers use note slugs plus frontmatter relative paths under the vault, and export/job/CLI/Obsidian/Meeting Pack source flows resolve persisted, CSV-backed, or user-supplied note paths. The schemas define narrow write contracts, but these paths were previously assembled directly from caller-provided or stored strings. The working tree now validates path segments locally and confines root-level bundle directories, frontmatter paths, stored note paths, and note selectors to the resolved storage root/vault. The validation remains path-safety focused so safe-but-missing API reads keep returning 404 rather than becoming semantic-ID 400s.
+Runtime impact:
+Direct store/helper callers could bypass the intended schema-level contract and construct paths outside or below unexpected subdirectories.
+Suggested fix:
+Keep schema validation and store-level path confinement together for every artifact/profile/memory/state store that accepts caller IDs, stored artifact paths, or persisted vault note paths.
+Suggested test:
+Pass `../escape`, nested path, absolute path IDs, and escaping stored note paths to artifact/profile/export/job helpers; assert `ValueError` or ignored fallback and no out-of-root files. Also assert safe missing IDs still return 404 at the API layer.
+
 ## Conflict: Backend paper synthesis lineage includes `visual_evidence_ledger`, frontend contract does not
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `src/schemas/paper_synthesis.py:17`, `src/schemas/paper_synthesis.py:26`, `src/paper_syntheses/service.py:264`, `frontend/src/app/lib/types.ts:995`, `frontend/src/app/components/ArtifactPanel.tsx:175`, `frontend/src/app/components/ArtifactPanel.tsx:184`
 Type of conflict:
@@ -50,7 +66,7 @@ Seed a synthesis manifest with `visual_evidence_ledger` in `source_refs` and `li
 
 ## Conflict: Downloads watcher unmatched sentinel conflicts with canonical review_queue foreign key
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `src/downloads_watcher.py:20`, `src/downloads_watcher.py:163`, `src/downloads_watcher.py:295`, `src/downloads_watcher.py:300`, `scripts/init_db.py:81`, `src/db_utils.py:233`
 Type of conflict:
@@ -66,7 +82,7 @@ Use `scripts.init_db.init_db()` plus `src.db_utils.init_db()`, run an unmatched 
 
 ## Conflict: Frontend read fallback conflicts with live backend error truth
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `frontend/src/app/lib/config.ts:12`, `frontend/src/app/lib/api.ts:1135`, `frontend/src/app/lib/api.ts:1200`, `frontend/src/app/lib/api.ts:1261`, `frontend/src/app/pages/PaperNotesListPage.tsx:697`
 Type of conflict:
@@ -82,7 +98,7 @@ Mock `/api/paper-notes` to return 401 and assert no mock notes render.
 
 ## Conflict: Cloud table fallback lacks the privacy preflight used by clinical extraction
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `src/agents/ingest_agent.py:230`, `src/ingest/cloud_table_fallback.py:199`, `backend/services/job_runner.py:1243`
 Type of conflict:
@@ -98,7 +114,7 @@ Enable cloud table fallback with blocking privacy preflight and assert no cloud 
 
 ## Conflict: Artifact routes with non-final `{paper_id:path}` conflict with slash-bearing paper IDs
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `backend/main.py:5712`, `backend/main.py:5728`, `src/services/identity.py:95`
 Type of conflict:
@@ -114,7 +130,7 @@ Create a run for a DOI-like paper ID containing `/` and assert the run and file 
 
 ## Conflict: Meeting-pack write fallback conflicts with documented live-backend contract
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `frontend/src/app/lib/api.ts:1225`, `frontend/src/app/lib/api.ts:1240`, `frontend/README.md:48`, `frontend/README.md:60`
 Type of conflict:
@@ -130,7 +146,7 @@ With forced mock disabled and backend unavailable, assert meeting-pack generatio
 
 ## Conflict: Backend import health conflicts with import-time Ollama initialization
 
-Status: Confirmed
+Status: Resolved in working tree
 Files involved:
 `backend/routers/feedback.py:33`, `src/agents/feedback_retriever.py:43`, `src/agents/adapter.py:39`, `src/llm_provider.py:537`, `src/llm_provider.py:2480`
 Type of conflict:

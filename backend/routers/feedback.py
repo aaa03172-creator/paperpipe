@@ -29,8 +29,24 @@ def _sanitize_feedback_case_for_runtime(case: FeedbackCase) -> FeedbackCase:
         return case
     return case.model_copy(update=updates)
 
-# Singleton or instantiated per request
-feedback_retriever = FeedbackRetriever()
+
+class _LazyFeedbackRetriever:
+    def __init__(self):
+        self._instance: FeedbackRetriever | None = None
+
+    def _get(self) -> FeedbackRetriever:
+        if self._instance is None:
+            self._instance = FeedbackRetriever()
+        return self._instance
+
+    def add_feedback(self, case: FeedbackCase) -> bool:
+        return self._get().add_feedback(case)
+
+    def query_relevant_feedback(self, query_text: str, limit: int = 3):
+        return self._get().query_relevant_feedback(query_text, limit=limit)
+
+
+feedback_retriever = _LazyFeedbackRetriever()
 
 @router.post("")
 async def submit_feedback(feedback: FeedbackCase):

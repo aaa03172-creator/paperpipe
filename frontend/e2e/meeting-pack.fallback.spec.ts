@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("meeting pack create falls back for proxy-style backend downtime", async ({ page }) => {
+test("meeting pack create does not mock a write when the backend is unavailable", async ({ page }) => {
   await page.route("**/api/meeting-packs/generate", async (route) => {
     await route.fulfill({
       status: 500,
@@ -18,12 +18,9 @@ test("meeting pack create falls back for proxy-style backend downtime", async ({
   await page.getByLabel("Meeting pack max slides").selectOption("7");
   await page.getByRole("button", { name: "Create draft" }).click();
 
-  await expect(page).toHaveURL(/\/meeting-packs\/meetingpack_/);
-  await expect(
-    page.getByText("Fallback meeting draft created from the entered paper slug.", { exact: false }),
-  ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Fallback continuity draft", exact: true })).toBeVisible();
-  await expect(page.getByText("/meeting-packs/generate -> 500")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/meeting-packs$/);
+  await expect(page.getByText("/meeting-packs/generate -> 500")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fallback continuity draft", exact: true })).toHaveCount(0);
 });
 
 test("meeting pack create surfaces live backend failures with a response body", async ({ page }) => {

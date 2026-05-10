@@ -132,6 +132,47 @@ def test_chart_pack_rejects_duplicate_chart_ids() -> None:
         )
 
 
+def test_chart_pack_request_rejects_path_like_chart_ids() -> None:
+    for chart_id in ["../escape", "nested/chart", "/absolute", "chart 1"]:
+        with pytest.raises(ValidationError):
+            ChartPackRequest(
+                charts=[
+                    {
+                        "chart_id": chart_id,
+                        "template_id": "stats_check_status_counts",
+                        "source_ref": {
+                            "source_kind": "stats_report",
+                            "paper_id": "paper-001",
+                            "run_id": "run-001",
+                        },
+                        "field_mappings": [{"target_field": "status", "source_field": "verdict"}],
+                    }
+                ]
+            )
+
+
+def test_chart_pack_rejects_path_like_chart_definition_ids() -> None:
+    with pytest.raises(ValidationError):
+        ChartPack(
+            chart_pack_id="chartpack_20260320T120000Z_demo",
+            title="Chart pack demo",
+            created_at=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),
+            charts=[
+                {
+                    "chart_id": "../../escape",
+                    "title": "A",
+                    "template_id": "stats_check_status_counts",
+                    "source_ref": {
+                        "source_kind": "stats_report",
+                        "paper_id": "paper-001",
+                        "run_id": "run-001",
+                    },
+                    "field_mappings": [{"target_field": "status", "source_field": "verdict"}],
+                }
+            ],
+        )
+
+
 def test_chart_pack_schema_accepts_render_and_spec_refs() -> None:
     chart_pack = _sample_chart_pack()
 

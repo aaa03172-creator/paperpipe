@@ -11,7 +11,7 @@ from src.ingest.parser_backends import (
     TableExtractionDiagnostics,
     TableExtractionResult,
 )
-from src.schemas.agent_artifacts import Section, TableData
+from src.schemas.agent_artifacts import DocumentArtifact, PaperMetadata, Section, SourceInfo, TableData
 
 
 def _make_pdf(path: Path, text: str | None = None) -> None:
@@ -19,6 +19,133 @@ def _make_pdf(path: Path, text: str | None = None) -> None:
     page = doc.new_page(width=595, height=842)
     if text:
         page.insert_text((72, 100), text)
+    doc.save(path)
+    doc.close()
+
+
+def _make_realistic_born_digital_paper(path: Path) -> None:
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((54, 54), "Synthetic Trial of Memory Biomarkers", fontsize=15)
+    page.insert_text((54, 76), "A. Reviewer, B. Parser, C. Clinician", fontsize=9)
+    page.insert_text((54, 94), "Journal of Synthetic Biomedical Methods, 2026", fontsize=9)
+    page.insert_textbox(
+        fitz.Rect(54, 126, 285, 735),
+        (
+            "Abstract\n"
+            "Background: Academic papers often use two-column layouts, references, and compact tables.\n"
+            "Objective: We test whether PaperPipe keeps section text and evidence-bearing terms.\n"
+            "Methods: We generated a license-safe fixture with biomarker, cohort, and outcome language.\n"
+            "Results: The intervention arm improved delayed recall by 2.4 points and reduced tau signal.\n"
+            "Conclusion: Synthetic fixtures can catch parser regressions without external paper reuse.\n"
+            "\n"
+            "Introduction\n"
+            "Biomedical readers need stable extraction from dense PDF pages. Multi-column papers can scramble "
+            "heading order, lose abstracts, or merge unrelated paragraphs when coordinates are ignored.\n"
+            "\n"
+            "Methods\n"
+            "Participants were assigned to biomarker-guided review or usual reading. Outcomes included delayed "
+            "recall, amyloid status, tau status, and adverse-event review by an independent adjudicator.\n"
+        ),
+        fontsize=8,
+        lineheight=1.15,
+    )
+    page.insert_textbox(
+        fitz.Rect(310, 126, 541, 735),
+        (
+            "Results\n"
+            "The biomarker-guided group retained more source-grounded claims and fewer unsupported summaries. "
+            "Table 1 reports representative values from the synthetic cohort.\n"
+            "\n"
+            "Discussion\n"
+            "The fixture intentionally includes compact paragraphs, academic section headings, and terminology "
+            "that downstream extraction should preserve for traceability checks. Limitations include synthetic "
+            "language and no real participant data.\n"
+        ),
+        fontsize=8,
+        lineheight=1.15,
+    )
+
+    table_page = doc.new_page(width=595, height=842)
+    table_page.insert_text((54, 54), "Table 1. Synthetic biomarker outcomes", fontsize=11)
+    x0, y0 = 54, 86
+    col_widths = [120, 90, 90, 110]
+    row_height = 26
+    rows = [
+        ["Biomarker", "Baseline", "Week 12", "Interpretation"],
+        ["Delayed recall", "18.1", "20.5", "Improved"],
+        ["Amyloid PET", "Positive", "Positive", "Stable"],
+        ["Plasma tau", "8.4", "6.9", "Reduced"],
+    ]
+    x_positions = [x0]
+    for width in col_widths:
+        x_positions.append(x_positions[-1] + width)
+    for row_idx in range(len(rows) + 1):
+        y = y0 + row_idx * row_height
+        table_page.draw_line((x0, y), (x_positions[-1], y), width=0.8)
+    for x in x_positions:
+        table_page.draw_line((x, y0), (x, y0 + len(rows) * row_height), width=0.8)
+    for row_idx, row in enumerate(rows):
+        y = y0 + row_idx * row_height + 17
+        for col_idx, value in enumerate(row):
+            table_page.insert_text((x_positions[col_idx] + 4, y), value, fontsize=8)
+
+    table_page.insert_textbox(
+        fitz.Rect(54, 230, 541, 520),
+        (
+            "References\n"
+            "1. Smith A, Jones B. Synthetic evidence fixtures for document parsing. J Test Methods. 2024.\n"
+            "2. Nguyen C. Table extraction reliability in biomedical PDFs. Parser Eval Reports. 2025.\n"
+            "3. Rivera D. Traceability from PDF source to structured state. Lattice Methods. 2026.\n"
+        ),
+        fontsize=8,
+        lineheight=1.15,
+    )
+    doc.set_metadata(
+        {
+            "title": "Synthetic Trial of Memory Biomarkers",
+            "author": "A. Reviewer; B. Parser; C. Clinician",
+            "subject": "Journal of Synthetic Biomedical Methods",
+        }
+    )
+    doc.save(path)
+    doc.close()
+
+
+def _make_large_synthetic_paper(path: Path, *, page_count: int = 24) -> None:
+    doc = fitz.open()
+    section_cycle = ["Abstract", "Introduction", "Methods", "Results", "Discussion", "References"]
+    for page_idx in range(page_count):
+        page_no = page_idx + 1
+        page = doc.new_page(width=595, height=842)
+        heading = section_cycle[page_idx % len(section_cycle)]
+        page.insert_text((54, 48), f"Large Synthetic Paper Page {page_no}", fontsize=12)
+        page.insert_text((54, 66), heading, fontsize=10)
+        left_text = (
+            f"{heading}\n"
+            f"Page sentinel PSP-{page_no:03d} appears in the left column. "
+            "This synthetic academic page repeats enough biomedical-style prose to exercise extraction "
+            "without relying on copyrighted paper content. Cohort participants, biomarker measurements, "
+            "delayed recall scores, tau signal, and source-grounded claims are intentionally preserved. "
+            "The parser should keep this text attached to the correct page and not silently truncate it.\n"
+        ) * 3
+        right_text = (
+            f"Continuation\n"
+            f"Right-column sentinel RSP-{page_no:03d} appears after the left column. "
+            "Tables, figures, citations, and appendices are not required on every page, but long papers "
+            "must keep page order, block identifiers, and source references stable across many pages. "
+            "The fixture is intentionally repetitive so missing pages are easy to detect.\n"
+        ) * 3
+        page.insert_textbox(fitz.Rect(54, 92, 285, 760), left_text, fontsize=8, lineheight=1.15)
+        page.insert_textbox(fitz.Rect(310, 92, 541, 760), right_text, fontsize=8, lineheight=1.15)
+        page.insert_text((270, 805), str(page_no), fontsize=8)
+    doc.set_metadata(
+        {
+            "title": "Large Synthetic Paper for Parser Regression",
+            "author": "PaperPipe Fixture Generator",
+            "subject": "Large PDF parser regression",
+        }
+    )
     doc.save(path)
     doc.close()
 
@@ -47,6 +174,88 @@ def test_ingest_docling_placeholder_backend_runs(tmp_path: Path) -> None:
     assert ingest.last_table_extraction_meta["parser_backend"] == "docling"
 
 
+def test_ingest_docling_unavailable_reports_effective_fitz_backend(tmp_path: Path, monkeypatch) -> None:
+    pdf = tmp_path / "docling_unavailable.pdf"
+    _make_pdf(pdf, text="docling unavailable fallback test")
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: None)
+
+    ingest = IngestAgent(parser_backend="docling")
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is not None
+    assert ingest.last_table_extraction_meta["requested_parser_backend"] == "docling"
+    assert ingest.last_table_extraction_meta["parser_backend"] == "fitz_pdfplumber"
+    assert ingest.last_table_extraction_meta["parser_backend_fallback_used"] is True
+
+
+def test_ingest_records_empty_pdf_failure_code(tmp_path: Path) -> None:
+    pdf = tmp_path / "empty.pdf"
+    pdf.write_bytes(b"")
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_EMPTY"
+    assert "empty" in ingest.last_table_extraction_meta["parser_failure_reason"].lower()
+
+
+def test_ingest_records_invalid_pdf_header_failure_code(tmp_path: Path) -> None:
+    pdf = tmp_path / "not_pdf.pdf"
+    pdf.write_bytes(b"not a pdf")
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_INVALID_HEADER"
+
+
+def test_ingest_records_corrupted_pdf_failure_code(tmp_path: Path) -> None:
+    pdf = tmp_path / "corrupted.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nnot a valid xref table\n%%EOF\n")
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_CORRUPTED"
+
+
+def test_ingest_records_encrypted_pdf_failure_code(tmp_path: Path) -> None:
+    pdf = tmp_path / "encrypted.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((72, 100), "encrypted content")
+    doc.save(
+        pdf,
+        encryption=fitz.PDF_ENCRYPT_AES_256,
+        owner_pw="owner-password",
+        user_pw="user-password",
+        permissions=0,
+    )
+    doc.close()
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_ENCRYPTED"
+
+
+def test_ingest_records_textless_pdf_failure_code_without_failing_artifact(tmp_path: Path) -> None:
+    pdf = tmp_path / "textless.pdf"
+    _make_pdf(pdf, text=None)
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is not None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_TEXTLESS"
+    assert "no text" in ingest.last_table_extraction_meta["parser_failure_reason"].lower()
+
+
 def test_ingest_extracts_doi_from_page_text(tmp_path: Path) -> None:
     pdf = tmp_path / "doi_text.pdf"
     _make_pdf(pdf, text="Methods and results. DOI: 10.1234/AbC.2024-01.")
@@ -57,6 +266,153 @@ def test_ingest_extracts_doi_from_page_text(tmp_path: Path) -> None:
     assert artifact is not None
     assert artifact.metadata.doi == "10.1234/AbC.2024-01"
     assert artifact.doc_id == "doi:10.1234/AbC.2024-01"
+
+
+def test_fitz_backend_splits_obvious_academic_section_headings(tmp_path: Path) -> None:
+    pdf = tmp_path / "semantic_sections.pdf"
+    _make_pdf(
+        pdf,
+        text=(
+            "Semantic Section Paper\n"
+            "Abstract\n"
+            "This study introduces a parser contract.\n"
+            "1 Introduction\n"
+            "Prior work needs traceable sections.\n"
+            "Materials and Methods\n"
+            "We parse explicit headings conservatively.\n"
+            "Results\n"
+            "Semantic sections are emitted.\n"
+            "Discussion\n"
+            "The fallback remains page based when headings are absent.\n"
+        ),
+    )
+
+    backend = FitzPdfPlumberBackend()
+    _meta, sections, text_len = backend.extract_text_and_meta(pdf)
+
+    names = [section.name for section in sections]
+    assert names == ["page_1_preamble", "abstract", "introduction", "methods", "results", "discussion"]
+    assert "This study introduces" in sections[1].text
+    assert "We parse explicit headings" in sections[3].text
+    assert all(section.page_start == 1 and section.page_end == 1 for section in sections)
+    assert sections[1].char_start < sections[2].char_start < sections[3].char_start
+    assert text_len > 0
+
+
+def test_fitz_backend_preserves_page_section_when_no_heading_is_detected(tmp_path: Path) -> None:
+    pdf = tmp_path / "page_fallback.pdf"
+    _make_pdf(pdf, text="This paragraph discusses results without making Results a standalone heading.")
+
+    backend = FitzPdfPlumberBackend()
+    _meta, sections, _text_len = backend.extract_text_and_meta(pdf)
+
+    assert [section.name for section in sections] == ["page_1"]
+    assert "standalone heading" in sections[0].text
+
+
+def test_realistic_born_digital_paper_preserves_sections_table_and_references(tmp_path: Path) -> None:
+    pdf = tmp_path / "realistic_born_digital.pdf"
+    _make_realistic_born_digital_paper(pdf)
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is not None
+    assert artifact.metadata.title == "Synthetic Trial of Memory Biomarkers"
+    text = "\n".join(section.text for section in artifact.sections)
+    normalized_text = " ".join(text.replace("-\n", "-").split())
+    section_names = {section.name for section in artifact.sections}
+    assert {"abstract", "introduction", "methods", "results", "discussion", "references"} <= section_names
+    assert "delayed recall by 2.4 points" in normalized_text
+    assert "Traceability from PDF source to structured state" in normalized_text
+    assert len(text) > 900
+
+    table_cells = {
+        str(cell).strip()
+        for table in artifact.tables
+        for row in table.data
+        for cell in row
+    }
+    assert {"Biomarker", "Delayed recall", "Week 12", "Plasma tau"} <= table_cells
+    assert any(table.source_page == 2 for table in artifact.tables)
+    assert ingest.last_table_extraction_meta["parser_failure_code"] is None
+
+
+def test_realistic_scanned_paper_ocr_fixture_preserves_recovered_academic_text(tmp_path: Path, monkeypatch) -> None:
+    scanned_pdf = tmp_path / "scanned_source.pdf"
+    ocr_pdf = tmp_path / "scanned_source.ocr.pdf"
+    _make_pdf(scanned_pdf, text=None)
+    _make_realistic_born_digital_paper(ocr_pdf)
+
+    ingest = IngestAgent(enable_ocr_fallback=True, ocr_min_text_chars=20)
+    monkeypatch.setattr("src.agents.ingest_agent.detect_need_ocr", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        "src.agents.ingest_agent.run_ocr",
+        lambda *_args, **_kwargs: {
+            "ocr_applied": True,
+            "ocr_engine": "ocrmypdf",
+            "ocr_version": "test-version",
+            "ocr_lang": "eng",
+            "ocr_output_path": str(ocr_pdf),
+            "error": None,
+        },
+    )
+
+    artifact = ingest.process(str(scanned_pdf))
+
+    assert artifact is not None
+    text = "\n".join(section.text for section in artifact.sections)
+    normalized_text = " ".join(text.replace("-\n", "-").split())
+    assert "Synthetic Trial of Memory Biomarkers" in normalized_text
+    assert "biomarker-guided group retained more source-grounded claims" in normalized_text
+    assert artifact.metadata.ocr_applied is True
+    assert artifact.metadata.ocr_output_path == str(ocr_pdf)
+    assert ingest.last_table_extraction_meta["parser_failure_code"] is None
+
+
+def test_realistic_malformed_paper_fixture_keeps_structured_failure_code(tmp_path: Path) -> None:
+    pdf = tmp_path / "malformed_realistic_header.pdf"
+    pdf.write_bytes(b"%PDF-1.4\nnot a valid xref table\n%%EOF\n")
+
+    ingest = IngestAgent()
+    artifact = ingest.process(str(pdf))
+
+    assert artifact is None
+    assert ingest.last_table_extraction_meta["parser_failure_code"] == "PDF_CORRUPTED"
+
+
+def test_large_synthetic_paper_preserves_all_pages_and_v2_source_refs(tmp_path: Path) -> None:
+    pdf = tmp_path / "large_synthetic_paper.pdf"
+    _make_large_synthetic_paper(pdf, page_count=24)
+
+    ingest = IngestAgent()
+    artifact = ingest.process_v2(str(pdf))
+
+    assert artifact is not None
+    assert artifact.meta.title == "Large Synthetic Paper for Parser Regression"
+    assert len(artifact.pages) == 24
+    assert ingest.last_table_extraction_meta["parser_failure_code"] is None
+
+    page_texts = []
+    span_source_refs = []
+    for page in artifact.pages:
+        text = "\n".join(line.text for block in page.blocks for line in block.lines)
+        page_texts.append(text)
+        span_source_refs.extend(
+            str(span.source_ref)
+            for block in page.blocks
+            for line in block.lines
+            for span in line.spans
+            if span.source_ref
+        )
+
+    assert "PSP-001" in page_texts[0]
+    assert "RSP-001" in page_texts[0]
+    assert "PSP-024" in page_texts[-1]
+    assert "RSP-024" in page_texts[-1]
+    assert all(f"PSP-{page_no:03d}" in page_texts[page_no - 1] for page_no in range(1, 25))
+    assert all(any(f"#page={page_idx}" in source_ref for source_ref in span_source_refs) for page_idx in range(24))
+    assert sum(len(page.blocks) for page in artifact.pages) >= 48
 
 
 def test_ingest_derives_arxiv_doi_from_filename(tmp_path: Path) -> None:
@@ -140,6 +496,41 @@ def test_docling_backend_uses_conversion_when_available(monkeypatch) -> None:
     assert table_result.tables[0].data[0] == ["ColA", "ColB"]
 
 
+def test_docling_markdown_table_fallback_marks_page_unknown(monkeypatch) -> None:
+    class FakeConversionDocument:
+        tables = []
+
+        def export_to_markdown(self):
+            return (
+                "| ColA | ColB |\n"
+                "| --- | --- |\n"
+                "| 1 | 2 |\n"
+            )
+
+    class FakeConversion:
+        document = FakeConversionDocument()
+
+    class FakeConverter:
+        def convert(self, _path: str):
+            return FakeConversion()
+
+    monkeypatch.setattr(DoclingParserBackend, "_initialize_converter", lambda self: FakeConverter())
+    monkeypatch.setattr(
+        FitzPdfPlumberBackend,
+        "extract_tables",
+        lambda self, _path: TableExtractionResult(
+            tables=[],
+            diagnostics=TableExtractionDiagnostics(table_failure_taxonomy=["NO_TABLE_FOUND"]),
+        ),
+    )
+
+    backend = DoclingParserBackend()
+    table_result = backend.extract_tables(Path("/tmp/unused.pdf"))
+
+    assert len(table_result.tables) == 1
+    assert table_result.tables[0].source_page == -1
+
+
 def test_docling_backend_prefers_structured_tables_when_available(monkeypatch) -> None:
     class FakeRow:
         def __init__(self, values):
@@ -188,8 +579,46 @@ def test_docling_backend_prefers_structured_tables_when_available(monkeypatch) -
     assert len(table_result.tables) == 1
     assert table_result.tables[0].caption == "Structured caption"
     assert table_result.tables[0].source_page == 7
+    assert table_result.tables[0].source_ref == "/tmp/unused.pdf#page=6"
+    assert table_result.tables[0].extraction_method == "docling.structured_table"
+    assert table_result.tables[0].confidence == 0.75
+    assert "Docling provenance" in str(table_result.tables[0].provenance_note)
     assert table_result.tables[0].data[0] == ["", "ColA", "ColB"]
     assert table_result.tables[0].data[1] == ["Row1", "1", "2"]
+
+
+def test_build_v2_preserves_table_provenance_fields(tmp_path: Path) -> None:
+    pdf = tmp_path / "table_provenance.pdf"
+    _make_pdf(pdf, text="paper text")
+    legacy = DocumentArtifact(
+        doc_id="file:table_provenance",
+        source=SourceInfo(type="pdf", ref=str(pdf)),
+        metadata=PaperMetadata(title="Table Provenance", authors=[], year=2026),
+        sections=[
+            Section(name="page_1", text="paper text", char_start=0, char_end=10, page_start=1, page_end=1),
+        ],
+        tables=[
+            TableData(
+                table_id="T1",
+                caption="Table found on page 1",
+                data=[["A", "B"], ["1", "2"]],
+                source_page=1,
+                source_ref=f"{pdf}#page=0",
+                extraction_method="pdfplumber.extract_tables",
+                confidence=0.6,
+                provenance_note="Table reconstructed from pdfplumber cell text; cell/page bbox provenance is unavailable.",
+            )
+        ],
+    )
+
+    artifact_v2 = FitzPdfPlumberBackend().build_v2_from_pdf(pdf, legacy)
+
+    assert len(artifact_v2.tables) == 1
+    table = artifact_v2.tables[0]
+    assert table.source_ref == f"{pdf}#page=0"
+    assert table.extraction_method == "pdfplumber.extract_tables"
+    assert table.confidence == 0.6
+    assert "bbox provenance is unavailable" in str(table.provenance_note)
 
 
 def test_docling_backend_builds_page_sections_from_dict_pages(monkeypatch) -> None:

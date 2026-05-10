@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
+import re
 from pathlib import Path
 
 from src.schemas.method_comparison import MethodComparison
+from src.services.artifact_transactions import (
+    atomic_write_text,
+    optional_text,
+    remove_empty_dir,
+    restore_optional_text,
+)
 from src.services.runtime_paths import method_comparisons_root as default_method_comparisons_root
+
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 
 
 def method_comparison_dir(comparison_id: str, root: Path | None = None) -> Path:
     base = (root or default_method_comparisons_root()).expanduser().resolve()
-    return base / comparison_id
+    safe_comparison_id = _normalize_comparison_id(comparison_id)
+    return _confined_child(base, safe_comparison_id)
 
 
 def method_comparison_json_path(comparison_id: str, root: Path | None = None) -> Path:
@@ -106,38 +114,32 @@ def list_method_comparison_ids(root: Path | None = None) -> list[str]:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    temp_path = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.stem}.",
-            suffix=f"{path.suffix}.tmp",
-            dir=str(path.parent),
-        )
-        os.close(fd)
-        temp_path = Path(temp_name)
-        temp_path.write_text(content, encoding="utf-8")
-        os.replace(temp_path, path)
-    except Exception as exc:
-        if temp_path and temp_path.exists():
-            os.remove(temp_path)
-        raise IOError(f"Failed to write Method Comparison file to {path}: {exc}") from exc
+    atomic_write_text(path, content, error_context="Method Comparison file")
 
 
 def _optional_text(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    return path.read_text(encoding="utf-8")
+    return optional_text(path)
 
 
 def _restore_optional_text(path: Path, content: str | None) -> None:
-    if content is None:
-        if path.exists():
-            os.remove(path)
-        return
-    _atomic_write_text(path, content)
+    restore_optional_text(path, content, writer=_atomic_write_text)
 
 
 def _remove_empty_dir(path: Path) -> None:
-    if path.exists() and path.is_dir() and not any(path.iterdir()):
-        path.rmdir()
+    remove_empty_dir(path)
+
+
+def _normalize_comparison_id(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_SEGMENT_RE.fullmatch(text):
+        raise ValueError("Method Comparison comparison_id must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Method Comparison comparison_id escapes storage root") from exc
+    return candidate

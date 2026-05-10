@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import src.db_utils as db_utils
@@ -276,6 +277,73 @@ def test_downloads_watcher_unmatched_with_empty_queue_creates_review_entry(tmp_p
         db_utils.DB_PATH = original_db_path
 
 
+def test_downloads_watcher_unmatched_with_canonical_fk_schema_creates_review_entry(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = db_utils.get_db_connection()
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                doi TEXT,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'NEW',
+                pdf_status TEXT,
+                summary TEXT,
+                source TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE review_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_id TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                reason TEXT,
+                owner TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                resolution TEXT,
+                FOREIGN KEY(paper_id) REFERENCES papers(paper_id)
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        downloads_dir = tmp_path / "Downloads"
+        storage_dir = tmp_path / "storage" / "pdfs"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        source_pdf = downloads_dir / "unknown-download.pdf"
+        source_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        result = process_downloaded_pdf(source_pdf, downloads_watch_dir=downloads_dir, pdf_storage_dir=storage_dir)
+        assert result.status == "unmatched"
+
+        conn = db_utils.get_db_connection()
+        paper = conn.execute(
+            "SELECT paper_id, title, status FROM papers WHERE paper_id = ?",
+            (downloads_watcher.UNMATCHED_SENTINEL_PAPER_ID,),
+        ).fetchone()
+        queued = conn.execute(
+            "SELECT paper_id, decision, reason FROM review_queue ORDER BY id"
+        ).fetchall()
+        conn.close()
+
+        assert paper is not None
+        assert paper["title"] == "Unmatched downloaded PDFs"
+        assert paper["status"] == "PENDING_REVIEW"
+        assert len(queued) == 1
+        assert queued[0]["paper_id"] == downloads_watcher.UNMATCHED_SENTINEL_PAPER_ID
+        assert queued[0]["decision"] == "NEEDS_PDF_MATCH"
+        assert "manual_required queue empty" in queued[0]["reason"]
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_downloads_watcher_does_not_duplicate_unmatched_sentinel_open_rows(tmp_path):
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"
@@ -398,3 +466,23 @@ def test_downloads_handler_ignores_temporary_download_suffix(monkeypatch, tmp_pa
 
     handler.on_created(SimpleNamespace(is_directory=False, src_path=str(temp_pdf)))
     assert temp_pdf.exists()
+
+
+def test_downloads_handler_processes_pdf_after_temp_file_move(monkeypatch, tmp_path):
+    temp_pdf = tmp_path / "paper.pdf.part"
+    final_pdf = tmp_path / "paper.pdf"
+    temp_pdf.write_bytes(b"%PDF-1.4\n")
+    temp_pdf.rename(final_pdf)
+    handler = downloads_watcher.DownloadsFileHandler(pdf_storage_dir=tmp_path / "pdfs")
+
+    processed: list[Path] = []
+    monkeypatch.setattr(downloads_watcher, "_wait_for_stable_file", lambda path: path == final_pdf)
+
+    def fake_process(path, **_kwargs):
+        processed.append(path)
+        return SimpleNamespace(status="matched", destination=tmp_path / "pdfs" / path.name)
+
+    monkeypatch.setattr(downloads_watcher, "process_downloaded_pdf", fake_process)
+
+    handler.on_moved(SimpleNamespace(is_directory=False, src_path=str(temp_pdf), dest_path=str(final_pdf)))
+    assert processed == [final_pdf]

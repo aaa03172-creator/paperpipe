@@ -317,12 +317,12 @@ def test_protocol_cards_api_missing_bundle_returns_404(tmp_path, monkeypatch) ->
 
     client = TestClient(api_main.app)
 
-    assert client.get("/protocol-cards/missing").status_code == 404
-    assert client.get("/protocol-cards/missing/markdown").status_code == 404
-    assert client.get("/protocol-cards/missing/versions").status_code == 404
-    assert client.get("/protocol-cards/missing/versions/protver_missing_v1").status_code == 404
+    assert client.get("/protocol-cards/protocol_missing").status_code == 404
+    assert client.get("/protocol-cards/protocol_missing/markdown").status_code == 404
+    assert client.get("/protocol-cards/protocol_missing/versions").status_code == 404
+    assert client.get("/protocol-cards/protocol_missing/versions/protver_missing_v1").status_code == 404
     assert client.post(
-        "/protocol-cards/missing/outcome",
+        "/protocol-cards/protocol_missing/outcome",
         json={
             "paper_id": "paper-001",
             "decision": "abandoned",
@@ -332,7 +332,7 @@ def test_protocol_cards_api_missing_bundle_returns_404(tmp_path, monkeypatch) ->
         },
     ).status_code == 404
     assert client.post(
-        "/protocol-cards/missing/review",
+        "/protocol-cards/protocol_missing/review",
         json={
             "paper_id": "paper-001",
             "decision": "reject",
@@ -341,6 +341,57 @@ def test_protocol_cards_api_missing_bundle_returns_404(tmp_path, monkeypatch) ->
             "note": "Missing bundle.",
         },
     ).status_code == 404
+
+
+def test_protocol_cards_api_does_not_resolve_encoded_traversal_ids_outside_root(tmp_path, monkeypatch) -> None:
+    protocol_root = tmp_path / "protocol_cards"
+    outside = tmp_path / "outside"
+    outside.mkdir(parents=True)
+    (outside / "protocol_card.json").write_text('{"sentinel":"do-not-read"}', encoding="utf-8")
+    (outside / "protocol_card.md").write_text("SENTINEL-MARKDOWN", encoding="utf-8")
+    (outside / "versions").mkdir()
+    (outside / "versions" / "protver_escape_v1.json").write_text(
+        '{"sentinel":"version-do-not-read"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("PAPERPIPE_PROTOCOL_CARDS_DIR", str(protocol_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    client = TestClient(api_main.app)
+    responses = [
+        client.get("/protocol-cards/..%2Foutside"),
+        client.get("/protocol-cards/..%2Foutside/markdown"),
+        client.get("/protocol-cards/..%2Foutside/versions"),
+        client.get("/protocol-cards/..%2Foutside/versions/protver_escape_v1"),
+        client.get("/protocol-cards/protocol_safe/versions/..%2Fprotver_escape_v1"),
+        client.post(
+            "/protocol-cards/..%2Foutside/outcome",
+            json={
+                "paper_id": "paper-001",
+                "decision": "abandoned",
+                "downstream_use": "not_used",
+                "actor_id": "reviewer_001",
+                "note": "Traversal probe.",
+            },
+        ),
+        client.post(
+            "/protocol-cards/..%2Foutside/review",
+            json={
+                "paper_id": "paper-001",
+                "decision": "reject",
+                "reason_code": "traversal_probe",
+                "actor_id": "reviewer_001",
+                "note": "Traversal probe.",
+            },
+        ),
+    ]
+
+    assert all(response.status_code in {400, 404} for response in responses)
+    combined = "\n".join(response.text for response in responses)
+    assert "SENTINEL" not in combined
+    assert "do-not-read" not in combined
 
 
 def test_protocol_cards_api_draft_from_note_returns_404_for_missing_note(tmp_path, monkeypatch) -> None:

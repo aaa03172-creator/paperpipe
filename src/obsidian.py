@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 import logging
 
 from src.schemas import BiomedicalClinicalExtraction, SpecialtyTrialExtraction, PaperStatus
-from src.skills.storage import atomic_write_text
+from src.skills.storage import atomic_write_text, resolve_vault_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +716,7 @@ def set_reading_status(paper_id_or_doi: str, new_status: str, config) -> str:
                         target_doi = doi
                         note_rel = row.get('Note_Path')
                         if note_rel:
-                            target_note_path = vault_path / note_rel
+                            target_note_path = resolve_vault_relative_path(vault_path, note_rel)
                         found_in_this_file = True
                         
                     updated_rows.append(row)

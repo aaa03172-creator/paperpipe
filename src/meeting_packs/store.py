@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
+import re
 from pathlib import Path
 
 from src.schemas.meeting_pack import MeetingPack
+from src.services.artifact_transactions import (
+    atomic_write_text,
+    optional_text,
+    remove_empty_dir,
+    restore_optional_text,
+)
 from src.services.runtime_paths import meeting_packs_root as default_meeting_packs_root
+
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+_ARTIFACT_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}\.[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 
 
 def meeting_pack_dir(pack_id: str, root: Path | None = None) -> Path:
     base = (root or default_meeting_packs_root()).expanduser().resolve()
-    return base / pack_id
+    safe_pack_id = _normalize_safe_segment(pack_id, pattern=_SAFE_SEGMENT_RE, field_name="pack_id")
+    return _confined_child(base, safe_pack_id, field_name="pack_id")
 
 
 def meeting_pack_json_path(pack_id: str, root: Path | None = None) -> Path:
@@ -23,7 +32,8 @@ def meeting_pack_markdown_path(pack_id: str, root: Path | None = None) -> Path:
 
 
 def meeting_pack_artifact_path(pack_id: str, filename: str, root: Path | None = None) -> Path:
-    return meeting_pack_dir(pack_id, root) / filename
+    safe_filename = _normalize_safe_segment(filename, pattern=_ARTIFACT_FILENAME_RE, field_name="filename")
+    return meeting_pack_dir(pack_id, root) / safe_filename
 
 
 def save_meeting_pack(pack: MeetingPack, root: Path | None = None) -> Path:
@@ -94,38 +104,32 @@ def list_meeting_pack_ids(root: Path | None = None) -> list[str]:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    temp_path = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.stem}.",
-            suffix=f"{path.suffix}.tmp",
-            dir=str(path.parent),
-        )
-        os.close(fd)
-        temp_path = Path(temp_name)
-        temp_path.write_text(content, encoding="utf-8")
-        os.replace(temp_path, path)
-    except Exception as exc:
-        if temp_path and temp_path.exists():
-            os.remove(temp_path)
-        raise IOError(f"Failed to write Meeting Pack file to {path}: {exc}") from exc
+    atomic_write_text(path, content, error_context="Meeting Pack file")
 
 
 def _optional_text(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    return path.read_text(encoding="utf-8")
+    return optional_text(path)
 
 
 def _restore_optional_text(path: Path, content: str | None) -> None:
-    if content is None:
-        if path.exists():
-            os.remove(path)
-        return
-    _atomic_write_text(path, content)
+    restore_optional_text(path, content, writer=_atomic_write_text)
 
 
 def _remove_empty_dir(path: Path) -> None:
-    if path.exists() and path.is_dir() and not any(path.iterdir()):
-        path.rmdir()
+    remove_empty_dir(path)
+
+
+def _normalize_safe_segment(value: str, *, pattern: re.Pattern[str], field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not pattern.fullmatch(text):
+        raise ValueError(f"Meeting Pack {field_name} must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str, *, field_name: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Meeting Pack {field_name} escapes storage root") from exc
+    return candidate

@@ -86,6 +86,7 @@ from src.skills.storage import (
     atomic_write_text,
     resolve_note_path,
     resolve_note_slug_by_paper_id,
+    resolve_vault_relative_path,
     split_frontmatter,
 )
 
@@ -152,6 +153,50 @@ def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
     return None
 
 
+def _mark_paper_deepread_indexed(paper_id: str) -> bool:
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(papers)").fetchall()}
+        if "paper_id" not in columns or "status" not in columns:
+            return False
+
+        assignments = ["status = ?"]
+        params: list[Any] = ["INDEXED"]
+        now = datetime.now(timezone.utc).isoformat()
+        if "processed_at" in columns:
+            assignments.append("processed_at = ?")
+            params.append(now)
+        if "updated_at" in columns:
+            assignments.append("updated_at = ?")
+            params.append(now)
+        params.append(paper_id)
+
+        cursor = conn.execute(
+            f"""
+            UPDATE papers
+            SET {', '.join(assignments)}
+            WHERE paper_id = ?
+              AND (status IS NULL OR status IN ('NEW', 'FETCHED', 'PDF_DOWNLOADED', 'APPROVED'))
+            """,
+            tuple(params),
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0) > 0
+    except Exception as exc:
+        logger.warning("Failed to mark paper %s as INDEXED after Deep Read: %s", paper_id, exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def _resolve_pdf_path_from_note_frontmatter(paper_id: str) -> Optional[Path]:
     try:
         vault_path = paper_notes._resolve_vault_path()
@@ -209,8 +254,8 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
                     if row.get("Paper_ID") == paper_id or row.get("DOI") == paper_id:
                         note_rel = row.get("Note_Path")
                         if note_rel:
-                            note_path = vault_path / note_rel
-                            if note_path.exists():
+                            note_path = resolve_vault_relative_path(vault_path, note_rel)
+                            if note_path is not None and note_path.exists():
                                 return note_path
         except Exception:
             continue
@@ -236,7 +281,9 @@ def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
             raw = str(row["obsidian_path"] or "").strip()
             if not raw:
                 continue
-            note_path = vault_path / raw
+            note_path = resolve_vault_relative_path(vault_path, raw)
+            if note_path is None:
+                continue
             if note_path.exists():
                 return note_path
     except Exception as exc:
@@ -1149,6 +1196,7 @@ async def run_deepread_job(
             "config_snapshot": _snapshot_copy(config_file_path(), snapshots_dir / "config.yaml"),
             "prompts_snapshot": _snapshot_copy(profiles_config_path(), snapshots_dir / "profiles.yaml"),
             "models_used": {"reader": None, "verifier": None},
+            "requested_parser_backend": None,
             "parser_backend": None,
             "llm_params": _collect_llm_params(config),
             "embed_params": _collect_embed_params(config),
@@ -1202,7 +1250,10 @@ async def run_deepread_job(
             "claimset_ops_action": "none",
             "claimset_ops_alert": False,
             "claimset_ops_note": "not_evaluated",
+            "requested_parser_backend": None,
             "parser_backend": None,
+            "parser_failure_code": None,
+            "parser_failure_reason": None,
             "table_extraction_pass": "pass1",
             "table_failure_taxonomy": [],
             "fallback_used": False,
@@ -1226,14 +1277,17 @@ async def run_deepread_job(
             return _job_result("cancelled")
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
+        requested_parser_backend = str(parser_backend or "").strip().lower() or None
         parser_backend = _resolve_ingest_parser_backend(config, override_backend=parser_backend)
         ingest_runtime_options = _resolve_ingest_runtime_options(config)
+        bootstrap_meta["requested_parser_backend"] = requested_parser_backend or parser_backend
         bootstrap_meta["parser_backend"] = parser_backend
         bootstrap_meta["table_pass2_enabled"] = bool(ingest_runtime_options.get("enable_table_pass2_ocr", False))
         bootstrap_meta["table_pass3_enabled"] = bool(ingest_runtime_options.get("enable_cloud_table_fallback", False))
         bootstrap_meta["table_page_budget"] = int(ingest_runtime_options.get("cloud_table_page_budget", 0))
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         if run_meta is not None:
+            run_meta["requested_parser_backend"] = requested_parser_backend or parser_backend
             run_meta["parser_backend"] = parser_backend
             run_meta["ingest_options"] = _ingest_runtime_options_for_run_meta(ingest_runtime_options)
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1256,9 +1310,28 @@ async def run_deepread_job(
         doc_artifact = ingest_agent.process_v2(str(pdf_path))
         
         if not doc_artifact:
-             raise Exception("Ingestion failed to produce artifact")
+            ingest_meta = getattr(ingest_agent, "last_table_extraction_meta", {}) or {}
+            parser_failure_code = str(ingest_meta.get("parser_failure_code") or "").strip() or None
+            parser_failure_reason = str(ingest_meta.get("parser_failure_reason") or "").strip() or None
+            bootstrap_meta["parser_failure_code"] = parser_failure_code
+            bootstrap_meta["parser_failure_reason"] = parser_failure_reason
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+            if run_meta is not None:
+                run_meta["parser_failure_code"] = parser_failure_code
+                run_meta["parser_failure_reason"] = parser_failure_reason
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
+            suffix = f": {parser_failure_code}" if parser_failure_code else ""
+            raise Exception(f"Ingestion failed to produce artifact{suffix}")
 
         ingest_meta = getattr(ingest_agent, "last_table_extraction_meta", {}) or {}
+        effective_parser_backend = str(ingest_meta.get("parser_backend") or parser_backend).strip().lower()
+        if effective_parser_backend not in {"fitz_pdfplumber", "docling"}:
+            effective_parser_backend = parser_backend
+        bootstrap_meta["parser_backend"] = effective_parser_backend
+        bootstrap_meta["parser_backend_fallback_used"] = bool(ingest_meta.get("parser_backend_fallback_used", False))
+        bootstrap_meta["parser_failure_code"] = ingest_meta.get("parser_failure_code")
+        bootstrap_meta["parser_failure_reason"] = ingest_meta.get("parser_failure_reason")
         bootstrap_meta["table_extraction_pass"] = str(ingest_meta.get("table_extraction_pass") or "pass1")
         taxonomy = ingest_meta.get("table_failure_taxonomy")
         bootstrap_meta["table_failure_taxonomy"] = taxonomy if isinstance(taxonomy, list) else []
@@ -1266,6 +1339,15 @@ async def run_deepread_job(
         fallback_pages = ingest_meta.get("fallback_pages")
         bootstrap_meta["fallback_pages"] = fallback_pages if isinstance(fallback_pages, list) else []
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["parser_backend"] = effective_parser_backend
+            run_meta["parser_backend_fallback_used"] = bool(
+                ingest_meta.get("parser_backend_fallback_used", False)
+            )
+            run_meta["parser_failure_code"] = ingest_meta.get("parser_failure_code")
+            run_meta["parser_failure_reason"] = ingest_meta.get("parser_failure_reason")
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         if run_meta is not None:
             run_meta["table_extraction"] = {
                 "pass": bootstrap_meta["table_extraction_pass"],
@@ -1439,17 +1521,33 @@ async def run_deepread_job(
             return _job_result("cancelled")
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
+        clean_reindex_doc_id: str | None = None
         if clean_reindex:
-            doc_id = str(getattr(doc_artifact, "document_id", "") or getattr(doc_artifact, "doc_id", "") or paper_id)
-            if hasattr(indexer_agent, "reset_doc_index"):
-                removed = int(indexer_agent.reset_doc_index(doc_id))
-                bootstrap_meta["clean_reindex_applied"] = True
-                bootstrap_meta["clean_reindex_removed_chunks"] = removed
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                await emit("index", 33, f"Clean reindex applied: removed {removed} chunks")
-            else:
-                await emit("index", 33, "Clean reindex requested but index reset hook unavailable", level="WARNING")
+            clean_reindex_doc_id = str(getattr(doc_artifact, "document_id", "") or getattr(doc_artifact, "doc_id", "") or paper_id)
         index_artifact = indexer_agent.process(doc_artifact)
+        if clean_reindex:
+            if clean_reindex_doc_id and hasattr(indexer_agent, "prune_doc_index"):
+                keep_ids = [str(chunk.vector_id) for chunk in index_artifact.chunks if str(chunk.vector_id or "").strip()]
+                if not bool(getattr(indexer_agent, "last_index_complete", True)):
+                    bootstrap_meta["clean_reindex_applied"] = False
+                    bootstrap_meta["clean_reindex_skip_reason"] = "partial_replacement_vectors"
+                    bootstrap_meta["clean_reindex_attempted_chunks"] = int(getattr(indexer_agent, "last_index_attempted_chunks", 0) or 0)
+                    bootstrap_meta["clean_reindex_skipped_chunks"] = int(getattr(indexer_agent, "last_index_skipped_chunks", 0) or 0)
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    await emit("index", 33, "Clean reindex skipped: partial replacement vectors", level="WARNING")
+                elif keep_ids:
+                    removed = int(indexer_agent.prune_doc_index(clean_reindex_doc_id, keep_ids=keep_ids))
+                    bootstrap_meta["clean_reindex_applied"] = True
+                    bootstrap_meta["clean_reindex_removed_chunks"] = removed
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    await emit("index", 33, f"Clean reindex applied: pruned {removed} stale chunks")
+                else:
+                    bootstrap_meta["clean_reindex_applied"] = False
+                    bootstrap_meta["clean_reindex_skip_reason"] = "no_replacement_vectors"
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    await emit("index", 33, "Clean reindex skipped: no replacement vectors", level="WARNING")
+            else:
+                await emit("index", 33, "Clean reindex requested but index prune hook unavailable", level="WARNING")
         
         # Save Index Artifact
         atomic_write_text(
@@ -2017,6 +2115,9 @@ async def run_deepread_job(
         except Exception as note_err:
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
 
+        if _mark_paper_deepread_indexed(paper_id):
+            await emit("completed", 98, "Paper status updated: INDEXED")
+
         await emit("completed", 100, "Pipeline Completed Successfully")
         return _job_result("succeeded")
 
@@ -2032,20 +2133,39 @@ async def run_deepread_job(
             bootstrap_meta["claimset_ops_action"] = "retry_suggested"
             bootstrap_meta["claimset_ops_alert"] = True
             bootstrap_meta["claimset_ops_note"] = f"runtime_error:{type(e).__name__}"
+            bootstrap_meta["artifact_acceptance_contract_written"] = False
+            bootstrap_meta["artifact_quality_gate_written"] = False
             _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             if run_meta is not None:
-                handoff_artifacts = write_deepread_handoff_artifacts(
-                    artifact_dir,
-                    paper_id=paper_id,
-                    run_id=run_id,
-                    run_meta=run_meta,
-                    bootstrap_meta=bootstrap_meta,
-                )
-                bootstrap_meta["artifact_acceptance_contract_written"] = True
-                bootstrap_meta["artifact_quality_gate_written"] = True
-                _write_bootstrap_meta(artifact_dir, bootstrap_meta)
-                run_meta["handoff_artifacts"] = handoff_artifacts
-                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-                _write_run_meta(artifact_dir, run_meta)
+                try:
+                    handoff_artifacts = write_deepread_handoff_artifacts(
+                        artifact_dir,
+                        paper_id=paper_id,
+                        run_id=run_id,
+                        run_meta=run_meta,
+                        bootstrap_meta=bootstrap_meta,
+                    )
+                    bootstrap_meta["artifact_acceptance_contract_written"] = True
+                    bootstrap_meta["artifact_quality_gate_written"] = True
+                    _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                    run_meta["handoff_artifacts"] = handoff_artifacts
+                    run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    _write_run_meta(artifact_dir, run_meta)
+                except Exception as handoff_err:
+                    safe_handoff_error = sanitize_event_text_for_log(str(handoff_err)) or type(handoff_err).__name__
+                    logger.warning("Failed to write deep-read failure handoff artifacts: %s", safe_handoff_error)
+                    try:
+                        bootstrap_meta["handoff_write_error"] = safe_handoff_error
+                        bootstrap_meta["artifact_acceptance_contract_written"] = False
+                        bootstrap_meta["artifact_quality_gate_written"] = False
+                        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+                        run_meta["handoff_write_error"] = safe_handoff_error
+                        run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                        _write_run_meta(artifact_dir, run_meta)
+                    except Exception as handoff_meta_err:
+                        logger.warning(
+                            "Failed to record deep-read failure handoff error metadata: %s",
+                            sanitize_event_text_for_log(str(handoff_meta_err)) or type(handoff_meta_err).__name__,
+                        )
         await emit("error", 0, safe_error, level="ERROR")
         return _job_result("failed", error=safe_error)

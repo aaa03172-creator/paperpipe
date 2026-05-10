@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -9,10 +10,13 @@ from pathlib import PurePosixPath
 from src.schemas.talk_pack import TalkPack
 from src.services.runtime_paths import talk_packs_root as default_talk_packs_root
 
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+
 
 def talk_pack_dir(talk_pack_id: str, root: Path | None = None) -> Path:
     base = (root or default_talk_packs_root()).expanduser().resolve()
-    return base / talk_pack_id
+    safe_talk_pack_id = _normalize_talk_pack_id(talk_pack_id)
+    return _confined_child(base, safe_talk_pack_id)
 
 
 def talk_pack_json_path(talk_pack_id: str, root: Path | None = None) -> Path:
@@ -311,6 +315,22 @@ def _normalize_artifact_filename(filename: str) -> str:
     ):
         raise ValueError(f"Talk Pack artifact filename is invalid: {filename}")
     return pure.as_posix()
+
+
+def _normalize_talk_pack_id(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_SEGMENT_RE.fullmatch(text):
+        raise ValueError("Talk Pack talk_pack_id must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Talk Pack talk_pack_id escapes storage root") from exc
+    return candidate
 
 
 def _atomic_write_text(path: Path, content: str) -> None:

@@ -2,7 +2,6 @@ import logging
 import json
 import sqlite3
 import re
-import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -16,7 +15,7 @@ from src.institutional_access import (
     upsert_institutional_proxy_link,
 )
 from src.services.runtime_paths import artifact_paper_dir, artifacts_root
-from src.services.runtime_paths import artifacts_root
+from src.skills.storage import resolve_vault_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +230,9 @@ def _note_frontmatter_id(path: Path) -> str | None:
 def _resolve_export_target_file(paper: Dict[str, Any], vault_path: Path) -> Path:
     existing_relpath = str(paper.get("obsidian_path") or "").strip()
     if existing_relpath:
-        return vault_path / existing_relpath
+        existing_path = resolve_vault_relative_path(vault_path, existing_relpath)
+        if existing_path is not None:
+            return existing_path
 
     inbox_dir = vault_path / "Inbox/PaperPipe"
     inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -340,7 +341,6 @@ def _extract_claimset_claims_from_file(path: Path) -> Optional[List[Dict[str, An
     return None
 
 def _extract_claimset_claims_from_artifacts(paper_id: str) -> Optional[List[Dict[str, Any]]]:
-    root = _claimset_artifacts_root()
     paper_dir = artifact_paper_dir(paper_id)
     if not paper_dir.exists():
         return None
@@ -642,9 +642,12 @@ def export_paper_to_markdown(
     verdict = "❓ Unknown"
     try:
         f_conf = float(confidence)
-        if f_conf >= 0.9: verdict = "🌟 Strongly Approved"
-        elif f_conf >= 0.7: verdict = "✅ Approved"
-        else: verdict = "⚠️ Low Confidence"
+        if f_conf >= 0.9:
+            verdict = "🌟 Strongly Approved"
+        elif f_conf >= 0.7:
+            verdict = "✅ Approved"
+        else:
+            verdict = "⚠️ Low Confidence"
     except (TypeError, ValueError):
         pass
 

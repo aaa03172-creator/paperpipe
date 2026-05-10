@@ -35,9 +35,7 @@ class ArXivFetcher(BaseFetcher):
         # Wait, fetchers.py logic was: " OR ".join([f'all:"{k}"' for k in keywords]) from LIST of keywords.
         # But BaseFetcher.fetch takes a STRING query. 
         # So we expect the caller to pass a pre-formatted query string?
-        # NO. The caller (cli/processor) usually passes a list of keywords.
-        # REF: src/fetchers.py: fetch_arxiv(keywords: List[str]...)
-        # REF: src/config.py: query IS a string in config (e.g., '(A OR B) AND C').
+        # Config queries are strings, e.g. '(A OR B) AND C'.
         
         # If the input query is already a complex boolean string (e.g. from PubMed slot config), 
         # passing it directly to ArXiv 'all' might not work perfectly if syntax differs.
