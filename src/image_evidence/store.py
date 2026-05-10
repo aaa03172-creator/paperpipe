@@ -10,13 +10,20 @@ from src.schemas.image_evidence import (
     ImageEvidence,
     ImageHandoffTarget,
     ImageViewState,
+    normalize_image_evidence_id,
 )
 from src.services.runtime_paths import image_evidence_root as default_image_evidence_root
 
 
 def image_evidence_dir(image_evidence_id: str, root: Path | None = None) -> Path:
     base = (root or default_image_evidence_root()).expanduser().resolve()
-    return base / image_evidence_id
+    safe_image_evidence_id = normalize_image_evidence_id(image_evidence_id)
+    path = (base / safe_image_evidence_id).resolve()
+    try:
+        path.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("image_evidence_id resolves outside the Image Evidence root") from exc
+    return path
 
 
 def image_evidence_json_path(image_evidence_id: str, root: Path | None = None) -> Path:

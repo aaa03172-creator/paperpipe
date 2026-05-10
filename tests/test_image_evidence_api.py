@@ -92,6 +92,30 @@ def test_image_evidence_api_register_roundtrip_and_reads(tmp_path, monkeypatch) 
     assert handoff.json()[0]["openable_ref"] == mask_local_path(str(local_file))
 
 
+def test_image_evidence_api_rejects_path_like_ids_without_writing_outside_root(tmp_path, monkeypatch) -> None:
+    image_root = tmp_path / "image_evidence"
+    local_file = tmp_path / "raw-image.tif"
+    outside_dir = tmp_path / "outside"
+    local_file.write_bytes(b"RAWIMAGE")
+
+    monkeypatch.setenv("PAPERPIPE_IMAGE_EVIDENCE_DIR", str(image_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    client = TestClient(api_main.app)
+    created = client.post(
+        "/image-evidence/register",
+        json={
+            "image_evidence_id": "../outside/escape",
+            "source_ref": {"source_kind": "local_file", "local_path": str(local_file)},
+            "content_format": "image/tiff",
+        },
+    )
+
+    assert created.status_code == 422
+    assert not outside_dir.exists()
+
+
 def test_image_evidence_api_missing_bundle_returns_404(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("PAPERPIPE_IMAGE_EVIDENCE_DIR", str(tmp_path / "image_evidence"))
     monkeypatch.delenv("LATTICE_API_KEY", raising=False)

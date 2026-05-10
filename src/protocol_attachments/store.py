@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
 from src.schemas.protocol_attachment import ProtocolAttachmentBundle
 from src.services.runtime_paths import protocol_attachments_root as default_protocol_attachments_root
 
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+
 
 def protocol_attachment_dir(attachment_bundle_id: str, root: Path | None = None) -> Path:
     base = (root or default_protocol_attachments_root()).expanduser().resolve()
-    return base / attachment_bundle_id
+    safe_attachment_bundle_id = _normalize_attachment_bundle_id(attachment_bundle_id)
+    return _confined_child(base, safe_attachment_bundle_id)
 
 
 def protocol_attachment_json_path(attachment_bundle_id: str, root: Path | None = None) -> Path:
@@ -188,4 +192,20 @@ def _protocol_attachment_relative_path(
         raise ValueError(
             f"Protocol attachment path escapes bundle directory: attachment_bundle_id={attachment_bundle_id}"
         ) from exc
+    return candidate
+
+
+def _normalize_attachment_bundle_id(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_SEGMENT_RE.fullmatch(text):
+        raise ValueError("Protocol attachment attachment_bundle_id must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Protocol attachment attachment_bundle_id escapes storage root") from exc
     return candidate

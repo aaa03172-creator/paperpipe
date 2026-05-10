@@ -76,6 +76,16 @@ def test_project_memory_store_roundtrip_creates_expected_layout(tmp_path) -> Non
     assert list_project_memory_ids(root) == [workspace.project_id]
 
 
+def test_project_memory_store_rejects_path_like_project_ids(tmp_path) -> None:
+    root = tmp_path / "project_memory"
+
+    with pytest.raises(ValueError, match="project_id"):
+        project_workspace_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="project_id"):
+        project_memory_jsonl_path("pmproj_nested/escape", root)
+
+
 def test_project_memory_store_sanitizes_workspace_and_items_before_write(tmp_path) -> None:
     root = tmp_path / "project_memory"
     workspace = _sample_workspace(title="Project Authorization: Bearer pmtitletoken123")
@@ -230,6 +240,8 @@ def test_project_memory_store_rolls_back_if_items_write_fails(tmp_path, monkeypa
     original_workspace = _sample_workspace(title="Original title")
     original_items = [_sample_item(item_id="pmitem_alpha_question", item_type="question", content="Original item")]
     save_project_memory_bundle(original_workspace, original_items, root=root)
+    operator_notes = root / original_workspace.project_id / "operator_notes.txt"
+    operator_notes.write_text("keep local project notes", encoding="utf-8")
 
     updated_workspace = _sample_workspace(title="Updated title")
     updated_items = [
@@ -254,3 +266,4 @@ def test_project_memory_store_rolls_back_if_items_write_fails(tmp_path, monkeypa
     loaded_items = load_project_memory_items(original_workspace.project_id, root)
     assert loaded_workspace.title == "Original title"
     assert [item.item_id for item in loaded_items] == ["pmitem_alpha_question"]
+    assert operator_notes.read_text(encoding="utf-8") == "keep local project notes"

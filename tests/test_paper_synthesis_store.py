@@ -80,6 +80,16 @@ def test_paper_synthesis_store_roundtrip_creates_expected_layout(tmp_path):
     assert list_paper_synthesis_ids(root) == [synthesis.synthesis_id]
 
 
+def test_paper_synthesis_store_rejects_path_like_ids(tmp_path):
+    root = tmp_path / "paper_syntheses"
+
+    with pytest.raises(ValueError, match="synthesis_id"):
+        paper_synthesis_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="synthesis_id"):
+        paper_synthesis_markdown_path("papersynth_nested/escape", root)
+
+
 def test_paper_synthesis_store_overwrites_same_id_without_duplicate_dump(tmp_path):
     root = tmp_path / "paper_syntheses"
     synthesis = _sample_synthesis(title="First title")
@@ -100,6 +110,8 @@ def test_paper_synthesis_store_rolls_back_bundle_if_markdown_write_fails(tmp_pat
     root = tmp_path / "paper_syntheses"
     original = _sample_synthesis(title="First title")
     save_paper_synthesis_bundle(original, "# First", root)
+    note_path = paper_synthesis_json_path(original.synthesis_id, root).parent / "operator_notes.txt"
+    note_path.write_text("keep operator note\n", encoding="utf-8")
 
     updated = _sample_synthesis(title="Updated title")
     original_atomic_write_text = paper_synthesis_store._atomic_write_text
@@ -120,7 +132,12 @@ def test_paper_synthesis_store_rolls_back_bundle_if_markdown_write_fails(tmp_pat
     loaded_markdown = load_paper_synthesis_markdown(updated.synthesis_id, root)
     assert loaded.title == "First title"
     assert loaded_markdown == "# First"
-    assert len(list((root / updated.synthesis_id).iterdir())) == 2
+    assert note_path.read_text(encoding="utf-8") == "keep operator note\n"
+    assert sorted(path.name for path in (root / updated.synthesis_id).iterdir()) == [
+        "operator_notes.txt",
+        "paper_synthesis.json",
+        "paper_synthesis.md",
+    ]
 
 
 def test_paper_synthesis_store_does_not_leave_partial_new_bundle_if_markdown_write_fails(tmp_path, monkeypatch):

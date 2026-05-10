@@ -95,6 +95,16 @@ def test_image_evidence_store_roundtrip_creates_expected_layout(tmp_path) -> Non
     assert list_image_evidence_ids(root) == [image_evidence.image_evidence_id]
 
 
+def test_image_evidence_store_rejects_path_like_ids_before_writing(tmp_path) -> None:
+    root = tmp_path / "image_evidence"
+    outside = tmp_path / "escape"
+
+    with pytest.raises(ValueError, match="image_evidence_id must be a single safe path segment"):
+        image_evidence_json_path("../escape", root)
+
+    assert not outside.exists()
+
+
 def test_image_evidence_store_requires_declared_derivative_payloads(tmp_path) -> None:
     root = tmp_path / "image_evidence"
 
@@ -203,6 +213,11 @@ def test_image_evidence_store_rolls_back_if_handoff_write_fails(tmp_path, monkey
         derivative_artifacts={"derivatives/thumb_01.png": b"PNG"},
         root=root,
     )
+    evidence_dir = image_evidence_json_path(original.image_evidence_id, root).parent
+    note_path = evidence_dir / "operator_notes.txt"
+    note_path.write_text("keep operator note\n", encoding="utf-8")
+    derivative_note_path = image_evidence_derivative_path(original.image_evidence_id, "thumb_01", root=root).parent / "README.txt"
+    derivative_note_path.write_text("keep derivative note\n", encoding="utf-8")
 
     updated = _sample_image_evidence(title="Updated title")
     original_atomic_write_bytes = image_evidence_store._atomic_write_bytes
@@ -231,3 +246,6 @@ def test_image_evidence_store_rolls_back_if_handoff_write_fails(tmp_path, monkey
     assert loaded.title == "Original title"
     assert loaded_view_state.zoom_level == 2.0
     assert loaded_handoff_targets[0].target == "napari"
+    assert load_image_derivative_bytes(updated.image_evidence_id, "thumb_01", root=root) == b"PNG"
+    assert note_path.read_text(encoding="utf-8") == "keep operator note\n"
+    assert derivative_note_path.read_text(encoding="utf-8") == "keep derivative note\n"
