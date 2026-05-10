@@ -1,361 +1,303 @@
 # Findings
 
-## Finding 1: Workspace contains live provider secrets
+## Finding 1: `/api/*` bridge bypasses protected root-route API-key behavior
 
 Severity: P1
 Confidence: High
 Status: Confirmed
-File/line: `.env:1-2`; `.gitignore:29`
-Category: Security
-Issue:
-The local workspace contains real-looking provider API keys in `.env`. The file is ignored by git, but it is still present in the project directory.
-Evidence:
-The security review found `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` assignments in `.env:1-2`; `.gitignore` ignores `.env`, so the keys are not tracked but remain in the live workspace. Values were not copied into this report.
-Why it matters:
-Local archive creation, backup sync, debug bundle collection, terminal/session capture, or accidental sharing of the workspace can disclose production-capable secrets.
-Suggested fix:
-Rotate both keys, replace `.env` with `.env.example` placeholders, and load real secrets from the OS secret store or deployment secret manager.
-Suggested test:
-Add a secret-scanning check that fails on real-looking provider keys in non-example env/config files while allowing `.env.example` placeholders.
+Category: Conflict
+File/line:
+`backend/main.py:570`; `backend/main.py:1249`; `backend/main.py:1252`; `backend/main.py:1305`
 Related files/call sites:
-`src/config.py`, README runtime setup sections, deployment secret configuration.
+`frontend/src/app/lib/config.ts:26`; `tests/test_api_key_auth.py:1246`
+Issue:
+The middleware rewrites `/api/*` to root API paths and injects the server-side API key before final auth checks. This means protected root routes can be accessed through the bridge without caller credentials.
+Evidence:
+Root private paths require API keys through `_requires_api_key()`. For `/api/*`, `_rewrite_browser_api_path()` rewrites the path, then `MutableHeaders(scope=request.scope)["x-api-key"] = expected_key` injects the configured key. A local probe with `LATTICE_API_KEY=secret-key` returned 401 for `GET /jobs` and 200 for `GET /api/jobs`.
+Why it matters:
+If the backend is reachable by non-UI callers, protected reads and some writes are exposed through the browser bridge despite the root-route API-key contract.
+Suggested fix:
+Require API key/beta auth for non-trusted `/api/*` callers before server-side injection, or bind the bridge to a stronger same-origin/session check.
+Suggested test:
+With `LATTICE_API_KEY` set, assert unauthenticated `GET /api/jobs`, `/api/papers`, and `/api/paper-notes` fail unless an explicitly trusted browser-shell condition is met.
 
-## Finding 2: Cloud table API key is persisted into run artifacts
+## Finding 2: Caller-supplied Image Evidence IDs can escape the storage root
 
 Severity: P1
 Confidence: High
 Status: Confirmed
-File/line: `backend/services/job_runner.py:410-422`; `backend/services/job_runner.py:1148-1152`
-Category: Security
-Issue:
-`cloud_table_api_key` is copied into `ingest_runtime_options` and then persisted wholesale into `run_meta.json`.
-Evidence:
-`_resolve_ingest_runtime_options()` includes `cloud_table_api_key` in the returned dict. The deep-read runner later writes `run_meta["ingest_options"] = dict(ingest_runtime_options)` before writing `run_meta.json`.
-Why it matters:
-Raw runtime artifacts can contain a cloud API key. Even if API responses later sanitize metadata, filesystem artifacts, backups, bug reports, or manual support bundles can leak the secret.
-Suggested fix:
-Drop secret fields before persistence and store only non-secret state such as `cloud_table_api_key_configured: true`.
-Suggested test:
-Run a job with `cloud_table_api_key="sk-test-secret"` and assert raw `run_meta.json` does not contain the key or any secret-like value.
+Category: Missing wiring
+File/line:
+`src/schemas/image_evidence.py:240`; `src/schemas/image_evidence.py:257`; `src/image_evidence/service.py:55`; `src/image_evidence/store.py:17`; `src/image_evidence/store.py:169`
 Related files/call sites:
-`src/agents/ingest_agent.py`, `src/ingest/cloud_table_fallback.py`, `backend/main.py` run metadata endpoints.
+`backend/routers/image_evidence.py:34`; `tests/test_image_evidence_api.py`
+Issue:
+`ImageEvidenceRequest.image_evidence_id` is unconstrained and flows directly into filesystem path construction.
+Evidence:
+The schema only strips `image_evidence_id`. The service selects `request.image_evidence_id` when provided. The store returns `base / image_evidence_id` and writes `image_evidence.json` there. A local reproduction with `../paperpipe-image-root-proof-outside/escape` wrote outside the configured root.
+Why it matters:
+A malformed production request can write or affect files outside the image evidence artifact root.
+Suggested fix:
+Validate IDs with a strict allowlist, reject separators/dot segments, and enforce `resolved_path.relative_to(root)` in the store.
+Suggested test:
+POST traversal IDs and encoded separator variants to `/image-evidence/register`; assert 400/422 and no out-of-root writes.
 
-## Finding 3: Run IDs can collide and merge unrelated job state
+## Finding 3: Unmatched downloaded PDFs are not durably queued under the canonical schema
 
 Severity: P1
 Confidence: High
 Status: Confirmed
-File/line: `src/services/identity.py:72-74`; `src/jobs/queue.py:80-82`; `src/db_utils.py:111-123`; `src/services/event_log.py:182-192`
-Category: Data integrity
-Issue:
-`new_run_id()` uses only UTC second precision, so two jobs enqueued in the same second can share one `run_id`.
-Evidence:
-The queue assigns `run_id = new_run_id()` per enqueue. `execution_runs.run_id` is the primary key. `record_execution_start()` handles conflicts by keeping the existing `paper_id`, trigger, profile, and params via `COALESCE`. A temp DB probe forced a collision and produced two job rows but one execution row for the first paper.
-Why it matters:
-Events, execution metadata, status, and artifact lookup can point at the wrong paper/run. This is especially risky for concurrent API use and worker recovery.
-Suggested fix:
-Make run IDs unique beyond seconds, for example `run_<timestamp>_<uuid8>` or UUID-backed IDs.
-Suggested test:
-Freeze the clock, enqueue two different papers, and assert distinct `jobs.run_id`, distinct `execution_runs` rows, and separated events.
+Category: Conflict
+File/line:
+`src/downloads_watcher.py:20`; `src/downloads_watcher.py:163`; `src/downloads_watcher.py:295`; `src/downloads_watcher.py:300`; `scripts/init_db.py:81`; `src/db_utils.py:233`
 Related files/call sites:
-`src/services/runtime_paths.py`, `backend/services/job_runner.py`, job/artifact routes in `backend/main.py`.
+`tests/test_downloads_watcher.py`; CLI watch-downloads path.
+Issue:
+The unmatched-download flow enqueues `paper_id="__UNMATCHED__"`, but the canonical `review_queue.paper_id` has a foreign key to `papers(paper_id)`.
+Evidence:
+The watcher defines `UNMATCHED_SENTINEL_PAPER_ID = "__UNMATCHED__"` and uses it for unmatched/no-candidate flows. Canonical schema creates `review_queue` with a paper FK and DB connections enable FK checks. `_enqueue_pdf_match_review()` catches the exception and returns false, while the caller still returns `status="unmatched"`. Subagent reproduction observed FK failure and `review_queue_count=0`.
+Why it matters:
+The user-facing promise of a manual follow-up queue is broken for unmatched PDFs; files can be moved to `_unmatched` without durable triage.
+Suggested fix:
+Use a separate unmatched-download review table/artifact or create a valid sentinel paper row before enqueue.
+Suggested test:
+Run unmatched processing against a DB initialized by `scripts.init_db.init_db()` plus `src.db_utils.init_db()` and assert a durable triage item exists.
 
-## Finding 4: Fresh canonical schema breaks Zotero sync
+## Finding 4: Frontend can render mock data after real backend/auth failures
 
 Severity: P1
 Confidence: High
-Status: Confirmed
-File/line: `scripts/init_db.py:28-55`; `src/db_utils.py:181-190`; `src/db_utils.py:530`; `src/db_utils.py:552-577`
-Category: Correctness
-Issue:
-The canonical `papers` table created by `scripts/init_db.py` does not include `summary`, but `sync_zotero_to_db()` unconditionally selects and inserts `summary`.
-Evidence:
-`init_db.py` creates `papers` with identity, metadata, state, and asset columns but no `summary`. `db_utils.init_db()` migrates only `download_attempts` and `issues_state`. `sync_zotero_to_db()` then runs `SELECT paper_id, pdf_path, summary FROM papers` and inserts into `summary`. A temp DB probe confirmed `OperationalError: no such column: summary`.
-Why it matters:
-A freshly initialized runtime database cannot complete Zotero sync, so paper intake can fail before records are inserted.
-Suggested fix:
-Either add `summary TEXT` to the canonical schema and lightweight migration, or make Zotero sync column-aware like other DB helpers.
-Suggested test:
-Create an empty temp DB with `scripts.init_db.init_db()`, run `db_utils.init_db()`, then call `sync_zotero_to_db()` and assert it succeeds.
+Status: Resolved in current branch
+Category: Functional behavior
+File/line:
+`frontend/src/app/lib/config.ts:12`; `frontend/src/app/lib/api.ts:1135`; `frontend/src/app/lib/api.ts:1200`; `frontend/src/app/lib/api.ts:1261`; `frontend/src/app/pages/PaperNotesListPage.tsx:697`
 Related files/call sites:
-`src/db_utils.py`, `scripts/migrate_legacy.py`, Zotero import paths.
+`frontend/src/app/lib/mock.ts`; `frontend/e2e/mock.spec.ts`; backend private routes.
+Issue:
+`VITE_AUTO_MOCK_FALLBACK` defaults to true, and shared read helpers can substitute fixtures after any caught read failure.
+Evidence:
+`autoMockFallback` is true when env is unset. Read helpers call `withMockFallback()`/similar patterns and pages install `result.data` into UI state.
+Current branch note:
+`frontend/src/app/lib/api.ts` now routes fallback decisions through `canFallbackForReadError()`, which blocks reached-backend HTTP errors and only allows non-HTTP fallback for `TypeError` network-style failures.
+Why it matters:
+Auth failures, backend regressions, schema mismatches, or 5xx errors can appear as valid fixture-backed review data.
+Suggested fix:
+Only fallback in explicit mock/dev mode or network-unreachable conditions; never fallback for reached-backend HTTP errors.
+Suggested test:
+Stub `/api/paper-notes` as 401 and assert no mock paper notes are rendered.
 
-## Finding 5: Phase3 integration workflow uses an unsupported Python version
+## Finding 5: Cloud table fallback sends PDF text without the repo's privacy preflight lane
 
-Severity: P1
+Severity: P2
 Confidence: High
-Status: Confirmed
-File/line: `.github/workflows/phase3-integration-optin.yml:23-31`; `pyproject.toml:10`
-Category: Testing
-Issue:
-The opt-in Phase3 integration workflow sets up Python 3.11, while package metadata requires Python `>=3.13`.
-Evidence:
-The workflow uses `python-version: "3.11"` and then runs `pip install -e .`; `pyproject.toml` declares `requires-python = ">=3.13"`.
-Why it matters:
-The integration gate can fail during installation before exercising tests, making the release-safety lane unreliable.
-Suggested fix:
-Change the workflow to Python 3.13 or explicitly support and test Python 3.11 in package metadata.
-Suggested test:
-Dispatch the workflow with `run_phase3_integration=true` and confirm it reaches the test step.
+Status: Resolved in current branch
+Category: Functional behavior
+File/line:
+`src/agents/ingest_agent.py:230`; `src/ingest/cloud_table_fallback.py:199`; `backend/services/job_runner.py:1243`
 Related files/call sites:
-`.github/workflows/*`, `pyproject.toml`, CI status checks.
+`src/config.py:304`; `backend/services/job_runner.py:1322`
+Issue:
+The cloud table fallback can send PDF page text to OpenAI without the privacy preflight/payload classification used by later clinical extraction.
+Evidence:
+Ingest Pass3 calls the cloud extractor when enabled; `CloudTableFallbackExtractor` sends `page_text` to `client.chat.completions.create()`. The job runner privacy-preflight block is later and applies to clinical extraction, not table fallback.
+Current branch note:
+`backend/services/job_runner.py` now installs a cloud table preflight callback, and `src/ingest/cloud_table_fallback.py` skips LLM extraction when the callback blocks.
+Why it matters:
+Potentially sensitive source text can leave local runtime without the inference payload boundary required by project rules.
+Suggested fix:
+Classify/preflight selected page text before cloud table fallback, block according to policy, and persist `inference_lanes.cloud_table_fallback` metadata.
+Suggested test:
+Enable cloud table fallback with privacy blocking and assert no cloud call occurs and run metadata records the blocked lane.
 
-## Finding 6: Frontend auto mock fallback can mask real backend/auth failures
+## Finding 6: Failed Deep Read artifacts can become orphaned from job state
 
-Severity: P1
+Severity: P2
 Confidence: High
-Status: Confirmed
-File/line: `frontend/src/app/lib/config.ts:12-15`; `frontend/src/app/lib/api.ts:630-645`; `frontend/src/app/lib/api.ts:809-812`; `frontend/src/app/lib/api.ts:968-974`; `frontend/src/app/pages/PaperNotesListPage.tsx:697-704`
-Category: Data integrity
-Issue:
-`VITE_AUTO_MOCK_FALLBACK` defaults to enabled, and the shared API helper returns mock data after any caught read failure.
-Evidence:
-`autoMockFallback` is `true` when the env var is unset. `withMockFallback()` catches the fetcher error and returns `mocker()` when fallback is allowed. Papers and paper-notes index calls use this helper, and the notes page installs `result.data` directly into UI state.
-Why it matters:
-401/403 auth failures, backend regressions, validation failures, and schema errors can become fixture-backed UI data. The banner helps, but the table still renders mock records in places where stale or fake data can mislead review workflows.
-Suggested fix:
-Only auto-fallback in development for connection/proxy-unavailable cases. Never fallback for reached-backend HTTP errors such as 401, 403, 422, or 5xx.
-Suggested test:
-Stub `/api/paper-notes` to return 401 and assert no mock notes render and an auth/backend error state is shown.
+Status: Resolved in current branch
+Category: Missing wiring
+File/line:
+`backend/services/job_runner.py:1047`; `backend/services/job_runner.py:1792`; `src/jobs/worker.py:164`; `src/jobs/worker.py:186`
 Related files/call sites:
-`frontend/src/app/pages/PaperNotesListPage.tsx`, `frontend/src/app/pages/TriageDashboard.tsx`, API mock fixtures.
+`backend/main.py:5869`; `src/services/stale_jobs.py`
+Issue:
+Artifact directories created before a failure are not reliably persisted on the `jobs` row.
+Evidence:
+The runner creates and writes artifacts/failure metadata under `artifact_dir`. The worker always stores `artifact_dir` on success, but the failed update only uses `(result or {}).get("artifact_dir")`; the runner's generic failure result does not clearly include the created directory.
+Current branch note:
+`run_deepread_job()` now returns `artifact_dir` for created runs, including failed/cancelled results, and `src/jobs/worker.py` persists it on failed/cancelled job updates.
+Why it matters:
+Diagnostics and bootstrap metadata can exist on disk but be unreachable through job APIs and stale incident tooling.
+Suggested fix:
+Persist `jobs.artifact_dir` immediately after artifact directory creation or always return it from failed/cancelled runner results.
+Suggested test:
+Force a post-artifact-creation failure and assert `/jobs/{job_id}` includes `artifact_dir` and bootstrap metadata can be loaded.
 
-## Finding 7: Cloud table fallback sends PDF text without privacy preflight lane metadata
+## Finding 7: Paper synthesis visual-evidence lineage is missing from the frontend contract
 
 Severity: P2
 Confidence: High
 Status: Confirmed
-File/line: `src/agents/ingest_agent.py:230-242`; `src/ingest/cloud_table_fallback.py:199-214`; `backend/services/job_runner.py:1243-1276`
-Category: Security
-Issue:
-The cloud table fallback can send PDF page text to OpenAI, but the privacy preflight pattern used for clinical extraction is not applied to this lane.
-Evidence:
-Pass3 cloud fallback calls `_extract_tables_pass3_cloud()` when enabled. `CloudTableFallbackExtractor` sends `page_text` to `client.chat.completions.create()`. The later privacy preflight block only wraps clinical extraction.
-Why it matters:
-Potentially sensitive PDF text can leave the local runtime without payload classification, blocking behavior, or audit metadata required by the repo's inference payload boundary.
-Suggested fix:
-Classify selected page text before Pass3, call `build_privacy_preflight_response()`, block according to mode, and record an `inference_lanes.cloud_table_fallback` entry.
-Suggested test:
-Enable cloud table fallback with privacy preflight in blocking mode and assert no OpenAI request is made and run metadata records the blocked lane.
+Category: Contract mismatch
+File/line:
+`src/schemas/paper_synthesis.py:17`; `src/schemas/paper_synthesis.py:26`; `src/paper_syntheses/service.py:264`; `frontend/src/app/lib/types.ts:995`; `frontend/src/app/components/ArtifactPanel.tsx:175`; `frontend/src/app/components/ArtifactPanel.tsx:184`
 Related files/call sites:
-`src/config.py`, `backend/services/job_runner.py`, `src/ingest/cloud_table_fallback.py`.
-
-## Finding 8: Failed Deep Read artifacts can become orphaned from job state
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `backend/services/job_runner.py:1047-1082`; `backend/services/job_runner.py:1792-1820`; `src/jobs/worker.py:156-182`
-Category: Reliability
+`tests/test_paper_synthesis_service.py:311`; `frontend/e2e/backend.spec.ts:4352`; `frontend/e2e/backend.spec.ts:4419`
 Issue:
-After the artifact directory is created, a failure writes failure metadata and handoff artifacts, but the worker persists `artifact_dir` only on success.
+Backend emits `visual_evidence_ledger` in paper synthesis lineage, but frontend unions and formatters do not include it.
 Evidence:
-The runner creates and writes `run_meta.json` under `artifact_dir`. On exception, it marks run metadata failed and writes handoff artifacts, then returns only `status`, `error`, and `run_id`. The worker stores `artifact_dir` in the job row only for `status == "succeeded"`; the failed update omits it.
+Backend schemas include the kind and service adds the source ref. Frontend type allows only `quality_gate | acceptance_contract`; formatters fall through or map non-quality-gate values to acceptance contract.
 Why it matters:
-Failed runs can leave useful diagnostics on disk that `/jobs/{id}/bootstrap-meta`, stale incident handling, and DB-based support tooling cannot discover through the job row.
+Compiled-knowledge source lineage can be mislabeled, undermining evidence traceability.
 Suggested fix:
-Persist `jobs.artifact_dir` immediately after artifact directory creation, or return and store it on failed/cancelled results too.
+Add `visual_evidence_ledger` to frontend types and explicit labels.
 Suggested test:
-Force a failure after artifact creation and assert `jobs.artifact_dir` is populated and bootstrap metadata remains reachable.
-Related files/call sites:
-`backend/main.py` job bootstrap/artifact endpoints, `src/services/stale_jobs.py`.
+Seed a manifest with visual evidence ledger lineage and assert the artifact panel renders “visual evidence ledger.”
 
-## Finding 9: Rendered note and access links lack a URL scheme allowlist
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `backend/routers/paper_notes.py:1402-1424`; `backend/routers/paper_notes.py:1439-1450`; `frontend/src/app/pages/PaperNoteDetailPage.tsx:2360-2364`; `frontend/src/app/lib/accessSummary.ts:14-20`; `frontend/src/app/pages/TriageDashboard.tsx:972-978`
-Category: Security
-Issue:
-Persisted note/reference URLs and access-summary URLs are normalized lightly, then rendered directly as browser anchor `href` values.
-Evidence:
-`_normalize_link_url()` returns most schemes unchanged. Extracted markdown links are appended to `PaperNoteReferenceLink`, and the frontend uses `href={reference.url}`. Access-summary `open_access_url` is also passed through to a link.
-Why it matters:
-A malicious or malformed note/reference value such as `javascript:...`, `data:...`, or an unexpected local/custom scheme can become clickable in the UI.
-Suggested fix:
-Add a shared URL sanitizer/allowlist for rendered links, allowing only `http:`, `https:`, approved internal paths, and explicitly approved schemes. Validate in backend schemas where possible.
-Suggested test:
-Use a note fixture containing `[bad](javascript:alert(1))` and assert it renders as inert text or is omitted.
-Related files/call sites:
-`frontend/src/app/pages/PaperNoteDetailPage.tsx`, `frontend/src/app/pages/TriageDashboard.tsx`, paper note parsers.
-
-## Finding 10: Artifact routes and stores accept raw path-like IDs without root confinement
+## Finding 8: Downloads watcher likely misses temp-file rename completion events
 
 Severity: P2
 Confidence: Medium
 Status: Needs verification
-File/line: `backend/main.py:5625`; `backend/main.py:5638`; `backend/main.py:3394-3411`; `src/services/runtime_paths.py:258-267`; `src/services/runtime_paths.py:291-300`; `src/meeting_packs/store.py:12-18`; `src/chart_packs/store.py:13-19`; `src/image_evidence/store.py:17-23`
-Category: Security
-Issue:
-Several artifact APIs and stores compose storage paths from route IDs without a clear allowlist or `relative_to(root)` confinement check.
-Evidence:
-Some routes use `{paper_id:path}` or raw route values as artifact candidates. Runtime path helpers and store classes append IDs under artifact roots. Similar `base / id / file` construction appears across meeting packs, chart packs, image evidence, talk packs, method comparisons, and paper syntheses. A quick encoded `..` probe did not confirm disclosure, so this remains a needs-verification path-boundary risk.
-Why it matters:
-If encoded traversal or slash-like values reach a handler, reads can resolve outside the intended artifact root and probe for predictable filenames such as `run_meta.json`, `meeting_pack.json`, or `chart_pack.json`.
-Suggested fix:
-Normalize every route/store ID through an allowlist such as `^[A-Za-z0-9._-]+$`, reject `.` and `..`, and verify resolved paths remain under the configured root.
-Suggested test:
-Add API tests using `%2e%2e`, `%2e%2e%2f...`, and slash-containing IDs, asserting 400/404 and no filesystem access outside the configured root.
+Category: Missing wiring
+File/line:
+`src/downloads_watcher.py:347`; `src/downloads_watcher.py:351`; `src/downloads_watcher.py:373`
 Related files/call sites:
-`src/talk_packs/store.py`, `src/method_comparisons/store.py`, `src/paper_syntheses/store.py`, file-serving endpoints.
+`tests/test_downloads_watcher.py`
+Issue:
+The watcher only implements `on_created`; common browser flows create a temporary file and then rename/move it to `.pdf`.
+Evidence:
+`on_created` ignores temp suffixes such as `.crdownload`/`.part`, and no `on_moved`/`on_modified` handler was found.
+Why it matters:
+Auto-collection can skip completed browser downloads.
+Suggested fix:
+Handle `on_moved` using `event.dest_path` and shared stable-file processing.
+Suggested test:
+Simulate `.crdownload` -> `.pdf` rename and assert processing occurs once.
 
-## Finding 11: Private API auth is fail-open when no API key is configured
+## Finding 9: Rendered note and access links lack a complete URL scheme allowlist
+
+Severity: P2
+Confidence: High
+Status: Resolved in current branch
+Category: Functional behavior
+File/line:
+`backend/routers/paper_notes.py:1402`; `backend/routers/paper_notes.py:1439`; `frontend/src/app/pages/PaperNoteDetailPage.tsx:2360`; `frontend/src/app/lib/accessSummary.ts:14`; `frontend/src/app/pages/TriageDashboard.tsx:972`
+Related files/call sites:
+Markdown reference parsing and access-summary rendering.
+Issue:
+Persisted note/reference/access URLs are normalized lightly and rendered as `href` values.
+Evidence:
+Backend normalization returns most schemes unchanged; frontend renders reference and access URLs directly.
+Current branch note:
+`backend/routers/paper_notes.py` now drops unsupported reference URL schemes, and frontend rendering uses `sanitizeRenderableHref()` for paper references and access-summary links.
+Why it matters:
+Unexpected schemes such as `javascript:` or `data:` can become clickable if present in note metadata/reference markdown.
+Suggested fix:
+Centralize URL sanitation and allow only `http:`, `https:`, approved internal paths, and explicitly approved schemes.
+Suggested test:
+Use a note fixture with `[bad](javascript:alert(1))` and assert it is omitted or inert.
+
+## Finding 10: Slash-bearing paper IDs can be misparsed by artifact run routes
+
+Severity: P1
+Confidence: High
+Status: Confirmed
+Category: Conflict
+File/line:
+`backend/main.py:5712`; `backend/main.py:5728`; `src/services/identity.py:95`
+Related files/call sites:
+Artifact bundle/file readers and frontend artifact pages.
+Issue:
+The artifact file route with `{paper_id:path}` is registered before the artifact run-bundle route, so paper IDs containing `/` can be split as `paper_id`, `run_id`, and `artifact_name` incorrectly.
+Evidence:
+`/artifacts/{paper_id:path}/{run_id}/{artifact_name}` is registered at `backend/main.py:5712` before `/artifacts/{paper_id:path}/{run_id}` at `backend/main.py:5728`. `src/services/identity.py:95` hashes unsafe IDs, which shows slash-bearing DOI-like paper IDs are expected elsewhere. A route probe showed `/artifacts/foo/bar/run1` matches the file route first as `paper_id=foo`, `run_id=bar`, `artifact_name=run1`.
+Why it matters:
+Artifact bundle lookup for slash-bearing paper IDs can return the wrong file lookup or 404, making run-level artifacts unreachable for valid papers.
+Suggested fix:
+Use a non-path route segment for paper IDs, move paper IDs to query parameters for run/file artifact reads, or require callers to use the canonical hashed artifact segment consistently.
+Suggested test:
+Create an artifact run for a paper ID containing `/` and assert both bundle and file endpoints retrieve the intended run and artifact.
+
+## Finding 11: Importing the backend initializes Ollama through the feedback router
+
+Severity: P1
+Confidence: High
+Status: Confirmed
+Category: Functional behavior
+File/line:
+`backend/routers/feedback.py:33`; `src/agents/feedback_retriever.py:43`; `src/agents/adapter.py:39`; `src/llm_provider.py:537`; `src/llm_provider.py:2480`
+Related files/call sites:
+`backend/main.py`; `scripts/check_python_import_health.py`
+Issue:
+Backend import has a network/runtime side effect because the feedback router constructs `FeedbackRetriever()` at module import time, which initializes the Ollama adapter/provider.
+Evidence:
+`backend/routers/feedback.py:33` creates `feedback_retriever = FeedbackRetriever()`. That constructor creates `OllamaModelAdapter`, which creates `OllamaProvider`; provider initialization calls `_initialize()`, and Ollama initialization calls `ollama_client.list()`. Importing `backend.main` during route listing emitted a `GET http://localhost:11434/api/tags` attempt.
+Why it matters:
+Route listing, import-health checks, tests, and deployments can hang or fail when Ollama is unavailable, even before any feedback endpoint is used.
+Suggested fix:
+Lazy-initialize the feedback retriever on first endpoint use, or inject a provider factory that does not perform network checks during import.
+Suggested test:
+Patch the Ollama client to raise if called, import `backend.main`, and assert no Ollama call occurs until a feedback route explicitly needs retrieval.
+
+## Finding 12: Meeting-pack write flow falls back to mock success despite documented live-backend requirement
+
+Severity: P2
+Confidence: High
+Status: Confirmed
+Category: Contract mismatch
+File/line:
+`frontend/src/app/lib/api.ts:1225`; `frontend/src/app/lib/api.ts:1240`; `frontend/README.md:48`; `frontend/README.md:60`
+Related files/call sites:
+`frontend/e2e/meeting-pack.fallback.spec.ts`
+Issue:
+`generateMeetingPack()` can return a mock meeting pack after a proxy/backend availability error, while frontend docs say write actions require a live backend unless forced mock mode is enabled.
+Evidence:
+The README states write actions require the live backend and fallback is for read/inspection only. The API helper catches backend availability failures and returns `createMockMeetingPack()` from the write path. Existing fallback e2e coverage pins this behavior.
+Why it matters:
+A user can see apparent generated meeting-pack success when no real backend artifact was created.
+Suggested fix:
+Fail write/generation requests unless `VITE_FORCE_MOCK=1` or another explicit mock mode is active; keep fallback limited to read-only inspection.
+Suggested test:
+With forced mock disabled and backend/proxy unavailable, submit meeting-pack generation and assert an error state rather than a mock success artifact.
+
+## Finding 13: Import-health defaults do not cover their own side-effect risk
 
 Severity: P2
 Confidence: Medium
 Status: Needs verification
-File/line: `backend/main.py:268-273`; `backend/main.py:475-499`; `backend/main.py:1249-1263`
-Category: Security
-Issue:
-If `LATTICE_API_KEY` and `PAPERPIPE_API_KEY` are unset, middleware bypasses API-key enforcement for private route prefixes.
-Evidence:
-`_resolve_api_key()` returns an empty string when no env key exists. The private prefix list includes artifacts, jobs, notes, papers, and other data routes. The middleware returns `call_next()` immediately when `expected_key` is empty. This may be intended for local-only use, so deployment exposure needs verification.
-Why it matters:
-If the backend is reachable beyond trusted loopback without beta auth or a reverse proxy, private read/write routes become unauthenticated.
-Suggested fix:
-Require an explicit local/dev flag for unauthenticated mode, or fail closed for private routes unless API key or beta auth is configured.
-Suggested test:
-Start the app with no API key and a non-loopback allowed host, then assert private routes such as `/papers`, `/jobs`, `/artifacts`, and `/paper-notes` return 401/403.
+Category: Test gap
+File/line:
+`scripts/check_python_import_health.py:16`; `scripts/check_python_import_health.py:115`; `tests/test_python_import_health.py:19`
 Related files/call sites:
-README security setup, deployment/runtime configs, TrustedHost settings.
-
-## Finding 12: `save_paper_state()` silently drops database write failures
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `src/db_utils.py:396-408`
-Category: Data integrity
+`backend/routers/feedback.py`; `backend/main.py`
 Issue:
-`save_paper_state()` catches `sqlite3.OperationalError` and suppresses it after schema-dependent write logic.
+The import-health script defaults include side-effectful imports, but the tests only exercise harmless modules.
 Evidence:
-The helper builds an `INSERT ... ON CONFLICT` statement, commits on success, and has `except sqlite3.OperationalError: pass`.
+Default probes include `site:src.cli` and `site:backend.main`, with timeout handling in the script. The test uses probes such as `json` and `math`, so it does not catch backend import side effects like Ollama initialization.
 Why it matters:
-Schema drift, migration mistakes, or malformed SQL can cause paper state, PDF paths, feedback JSON, or download attempts to be lost while callers proceed as if persistence succeeded.
+CI can pass the import-health test while the real default script times out or performs unwanted network work.
 Suggested fix:
-Rollback and log with enough context at minimum; preferably return a success flag or raise for write paths that callers depend on.
+Remove import-time side effects first, then add a test that runs the default probe list with external clients patched/disabled.
 Suggested test:
-Use an incompatible `papers` schema and assert the failure is observable and no partial state is treated as success.
-Related files/call sites:
-Downloader status updates, paper import, review queue flows.
+Run `check_python_import_health` with its default probe list under mocked Ollama/network clients and assert it completes without external calls.
 
-## Finding 13: Downloads watcher can move a partially written PDF
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `src/downloads_watcher.py:311-319`; `src/downloads_watcher.py:247-249`; `src/downloads_watcher.py:265-268`
-Category: Reliability
-Issue:
-The filesystem watcher sleeps for a fixed one second after `on_created`, then moves the PDF.
-Evidence:
-`DownloadsFileHandler.on_created()` waits `time.sleep(1)` before calling `process_downloaded_pdf()`, which can immediately `shutil.move()` the source on DOI or title matches.
-Why it matters:
-Large or slow browser downloads can still be in progress after one second, resulting in truncated or corrupted files moved into canonical storage.
-Suggested fix:
-Wait until the file is stable by checking size/mtime across intervals, ignore browser temp extensions, and optionally verify PDF readability before moving.
-Suggested test:
-Simulate a file that grows after creation and assert the watcher does not move it until stable.
-Related files/call sites:
-Downloader storage paths, paper PDF status updates.
-
-## Finding 14: `--verify` path depends on undeclared `langgraph`
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `src/agents/stats_agent.py:5`; `src/cli.py:4557-4560`; `pyproject.toml:11-39`; `requirements.txt:1`; `.github/workflows/agents-smoke.yml:33`
-Category: Testing
-Issue:
-The stats verification agent imports `langgraph`, but `langgraph` is not declared in normal project dependencies or requirements. CI installs it ad hoc in the agents smoke workflow.
-Evidence:
-`src/agents/stats_agent.py` imports `from langgraph.graph import StateGraph, END`; the CLI exposes `deepread --verify`; `rg` found no `langgraph` dependency in `pyproject.toml` or `requirements.txt`, only a workflow-local install.
-Why it matters:
-A normal install can succeed but fail or degrade when verification is requested. CI can miss this because it patches the environment manually.
-Suggested fix:
-Declare `langgraph` as a runtime dependency or a `verify` optional extra, and make CI install from that declared path.
-Suggested test:
-Create a clean venv, install the package with the documented verify extra, and run a minimal `paperpipe deepread --verify` import/smoke.
-Related files/call sites:
-`scripts/run_agents_smoke.sh`, `tests/` verification coverage.
-
-## Finding 15: Packaging installability test is not a clean installability proof
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `tests/test_packaging_entrypoints.py:121-127`; `tests/test_packaging_entrypoints.py:143-150`
-Category: Testing
-Issue:
-The “fresh venv” console-script test creates a venv with `--system-site-packages` and installs the wheel with `--no-deps`.
-Evidence:
-The test includes `--system-site-packages` during venv creation and passes `--no-deps` to `pip install`.
-Why it matters:
-The test can pass because the developer/CI environment already has dependencies, not because the wheel metadata can install in a clean environment.
-Suggested fix:
-Create an isolated venv without system site packages, install the wheel with dependencies from declared metadata, and run `paperpipe --help` plus a minimal import smoke.
-Suggested test:
-Update the existing test to use the clean install flow and fail if package metadata omits a required dependency.
-Related files/call sites:
-`pyproject.toml`, README install instructions, CI packaging jobs.
-
-## Finding 16: macOS release preflight accepts invalid artifacts as ready
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `scripts/release_macos_personal_runtime.py:339-343`; `tests/test_release_macos_personal_runtime.py:34-53`
-Category: Reliability
-Issue:
-Release preflight checks only whether expected artifact paths exist, and the test proves readiness with plain text files standing in for an app bundle and binary.
-Evidence:
-`evaluate_release_preflight()` sets `app_bundle`, `cli_binary`, and `support_dir` readiness from `Path.exists()`. The test writes `"bundle"` to the app bundle path and `"binary"` to the CLI path, then asserts `local_release_ready is True`.
-Why it matters:
-Prereq reports can call invalid release artifacts “ready,” delaying failure until codesign, packaging, or user launch.
-Suggested fix:
-Require `dist/Lattice.app` to be a directory with `Contents/MacOS/Lattice`, require `dist/lattice` to be executable, and validate support directory contents.
-Suggested test:
-Update tests to use a realistic bundle skeleton and add negative cases for file-not-directory and non-executable binary.
-Related files/call sites:
-macOS packaging docs, release scripts, CI release checks.
-
-## Finding 17: API error and write-response contracts are inconsistent with the canonical spec
-
-Severity: P2
-Confidence: High
-Status: Confirmed
-File/line: `docs/Lattice_v3_Master_Spec.md:373-376`; `backend/main.py:917-932`; `backend/main.py:5407-5412`; `backend/main.py:5675-5680`; `backend/routers/feedback.py:35-36`; `backend/routers/artifact_generation_outcomes.py:25-26`; `backend/routers/meeting_packs.py:149-150`; `backend/routers/protocol_cards.py:242-243`
-Category: Maintainability
-Issue:
-The canonical spec says errors use `{error_code, message, trace_id, details?}`, but exception handlers emit `{"detail": ...}` and route failures mix strings with structured objects. Several mutation routes also return ad-hoc dicts without response models.
-Evidence:
-Global HTTP and validation handlers return top-level `detail`. Some route errors put structured objects inside `detail`, while others use plain strings. Multiple write endpoints accept Pydantic request bodies but have no `response_model` or return annotation.
-Why it matters:
-Clients and generated SDKs must handle multiple incompatible envelopes, and schema drift is easy because OpenAPI cannot lock the write-response shapes.
-Suggested fix:
-Introduce shared `ErrorResponse` and write-ack schemas under `src/schemas/`, normalize exception handlers, and declare `response_model=` on mutation routes. Keep legacy `detail` temporarily if compatibility requires it.
-Suggested test:
-Add contract tests for 404, 409 duplicate job, 429 queue full, 422 validation, and mutation-route success responses.
-Related files/call sites:
-`src/schemas/ops.py`, frontend API error handling, OpenAPI consumers.
-
-## Finding 18: Restore drill validates too little operational state by default
+## Finding 14: Research DNA backend routes appear API-only in the current frontend shell
 
 Severity: P3
-Confidence: High
-Status: Confirmed
-File/line: `scripts/check_sqlite_restore_drill.py:13-14`
-Category: Testing
-Issue:
-The default restore drill requires only the `papers` table.
-Evidence:
-`DEFAULT_REQUIRED_TABLES = ("papers",)`.
-Why it matters:
-A backup missing jobs, execution runs, job events, or review queue state can pass the default restore drill even though run history and operational recovery would be incomplete.
-Suggested fix:
-Expand the default required table set to include core canonical and operational tables such as `papers`, `jobs`, `execution_runs`, `job_events`, and `review_queue`.
-Suggested test:
-Use a fixture backup missing one operational table and assert the default drill fails.
+Confidence: Medium
+Status: Needs verification
+Category: Disconnected code
+File/line:
+`backend/main.py:4711`; `backend/main.py:5304`; `frontend/src/App.tsx:84`
 Related files/call sites:
-Backup/restore docs and operational runbooks.
+`src/profiles/research_dna_service.py`; `tests/test_research_dna_api.py`
+Issue:
+Research DNA has many registered backend routes but no corresponding React route in the current app shell.
+Evidence:
+FastAPI route listing includes `/research-dna...`; `App.tsx` routes cover triage, papers, workbench, artifact pages, and readiness only.
+Why it matters:
+If Research DNA is intended as user-facing in this frontend, the UI route is missing.
+Suggested fix:
+Clarify whether the feature is API-only. If product-facing, add route and navigation entry.
+Suggested test:
+Frontend route reachability/e2e smoke for the Research DNA flow.

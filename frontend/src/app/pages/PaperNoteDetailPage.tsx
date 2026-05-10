@@ -2769,6 +2769,13 @@ function OperatorStatePanel({
             {operatorState.updated_at ? <Badge variant="outline">updated {formatDateTime(operatorState.updated_at)}</Badge> : null}
           </div>
 
+          <div
+            data-testid="paper-note-operator-scope-note"
+            className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3 text-xs text-[var(--pp-text-secondary)]"
+          >
+            Stars, triage labels, and this private note help you reopen papers from lists and Home. They do not change saved claims, evidence, or review state.
+          </div>
+
           <label className="grid gap-2">
             <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--pp-text-dim)]">Paper-level note</span>
             <textarea

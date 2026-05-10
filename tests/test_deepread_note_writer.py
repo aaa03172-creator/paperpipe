@@ -17,6 +17,11 @@ from src.schemas.claimset_coverage import (
     ClaimsetCoverageSidecar,
     ClaimsetCoverageTopicSignal,
 )
+from src.schemas.claimset_coverage_focus import (
+    ClaimsetCoverageFocusMetrics,
+    ClaimsetCoverageFocusSidecar,
+    ClaimsetCoverageFocusTarget,
+)
 from src.schemas.visual_evidence import (
     VisualEvidenceLedger,
     VisualEvidenceMetrics,
@@ -186,6 +191,111 @@ def test_build_deepread_markdown_omits_coverage_block_for_pass():
     md = build_deepread_markdown("llama3:latest", claimset, coverage=coverage)
 
     assert "### Coverage Review" not in md
+
+
+def test_build_deepread_markdown_renders_coverage_focus_candidates_as_advisory():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="mechanism",
+                statement="Existing claims undercovered the review scope.",
+                confidence=0.86,
+            )
+        ],
+    )
+    coverage_focus = ClaimsetCoverageFocusSidecar(
+        paper_id="paper-1",
+        doc_id="doc1",
+        run_id="run-1",
+        generated_at=datetime.now(timezone.utc),
+        focus_status="generated",
+        reason="heuristic_fallback_used",
+        targets=[
+            ClaimsetCoverageFocusTarget(
+                key="regulatory_acceptance",
+                label="Regulatory acceptance",
+                keywords=["regulatory", "acceptance"],
+                page_ranges=["4-6"],
+            )
+        ],
+        metrics=ClaimsetCoverageFocusMetrics(
+            target_count=1,
+            generated_claim_count=1,
+            evidence_span_count=1,
+            grounded_span_count=1,
+        ),
+        candidate_claimset=ClaimSet(
+            doc_id="doc1",
+            claims=[
+                ScientificClaim(
+                    claim_id="CLM-COV-001",
+                    type="context",
+                    statement="Regulatory acceptance remains a major barrier for NAM adoption.",
+                    confidence=0.72,
+                    evidence_spans=[
+                        EvidenceSpan(
+                            raw_text="Regulatory acceptance remains a central barrier for NAM adoption.",
+                            page=5,
+                            section="Regulatory considerations",
+                        )
+                    ],
+                    limitations=["Review candidate; not promoted into the canonical claimset."],
+                ),
+                ScientificClaim(
+                    claim_id="CLM-COV-002",
+                    type="context",
+                    statement="A dangling extraction fragment without final punctuation",
+                    confidence=0.55,
+                ),
+            ],
+        ),
+        recommended_next_action="review_candidates_before_promoting_claims",
+    )
+
+    md = build_deepread_markdown("llama3:latest", claimset, coverage_focus=coverage_focus)
+
+    assert "### Coverage Focus Candidates" in md
+    assert "- **Gate**: Advisory only; review before promotion" in md
+    assert "- **Status**: GENERATED" in md
+    assert "- **Candidates**: 1 for 1 undercovered targets" in md
+    assert "- **Targets**: Regulatory acceptance" in md
+    assert "#### Candidate 1. Regulatory acceptance remains a major barrier for NAM adoption." in md
+    assert "- **Candidate ID**: CLM-COV-001" in md
+    assert "CLM-COV-002" not in md
+    assert "dangling extraction fragment" not in md
+    assert "Regulatory considerations" in md
+    assert "Review candidate; not promoted into the canonical claimset." in md
+
+
+def test_build_deepread_markdown_omits_coverage_focus_block_when_no_candidates():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="mechanism",
+                statement="Existing claims are sufficient.",
+                confidence=0.91,
+            )
+        ],
+    )
+    coverage_focus = ClaimsetCoverageFocusSidecar(
+        paper_id="paper-1",
+        doc_id="doc1",
+        run_id="run-1",
+        generated_at=datetime.now(timezone.utc),
+        focus_status="skipped",
+        reason="no_actionable_targets",
+        metrics=ClaimsetCoverageFocusMetrics(target_count=0, generated_claim_count=0),
+        candidate_claimset=ClaimSet(doc_id="doc1", claims=[]),
+        recommended_next_action="none",
+    )
+
+    md = build_deepread_markdown("llama3:latest", claimset, coverage_focus=coverage_focus)
+
+    assert "### Coverage Focus Candidates" not in md
 
 
 def test_build_deepread_markdown_can_include_bounded_clinical_extraction_block():

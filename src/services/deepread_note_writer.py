@@ -3,6 +3,7 @@ import re
 from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
 from src.schemas.claimset_coverage import ClaimsetCoverageSidecar
+from src.schemas.claimset_coverage_focus import ClaimsetCoverageFocusSidecar
 from src.schemas.visual_evidence import VisualEvidenceLedger
 
 
@@ -102,12 +103,17 @@ def build_deepread_markdown(
     clinical_md: str = "",
     coverage: ClaimsetCoverageSidecar | None = None,
     visual_evidence: VisualEvidenceLedger | None = None,
+    coverage_focus: ClaimsetCoverageFocusSidecar | None = None,
 ) -> str:
     md_output = f"{DEEPREAD_HEADER}\n"
     md_output += f"**Analyzed via {model_name}**\n\n"
     coverage_md = build_coverage_review_markdown(coverage)
     if coverage_md:
         md_output += coverage_md
+
+    coverage_focus_md = build_coverage_focus_candidates_markdown(coverage_focus)
+    if coverage_focus_md:
+        md_output += coverage_focus_md
 
     if clinical_md:
         md_output += clinical_md
@@ -202,6 +208,54 @@ def build_coverage_review_markdown(coverage: ClaimsetCoverageSidecar | None) -> 
     parts.append(f"- **Evidence Grounding**: {coverage.evidence_summary.grounded_ratio:.0%} grounded")
     parts.append(f"- **Recommended Next Action**: {coverage.recommended_next_action.replace('_', ' ')}")
     return "\n".join(parts) + "\n\n"
+
+
+def build_coverage_focus_candidates_markdown(coverage_focus: ClaimsetCoverageFocusSidecar | None) -> str:
+    if coverage_focus is None or not coverage_focus.candidate_claimset.claims:
+        return ""
+
+    display_claims = [
+        claim for claim in coverage_focus.candidate_claimset.claims if _looks_complete_statement(claim.statement)
+    ]
+    if not display_claims:
+        return ""
+
+    target_labels = [target.label for target in coverage_focus.targets if target.label]
+    parts = [
+        "### Coverage Focus Candidates",
+        "- **Gate**: Advisory only; review before promotion",
+        f"- **Status**: {coverage_focus.focus_status.upper()}",
+        (
+            f"- **Candidates**: {len(display_claims)} "
+            f"for {coverage_focus.metrics.target_count} undercovered targets"
+        ),
+    ]
+    if target_labels:
+        parts.append(f"- **Targets**: {', '.join(target_labels[:4])}")
+    if coverage_focus.reason:
+        parts.append(f"- **Reason**: {coverage_focus.reason.replace('_', ' ')}")
+    parts.append(f"- **Recommended Next Action**: {coverage_focus.recommended_next_action.replace('_', ' ')}")
+
+    for i, claim in enumerate(display_claims[:6], 1):
+        parts.append(f"#### Candidate {i}. {claim.statement}")
+        parts.append(f"- **Candidate ID**: {claim.claim_id}")
+        parts.append(f"- **Type**: {claim.type}")
+        parts.append(f"- **Confidence**: {claim.confidence}")
+        if claim.evidence_spans:
+            span = claim.evidence_spans[0]
+            evidence_text = _format_evidence_text_for_display(span.quote if span.quote else span.raw_text)
+            section_name = span.section if span.section else "Page " + str(span.page)
+            parts.append(f"- **Evidence**: \"{_truncate_inline(evidence_text, 240)}\" (Section: {section_name})")
+        if claim.limitations:
+            parts.append(f"- **Limitations**: {', '.join(claim.limitations)}")
+    if len(display_claims) > 6:
+        omitted = len(display_claims) - 6
+        parts.append(f"- Additional coverage focus candidates omitted from note replay: {omitted}")
+    return "\n".join(parts) + "\n\n"
+
+
+def _looks_complete_statement(statement: str) -> bool:
+    return str(statement or "").strip().endswith((".", "?", "!"))
 
 
 def _truncate_inline(value: str, limit: int) -> str:

@@ -334,6 +334,9 @@ test("paper note operator markers surface in mock list filters and detail panels
 
   const operatorPanel = page.getByTestId("paper-note-operator-panel");
   await expect(operatorPanel).toContainText("Keep paper-level judgment separate");
+  await expect(operatorPanel.getByTestId("paper-note-operator-scope-note")).toContainText(
+    "They do not change saved claims, evidence, or review state.",
+  );
   await expect(operatorPanel.getByTestId("paper-note-operator-badge-note")).toContainText("My note");
   await expect(operatorPanel.getByTestId("paper-note-operator-badge-needs_verification")).toContainText(
     "Needs verification",

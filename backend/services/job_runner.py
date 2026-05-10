@@ -1722,6 +1722,7 @@ async def run_deepread_job(
             logger.warning("Failed to build claimset_coverage sidecar: %s", exc)
             bootstrap_meta["artifact_claimset_coverage_written"] = False
             bootstrap_meta["claimset_coverage_error"] = str(exc)
+        coverage_focus = None
         bootstrap_meta["artifact_claimset_coverage_focus_written"] = False
         if claimset_coverage is not None and claimset_coverage.coverage_status in {"warn", "fail"}:
             try:
@@ -2007,6 +2008,7 @@ async def run_deepread_job(
                     clinical_md=clinical_md,
                     coverage=claimset_coverage,
                     visual_evidence=visual_evidence_ledger,
+                    coverage_focus=coverage_focus,
                 )
                 note_content = note_path.read_text(encoding="utf-8")
                 note_updated = upsert_deepread_section(note_content, deepread_md)
