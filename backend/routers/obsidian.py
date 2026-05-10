@@ -19,6 +19,7 @@ from src.schemas.ops import (
     ObsidianMirrorStatCheck,
 )
 from src.services.event_log import log_user_action
+from src.services.identity import paper_id_candidate_ids
 from src.services.path_masking import is_path_masking_enabled, mask_local_path
 from src.services.runtime_paths import artifact_run_dir
 import yaml
@@ -35,23 +36,7 @@ def _best_effort_log_user_action(*, paper_id: str | None, action_type: str, sour
 
 
 def _paper_route_candidate_ids(paper_id: str) -> list[str]:
-    text = str(paper_id or "").strip()
-    if not text:
-        return []
-
-    candidates: list[str] = []
-
-    def _append(value: str) -> None:
-        candidate = value.strip()
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-
-    _append(text)
-    if text.startswith("zotero:"):
-        _append(text.split(":", 1)[1].strip())
-    elif ":" not in text:
-        _append(f"zotero:{text}")
-    return candidates
+    return paper_id_candidate_ids(paper_id)
 
 class SyncRequest(BaseModel):
     paper_id: str

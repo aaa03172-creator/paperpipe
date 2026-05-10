@@ -284,6 +284,19 @@ def test_meeting_pack_source_resolver_loads_project_note_links(tmp_path: Path) -
     assert [source.structured_state.paper_slug for source in bundle.sources] == [slug]
 
 
+def test_meeting_pack_source_resolver_rejects_escaping_note_selector(tmp_path: Path) -> None:
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir(parents=True, exist_ok=True)
+    outside_note = tmp_path / "outside.md"
+    outside_note.write_text("# Outside\n\nSee [[paper-alpha]].\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        resolve_meeting_pack_sources(
+            vault_path=vault_path,
+            source_selectors=[MeetingPackSourceSelector(type="project_note", ref="../outside.md")],
+        )
+
+
 def test_meeting_pack_source_resolver_loads_paper_note_by_own_slug_when_unlinked(tmp_path: Path) -> None:
     vault_path = tmp_path / "vault"
     slug = "wenzelShortchainFattyAcids2020"
