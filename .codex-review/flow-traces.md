@@ -41,7 +41,7 @@ Frontend calls `/api/jobs` -> middleware rewrites to `/jobs` -> middleware injec
 Data path:
 Protected backend JSON returned to caller.
 Auth/permission checks, if relevant to the flow:
-Root `/jobs` without key returns 401; `/api/jobs` receives injected key at `backend/main.py:1252`.
+Root `/jobs` without key returns 401; bridged `/api/jobs` now requires caller auth or a trusted browser/UI request before backend key injection.
 External dependencies:
 None.
 Database reads/writes:
@@ -49,16 +49,16 @@ Reads `jobs`.
 Config or feature flags:
 `LATTICE_API_KEY`, beta auth, CORS/origin checks.
 Error handling:
-Unauthorized root route returns JSON error; bridged route can succeed without caller credential.
+Unauthorized root and untrusted bridged routes return JSON errors; trusted UI/browser bridge requests can proceed.
 Tests found:
-`tests/test_api_key_auth.py:1246` intentionally verifies bridge success.
+`tests/test_api_key_auth.py` covers unauthenticated `/api/*` private-route behavior and trusted bridge success.
 Missing or suspicious connections:
-No proof the caller is the trusted UI shell for GET requests; write origin check is present but can be satisfied with allowed origin header.
+Resolved in the working tree: bridge key injection is gated by trusted UI/browser or caller auth checks.
 Potential conflicts:
-Protected root routes vs server-side API-key injection on bridged routes.
-Conclusion: Broken
+Previously protected root routes conflicted with unconditional server-side API-key injection on bridged routes.
+Conclusion: Working after fix
 Evidence:
-Local probe with `LATTICE_API_KEY=secret-key`: `GET /jobs` returned 401, while `GET /api/jobs` returned 200.
+The initial local probe with `LATTICE_API_KEY=secret-key` showed `GET /jobs` returned 401 while `GET /api/jobs` returned 200. Current bridge behavior is covered by API-key auth regression tests and backend smoke.
 
 ## Flow: Deep Read enqueue to worker completion
 
@@ -79,16 +79,16 @@ Database reads/writes:
 Config or feature flags:
 LLM/ingest/parser/cloud flags, queue limits, persona/profile selection.
 Error handling:
-Worker maps runner `succeeded` to completed; otherwise failed/cancelled. Runner writes failure metadata but worker only stores `artifact_dir` on success unless result carries it.
+Worker maps runner `succeeded` to completed; otherwise failed/cancelled. The runner now returns created `artifact_dir` values for failed/cancelled results, and the worker persists them on failed/cancelled job updates.
 Tests found:
 `tests/test_worker_job_runner_chain.py`, `tests/test_jobs_api_smoke.py`, `tests/test_worker_heartbeat.py`.
 Missing or suspicious connections:
-Failure artifact directory can be orphaned from `jobs.artifact_dir`.
+Failure artifact directory persistence was suspicious during the initial review and is resolved in the working tree.
 Potential conflicts:
-Cloud table fallback lacks privacy preflight lane metadata.
+Cloud table fallback privacy preflight was suspicious during the initial review and is resolved in the working tree.
 Conclusion: Probably working
 Evidence:
-Targeted worker/API suite passed: `85 passed, 7 warnings`; failure-path artifact discoverability remains a P2 risk.
+Targeted worker/API suite passed: `85 passed, 7 warnings`; later targeted and full-suite checks passed after the failure-path artifact persistence fix.
 
 ## Flow: Job events and timeline
 
@@ -173,12 +173,12 @@ Schema validation and route 404/400 for load failures.
 Tests found:
 `tests/test_image_evidence_api.py`, `tests/test_image_evidence_service.py`, `tests/test_image_evidence_store.py`.
 Missing or suspicious connections:
-Caller-provided `image_evidence_id` is not constrained before path composition.
+Resolved in the working tree: caller-provided `image_evidence_id` is validated before filesystem path composition.
 Potential conflicts:
-Store root boundary is not enforced for ID path segments.
-Conclusion: Broken
+Previously the store root boundary was not enforced for ID path segments.
+Conclusion: Working after fix
 Evidence:
-Local reproduction wrote `/tmp/paperpipe-image-root-proof-outside/escape/image_evidence.json` using request ID `../paperpipe-image-root-proof-outside/escape`.
+Initial reproduction wrote `/tmp/paperpipe-image-root-proof-outside/escape/image_evidence.json` using request ID `../paperpipe-image-root-proof-outside/escape`. Current schema/store validation rejects path-like IDs and targeted image evidence tests pass.
 
 ## Flow: Protocol attachment draft to protocol card
 
@@ -229,16 +229,16 @@ Database reads/writes:
 Config or feature flags:
 Downloads/library/watch folder config.
 Error handling:
-Unmatched enqueue failure is swallowed and status still reports `unmatched`.
+Unmatched handling ensures the sentinel paper row before queue insertion and move events use the same processing path.
 Tests found:
 `tests/test_downloads_watcher.py`.
 Missing or suspicious connections:
-No `on_moved` handler for temp-file rename; sentinel unmatched queue row violates FK-backed canonical schema.
+Resolved in the working tree: `on_moved` handles temp-file rename completion, and unmatched sentinel queue writes satisfy the canonical FK schema.
 Potential conflicts:
-`review_queue.paper_id` FK vs `__UNMATCHED__` sentinel.
-Conclusion: Broken
+Previously `review_queue.paper_id` FK conflicted with the `__UNMATCHED__` sentinel.
+Conclusion: Working after fix
 Evidence:
-Subagent reproduction with canonical schema: `status=unmatched`, `review_queue_count=0`, FK failure.
+Initial canonical-schema reproduction showed `status=unmatched`, `review_queue_count=0`, and an FK failure. Current downloads watcher tests cover unmatched persistence and move-event handling.
 
 ## Flow: Meeting/method/chart/protocol/talk artifact pages
 
@@ -291,14 +291,14 @@ Artifact root/runtime path config.
 Error handling:
 Missing or invalid artifact paths return 404/400 depending on helper.
 Tests found:
-Artifact route tests exist, but no confirmed test for slash-bearing paper IDs on these exact routes.
+Artifact route tests cover slash-bearing paper IDs and ambiguous route recovery.
 Missing or suspicious connections:
-Slash-bearing paper IDs can be consumed by the earlier file route before the run-bundle route can match.
+Resolved in the working tree: ambiguous slash-bearing artifact URLs recover to the intended bundle/file lookup.
 Potential conflicts:
-`{paper_id:path}` is non-final in both routes; `src/services/identity.py:95` indicates slash-bearing IDs need canonical artifact segments.
-Conclusion: Broken
+Previously `{paper_id:path}` was non-final in both routes and could shadow bundle lookup for slash-bearing IDs.
+Conclusion: Working after fix
 Evidence:
-A route-matching probe showed `/artifacts/foo/bar/run1` maps to the file route as `paper_id=foo`, `run_id=bar`, `artifact_name=run1`, not to a run route for `paper_id=foo/bar`.
+Initial route-matching probe showed `/artifacts/foo/bar/run1` mapped to the file route as `paper_id=foo`, `run_id=bar`, `artifact_name=run1`. Current artifact route tests and backend smoke pass with the recovery behavior.
 
 ## Flow: Feedback submit/index and backend import
 
@@ -307,9 +307,9 @@ Serve feedback retrieval/index endpoints without making unrelated startup checks
 Entry point:
 `backend/routers/feedback.py`
 Call path:
-`backend.main` imports feedback router -> module-level `feedback_retriever = FeedbackRetriever()` -> `OllamaModelAdapter` -> `OllamaProvider`.
+`backend.main` imports feedback router -> feedback retriever lazy proxy -> provider initializes only on route use.
 Data path:
-Feedback route dependencies are constructed before any request data exists.
+Feedback route dependencies are constructed without triggering provider network discovery during import.
 Auth/permission checks, if relevant to the flow:
 Feedback API route auth not deeply traced; issue occurs before request auth.
 External dependencies:
@@ -319,16 +319,16 @@ Not reached during import side effect.
 Config or feature flags:
 LLM/Ollama provider config.
 Error handling:
-Provider initialization attempts network discovery during import; import-health/default probes can time out if unavailable.
+Provider initialization is deferred; import-health/default probes no longer require Ollama availability.
 Tests found:
-`tests/test_feedback_api.py` and `tests/test_python_import_health.py`; import-health tests use harmless probes rather than default backend probes.
+`tests/test_feedback_api.py` and `tests/test_python_import_health.py`; import-health now exercises default backend probes.
 Missing or suspicious connections:
-Provider should be connected on route use, not backend import.
+Resolved in the working tree: provider is connected on route use, not backend import.
 Potential conflicts:
-Import-health defaults include `backend.main`, but backend import attempts Ollama network initialization.
-Conclusion: Broken
+Previously import-health defaults included `backend.main`, while backend import attempted Ollama network initialization.
+Conclusion: Working after fix
 Evidence:
-Route listing/import emitted an Ollama `GET http://localhost:11434/api/tags` request.
+Initial route listing/import emitted an Ollama `GET http://localhost:11434/api/tags` request. Current import-health tests and backend smoke pass with lazy initialization.
 
 ## Flow: Research DNA API
 
@@ -351,11 +351,41 @@ Provider/source config.
 Error handling:
 Routes catch exceptions in several places but not exhaustively traced.
 Tests found:
-`tests/test_research_dna_api.py`, related service/store tests.
+`tests/test_research_dna_api.py`, `tests/test_research_dna_service.py`, `tests/test_research_dna_store.py`, `tests/test_research_dna_projection.py`.
 Missing or suspicious connections:
-No frontend route found in current `App.tsx`.
+No frontend route found in current `App.tsx`; README and CLI workflow docs mark Research DNA as an API/CLI operator lane rather than a dedicated frontend viewer route.
 Potential conflicts:
-Needs deeper verification for frontend reachability if intended as user-facing.
-Conclusion: Needs verification
+Live fetch/ranking providers were not exercised; frontend reachability should only be revisited if the product contract changes from API/CLI lane to web viewer surface.
+Conclusion: Probably working
 Evidence:
-Backend route registrations exist; review did not fully trace every research DNA subflow.
+Backend route registrations exist, docs define Research DNA as API/CLI-only, and `pytest -q tests/test_research_dna_api.py tests/test_research_dna_service.py tests/test_research_dna_store.py tests/test_research_dna_projection.py` passed with `28 passed`.
+
+## Flow: Operational markdown and claimset backfill
+
+Purpose:
+Find approved/indexed papers missing Obsidian markdown exports or claimset artifacts, then optionally run exporter and/or enqueue Deep Read backfill jobs.
+Entry point:
+`scripts/backfill_operational_outputs.py:150`
+Call path:
+Operator command -> `main()` -> `get_db_connection()` -> `_paper_rows()` -> `collect_backfill_candidates()` -> `_note_exists()` / `_has_valid_claimset()` / `_has_claimset_artifact()` -> optional `run_export(overwrite=False)` and `JobQueue.enqueue()`.
+Data path:
+SQLite `papers` rows provide `paper_id`, `title`, `feedback_json`, `pdf_path`, and `obsidian_path`; Obsidian vault path comes from config; artifact existence comes from storage artifact helpers; optional actions write markdown via exporter or enqueue DB-backed jobs.
+Auth/permission checks, if relevant to the flow:
+No request auth; this is a local operator script. Apply mode requires explicit flags such as `--apply`, `--confirm-vault-backup`, and `--confirm-enqueue`.
+External dependencies:
+Local filesystem, Obsidian vault, SQLite DB, optional worker/job processing after enqueue.
+Database reads/writes:
+Reads `papers`; optional enqueue writes job rows; optional DB backup is written before apply actions.
+Config or feature flags:
+Obsidian vault path from `load_config()`, DB path from runtime DB helper, command flags for apply/export/enqueue/backup/fixture inclusion.
+Error handling:
+Dry-run by default; apply mode creates a DB backup before actions. Missing backup confirmations stop export/enqueue apply modes.
+Tests found:
+`tests/test_backfill_operational_outputs.py`, including an escaping stored `obsidian_path` regression case.
+Missing or suspicious connections:
+Resolved in the working tree: `_note_exists()` now uses `resolve_vault_relative_path()` and treats escaping stored note paths as missing.
+Potential conflicts:
+Previously conflicted with the runtime vault-note-path confinement pattern used by exporter, job runner, CLI workflow, Obsidian status, and Meeting Pack note selectors.
+Conclusion: Working after fix
+Evidence:
+`scripts/backfill_operational_outputs.py:19` imports `resolve_vault_relative_path`; `scripts/backfill_operational_outputs.py:70` resolves the stored or expected note path through that helper; `scripts/backfill_operational_outputs.py:71` treats invalid/escaping paths as missing. `tests/test_backfill_operational_outputs.py:63` covers `obsidian_path="../outside.md"` with an existing outside file.
