@@ -968,10 +968,3 @@ def reconcile_approved_decisions(dry_run: bool = True) -> Dict[str, Any]:
         "candidate_count": len(candidates),
         "updated_count": updated,
     }
-    
-def log_workflow_step(paper_id: str, step: str, message: str, level: str = "INFO"):
-    """
-    Optional: Log major workflow steps to a separate table or just standard logging.
-    For now, we use standard logging, but this is a placeholder for DB logging.
-    """
-    pass # Implementation future

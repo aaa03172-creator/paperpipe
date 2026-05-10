@@ -20,7 +20,7 @@ Still open:
 - Existing local Chroma data initially needed rebuild/migration: read-only audit found 15,846 unversioned vectors and 229 chunk-locator vector IDs in `./storage/rag/`.
 - Dry-run rebuild plan found 130 latest document-artifact candidates totaling 13,171 chunks. The approved apply rebuilt those 13,171 backed-by-artifact vectors and dropped stale/duplicate/no-longer-backed vectors from the local index.
 - The generated plan now includes all 130 candidate entries plus a 25-item sample, with repo-relative paths in `.codex-review/paper-pipeline-review/chroma-rebuild-dry-run-plan.json`.
-- Parser realism is still partial for multi-column papers, citations/references, tables/figures/captions, non-English/huge scanned PDFs, malformed PDFs, and large real fixtures.
+- Parser realism is still partial for multi-column papers, citations/references, figures/captions, non-English/huge scanned PDFs, and very large real fixtures. Table extraction now carries explicit source refs, extraction method, confidence, and provenance notes.
 - Stale running job recovery, cancellation inside long phases, cloud fallback payload enforcement, and lifecycle status semantics remain open findings.
 
 ## 1. Executive summary
@@ -33,8 +33,8 @@ Overall risk level: Medium-High after targeted fixes
 - What is extracted? Metadata, page/block text, tables, chunks/embeddings, claimsets/evidence spans, figure-caption sidecars, visual/evidence bundles, optional clinical extraction, optional stats verification.
 - Where is extracted data stored? SQLite stores canonical paper/job/run state; run directories store parsed/extracted artifacts; Chroma stores vectors; Obsidian `.pp/<slug>/state.json` stores promoted structured note state.
 - Which downstream features use it? Paper Notes, Workbench, artifact APIs, paper synthesis, method comparison, meeting packs, visual evidence, and review/gate artifacts.
-- Which parts are broken, partially wired, or need verification? New vector IDs, clean reindex, local Chroma rebuild, new DOI writes, import rollback, obvious section-heading parsing, and import-response typing have been hardened. Parser realism/provenance, stale job recovery, production/remote vector stores, and cancellation still need fixes or verification.
-- Top 5 remaining risks: weak real-world PDF fixture coverage; parser provenance limits for tables/figures/references; stale running job recovery; lifecycle status semantics; production/remote Chroma stores not audited by this local rebuild.
+- Which parts are broken, partially wired, or need verification? New vector IDs, clean reindex, local Chroma rebuild, new DOI writes, import rollback, obvious section-heading parsing, table provenance fields, and import-response typing have been hardened. Metadata/figure/reference provenance, stale job recovery, production/remote vector stores, and cancellation still need fixes or verification.
+- Top 5 remaining risks: weak real-world PDF fixture coverage; parser provenance limits for metadata/figures/references; stale running job recovery; lifecycle status semantics; production/remote Chroma stores not audited by this local rebuild.
 
 ## 2. Scope reviewed
 
@@ -56,7 +56,7 @@ Live worker behavior, production/remote Chroma contents beyond local `./storage/
 |---|---|---|---|---|---|
 | Manual PDF import | `/paper-notes/import-pdf` | `paper_notes.py`, `api.ts` | Working for tested rollback/dedupe paths | Medium | Existing duplicate DOI rows need policy |
 | Deep Read enqueue | `/jobs/deepread` | `main.py`, `queue.py`, `worker.py` | Working | Medium | Worker must run; stale jobs manual |
-| PDF parse | `IngestAgent.process_v2` | `ingest_agent.py`, `parser_backends.py` | Partially working | Medium-High | Obvious headings split; weak metadata/provenance remains |
+| PDF parse | `IngestAgent.process_v2` | `ingest_agent.py`, `parser_backends.py` | Partially working | Medium | Obvious headings split and table provenance added; metadata/figure/reference provenance remains weak |
 | Index/chunk | `IndexerAgent.process` | `indexer_agent.py` | Working locally after rebuild | Medium | Production/remote Chroma stores still need the same audit/rebuild |
 | Claim extraction | `ReaderAgent.analyze` | `reader_agent.py`, `citation_grounding.py` | Probably working | Medium | Depends on parser and chunk correctness |
 | Downstream state | `promote_deepread_structured_state_for_note` | `deepread_state_projection.py` | Probably working | Medium | Best-effort note promotion |
@@ -72,14 +72,14 @@ Schema/type mismatches:
 
 Storage risks:
 - Existing local Chroma vector rebuild/migration: completed locally; initial audit found 15,846 unversioned vectors and 229 chunk-locator vector IDs, apply rebuilt 13,171 scoped vectors.
-- Remaining table/figure/reference provenance gaps.
+- Remaining metadata/figure/reference provenance gaps; table extraction provenance is improved but captions can still be synthetic.
 
 Idempotency/retry risks:
 - Stale running jobs block retries until manual reclaim.
 
 Provenance/versioning gaps:
 - Good run-level SHA/config/parser provenance.
-- Weak semantic section/reference/table-caption provenance.
+- Weak metadata/reference/figure-caption provenance; table provenance now records source ref, method, confidence, and limitations.
 - No clear paper-row parser version/latest extraction state.
 
 ## 5. Parsing and extraction summary
@@ -94,7 +94,7 @@ Parser/extractor components:
 - Figure captions: caption-only, no image extraction.
 
 Known limitations:
-Default parser now identifies obvious standalone Abstract/Methods/Results-style headings. References/citations are not structured; default table captions are synthetic; figures are not visually parsed. Synthetic parser fixtures now cover born-digital academic layout, malformed/corrupted PDFs, mocked scanned/OCR recovery, generated image-only scanned PDF real OCR round trip, a 24-page large PDF, and DB-resolved import-to-parser continuity. Non-English/huge scanned OCR remains weak.
+Default parser now identifies obvious standalone Abstract/Methods/Results-style headings. Tables now carry additive provenance fields (`source_ref`, extraction method, confidence, and provenance note) through V1/V2 artifacts, including low-confidence markers for markdown/cloud fallbacks. References/citations are not structured; default table captions can still be synthetic; figures are not visually parsed. Synthetic parser fixtures now cover born-digital academic layout, malformed/corrupted PDFs, mocked scanned/OCR recovery, generated image-only scanned PDF real OCR round trip, a 24-page large PDF, and DB-resolved import-to-parser continuity. Non-English/huge scanned OCR remains weak.
 
 ## 6. Wiring and integration summary
 
@@ -145,7 +145,7 @@ See `.codex-review/paper-pipeline-review/findings.md`.
 Highest priority findings:
 1. Production/remote Chroma copies, if any, have not been audited or rebuilt.
 2. Metadata extraction depends on weak PDF metadata.
-3. Table/figure/reference provenance remains partial.
+3. Metadata/figure/reference provenance remains partial.
 4. Stale running jobs require manual recovery.
 5. Paper lifecycle status semantics remain unclear.
 
@@ -171,6 +171,11 @@ Commands run:
 - `git diff --check -- scripts/rebuild_vector_index.py tests/test_rebuild_vector_index_script.py .codex-review/paper-pipeline-review`
 - `pytest -q tests/test_ingest_parser_backend.py`
 - `pytest -q tests/test_ingest_parser_backend.py tests/test_rebuild_vector_index_script.py tests/test_vector_index_rebuild_plan.py tests/test_indexer_agent_chunk_ids.py tests/test_worker_job_runner_chain.py`
+- `pytest -q tests/test_ingest_parser_backend.py tests/test_cloud_table_fallback.py`
+- `pytest -q tests/test_ocr_fallback.py tests/test_paper_notes_api.py::test_paper_notes_imported_pdf_resolves_to_parser_input tests/test_ingest_parser_backend.py tests/test_cloud_table_fallback.py tests/test_rebuild_vector_index_script.py tests/test_vector_index_rebuild_plan.py tests/test_indexer_agent_chunk_ids.py tests/test_worker_job_runner_chain.py`
+- `.venv/bin/python - <<'PY' ... IndexerAgent().audit_vector_index() ... PY`
+- `git diff --cached --check -- src/ingest/parser_backends.py src/ingest/cloud_table_fallback.py tests/test_cloud_table_fallback.py`
+- `git diff --check -- .codex-review/paper-pipeline-review/report.md .codex-review/paper-pipeline-review/extraction-map.md .codex-review/paper-pipeline-review/data-model-map.md .codex-review/paper-pipeline-review/findings.md`
 
 Results:
 - 105 passed, 6 warnings.
@@ -195,11 +200,16 @@ Results:
 - Import/parser/rebuild focused suite passed: 65 passed, 6 warnings.
 - Added a generated image-only scanned PDF fixture that runs real OCRmyPDF/Tesseract when installed, then verifies recovered text through `IngestAgent.process_v2`.
 - OCR/import/parser/rebuild focused suite passed: 68 passed, 6 warnings.
+- Added table provenance fields for V1/V2 artifacts and cloud fallback outputs; parser/cloud focused suite passed: 35 passed, 6 warnings.
+- OCR/import/parser/cloud/rebuild focused suite passed: 74 passed, 6 warnings.
+- Latest `.venv` Chroma audit remained clean: `total_vectors=13171`, `legacy_unscoped_count=0`, `unversioned_count=0`, `missing_doc_id_count=0`, `metadata_vector_id_mismatch_count=0`, and `vector_id_version_counts={"doc-scope-v1": 13171}`.
+- `git diff --check` passed for the latest staged code/test slice and review-artifact updates.
 
 Failures:
 - Direct route listing via system `python3` failed because that interpreter lacked `fastapi`.
 - `python - <<'PY' ...` failed because `python` is not installed on PATH; reran with `python3`.
 - Chroma audit with default Homebrew `python3` failed because that interpreter lacked `chromadb`; reran with the same Python 3.13 environment used by `pytest`.
+- Chroma audit with system `python3` failed because that interpreter lacked `chromadb`; reran with `.venv/bin/python`.
 - During preflight hardening, an early test path exposed a real safety bug: `IndexerAgent()` ignored the script's `--vector-root` and touched the default local Chroma path. The code was corrected so apply uses `IndexerAgent(persist_path=...)`, preflight validation now runs before backup/delete, and the local Chroma index was rebuilt successfully from artifacts afterward.
 
 Commands not run and why:
@@ -224,7 +234,7 @@ Sample fixtures inspected:
 ## 12. Recommended next actions
 
 1. Run the same audit/rebuild process for any production/remote Chroma store.
-2. Improve metadata/table/figure/reference provenance or explicitly mark low-confidence extraction.
+2. Improve metadata/figure/reference provenance and true table caption extraction.
 3. Harden stale job recovery and cancellation checks inside long phases.
 4. Add full worker artifact-production E2E for imported and scanned PDFs.
 5. Clarify remaining paper status lifecycle/type boundary.
