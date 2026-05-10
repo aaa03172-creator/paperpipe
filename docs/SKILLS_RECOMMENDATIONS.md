@@ -1,12 +1,12 @@
 # Skills Recommendations
 
-Status: Active recommendation note  
-Date: 2026-03-09  
-Owner: Skills maintainers  
-Canonical: `docs/SKILLS_RECOMMENDATIONS.md`  
-Canonical parent: `docs/SKILLS_AUDIT.md`
-
+Status: Historical recommendation note
 Date: 2026-03-09
+Owner: Skills maintainers
+Canonical: `docs/SKILLS_RECOMMENDATIONS.md`
+Canonical parent: `docs/SKILLS_AUDIT.md`
+Current entrypoint: `config/skills_policy.yaml`, `docs/SKILLS_PACKAGING_GUIDE.md`, and `AGENTS.md`
+Current use: historical recommendation context for scientific-skills adoption; do not treat as approval to copy, run, or expose a skill without the current policy and schema gates.
 
 ## Comparison Baseline
 

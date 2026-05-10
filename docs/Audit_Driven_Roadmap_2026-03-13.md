@@ -3,6 +3,8 @@
 Status: Execution roadmap derived from 2026-03-13 baseline audits  
 Date: 2026-03-13  
 Scope: repository baseline adoption, identity/pathing, event logging, output contract convergence, and citation grounding
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical roadmap context for the 2026-03 baseline split; do not use as the current implementation queue or runtime SSOT.
 
 ## 0. Purpose
 

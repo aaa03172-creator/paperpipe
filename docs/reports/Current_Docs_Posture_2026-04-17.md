@@ -2,6 +2,7 @@
 
 Status: active posture note
 Date: 2026-04-17
+Last reviewed: 2026-05-10
 Owner: Runtime/product maintainers
 Canonical parents:
 - `docs/Product_Positioning_Principles.md`
@@ -20,6 +21,11 @@ It is not:
 
 It exists to answer a smaller question:
 - which docs should someone read first to understand the current repo posture without mixing the 2026-03 first-product baseline with the later 2026-04 lane-triage and runtime-readiness work?
+
+2026-05-10 review note:
+- This note remains the current reading-order report.
+- Use `docs/README.md` for the document status vocabulary and hierarchy.
+- Treat this note as posture guidance, not as a runtime spec or permission to bundle unrelated dirty-tree work.
 
 ## Current judgment
 
@@ -120,6 +126,20 @@ If the goal is "clean up docs before more implementation", the safest order is:
    - personal-runtime packaging
 3. keep extraction/eval frozen unless that lane is explicitly chosen
 4. keep project-context and artifact-history work support-only unless a separate RFC changes that posture
+
+## Docs cleanup lane shape
+
+For the next small docs-refresh lane, prefer:
+
+1. update entrypoint maps and status vocabulary before touching individual historical docs
+2. add status or current-entrypoint notes to confusing docs before deleting or moving them
+3. separate docs-only governance cleanup from runtime/API/schema work
+4. run `python3 scripts/lint_docs.py` after doc moves, renames, or link-heavy edits
+
+Do not treat docs cleanup as permission to:
+- stage the whole dirty worktree
+- rewrite canonical specs opportunistically
+- move dated reports into archive without checking whether an entrypoint still references them
 
 ## Not current priorities
 

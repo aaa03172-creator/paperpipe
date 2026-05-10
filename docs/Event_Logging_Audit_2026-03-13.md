@@ -3,6 +3,8 @@
 Status: Working infrastructure audit  
 Date: 2026-03-13  
 Scope: runtime job execution logging, run timeline reconstruction, SSE job events, artifact meta snapshots, and adjacent log surfaces
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical event/logging audit evidence; do not treat as the current event contract or implementation queue without verifying active DB, worker, and API behavior.
 
 ## 0. Executive Summary
 

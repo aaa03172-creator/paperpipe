@@ -3,6 +3,8 @@
 Status: Working infrastructure audit  
 Date: 2026-03-13  
 Scope: ingest artifacts, index/claim artifacts, resolved claimset handling, paper notes structured state, and contract drift across runtime surfaces
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical output-contract audit evidence; do not use as the current artifact contract without checking the owning schemas, readers, writers, and active bounded specs.
 
 ## 0. Executive Summary
 

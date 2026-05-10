@@ -1,9 +1,32 @@
 # Documentation Map
 
 Status: Active
-Date: 2026-03-13
+Date: 2026-05-10
 Owner: Lattice runtime maintainers
 Purpose: keep a single reference map for specs, runbooks, templates, and historical records.
+
+## How to classify a doc before using it
+
+Before editing, citing, or using a document as implementation authority, classify it by status and role:
+
+- `canonical/current`: current source of truth for product/runtime behavior, architecture, API contracts, or repo workflow.
+- `active bounded spec`: current contract for one feature family or artifact lane; subordinate to canonical product/runtime docs.
+- `runbook`: operational instructions for installing, running, verifying, recovering, or packaging the current system.
+- `template`: reusable format for a repeated review, UX, artifact, or handoff workflow.
+- `queue/staging note`: working-order or PR-packaging aid; useful for lane selection but not a runtime SSOT.
+- `dated report`: evidence, audit, validation, posture, or decision record tied to a date; current only when named by an entrypoint or canonical doc.
+- `proposal / fit review / future seam`: bounded input for discussion or RFCs; not authorization to change runtime behavior by itself.
+- `historical/archive`: retained context or compatibility material; do not cite as current authority unless the document explicitly says what still applies.
+
+When documents disagree, prefer in order:
+
+1. `AGENTS.md` for agent workflow rules.
+2. `docs/Lattice_v3_Master_Spec.md` plus bounded active specs for runtime/product contracts.
+3. `docs/PERSONA_MODE_BOUNDARY.md`, `docs/PaperPipe_Minimum_Operating_Principles.md`, and related active operating notes for governance boundaries.
+4. This documentation map and the current posture notes listed below for reading order.
+5. Dated reports, queues, proposals, fit reviews, and archive records only as subordinate context.
+
+Do not promote a queue, report, archive note, or fit review into runtime behavior unless a canonical doc or explicit user request adopts it.
 
 ## Current posture entrypoint
 
@@ -276,6 +299,16 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 - Reports index: `docs/reports/README.md`
 - Archive index: `docs/archive/README.md`
 - Dated validation and audit outputs live under `docs/reports/`
+- The 2026-03-13 audit/roadmap cluster in top-level `docs/` is historical evidence for the baseline split, not the current implementation queue or runtime SSOT:
+  - `docs/Current_Code_Baseline_Audit_2026-03-13.md`
+  - `docs/Audit_Driven_Roadmap_2026-03-13.md`
+  - `docs/Citation_Grounding_Audit_2026-03-13.md`
+  - `docs/Event_Logging_Audit_2026-03-13.md`
+  - `docs/Identity_Pathing_Audit_2026-03-13.md`
+  - `docs/Output_Contract_Audit_2026-03-13.md`
+- `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md` is historical policy context for indexer model defaults; verify current behavior in code and tests before using it as implementation guidance.
+- `docs/SKILLS_RECOMMENDATIONS.md` is historical recommendation context for scientific-skills adoption; current adoption still requires `config/skills_policy.yaml`, `docs/SKILLS_PACKAGING_GUIDE.md`, and the relevant runtime schemas.
+- `docs/UIUX_Adoption_Filter_2026-02-25.md` is an active adoption/exclusion record for imported UI reference material, not a standalone UI system or replacement for current `AGENTS.md` UX rules.
 - `docs/Pending_PR_Queue.md` remains a secondary working queue for staging, packaging, and bounded reopen history.
 - Do not use the queue as the first current-posture entrypoint when `docs/reports/Current_Docs_Posture_2026-04-17.md` answers the question directly.
 - Current dated reading-order and lane posture is summarized by:
@@ -333,6 +366,8 @@ Additional note:
 - Active normative docs should declare at least `Status`, `Date`, `Owner`, and either `Canonical` or `Canonical parent`, or the equivalent fields in YAML frontmatter when the document already uses frontmatter.
 - Use dated filenames for reports, audits, validation outputs, proposals, and snapshots.
 - Do not create a new "master spec" or "final blueprint" file if the change belongs in an existing canonical doc.
+- Before creating a new report or spec, check this map for an existing canonical, bounded-spec, queue, or report home that should be updated instead.
+- If a dated report is still the current entrypoint for a task, list it in the relevant entrypoint section instead of relying on filename recency alone.
 
 ## Safe consolidation rules
 
@@ -342,6 +377,8 @@ Additional note:
 - If a subsystem needs both a spec and a runbook, keep the split explicit:
   - spec = what the subsystem must do
   - runbook = how to operate, verify, or troubleshoot it
+- Prefer adding `Status`, `Current entrypoint`, or `Do not use as runtime SSOT` notes before deleting or moving older documents.
+- Keep docs-only posture cleanup separate from runtime/API/schema changes unless the lane explicitly includes both.
 - Run `python3 scripts/lint_docs.py` after doc moves or naming changes.
 
 ## Contributor boundary note

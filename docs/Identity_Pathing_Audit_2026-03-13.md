@@ -3,6 +3,8 @@
 Status: Working infrastructure audit  
 Date: 2026-03-13  
 Scope: `paper_id`, `doc_id`, `job_id`, `run_id`, `chunk_id`, artifact paths, and related DB/path contracts
+Current entrypoint: `docs/reports/Current_Docs_Posture_2026-04-17.md`
+Current use: historical identity/pathing audit evidence; do not treat as the current identity contract without checking active schemas, DB helpers, path helpers, and bounded specs.
 
 ## 0. Executive Summary
 
