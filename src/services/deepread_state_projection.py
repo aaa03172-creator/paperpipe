@@ -96,6 +96,11 @@ def build_deepread_structured_state_candidate(
             "stats_report_path": str(artifact_dir / "stats_report.json"),
             "acceptance_contract_path": str(artifact_dir / "acceptance_contract.json"),
             "quality_gate_path": str(artifact_dir / "quality_gate.json"),
+            "visual_evidence_ledger_path": (
+                str(artifact_dir / "visual_evidence_ledger.json")
+                if (artifact_dir / "visual_evidence_ledger.json").exists()
+                else None
+            ),
             "context_manifest_path": str(artifact_dir / "context_manifest.json") if (artifact_dir / "context_manifest.json").exists() else None,
             "clinical_extraction_path": str(clinical_artifact_path) if clinical_artifact_path.exists() else None,
         },
@@ -142,6 +147,10 @@ def build_deepread_structured_state_candidate(
             "artifact_stats_written": bootstrap_meta.get("artifact_stats_written"),
             "artifact_acceptance_contract_written": bootstrap_meta.get("artifact_acceptance_contract_written"),
             "artifact_quality_gate_written": bootstrap_meta.get("artifact_quality_gate_written"),
+            "artifact_visual_evidence_ledger_written": bootstrap_meta.get("artifact_visual_evidence_ledger_written"),
+            "visual_evidence_entry_count": bootstrap_meta.get("visual_evidence_entry_count"),
+            "visual_evidence_unknown_count": bootstrap_meta.get("visual_evidence_unknown_count"),
+            "visual_evidence_partially_observed_count": bootstrap_meta.get("visual_evidence_partially_observed_count"),
             "artifact_clinical_extraction_written": bootstrap_meta.get("artifact_clinical_extraction_written"),
             "clinical_extraction_status": clinical_status,
             "clinical_extraction_note_type": clinical_note_type,

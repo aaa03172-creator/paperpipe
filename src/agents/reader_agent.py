@@ -16,6 +16,7 @@ from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.json_repair import repair_and_parse_json
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.schemas.agent_artifacts import ClaimSet, DocumentArtifact, EvidenceSpan, ScientificClaim
+from src.schemas.claimset_coverage import ClaimsetCoverageSidecar
 from src.services.citation_grounding import find_text_location
 from src.services.identity import make_chunk_id
 from src.timeout_policy import is_timeout_exception
@@ -112,6 +113,7 @@ class ReaderAgent:
         self.max_context_chars = max(6000, int(max_context_chars))
         self.attempt_order = attempt_order if attempt_order in {"current", "focused_first"} else "current"
         self.last_analysis_metrics: dict[str, Any] = {}
+        self.last_coverage_focus_metrics: dict[str, Any] = {}
 
         self.output_schema = ClaimSet.model_json_schema()
         self.system_prompt = """You are PaperPipe's evidence-grounded Deep Read analyst.
@@ -310,6 +312,84 @@ Follow these strict directives:
         self.last_analysis_metrics = metrics
         return ClaimSet(doc_id=header.doc_id, claims=[])
 
+    def analyze_coverage_focus(
+        self,
+        doc: DocumentArtifact | DocumentArtifactV2,
+        *,
+        coverage: ClaimsetCoverageSidecar,
+        existing_claimset: ClaimSet,
+        max_claims: int = 4,
+    ) -> ClaimSet:
+        focus_started = perf_counter()
+        header = get_artifact_header(doc)
+        sections = self._collect_sections(doc)
+        chunks = self._collect_chunks(sections)
+        targets = self._coverage_focus_targets(coverage)
+        selected_chunks = self._select_coverage_focus_chunks(chunks=chunks, coverage=coverage)
+        context = self._render_chunk_context(selected_chunks, char_budget=min(self.max_context_chars, 10000))
+        metrics: dict[str, Any] = {
+            "model_name": self.model_name,
+            "doc_id": header.doc_id,
+            "coverage_status": coverage.coverage_status,
+            "target_count": len(targets),
+            "selected_chunk_count": len(selected_chunks),
+            "context_chars": len(context),
+            "status": "started",
+            "generated_claim_count": 0,
+            "focus_wall_seconds": None,
+        }
+        if coverage.coverage_status == "pass" or not targets or not context.strip():
+            metrics["status"] = "skipped_no_targets_or_context"
+            metrics["focus_wall_seconds"] = round(perf_counter() - focus_started, 3)
+            self.last_coverage_focus_metrics = metrics
+            return ClaimSet(doc_id=header.doc_id, claims=[])
+
+        prompt = self._build_coverage_focus_prompt(
+            doc_id=header.doc_id,
+            title=header.title,
+            authors=header.authors,
+            targets=targets,
+            existing_claimset=existing_claimset,
+            paper_context=context,
+            max_claims=max_claims,
+        )
+        metrics["prompt_chars"] = len(prompt)
+        metrics["estimated_prompt_tokens"] = self._estimate_token_count(prompt)
+        generate_started = perf_counter()
+        result = self.adapter.generate(prompt, format="json")
+        metrics["generate_wall_seconds"] = round(perf_counter() - generate_started, 3)
+        metrics.update(self._collect_provider_request_metrics())
+        raw_text = str(getattr(result, "text", "") or "")
+        metrics["response_chars"] = len(raw_text)
+        metrics["estimated_response_tokens"] = self._estimate_token_count(raw_text)
+        parsed = self._parse_claimset_payload(raw_text, expected_doc_id=header.doc_id, chunks=chunks)
+        if parsed is None:
+            metrics["status"] = "parse_failed"
+            metrics["focus_wall_seconds"] = round(perf_counter() - focus_started, 3)
+            self.last_coverage_focus_metrics = metrics
+            return ClaimSet(doc_id=header.doc_id, claims=[])
+
+        filtered = self._dedupe_focus_claims(parsed.claims, existing_claimset.claims)
+        if not filtered:
+            filtered = self._build_coverage_focus_heuristic_claims(
+                chunks=selected_chunks,
+                coverage=coverage,
+                existing_claims=existing_claimset.claims,
+                max_claims=max_claims,
+            )
+            if filtered:
+                metrics["used_heuristic_fallback"] = True
+        limited = [
+            claim.model_copy(update={"claim_id": f"CLM-COV-{idx:03d}"}, deep=True)
+            for idx, claim in enumerate(filtered[: max(1, int(max_claims))], start=1)
+        ]
+        focus_claimset = enforce_claimset_evidence_policy(ClaimSet(doc_id=header.doc_id, claims=limited))
+        metrics["status"] = "generated"
+        metrics["generated_claim_count"] = len(focus_claimset.claims)
+        metrics["focus_wall_seconds"] = round(perf_counter() - focus_started, 3)
+        self.last_coverage_focus_metrics = metrics
+        return focus_claimset
+
     def _resolve_attempt_order_labels(self) -> list[str]:
         if self.attempt_order == "focused_first":
             return ["focused", "primary", "sentence_focus"]
@@ -485,6 +565,164 @@ Follow these strict directives:
             )
         return "\n".join(lines)
 
+    def _coverage_focus_targets(self, coverage: ClaimsetCoverageSidecar) -> list[str]:
+        targets: list[str] = []
+        for signal in coverage.topic_signals:
+            if signal.present_in_document and not signal.covered_by_claimset:
+                keywords = ", ".join(signal.keywords[:6])
+                targets.append(f"{signal.label} (keywords: {keywords})")
+        page_ranges = coverage.page_summary.missing_page_ranges or coverage.page_summary.undercovered_page_ranges
+        if page_ranges:
+            targets.append(f"Undercovered page ranges: {', '.join(page_ranges)}")
+        return targets
+
+    def _select_coverage_focus_chunks(
+        self,
+        *,
+        chunks: list[_ChunkRecord],
+        coverage: ClaimsetCoverageSidecar,
+    ) -> list[_ChunkRecord]:
+        target_pages = self._page_range_set(coverage.page_summary.missing_page_ranges)
+        if not target_pages:
+            target_pages = self._page_range_set(coverage.page_summary.undercovered_page_ranges)
+        keywords = [
+            keyword.lower()
+            for signal in coverage.topic_signals
+            if signal.present_in_document and not signal.covered_by_claimset
+            for keyword in signal.keywords
+        ]
+
+        scored: list[tuple[int, int, _ChunkRecord]] = []
+        for idx, chunk in enumerate(chunks):
+            text = chunk.text.lower()
+            page_1_indexed = chunk.page + 1 if isinstance(chunk.page, int) and chunk.page >= 0 else None
+            score = 0
+            if page_1_indexed in target_pages:
+                score += 4
+            score += sum(2 for keyword in keywords if keyword and keyword in text)
+            if score > 0:
+                scored.append((score, idx, chunk))
+
+        if not scored and target_pages:
+            scored = [
+                (1, idx, chunk)
+                for idx, chunk in enumerate(chunks)
+                if isinstance(chunk.page, int) and chunk.page + 1 in target_pages
+            ]
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return [chunk for _score, _idx, chunk in scored[:12]]
+
+    @staticmethod
+    def _page_range_set(ranges: list[str]) -> set[int]:
+        pages: set[int] = set()
+        for raw in ranges:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            if "-" in text:
+                start_text, end_text = text.split("-", 1)
+                if start_text.strip().isdigit() and end_text.strip().isdigit():
+                    start = int(start_text.strip())
+                    end = int(end_text.strip())
+                    if start <= end:
+                        pages.update(range(start, end + 1))
+                continue
+            if text.isdigit():
+                pages.add(int(text))
+        return pages
+
+    def _dedupe_focus_claims(
+        self,
+        focus_claims: list[ScientificClaim],
+        existing_claims: list[ScientificClaim],
+    ) -> list[ScientificClaim]:
+        existing_tokens = [self._meaningful_statement_tokens(claim.statement) for claim in existing_claims]
+        deduped: list[ScientificClaim] = []
+        seen: list[set[str]] = []
+        for claim in focus_claims:
+            tokens = self._meaningful_statement_tokens(claim.statement)
+            if not tokens:
+                continue
+            if any(self._jaccard(tokens, other) >= 0.72 for other in existing_tokens):
+                continue
+            if any(self._jaccard(tokens, other) >= 0.8 for other in seen):
+                continue
+            seen.append(tokens)
+            deduped.append(claim)
+        return deduped
+
+    def _build_coverage_focus_heuristic_claims(
+        self,
+        *,
+        chunks: list[_ChunkRecord],
+        coverage: ClaimsetCoverageSidecar,
+        existing_claims: list[ScientificClaim],
+        max_claims: int,
+    ) -> list[ScientificClaim]:
+        keywords = [
+            keyword.lower()
+            for signal in coverage.topic_signals
+            if signal.present_in_document and not signal.covered_by_claimset
+            for keyword in signal.keywords
+        ]
+        if not keywords:
+            return []
+        candidates: list[ScientificClaim] = []
+        seen: list[set[str]] = [self._meaningful_statement_tokens(claim.statement) for claim in existing_claims]
+        for chunk in chunks:
+            for sentence in _SENTENCE_SPLIT_RE.split(chunk.text):
+                normalized = " ".join(sentence.strip().split())
+                if not (50 <= len(normalized) <= 360):
+                    continue
+                lowered = normalized.lower()
+                if not any(keyword and keyword in lowered for keyword in keywords):
+                    continue
+                tokens = self._meaningful_statement_tokens(normalized)
+                if not tokens or any(self._jaccard(tokens, other) >= 0.72 for other in seen):
+                    continue
+                loc = find_text_location(chunk.text, normalized)
+                if loc is None:
+                    continue
+                seen.append(tokens)
+                evidence = EvidenceSpan(
+                    page=chunk.page,
+                    chunk_id=chunk.chunk_id,
+                    raw_text=normalized,
+                    quote=self._truncate_words(normalized, 24),
+                    rationale="Coverage focus fallback: sentence selected from source text by missing-topic keyword.",
+                    section=chunk.section,
+                    source_span=[loc[0], loc[1]],
+                    char_start=loc[0],
+                    char_end=loc[1],
+                    highlight_source="text_match",
+                )
+                candidates.append(
+                    ScientificClaim(
+                        claim_id=f"CLM-COV-H{len(candidates) + 1:03d}",
+                        type=self._infer_claim_type(normalized),
+                        statement=normalized,
+                        evidence_spans=[evidence],
+                        limitations=["Coverage focus heuristic candidate; manual review required."],
+                        confidence=0.55,
+                        unknown=True,
+                        unknown_reason="HEURISTIC_COVERAGE_FOCUS",
+                    )
+                )
+                if len(candidates) >= max(1, int(max_claims)):
+                    return candidates
+        return candidates
+
+    @staticmethod
+    def _meaningful_statement_tokens(text: str) -> set[str]:
+        tokens = {token.lower() for token in re.findall(r"[A-Za-z0-9]+", str(text or ""))}
+        return {token for token in tokens if len(token) > 2 and token not in _EVIDENCE_STOPWORDS}
+
+    @staticmethod
+    def _jaccard(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left & right) / len(left | right)
+
     def _build_table_context(self, doc: DocumentArtifact | DocumentArtifactV2) -> str:
         tables = list(getattr(doc, "tables", []) or [])
         if not tables:
@@ -556,6 +794,53 @@ TABLE SNIPPETS:
 
 EXAMPLE OUTPUT FORMAT:
 {example_json}
+
+Output requirements:
+- Return JSON object only.
+- Root keys: doc_id, claims.
+- doc_id must be exactly "{doc_id}".
+"""
+
+    def _build_coverage_focus_prompt(
+        self,
+        *,
+        doc_id: str,
+        title: str,
+        authors: list[str],
+        targets: list[str],
+        existing_claimset: ClaimSet,
+        paper_context: str,
+        max_claims: int,
+    ) -> str:
+        existing = "\n".join(f"- {claim.statement}" for claim in existing_claimset.claims) or "- None"
+        target_text = "\n".join(f"- {target}" for target in targets)
+        return f"""
+{self.system_prompt}
+
+TASK:
+Extract additional, non-duplicate scientific claims only for the coverage gaps below.
+
+STRICT FOCUSED COVERAGE RULES:
+1. Use only evidence that appears verbatim in the provided snippets.
+2. Do not repeat or paraphrase existing claims.
+3. Prefer claims that address the listed missing topic signals or undercovered page ranges.
+4. Every claim must include evidence_spans with raw_text/quote and location info.
+5. When a text snippet includes a CHUNK id, reuse that exact chunk_id.
+6. Return at most {max(1, int(max_claims))} claims. Return an empty claims array if the snippets do not support new claims.
+
+PAPER:
+- doc_id: "{doc_id}"
+- title: "{title}"
+- authors: "{", ".join(authors)}"
+
+COVERAGE TARGETS:
+{target_text}
+
+EXISTING CLAIMS TO AVOID:
+{existing}
+
+TARGETED TEXT SNIPPETS:
+{paper_context}
 
 Output requirements:
 - Return JSON object only.

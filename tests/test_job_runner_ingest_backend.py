@@ -1,8 +1,10 @@
+import json
 from types import SimpleNamespace
 
 from backend.services.job_runner import (
     _build_anchor_verify_log_entries,
     _build_anchor_verify_summary,
+    _build_cloud_table_preflight_callback,
     _resolve_ingest_parser_backend,
     _resolve_ingest_runtime_options,
 )
@@ -150,3 +152,62 @@ def test_build_anchor_verify_log_entries_contains_contract_fields() -> None:
     assert entries[1]["result"] == "NO_API"
     assert "VERDICT_UNVERIFIABLE" in entries[1]["reason_codes"]
     assert "NO_API" in entries[1]["reason_codes"]
+
+
+def test_cloud_table_preflight_callback_records_and_blocks(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LATTICE_PRIVACY_PREFLIGHT_MODE", "block_on_review")
+    artifact_dir = tmp_path / "run"
+    artifact_dir.mkdir()
+    run_meta = {"inference_lanes": {}}
+    bootstrap_meta = {}
+
+    callback = _build_cloud_table_preflight_callback(
+        run_meta=run_meta,
+        bootstrap_meta=bootstrap_meta,
+        artifact_dir=artifact_dir,
+        paper_id="paper-cloud-privacy",
+        run_id="run-cloud-privacy",
+        model="gpt-4o-mini",
+    )
+
+    allowed = callback("Alice's appointment and /Users/alice/private.pdf table text", 2)
+
+    assert allowed is False
+    assert bootstrap_meta["cloud_table_fallback_status"] == "privacy_preflight_blocked"
+    assert run_meta["cloud_table_fallback_status"] == "privacy_preflight_blocked"
+    lane = run_meta["inference_lanes"]["cloud_table_fallback"]
+    assert lane["payload_class"] == "external_allowed"
+    assert lane["provider_model"] == "gpt-4o-mini"
+    preflight = lane["privacy_preflight"]
+    assert preflight["mode"] == "block_on_review"
+    assert preflight["status"] == "blocked"
+    assert preflight["scope"] == "cloud_table_fallback_external_payload"
+    assert preflight["source_surfaces"] == ["pdf_page_2_text"]
+    assert "paper:paper-cloud-privacy" in preflight["input_refs"]
+
+    persisted = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+    assert persisted["cloud_table_fallback_status"] == "privacy_preflight_blocked"
+
+
+def test_cloud_table_preflight_callback_blocks_invalid_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LATTICE_PRIVACY_PREFLIGHT_MODE", "invalid")
+    artifact_dir = tmp_path / "run"
+    artifact_dir.mkdir()
+    run_meta = {"inference_lanes": {}}
+    bootstrap_meta = {}
+
+    callback = _build_cloud_table_preflight_callback(
+        run_meta=run_meta,
+        bootstrap_meta=bootstrap_meta,
+        artifact_dir=artifact_dir,
+        paper_id="paper-cloud-privacy",
+        run_id="run-cloud-privacy",
+        model="gpt-4o-mini",
+    )
+
+    allowed = callback("ordinary table text", 1)
+
+    assert allowed is False
+    assert bootstrap_meta["cloud_table_fallback_status"] == "failed:invalid_privacy_preflight_mode"
+    assert run_meta["cloud_table_fallback_status"] == "failed:invalid_privacy_preflight_mode"
+    assert "invalid LATTICE_PRIVACY_PREFLIGHT_MODE" in run_meta["privacy_preflight_error"]

@@ -24,4 +24,5 @@ from .biored_eval import *
 from .bioasq_eval import *
 from .pubtator_silver import *
 from .slot_classification_audit import *
+from .visual_evidence import *
 from .privacy_preflight import *

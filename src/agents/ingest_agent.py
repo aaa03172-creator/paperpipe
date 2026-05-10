@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
 from src.ingest.cloud_table_fallback import CloudTableFallbackExtractor
@@ -49,6 +49,7 @@ class IngestAgent:
         cloud_table_base_url: Optional[str] = None,
         cloud_table_api_key: Optional[str] = None,
         cloud_table_timeout_seconds: int = 30,
+        cloud_table_preflight_callback: Callable[[str, int], bool] | None = None,
     ):
         self.backend: ParserBackend = create_parser_backend(parser_backend)
         self.enable_ocr_fallback = bool(enable_ocr_fallback)
@@ -61,6 +62,7 @@ class IngestAgent:
         self.cloud_table_base_url = str(cloud_table_base_url).strip() if cloud_table_base_url else None
         self.cloud_table_api_key = str(cloud_table_api_key).strip() if cloud_table_api_key else None
         self.cloud_table_timeout_seconds = int(cloud_table_timeout_seconds)
+        self.cloud_table_preflight_callback = cloud_table_preflight_callback
         self.last_table_extraction_meta = dict(DEFAULT_TABLE_EXTRACTION_META)
         self.last_table_extraction_meta["parser_backend"] = self.backend.name()
 
@@ -344,5 +346,6 @@ class IngestAgent:
             api_key=api_key,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
+            preflight_callback=self.cloud_table_preflight_callback,
         )
         return extractor.extract_tables(pdf_path=path, page_budget=page_budget)

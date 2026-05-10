@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import fitz
 from openai import OpenAI
@@ -36,11 +36,13 @@ class CloudTableFallbackExtractor:
         api_key: str | None = None,
         base_url: str | None = None,
         timeout_seconds: int = 30,
+        preflight_callback: Callable[[str, int], bool] | None = None,
     ):
         self.model = str(model or "gpt-4o-mini")
         self.api_key = str(api_key or os.getenv("OPENAI_API_KEY") or "").strip()
         self.base_url = str(base_url).strip() if base_url else None
         self.timeout_seconds = int(timeout_seconds)
+        self.preflight_callback = preflight_callback
         self.client = self._create_client()
 
     def _create_client(self) -> OpenAI | None:
@@ -104,6 +106,9 @@ class CloudTableFallbackExtractor:
         for page in selected_pages:
             page_text = self._extract_page_text(pdf_path, page)
             if not page_text:
+                continue
+            if self.preflight_callback is not None and not self.preflight_callback(page_text, page):
+                failures.add("PRIVACY_PREFLIGHT_BLOCKED")
                 continue
             page_tables = self._extract_page_tables_with_llm(page_text, page)
             if page_tables is None:
