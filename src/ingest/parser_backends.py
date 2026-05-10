@@ -493,16 +493,16 @@ class FitzPdfPlumberBackend:
             doc.close()
 
         tables_v2 = [
-                TableV2(
-                    table_id=table.table_id,
-                    caption=table.caption,
-                    data=table.data,
-                    source_page=table.source_page,
-                    source_ref=table.source_ref,
-                    extraction_method=table.extraction_method,
-                    confidence=table.confidence,
-                    provenance_note=table.provenance_note,
-                )
+            TableV2(
+                table_id=table.table_id,
+                caption=table.caption,
+                data=table.data,
+                source_page=table.source_page,
+                source_ref=table.source_ref,
+                extraction_method=table.extraction_method,
+                confidence=table.confidence,
+                provenance_note=table.provenance_note,
+            )
             for table in legacy.tables
         ]
 
