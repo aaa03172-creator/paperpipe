@@ -88,6 +88,10 @@ def test_run_meta_redacts_cloud_table_api_key_on_failed_ingest(tmp_path, monkeyp
     class FakeIngestAgent:
         def __init__(self, *args, **kwargs):
             self.kwargs = kwargs
+            self.last_table_extraction_meta = {
+                "parser_failure_code": "PDF_CORRUPTED",
+                "parser_failure_reason": "xref table is unreadable",
+            }
 
         def process_v2(self, pdf_path: str):
             return None
@@ -112,6 +116,8 @@ def test_run_meta_redacts_cloud_table_api_key_on_failed_ingest(tmp_path, monkeyp
     assert "cloud_table_api_key" not in run_meta["ingest_options"]
     assert run_meta["ingest_options"]["cloud_table_api_key_configured"] is True
     assert run_meta["status"] == "failed"
+    assert run_meta["parser_failure_code"] == "PDF_CORRUPTED"
+    assert run_meta["parser_failure_reason"] == "xref table is unreadable"
 
 
 def test_failed_runner_preserves_original_error_when_handoff_write_fails(tmp_path, monkeypatch):

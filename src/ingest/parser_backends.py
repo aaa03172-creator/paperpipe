@@ -33,6 +33,8 @@ TABLE_FAIL_CELL_OVERLAP_HIGH = "CELL_OVERLAP_HIGH"
 TABLE_FAIL_CELL_COVERAGE_LOW = "CELL_COVERAGE_LOW"
 TABLE_FAIL_FALLBACK_TABLE_SKIPPED_PRIMARY_PAGE_COVERED = "FALLBACK_TABLE_SKIPPED_PRIMARY_PAGE_COVERED"
 TABLE_FAIL_SAME_PAGE_TABLE_RESCUE_PATCHED_PREFIX_TRUNCATION = "SAME_PAGE_TABLE_RESCUE_PATCHED_PREFIX_TRUNCATION"
+PARSER_FAIL_CORRUPTED = "PDF_CORRUPTED"
+PARSER_FAIL_ENCRYPTED = "PDF_ENCRYPTED"
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]*[A-Z0-9]", re.IGNORECASE)
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi.org/", "doi:", "urn:doi:")
 _DOI_METADATA_KEYS = (
@@ -49,6 +51,33 @@ _DOI_METADATA_KEYS = (
 _ARXIV_ID_RE = re.compile(r"^(?:arxiv[:_ -]?)?(\d{4}\.\d{4,5})(?:v\d+)?$", re.IGNORECASE)
 _ARXIV_OLD_ID_RE = re.compile(r"^(?:arxiv[:_ -]?)?([a-z\\-]+/\d{7})(?:v\d+)?$", re.IGNORECASE)
 _ARXIV_INLINE_RE = re.compile(r"\barxiv:\s*(\d{4}\.\d{4,5})(?:v\d+)?\b", re.IGNORECASE)
+_SECTION_HEADING_ALIASES = {
+    "abstract": "abstract",
+    "summary": "abstract",
+    "introduction": "introduction",
+    "background": "background",
+    "methods": "methods",
+    "method": "methods",
+    "materials and methods": "methods",
+    "materials & methods": "methods",
+    "methodology": "methods",
+    "results": "results",
+    "findings": "results",
+    "discussion": "discussion",
+    "conclusion": "conclusion",
+    "conclusions": "conclusion",
+    "references": "references",
+    "bibliography": "references",
+    "acknowledgements": "acknowledgements",
+    "acknowledgments": "acknowledgements",
+    "appendix": "appendix",
+}
+_SECTION_HEADING_RE = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?("
+    + "|".join(re.escape(label) for label in sorted(_SECTION_HEADING_ALIASES, key=len, reverse=True))
+    + r")\s*:?\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -66,6 +95,13 @@ class TableExtractionDiagnostics:
 class TableExtractionResult:
     tables: List[TableData]
     diagnostics: TableExtractionDiagnostics
+
+
+class ParserFailure(Exception):
+    def __init__(self, code: str, reason: str):
+        self.code = code
+        self.reason = reason
+        super().__init__(reason)
 
 
 class ParserBackend(Protocol):
@@ -203,13 +239,74 @@ def _derive_lancet_review_doi(metadata: dict[str, Any], text_snippets: List[str]
     return None
 
 
+def _semantic_sections_for_page(text: str, *, page_num: int, page_start_char: int) -> List[Section]:
+    lines = str(text or "").splitlines(keepends=True)
+    headings: list[tuple[int, str]] = []
+    offset = 0
+    for line in lines:
+        stripped = line.strip()
+        match = _SECTION_HEADING_RE.match(stripped)
+        if match:
+            canonical = _SECTION_HEADING_ALIASES[match.group(1).lower()]
+            headings.append((offset, canonical))
+        offset += len(line)
+
+    if not headings:
+        return []
+
+    sections: List[Section] = []
+    if headings[0][0] > 0:
+        prefix = text[: headings[0][0]].strip()
+        if prefix:
+            sections.append(
+                Section(
+                    name=f"page_{page_num}_preamble",
+                    text=prefix,
+                    char_start=page_start_char,
+                    char_end=page_start_char + headings[0][0],
+                    page_start=page_num,
+                    page_end=page_num,
+                )
+            )
+
+    for idx, (start, name) in enumerate(headings):
+        end = headings[idx + 1][0] if idx + 1 < len(headings) else len(text)
+        section_text = text[start:end].strip()
+        if not section_text:
+            continue
+        sections.append(
+            Section(
+                name=name,
+                text=section_text,
+                char_start=page_start_char + start,
+                char_end=page_start_char + end,
+                page_start=page_num,
+                page_end=page_num,
+            )
+        )
+    return sections
+
+
 class FitzPdfPlumberBackend:
     def name(self) -> str:
         return "fitz_pdfplumber"
 
+    @staticmethod
+    def _table_source_ref(path: Path | str, source_page: int) -> str:
+        page_suffix = str(source_page - 1) if source_page > 0 else "unknown"
+        return f"{path}#page={page_suffix}"
+
+    def effective_name(self) -> str:
+        return self.name()
+
+    def fallback_used(self) -> bool:
+        return False
+
     def extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         doc = fitz.open(path)
         try:
+            if getattr(doc, "needs_pass", False):
+                raise ParserFailure(PARSER_FAIL_ENCRYPTED, "PDF is encrypted and requires a password.")
             meta = doc.metadata
             paper_meta = PaperMetadata(
                 title=meta.get("title", path.stem),
@@ -225,16 +322,25 @@ class FitzPdfPlumberBackend:
                 page_start_char = len(global_text)
                 global_text += text + "\n"
                 page_end_char = len(global_text)
-                sections.append(
-                    Section(
-                        name=f"page_{page_num + 1}",
-                        text=text,
-                        char_start=page_start_char,
-                        char_end=page_end_char,
-                        page_start=page_num + 1,
-                        page_end=page_num + 1,
-                    )
+                page_number = page_num + 1
+                semantic_sections = _semantic_sections_for_page(
+                    text,
+                    page_num=page_number,
+                    page_start_char=page_start_char,
                 )
+                if semantic_sections:
+                    sections.extend(semantic_sections)
+                else:
+                    sections.append(
+                        Section(
+                            name=f"page_{page_number}",
+                            text=text,
+                            char_start=page_start_char,
+                            char_end=page_end_char,
+                            page_start=page_number,
+                            page_end=page_number,
+                        )
+                    )
 
             snippet_budget = 24000
             snippets: List[str] = []
@@ -287,6 +393,10 @@ class FitzPdfPlumberBackend:
                                 caption=f"Table found on page {page_idx + 1}",
                                 data=clean_data,
                                 source_page=page_idx + 1,
+                                source_ref=self._table_source_ref(path, page_idx + 1),
+                                extraction_method="pdfplumber.extract_tables",
+                                confidence=0.6,
+                                provenance_note="Table reconstructed from pdfplumber cell text; cell/page bbox provenance is unavailable.",
                             )
                         )
         except Exception as exc:
@@ -383,12 +493,16 @@ class FitzPdfPlumberBackend:
             doc.close()
 
         tables_v2 = [
-            TableV2(
-                table_id=table.table_id,
-                caption=table.caption,
-                data=table.data,
-                source_page=table.source_page,
-            )
+                TableV2(
+                    table_id=table.table_id,
+                    caption=table.caption,
+                    data=table.data,
+                    source_page=table.source_page,
+                    source_ref=table.source_ref,
+                    extraction_method=table.extraction_method,
+                    confidence=table.confidence,
+                    provenance_note=table.provenance_note,
+                )
             for table in legacy.tables
         ]
 
@@ -403,10 +517,20 @@ class FitzPdfPlumberBackend:
 class DoclingParserBackend(FitzPdfPlumberBackend):
     def __init__(self):
         self._fallback_logged = False
+        self._fallback_used = False
         self._converter = self._initialize_converter()
 
     def name(self) -> str:
         return "docling"
+
+    def effective_name(self) -> str:
+        return "fitz_pdfplumber" if self._fallback_used else self.name()
+
+    def fallback_used(self) -> bool:
+        return bool(self._fallback_used)
+
+    def _mark_fitz_fallback(self) -> None:
+        self._fallback_used = True
 
     def _initialize_converter(self) -> Any | None:
         try:
@@ -426,12 +550,14 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
     def _convert(self, path: Path) -> Any | None:
         if self._converter is None:
             self._log_fallback_once()
+            self._mark_fitz_fallback()
             return None
         try:
             return self._converter.convert(str(path))
         except Exception as exc:
             logger.warning("Docling conversion failed for %s: %s", path, exc)
             self._log_fallback_once()
+            self._mark_fitz_fallback()
             return None
 
     @staticmethod
@@ -747,18 +873,23 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
         return f"Docling table {idx}"
 
     @classmethod
-    def _extract_structured_docling_tables(cls, doc_obj: Any) -> List[TableData]:
+    def _extract_structured_docling_tables(cls, doc_obj: Any, *, source_path: Path | str | None = None) -> List[TableData]:
         tables: List[TableData] = []
         for idx, table in enumerate(list(getattr(doc_obj, "tables", None) or []), start=1):
             table_rows = cls._structured_rows_from_docling_table(table, doc_obj)
             if not table_rows or max((len(row) for row in table_rows), default=0) <= 1:
                 continue
+            source_page = cls._docling_table_page(table)
             tables.append(
                 TableData(
                     table_id=f"T{idx}",
                     caption=cls._docling_table_caption(table, doc_obj, idx),
                     data=table_rows,
-                    source_page=cls._docling_table_page(table),
+                    source_page=source_page,
+                    source_ref=cls._table_source_ref(source_path, source_page) if source_path is not None else None,
+                    extraction_method="docling.structured_table",
+                    confidence=0.75,
+                    provenance_note="Structured table exported by Docling; source page is derived from Docling provenance.",
                 )
             )
         return tables
@@ -981,6 +1112,7 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
     def extract_text_and_meta(self, path: Path) -> Tuple[PaperMetadata, List[Section], int]:
         conversion = self._convert(path)
         if conversion is None:
+            self._mark_fitz_fallback()
             return super().extract_text_and_meta(path)
 
         try:
@@ -996,6 +1128,7 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             sections = self._build_sections_from_conversion(conversion)
             if not sections:
                 logger.warning("Docling conversion produced no text sections for %s.", path)
+                self._mark_fitz_fallback()
                 return super().extract_text_and_meta(path)
             paper_doi = str(getattr(paper_meta, "doi", "") or "").strip()
             if not paper_doi:
@@ -1039,11 +1172,13 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
             return paper_meta, sections, total_len
         except Exception as exc:
             logger.warning("Docling text extraction failed for %s: %s", path, exc)
+            self._mark_fitz_fallback()
             return super().extract_text_and_meta(path)
 
     def extract_tables(self, path: Path) -> TableExtractionResult:
         conversion = self._convert(path)
         if conversion is None:
+            self._mark_fitz_fallback()
             return super().extract_tables(path)
 
         failures: set[str] = set()
@@ -1051,7 +1186,7 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
 
         try:
             doc_obj = getattr(conversion, "document", conversion)
-            tables = self._extract_structured_docling_tables(doc_obj)
+            tables = self._extract_structured_docling_tables(doc_obj, source_path=path)
             if not tables:
                 markdown = self._extract_text_like(doc_obj)
                 if not markdown:
@@ -1066,7 +1201,11 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
                             table_id=f"T{idx}",
                             caption=f"Docling table {idx}",
                             data=table_rows,
-                            source_page=1,
+                            source_page=-1,
+                            source_ref=self._table_source_ref(path, -1),
+                            extraction_method="docling.markdown_table",
+                            confidence=0.45,
+                            provenance_note="Markdown table parsed from Docling text export; source page is unavailable.",
                         )
                     )
         except Exception as exc:
@@ -1076,6 +1215,7 @@ class DoclingParserBackend(FitzPdfPlumberBackend):
         if not tables:
             fallback_result = super().extract_tables(path)
             if fallback_result.tables:
+                self._mark_fitz_fallback()
                 merged_failures = set(fallback_result.diagnostics.table_failure_taxonomy or []) | failures
                 fallback_result.diagnostics.table_failure_taxonomy = sorted(merged_failures)
                 return fallback_result

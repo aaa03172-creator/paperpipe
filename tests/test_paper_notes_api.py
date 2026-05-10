@@ -5,12 +5,14 @@ import sqlite3
 from types import SimpleNamespace
 from urllib.parse import quote
 
+import fitz
 from fastapi.testclient import TestClient
 
 from backend import main as api_main
 from backend.services import job_runner as job_runner_mod
 from backend.routers import paper_notes as paper_notes_router
 from src import db_utils
+from src.agents.ingest_agent import IngestAgent
 from src.schemas.paper_notes import PaperNoteIndexItem, PaperNoteOpsSummary
 from src.services.paper_operator_state_store import operator_state_path
 
@@ -31,6 +33,31 @@ def _write_artifact_run(path, *, claimset: dict | None = None, stats_report: dic
         _write_state(path / "claimset.resolved.json", claimset)
     if stats_report is not None:
         _write_state(path / "stats_report.json", stats_report)
+
+
+def _make_import_parser_fixture_pdf(path: Path) -> None:
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((54, 54), "Import Parser Fixture Paper", fontsize=14)
+    page.insert_text((54, 78), "A. Importer, B. Parser", fontsize=9)
+    page.insert_textbox(
+        fitz.Rect(54, 118, 541, 720),
+        (
+            "Abstract\n"
+            "This fixture verifies that a manually imported PDF is the same file later resolved for parsing.\n"
+            "Methods\n"
+            "The upload route stores the PDF, writes the paper row, and the job runner resolves pdf_path from DB.\n"
+            "Results\n"
+            "The parser must preserve this sentinel phrase: IMPORT-PARSER-SENTINEL-2026.\n"
+            "Discussion\n"
+            "A full import-to-parser regression protects the boundary between storage and extraction.\n"
+        ),
+        fontsize=9,
+        lineheight=1.2,
+    )
+    doc.set_metadata({"title": "Import Parser Fixture Paper", "author": "A. Importer; B. Parser"})
+    doc.save(path)
+    doc.close()
 
 
 def _fixture_structured_state(slug: str) -> dict:
@@ -891,6 +918,74 @@ def test_paper_notes_imported_pdf_can_be_enqueued_for_deepread(tmp_path, monkeyp
     assert action_row is not None
     assert action_row["action_type"] == "deepread_enqueued"
     assert json.loads(action_row["payload_json"])["run_id"] == enqueue_payload["run_id"]
+
+
+def test_paper_notes_imported_pdf_resolves_to_parser_input(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    source_pdf = tmp_path / "import-parser-fixture.pdf"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+    _make_import_parser_fixture_pdf(source_pdf)
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/paper-notes/import-pdf",
+        files={"file": ("import-parser-fixture.pdf", source_pdf.read_bytes(), "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    paper_id = payload["paper_id"]
+    resolved_pdf_path = job_runner_mod._resolve_pdf_path_from_db(paper_id)
+
+    assert resolved_pdf_path == pdf_storage_dir / f"{paper_id}.pdf"
+    assert resolved_pdf_path.exists()
+    assert resolved_pdf_path.read_bytes() == source_pdf.read_bytes()
+
+    artifact = IngestAgent().process_v2(str(resolved_pdf_path))
+
+    assert artifact is not None
+    assert artifact.document_id == f"file:{resolved_pdf_path.name}"
+    assert artifact.meta.title == "Import Parser Fixture Paper"
+    parsed_text = "\n".join(
+        line.text
+        for page in artifact.pages
+        for block in page.blocks
+        for line in block.lines
+    )
+    assert "IMPORT-PARSER-SENTINEL-2026" in parsed_text
+    assert any(
+        str(span.source_ref).endswith(f"{resolved_pdf_path}#page=0")
+        for page in artifact.pages
+        for block in page.blocks
+        for line in block.lines
+        for span in line.spans
+    )
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT paper_id, source, status, pdf_path, obsidian_path FROM papers WHERE paper_id = ?",
+        (paper_id,),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row["source"] == "user_imported_pdf"
+    assert row["status"] == "NEW"
+    assert Path(row["pdf_path"]) == resolved_pdf_path
+    assert row["obsidian_path"] == payload["note_path"]
 
 
 def test_paper_notes_import_pdf_rejects_duplicate_existing_doi(tmp_path, monkeypatch):
