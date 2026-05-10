@@ -1393,3 +1393,59 @@ Reviewer: Codex
 - Verification:
   - `cd frontend && npm run build`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "paper notes detail supports learner and builder debug view modes|mobile paper notes detail keeps builder debug mode in the sheet ordering|mobile paper notes sheet includes structured actions and structured claims cards|paper notes detail renders structured actions, run history, and structured claims cards"`
+
+## 25) Paper Marker Scope Checkpoint (2026-05-10)
+- Screen/Flow:
+  - `/papers/:slug` `My note` / operator marker panel
+- Goal action:
+  - users should understand that stars, triage labels, and private notes are revisit markers, not claim/evidence review edits.
+- Primary persona:
+  - a researcher using star/sticker-like markers to remember which papers to reopen without changing canonical extracted evidence.
+- Current friction:
+  - the panel header and textarea footer already said `paper-level`, but the star/triage controls themselves did not have an immediate scope cue.
+  - a user could read `Needs verification` as changing evidence review state rather than marking the paper for later review.
+- Success metric:
+  - the marker controls carry a nearby note explaining that they help lists/Home reopen papers and do not change saved claims, evidence, or review state.
+- Quick Review:
+  - Block: reduce ambiguity around marker semantics.
+  - Interpret: marker actions now read as personal paper-level workflow aids.
+  - Act: no new action; existing save/reset contract remains unchanged.
+  - Store: the user remembers stars/labels as revisit lanes, not evidence edits.
+  - Ethics: avoids implying a paper-level sticker changes biomedical evidence status.
+- Full Review:
+  - P0: no API, schema, persistence, or canonical state changes.
+  - P1: add one read-only scope note adjacent to existing star/triage controls.
+  - P2: defer any richer annotation/passages UX until there is a dedicated provenance-backed model.
+- Full Review Coverage:
+  - 6P storyboard context: researcher marks a paper to revisit, wants the list/Home to remember it, and should not accidentally believe the marker edits claim truth.
+  - BMAP: Motivation is high for lightweight revisit markers; ability improves because scope is explained beside the controls; prompt is the inline marker-scope note.
+  - B.I.A.S: block is ambiguous marker meaning; interpret improves by separating personal markers from saved evidence; act remains the same; store reinforces marker-as-reopen-lane.
+  - Peak-End: peak is toggling a marker while seeing its scope; pit is confusing a triage label with canonical review state; end is a safer saved personal marker.
+  - Ethics: transparent scope lowers over-trust and keeps personal judgment separate from evidence provenance.
+- BMAP diagnosis:
+  - Motivation: high for personal revisit/sticker workflows.
+  - Ability: improved by one local explanation rather than a new control.
+  - Prompt: the scope note appears before the textarea and after active marker controls.
+- B.I.A.S diagnosis:
+  - Block: star/triage labels could look like evidence status.
+  - Interpret: text now says markers help lists/Home and do not change saved claims/evidence/review state.
+  - Act: save/reset behavior stays unchanged.
+  - Store: markers remain personal paper-level memory.
+- Peak-End design notes:
+  - Peak: user sees a star or label as a lightweight personal marker.
+  - Pit: marker semantics bleeding into claim/evidence truth.
+  - Transition: list/Home marker -> paper detail -> Workbench for grounded review.
+  - End: saved marker does not masquerade as reviewed evidence.
+- Concrete changes:
+  - added a read-only `paper-note-operator-scope-note` under star/triage controls.
+  - added mock Playwright coverage for the scope note.
+- Ethics check results:
+  - Regret: improved; users are told what marker actions do and do not do.
+  - Black Mirror: reduced; personal labels cannot be mistaken for evidence validation.
+  - In Real-Life: closer to a careful lab notebook margin note, not a claim approval stamp.
+- Next PR-sized actions:
+  - only design passage-level annotations after a provenance-backed annotation model exists.
+  - keep star/triage filters focused on paper-level revisit workflows.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/mock.spec.ts -g "paper note operator markers surface in mock list filters and detail panels"`
