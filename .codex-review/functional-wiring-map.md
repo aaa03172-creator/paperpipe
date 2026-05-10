@@ -217,3 +217,27 @@ Tests found:
 Initial risk level: Medium
 Reason:
 Compatibility helpers are broad, but the watcher/review queue path exposes a canonical-schema mismatch.
+
+## Functional area: Operational maintenance and backfill scripts
+
+Purpose:
+Provide dry-run-first local maintenance commands for operational repair, legacy cleanup, database backfills, artifact history review, parser/eval inventories, and release/runtime verification.
+Entry points:
+`scripts/backfill_operational_outputs.py:150`, `scripts/backfill_analysis.py:359`, `scripts/archive_legacy_failed_jobs.py:157`, `scripts/eval/check_artifact_history_promotion_gate.py:245`, `scripts/eval/check_artifact_history_capture_candidates.py:454`, `scripts/eval/inventory_parser_eval_artifacts.py:352`
+Main files:
+`scripts/backfill_operational_outputs.py`, `scripts/backfill_analysis.py`, `scripts/archive_legacy_failed_jobs.py`, `scripts/eval/check_artifact_history_promotion_gate.py`, `scripts/eval/check_artifact_history_capture_candidates.py`, `scripts/eval/inventory_parser_eval_artifacts.py`, `src/services/runtime_paths.py`.
+Downstream dependencies:
+SQLite state DB, Obsidian vault files, exporter, job queue, artifact review/outcome JSONL logs, snapshot output directories, runtime path helpers.
+Upstream callers:
+Operators invoking scripts manually or from smoke/verification lanes.
+Database/schema dependencies:
+`papers`, `jobs`, `job_failures_archive`, artifact review/outcome JSONL logs.
+External dependencies:
+Filesystem, optional LLM provider for `backfill_analysis.py`, optional frontend/runtime smoke prerequisites for some scripts.
+Config/feature flags:
+`PAPERPIPE_HOME`, `PAPERPIPE_STORAGE_DIR`, `PAPERPIPE_DB_PATH`, `PAPERPIPE_ARTIFACT_REVIEW_FEEDBACK_LOG_PATH`, `PAPERPIPE_ARTIFACT_GENERATION_OUTCOME_LOG_PATH`, Obsidian vault config.
+Tests found:
+`tests/test_artifact_history_promotion_gate.py`, `tests/test_artifact_history_capture_candidates.py`, `tests/test_parser_eval_artifact_inventory.py`, `tests/test_runtime_paths_cache.py`, `tests/test_config_install_layout_paths.py`, `tests/test_backfill_operational_outputs.py`.
+Initial risk level: Low
+Reason:
+Most reviewed eval/runtime scripts are dry-run or snapshot-only and their tests pass. The operational markdown backfill path now resolves persisted `obsidian_path` values through `resolve_vault_relative_path()` and has regression coverage for escaping stored note paths.
