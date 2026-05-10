@@ -125,3 +125,30 @@ Reviewer: Codex
 1. retrieval trace filtering by action/outcome이 필요해질 때만 trace controls를 추가하기
 2. saved packs index가 더 커지면 mode/readiness filters나 URL-state persistence를 검토하기
 3. action 결과를 longer-lived activity log로 남길 필요가 생기면 lightweight action history를 검토하기
+
+## 9) Review State Before Handoff Checkpoint (2026-05-10)
+- Screen/Flow: `/meeting-packs/:packId` detail right rail
+- Goal action: 사용자가 note handoff, rerender, regenerate, sharing 판단 전에 draft의 review/readiness state를 먼저 확인한다.
+- Primary persona: saved meeting draft를 lab meeting이나 journal club에 재사용하기 전에 upstream note와 validation 상태를 점검하는 연구자
+- Current friction:
+  - detail header에는 readiness badge가 있었지만, right rail의 첫 action은 `Continue from this draft`였다.
+  - Lazyweb reference pilot의 approval/review workflow 패턴은 generated artifact가 polished output처럼 보이기 전에 state/limitation cue를 action 가까이에 둬야 함을 시사했다.
+- Quick Review (5 min):
+  - 새 approval engine, route, schema, export flow는 추가하지 않는다.
+  - read-only `Review state` summary를 right rail 맨 위에 추가해 readiness, markdown sync, validation warnings, linked notes, evidence refs를 먼저 보여준다.
+- Full Review:
+  - P0: 통과. generated meeting draft를 canonical evidence나 reviewed claim truth로 승격하지 않는다.
+  - P1: 통과. handoff/maintenance 전에 review gate language가 먼저 보인다.
+  - P2: 통과. 기존 `Validation` card와 guarded maintenance details는 유지한다.
+  - 6P: problem은 draft reuse 전 과신이고, action은 pack detail review이며, happy ending은 upstream note와 validation state를 확인한 뒤 안전하게 handoff하는 것이다.
+  - BMAP: motivation은 높고, ability는 compact rail summary로 좋아지며, prompt는 action 전 review-state card다.
+  - B.I.A.S: Block은 action-first rail, Interpret는 draft/readiness separation, Act는 safer note/maintenance choice, Store는 반복 가능한 review-state rhythm이다.
+  - Peak-End: peak는 detail 진입 직후 generated draft의 status를 읽는 순간이고, end는 maintenance action이 여전히 guarded details 안에 남는 것이다.
+  - Ethics: Regret/Black Mirror/In Real-Life 모두 통과. sharing/export 확신을 부추기지 않고, generated artifact의 한계를 먼저 말한다.
+- Concrete changes:
+  - `frontend/src/app/pages/MeetingPackPage.tsx` right rail 상단에 read-only `Review state` card를 추가한다.
+  - mock/backend Playwright tests에 right-rail heading order assertion을 추가한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/meeting-pack.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend meeting pack create keeps the continuation card and note handoff on the real route"`

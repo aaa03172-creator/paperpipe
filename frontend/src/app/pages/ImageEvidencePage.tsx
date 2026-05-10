@@ -595,6 +595,18 @@ export function ImageEvidencePage() {
 
                 <Card>
                   <CardHeader>
+                    <CardTitle>Trust Boundary</CardTitle>
+                    <CardDescription>What this viewer helps you verify, and what it does not.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm text-[var(--pp-text-secondary)]">
+                    <p>This viewer confirms saved metadata, warning state, and raw-vs-derived lineage.</p>
+                    <p>It does not validate pixel-level interpretation, ROI correctness, or claim truth.</p>
+                    <p>Representative outputs should be treated as operator-scoped derivatives unless separately validated elsewhere.</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
                     <CardTitle>Metadata</CardTitle>
                     <CardDescription>Saved operator-visible metadata only. No pixel analysis is performed here.</CardDescription>
                   </CardHeader>
@@ -785,17 +797,6 @@ export function ImageEvidencePage() {
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Trust Boundary</CardTitle>
-                    <CardDescription>What this viewer helps you verify, and what it does not.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm text-[var(--pp-text-secondary)]">
-                    <p>This viewer confirms saved metadata, warning state, and raw-vs-derived lineage.</p>
-                    <p>It does not validate pixel-level interpretation, ROI correctness, or claim truth.</p>
-                    <p>Representative outputs should be treated as operator-scoped derivatives unless separately validated elsewhere.</p>
-                  </CardContent>
-                </Card>
               </>
             ) : null}
           </aside>

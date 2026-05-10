@@ -73,6 +73,14 @@ brain/
 .codex/stage/
 .codex_trash/
 
+# Local MCP / UI reference research
+.lazyweb/
+*.mcp.json
+.mcp.json
+mcp.json
+.lazyweb_mcp_token
+lazyweb_mcp_token
+
 # Local UI audit artifacts
 tmp_*.png
 tmp_*.jpg

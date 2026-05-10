@@ -179,3 +179,30 @@ Canonical parent: `docs/ux-review.md`
   - `cd frontend && npm run build`
   - current runtime keyboard tab audit on `/ui/image-evidence/imageev_current_runtime_smoke_20260330`
   - confirm `Open note`, downstream follow-up links stay in the tab order while raw source / handoff `<pre>` blocks do not
+
+## 7.7) Trust Boundary Rail Order Checkpoint (2026-05-10)
+- Screen/Flow: `/image-evidence/:imageEvidenceId` right rail
+- Goal action: 사용자가 metadata나 handoff target을 재사용하기 전에 viewer의 검증 한계를 먼저 확인한다.
+- Primary persona: figure/image evidence bundle을 paper note, meeting pack, external viewer로 넘기기 전에 source/warning/lineage를 점검하는 연구자
+- Current friction:
+  - `Trust Boundary`가 rail 끝에 있어 `Metadata`, `View State`, `Handoff Targets`를 먼저 읽은 뒤에야 비검증 범위가 보였다.
+  - Lazyweb reference pilot도 evidence viewer류 화면에서는 reuse/approval 전에 provenance와 limitation cue가 가까워야 함을 시사했다.
+- Quick Review (5 min):
+  - 새 UI primitive, route, schema, runtime dependency는 추가하지 않는다.
+  - existing `Trust Boundary` card를 `Bundle Summary` 바로 다음으로 올려, detail rail의 순서를 `Bundle Summary -> Trust Boundary -> Metadata -> View State -> Handoff Targets`로 고정한다.
+- Full Review:
+  - P0: raw/derived/canonical boundary를 강화하고, image interpretation을 제품 기능처럼 보이게 하지 않는다.
+  - P1: handoff targets를 쓰기 전에 `not claim truth` 한계를 먼저 읽게 한다.
+  - P2: layout density와 dark-first token system은 그대로 둔다.
+  - 6P: problem은 image bundle 재사용 전 과신이고, action은 bundle detail inspection이며, happy ending은 제한을 이해한 상태에서 note/external lane으로 이동하는 것이다.
+  - BMAP: motivation은 높고, ability는 card reorder만으로 좋아지며, prompt는 rail 상단 limitation cue다.
+  - B.I.A.S: Block은 late limitation cue, Interpret는 trust boundary proximity, Act는 safer note/handoff choice, Store는 반복 가능한 rail order다.
+  - Peak-End: peak는 summary 직후 limitation을 즉시 확인하는 순간이고, end는 handoff target이 navigation aid임을 유지하는 것이다.
+  - Ethics: Regret/Black Mirror/In Real-Life 모두 통과. 화면은 여전히 metadata QA이며 pixel-level validation을 암시하지 않는다.
+- Concrete changes:
+  - `frontend/src/app/pages/ImageEvidencePage.tsx`에서 `Trust Boundary` card를 `Bundle Summary` 직후로 이동한다.
+  - mock/backend Playwright tests에 right-rail heading order assertion을 추가한다.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/image-evidence.mock.spec.ts`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend image evidence viewer loads a registered bundle and keeps note handoff on the real route"`

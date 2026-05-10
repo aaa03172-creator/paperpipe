@@ -53,6 +53,10 @@ test("meeting pack inspector filters saved packs and runs guarded draft actions 
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("Derived artifact");
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("When to use");
   await expect(page.getByTestId("meeting-pack-header-context")).toContainText("Derived from");
+  const detailRail = page.locator("main > div").nth(1);
+  await expect(detailRail.getByRole("heading").nth(0)).toHaveText("Review state");
+  await expect(detailRail.getByRole("heading").nth(1)).toHaveText("Continue from this draft");
+  await expect(detailRail.getByRole("heading").nth(2)).toHaveText("Validation");
   await expect(page.getByRole("heading", { name: "Continue from this draft" })).toBeVisible();
   await expect(page.getByText("Continue in note").first()).toBeVisible();
   await expect(page.getByTestId("meeting-pack-recommended-order")).toContainText("Recommended order");

@@ -3102,6 +3102,55 @@ def test_paper_note_detail_excludes_pdf_references_when_path_masking_enabled(tmp
     assert "Open PDF" not in labels
 
 
+def test_paper_note_detail_excludes_unsafe_reference_url_schemes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LATTICE_MASK_LOCAL_PATHS", raising=False)
+    monkeypatch.delenv("PAPERPIPE_MASK_LOCAL_PATHS", raising=False)
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "unsafe-link-note.md",
+        _note_content(
+            note_id="zotero:unsafe",
+            alias="Unsafe Link Note",
+            tags=["Tag/One"],
+            date_processed="2026-02-24",
+            confidence=0.9,
+            status="INDEXED",
+            doi=None,
+            zotero_link=None,
+            pdf_url="javascript:alert(1)",
+            reference_lines=[
+                "* [Bad Script](javascript:alert(1))",
+                "* [Bad Data](data:text/html,hello)",
+                "* [Good Publisher](https://example.org/safe)",
+                "* [Good Local PDF](/papers/unsafe-link-note/pdf)",
+                "* [Good Zotero](zotero://select/items/1_SAFE)",
+            ],
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes/unsafe-link-note")
+    assert response.status_code == 200
+    payload = response.json()
+
+    labels = {item["label"] for item in payload["references"]}
+    urls = {item["url"] for item in payload["references"]}
+    assert "Bad Script" not in labels
+    assert "Bad Data" not in labels
+    assert "Good Publisher" in labels
+    assert "Good Local PDF" in labels
+    assert "Good Zotero" in labels
+    assert all(not url.lower().startswith(("javascript:", "data:")) for url in urls)
+
+
 def test_paper_note_detail_uses_doi_and_zotero_when_pdf_missing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("LATTICE_MASK_LOCAL_PATHS", raising=False)

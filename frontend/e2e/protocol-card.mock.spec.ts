@@ -23,6 +23,8 @@ test("protocol knowledge inspector filters saved cards and opens version-forward
   await expect(page.getByRole("heading", { name: "Primary cortical assay protocol", exact: true })).toBeVisible();
   await expect(page.getByTestId("protocol-card-header-context")).toContainText("Derived artifact");
   await expect(page.getByRole("heading", { name: "Version review" })).toBeVisible();
+  await expect(page.getByTestId("protocol-card-review-state-card")).toContainText("Review state");
+  await expect(page.getByTestId("protocol-card-review-state-card")).toContainText("Protocol cards are reusable review artifacts");
   await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Source refs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trust boundary" })).toBeVisible();
@@ -52,7 +54,7 @@ test("protocol knowledge inspector keeps second mock card detail aligned with th
 
   await expect(page).toHaveURL(/\/protocol-cards\/protocol_20260322T213000Z_mock5678/);
   await expect(page.getByRole("heading", { name: "Reference brightfield stain workflow", exact: true })).toBeVisible();
-  await expect(page.getByText("Verified by user")).toBeVisible();
+  await expect(page.getByText("Verified by user").first()).toBeVisible();
   await expect(page.getByText("Approved as stable reference snapshot.")).toBeVisible();
   await expect(page.getByText("No key-step summary saved for this version.")).toHaveCount(0);
   await expect(page.getByText("Stable reference card for note-level reuse.")).toBeVisible();
