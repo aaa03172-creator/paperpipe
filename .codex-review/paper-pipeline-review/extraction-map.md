@@ -43,11 +43,11 @@ Indexer, Reader, grounding, sidecars.
 Expected behavior:
 Extract realistic academic paper text, semantic sections, metadata, tables, provenance.
 Actual behavior:
-Uses PDF metadata for title/authors/year/journal, emits one section per page, extracts text via PyMuPDF, tables via pdfplumber with generic captions.
+Uses PDF metadata for title/authors/year/journal, emits page or obvious semantic sections, extracts text via PyMuPDF, and tables via pdfplumber with generic captions plus explicit source ref/method/confidence/provenance note.
 Important edge cases:
 Multi-column reading order, missing metadata, scanned papers, malformed PDFs, table captions/provenance, references.
 Known limitations:
-No semantic section segmentation; no citation/reference model; table captions are synthetic.
+Only conservative semantic section segmentation; no citation/reference model; table captions can be synthetic.
 Failure handling:
 Exceptions return `None` at IngestAgent level.
 Tests found:
@@ -77,7 +77,7 @@ Uses Docling when import succeeds; fallback behavior exists.
 Important edge cases:
 Docling unavailable, missing page text, markdown-table fallback provenance.
 Known limitations:
-Markdown-table fallback assigns tables to page 1 when structured provenance is unavailable.
+Markdown-table fallback marks page/source as unknown and low confidence when structured provenance is unavailable.
 Failure handling:
 Unknown/import failure falls back to fitz/pdfplumber.
 Tests found:
@@ -133,7 +133,7 @@ Document artifact tables, visual evidence, reader.
 Expected behavior:
 Use external inference only with explicit payload governance and provenance.
 Actual behavior:
-Selects table-like pages and sends page text to OpenAI-compatible chat completions if enabled and client exists.
+Selects table-like pages and sends page text to OpenAI-compatible chat completions if enabled and client exists; recovered tables are marked low confidence with source page refs and fallback provenance notes.
 Important edge cases:
 Privacy preflight disabled/unattached, no API key, bad JSON, low-quality tables.
 Known limitations:

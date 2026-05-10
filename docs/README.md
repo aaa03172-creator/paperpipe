@@ -311,6 +311,15 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 - `docs/UIUX_Adoption_Filter_2026-02-25.md` is an active adoption/exclusion record for imported UI reference material, not a standalone UI system or replacement for current `AGENTS.md` UX rules.
 - `docs/Pending_PR_Queue.md` remains a secondary working queue for staging, packaging, and bounded reopen history.
 - Do not use the queue as the first current-posture entrypoint when `docs/reports/Current_Docs_Posture_2026-04-17.md` answers the question directly.
+- `docs/Personal_Assistant_Integration_Review_Packet_2026-05-10.md`
+  - Maintainer-facing review packet for the current assistant-integration proposal set.
+  - Use this when the question is "how should PaperPipe review the new personal-assistant seam docs before deciding whether to adopt, defer, or reject them?"
+- `docs/Personal_Assistant_Integration_Seam_2026-05-10.md`
+  - Bounded future-seam note for exposing PaperPipe safely to a separate personal assistant OS.
+  - Use this when the question is "what should PaperPipe expose so an external assistant can orchestrate it without becoming the new truth owner?"
+- `docs/Assistant_Facing_Summary_Contracts_2026-05-10.md`
+  - Bounded future-seam note for thin assistant-facing summary/read models over current PaperPipe route and schema vocabulary.
+  - Use this when the question is "what summary shape should an external assistant consume instead of rebuilding meaning from raw payloads?"
 - Current dated reading-order and lane posture is summarized by:
   - `docs/reports/Current_Docs_Posture_2026-04-17.md`
   - `docs/reports/Current_Worktree_Lane_Triage_2026-04-07.md`

@@ -126,15 +126,17 @@ File/line:
 Related files/call sites:
 `src/services/visual_evidence_ledger.py:95`, `src/agents/reader_agent.py:146`
 Issue:
-Default tables receive synthetic captions (`Table found on page N`), and Docling markdown-table fallback assigns all fallback tables to page 1.
+Default tables can still receive synthetic captions (`Table found on page N`). The previous Docling markdown-table fallback precise page assignment has been replaced with explicit unknown-page, low-confidence provenance.
+Remediation note:
+Partially remediated locally: additive table provenance fields now preserve source ref, method, confidence, and provenance notes through V1/V2 artifacts.
 Evidence:
-Default caption is synthetic at `src/ingest/parser_backends.py:284`; Docling markdown fallback page assignment is reported at `src/ingest/parser_backends.py:1064`.
+Default caption remains synthetic in the pdfplumber path. Table artifacts now carry `source_ref`, `extraction_method`, `confidence`, and `provenance_note` through `src/schemas/agent_artifacts.py`, `src/contracts/document_artifact_v2.py`, `src/ingest/parser_backends.py`, and `src/ingest/cloud_table_fallback.py`.
 Why it matters:
-Table-derived evidence can cite unreliable captions/pages, harming traceability and review confidence.
+Table-derived evidence has better page/method traceability, but synthetic captions can still harm review confidence.
 Suggested fix:
-Carry true captions/provenance when available; otherwise mark caption/page provenance as unknown/low-confidence rather than precise.
+Next step is true caption extraction and, where possible, cell/region bbox provenance.
 Suggested test:
-PDF with table caption on page >1 and markdown fallback path; assert correct page or explicit unknown provenance.
+PDF with table caption on page >1 and table bbox/caption extraction; assert true caption, page, method, confidence, and v2 propagation.
 
 ## Finding 7: Clean reindex is not atomic
 

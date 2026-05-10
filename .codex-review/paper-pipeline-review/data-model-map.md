@@ -66,7 +66,7 @@ Files:
 Purpose:
 Parsed PDF text, metadata, page/block structure, and tables.
 Fields:
-V1: `doc_id`, source, metadata, sections, tables. V2: `document_id`, `meta`, `pages`, `tables`, `schema_version`.
+V1: `doc_id`, source, metadata, sections, tables. V2: `document_id`, `meta`, `pages`, `tables`, `schema_version`. Tables now include additive `source_ref`, `extraction_method`, `confidence`, and `provenance_note`.
 Relations:
 Feeds indexing, reader, grounding, visual evidence, coverage, clinical extraction.
 Used by:
@@ -76,11 +76,11 @@ V1 `Section.name` is documented as standardized semantic section name. Default p
 Storage risks:
 References/citations/footnotes are not modeled separately; figure extraction is sidecar-only and caption-only.
 Traceability/provenance support:
-V2 pages/block bboxes support page provenance; line/span bboxes are often unavailable.
+V2 pages/block bboxes support page provenance; line/span bboxes are often unavailable. Table rows now preserve source page refs and method/confidence metadata, but not cell bboxes.
 Versioning/reprocessing support:
 Run artifacts include parser backend and run ID; artifact schema version exists.
 Conclusion:
-Good raw page traceability, partial semantic heading extraction, weak structured references/figures/tables.
+Good raw page traceability, partial semantic heading extraction, improved table provenance, weak structured references/figures.
 Evidence:
 `src/schemas/agent_artifacts.py:35`, `src/contracts/document_artifact_v2.py:66`, `src/ingest/parser_backends.py:228`.
 

@@ -14,7 +14,7 @@ from src.services.deepread_note_writer import (
     build_stats_markdown,
     upsert_deepread_section,
 )
-from src.skills.storage import atomic_write_text, split_frontmatter
+from src.skills.storage import atomic_write_text, resolve_vault_relative_path, split_frontmatter
 from src.timeout_policy import (
     default_reader_timeout_base_seconds,
     default_stats_timeout_base_seconds,
@@ -49,13 +49,8 @@ def _resolve_note_path_from_paper_row(config: Any, paper_row: dict[str, Any] | N
     except Exception:
         return None
 
-    candidate = Path(raw).expanduser()
-    if not candidate.is_absolute():
-        candidate = vault_path / candidate
-    try:
-        resolved = candidate.resolve(strict=False)
-        resolved.relative_to(vault_path)
-    except Exception:
+    resolved = resolve_vault_relative_path(vault_path, raw)
+    if resolved is None:
         return None
     if not resolved.exists():
         return None
@@ -163,7 +158,7 @@ def run_deepread_workflow(
                 for row in csv.DictReader(f):
                     if row.get("Paper_ID") == identifier or row.get("DOI") == identifier:
                         if row.get("Note_Path"):
-                            target_note_path = vault_path / row["Note_Path"]
+                            target_note_path = resolve_vault_relative_path(vault_path, row["Note_Path"])
                         break
         except Exception:
             pass
