@@ -10,6 +10,10 @@ from src.services.identity import (
     new_job_id,
     new_run_id,
     normalize_doi,
+    paper_id_candidate_ids,
+    paper_id_search_variants,
+    paper_id_self_and_suffix_candidate_ids,
+    paper_note_lookup_candidate_ids,
 )
 
 
@@ -35,6 +39,43 @@ def test_bridge_doc_id_to_paper_id_hashes_file_ids():
     assert bridged.startswith("file:")
     assert "/" not in bridged
     assert bridged == bridge_doc_id_to_paper_id("file:sample/path/paper.pdf")
+
+
+def test_paper_id_candidate_ids_expands_zotero_variants_without_duplicates():
+    assert paper_id_candidate_ids("zotero:ABC123") == ["zotero:ABC123", "ABC123"]
+    assert paper_id_candidate_ids("ABC123") == ["ABC123", "zotero:ABC123"]
+    assert paper_id_candidate_ids("doi:10.1000/test") == ["doi:10.1000/test"]
+    assert paper_id_candidate_ids(" zotero:ABC123 ") == ["zotero:ABC123", "ABC123"]
+    assert paper_id_candidate_ids("") == []
+
+
+def test_paper_id_self_and_suffix_candidate_ids_preserves_ops_summary_lookup_contract():
+    assert paper_id_self_and_suffix_candidate_ids("zotero:ABC123") == ["zotero:ABC123", "ABC123"]
+    assert paper_id_self_and_suffix_candidate_ids("ABC123") == ["ABC123"]
+    assert paper_id_self_and_suffix_candidate_ids("doi:10.1000/test") == ["doi:10.1000/test", "10.1000/test"]
+    assert paper_id_self_and_suffix_candidate_ids(" zotero:ABC123 ") == ["zotero:ABC123", "ABC123"]
+    assert paper_id_self_and_suffix_candidate_ids("") == []
+
+
+def test_paper_id_search_variants_include_cleaned_note_lookup_forms():
+    assert paper_id_search_variants("zotero:ABC123") == ["zotero:ABC123", "zoteroABC123", "ABC123"]
+    assert paper_id_search_variants("doi:10.1000/test") == [
+        "doi:10.1000/test",
+        "doi10.1000/test",
+        "10.1000/test",
+    ]
+    assert paper_id_search_variants("ABC123") == ["ABC123"]
+    assert paper_id_search_variants("") == []
+
+
+def test_paper_note_lookup_candidate_ids_adds_zotero_forms_for_plain_ids():
+    assert paper_note_lookup_candidate_ids("ABC123") == ["ABC123", "zotero:ABC123", "zoteroABC123"]
+    assert paper_note_lookup_candidate_ids("zotero:ABC123") == ["zotero:ABC123", "zoteroABC123", "ABC123"]
+    assert paper_note_lookup_candidate_ids("doi:10.1000/test") == [
+        "doi:10.1000/test",
+        "doi10.1000/test",
+        "10.1000/test",
+    ]
 
 
 def test_new_job_id_returns_uuid_string():

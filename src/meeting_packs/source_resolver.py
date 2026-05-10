@@ -29,6 +29,7 @@ from src.services.runtime_paths import research_dna_root as default_research_dna
 from src.skills.storage import (
     load_structured_state,
     resolve_note_path,
+    resolve_vault_relative_path,
     safe_read_text,
     split_frontmatter,
 )
@@ -774,7 +775,9 @@ def _build_source_item(
 
 
 def _resolve_note_selector_path(vault_path: Path, ref: str) -> Path:
-    direct_path = (vault_path / ref).expanduser()
+    direct_path = resolve_vault_relative_path(vault_path, ref)
+    if direct_path is None:
+        raise FileNotFoundError(f"Meeting Pack note source not found: {ref}")
     if direct_path.exists() and direct_path.is_file():
         return direct_path
     if not direct_path.suffix:

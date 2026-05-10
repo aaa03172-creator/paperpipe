@@ -89,6 +89,33 @@ def atomic_write_text(path: Path, content: str) -> None:
     tmp_path.replace(path)
 
 
+def _normalize_vault_segment(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or text in {".", ".."} or "/" in text or "\\" in text:
+        raise ValueError(f"{field_name} must be a single safe path segment")
+    return text
+
+
+def _confined_vault_path(vault_path: Path, relative_path: str) -> Path | None:
+    raw = str(relative_path or "").strip()
+    if not raw:
+        return None
+    parsed = Path(raw)
+    if parsed.is_absolute():
+        return None
+    root = vault_path.expanduser().resolve()
+    candidate = (root / parsed).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def resolve_vault_relative_path(vault_path: Path, relative_path: str) -> Path | None:
+    return _confined_vault_path(vault_path, relative_path)
+
+
 def resolve_note_path(vault_path: Path, slug: str) -> Path | None:
     exact = sorted(
         path
@@ -288,15 +315,20 @@ def resolve_note_slug_by_paper_id(vault_path: Path, paper_id: str) -> str | None
 
 
 def structured_relpath(slug: str) -> str:
-    return f".pp/{slug}/state.json"
+    safe_slug = _normalize_vault_segment(slug, field_name="slug")
+    return f".pp/{safe_slug}/state.json"
 
 
 def structured_state_path(vault_path: Path, slug: str) -> Path:
-    return vault_path / ".pp" / slug / "state.json"
+    safe_slug = _normalize_vault_segment(slug, field_name="slug")
+    return vault_path / ".pp" / safe_slug / "state.json"
 
 
 def structured_run_path(vault_path: Path, slug: str, run_stamp: str, action: str) -> Path:
-    return vault_path / ".pp" / slug / "runs" / f"{run_stamp}_{action}.json"
+    safe_slug = _normalize_vault_segment(slug, field_name="slug")
+    safe_run_stamp = _normalize_vault_segment(run_stamp, field_name="run_stamp")
+    safe_action = _normalize_vault_segment(action, field_name="action")
+    return vault_path / ".pp" / safe_slug / "runs" / f"{safe_run_stamp}_{safe_action}.json"
 
 
 def load_structured_state(
@@ -311,7 +343,9 @@ def load_structured_state(
             candidate = str(pp.get("structured_path") or "").strip()
             if candidate:
                 rel_path = candidate
-    path = vault_path / rel_path
+    path = _confined_vault_path(vault_path, rel_path)
+    if path is None:
+        return None
     if not path.exists():
         return None
     try:
