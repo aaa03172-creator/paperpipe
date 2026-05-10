@@ -114,6 +114,336 @@ def test_run_meta_redacts_cloud_table_api_key_on_failed_ingest(tmp_path, monkeyp
     assert run_meta["status"] == "failed"
 
 
+def test_failed_runner_preserves_original_error_when_handoff_write_fails(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    library_dir = tmp_path / "Library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+    vault_dir = tmp_path / "Vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    paper_id = "paper_failed_handoff_001"
+    run_id = "run_failed_handoff"
+    (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+
+    monkeypatch.setattr(
+        job_runner_mod,
+        "load_config",
+        lambda: SimpleNamespace(
+            paths=SimpleNamespace(
+                library_dir=library_dir,
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            )
+        ),
+    )
+
+    class FakeIngestAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def process_v2(self, pdf_path: str):
+            return None
+
+    def fail_handoff(*args, **kwargs):
+        raise RuntimeError("handoff exploded")
+
+    monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+    monkeypatch.setattr(job_runner_mod, "write_deepread_handoff_artifacts", fail_handoff)
+
+    result = asyncio.run(
+        job_runner_mod.run_deepread_job(
+            job_id="job-failed-handoff",
+            paper_id=paper_id,
+            run_id=run_id,
+        )
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"] == "Ingestion failed to produce artifact"
+
+    artifact_dir = job_runner_mod.artifact_run_dir(paper_id, run_id)
+    run_meta = json.loads((artifact_dir / "run_meta.json").read_text(encoding="utf-8"))
+    bootstrap_meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+
+    assert run_meta["status"] == "failed"
+    assert run_meta["error"] == "Ingestion failed to produce artifact"
+    assert run_meta["handoff_write_error"] == "handoff exploded"
+    assert bootstrap_meta["handoff_write_error"] == "handoff exploded"
+    assert bootstrap_meta["artifact_acceptance_contract_written"] is False
+    assert bootstrap_meta["artifact_quality_gate_written"] is False
+
+
+def test_mark_paper_deepread_indexed_preserves_terminal_or_blocked_status(tmp_path):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        db_utils.save_paper_state("paper_new", "New", "test", "2026-05-10", status="NEW")
+        db_utils.save_paper_state("paper_done", "Done", "test", "2026-05-10", status="DONE")
+        db_utils.save_paper_state("paper_quarantined", "Quarantined", "test", "2026-05-10", status="QUARANTINED")
+
+        assert job_runner_mod._mark_paper_deepread_indexed("paper_new") is True
+        assert job_runner_mod._mark_paper_deepread_indexed("paper_done") is False
+        assert job_runner_mod._mark_paper_deepread_indexed("paper_quarantined") is False
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        rows = dict(conn.execute("SELECT paper_id, status FROM papers").fetchall())
+        conn.close()
+
+        assert rows["paper_new"] == "INDEXED"
+        assert rows["paper_done"] == "DONE"
+        assert rows["paper_quarantined"] == "QUARANTINED"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_passes_current_job_runner_signature_kwargs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        captured: dict[str, object] = {}
+        artifact_dir = tmp_path / "artifacts" / "paper_signature_001" / "run"
+
+        async def fake_run_deepread_job(
+            *,
+            job_id: str,
+            paper_id: str,
+            persona_id: str,
+            reasoning_persona: str | None,
+            profile_id: str | None,
+            parser_backend: str | None,
+            run_verify: bool,
+            clean_reindex: bool,
+            run_id: str,
+            progress_callback,
+            cancel_check,
+        ):
+            captured.update(
+                {
+                    "job_id": job_id,
+                    "paper_id": paper_id,
+                    "persona_id": persona_id,
+                    "reasoning_persona": reasoning_persona,
+                    "profile_id": profile_id,
+                    "parser_backend": parser_backend,
+                    "run_verify": run_verify,
+                    "clean_reindex": clean_reindex,
+                    "run_id": run_id,
+                    "progress_callback": progress_callback,
+                    "cancel_check": cancel_check,
+                    "cancel_check_during_runner": cancel_check(),
+                }
+            )
+            return {"status": "succeeded", "artifact_dir": str(artifact_dir)}
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id="paper_signature_001",
+            clean_reindex=True,
+            run_verify=True,
+            persona_id="default",
+            reasoning_persona="researcher",
+            profile_id="profile-alpha",
+            parser_backend="docling",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        assert done.progress == 100
+        assert done.artifact_dir == str(artifact_dir)
+        assert captured["job_id"] == job_id
+        assert captured["paper_id"] == "paper_signature_001"
+        assert captured["persona_id"] == "profile-alpha"
+        assert captured["reasoning_persona"] == "researcher"
+        assert captured["profile_id"] == "profile-alpha"
+        assert captured["parser_backend"] == "docling"
+        assert captured["run_verify"] is True
+        assert captured["clean_reindex"] is True
+        assert captured["run_id"] == claimed.run_id
+        assert callable(captured["progress_callback"])
+        assert callable(captured["cancel_check"])
+        assert captured["cancel_check_during_runner"] is False
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_still_supports_legacy_job_runner_signature_without_new_persona_kwargs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        captured: dict[str, object] = {}
+        artifact_dir = tmp_path / "artifacts" / "paper_legacy_signature_001" / "run"
+
+        async def fake_legacy_run_deepread_job(
+            *,
+            job_id: str,
+            paper_id: str,
+            persona_id: str,
+            run_verify: bool,
+            clean_reindex: bool,
+            run_id: str,
+            progress_callback,
+            cancel_check,
+        ):
+            captured.update(
+                {
+                    "job_id": job_id,
+                    "paper_id": paper_id,
+                    "persona_id": persona_id,
+                    "run_verify": run_verify,
+                    "clean_reindex": clean_reindex,
+                    "run_id": run_id,
+                    "progress_callback": progress_callback,
+                    "cancel_check": cancel_check,
+                }
+            )
+            return {"status": "succeeded", "artifact_dir": str(artifact_dir)}
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_legacy_run_deepread_job)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id="paper_legacy_signature_001",
+            clean_reindex=True,
+            run_verify=True,
+            persona_id="legacy-profile",
+            reasoning_persona="researcher",
+            profile_id="legacy-profile",
+            parser_backend="docling",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        assert done.artifact_dir == str(artifact_dir)
+        assert captured["job_id"] == job_id
+        assert captured["paper_id"] == "paper_legacy_signature_001"
+        assert captured["persona_id"] == "legacy-profile"
+        assert captured["run_verify"] is True
+        assert captured["clean_reindex"] is True
+        assert captured["run_id"] == claimed.run_id
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_still_supports_older_job_runner_signature_without_clean_reindex(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        captured: dict[str, object] = {}
+        artifact_dir = tmp_path / "artifacts" / "paper_older_signature_001" / "run"
+
+        async def fake_older_run_deepread_job(
+            *,
+            job_id: str,
+            paper_id: str,
+            persona_id: str,
+            run_verify: bool,
+            run_id: str,
+            progress_callback,
+            cancel_check,
+        ):
+            captured.update(
+                {
+                    "job_id": job_id,
+                    "paper_id": paper_id,
+                    "persona_id": persona_id,
+                    "run_verify": run_verify,
+                    "run_id": run_id,
+                    "progress_callback": progress_callback,
+                    "cancel_check": cancel_check,
+                }
+            )
+            return {"status": "succeeded", "artifact_dir": str(artifact_dir)}
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_older_run_deepread_job)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(
+            paper_id="paper_older_signature_001",
+            clean_reindex=True,
+            run_verify=True,
+            persona_id="older-profile",
+            reasoning_persona="researcher",
+            profile_id="older-profile",
+            parser_backend="docling",
+        )
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        assert done.artifact_dir == str(artifact_dir)
+        assert captured["job_id"] == job_id
+        assert captured["paper_id"] == "paper_older_signature_001"
+        assert captured["persona_id"] == "older-profile"
+        assert captured["run_verify"] is True
+        assert captured["run_id"] == claimed.run_id
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_does_not_retry_internal_type_error_as_signature_compatibility(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        calls = {"count": 0}
+        artifact_dir = tmp_path / "artifacts" / "paper_internal_typeerror" / "run"
+
+        async def fake_run_deepread_job(**_kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise TypeError("internal parser bug")
+            return {"status": "succeeded", "artifact_dir": str(artifact_dir)}
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id="paper_internal_typeerror")
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert calls["count"] == 1
+        assert done.status == "failed"
+        assert done.error_message == "internal parser bug"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
@@ -128,7 +458,16 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
         (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
         paper_id = "paper_chain_001"
-        (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        pdf_path = library_dir / f"{paper_id}.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n%fake\n")
+        db_utils.save_paper_state(
+            paper_id,
+            "Smoke Title",
+            "user_imported_pdf",
+            "2026-05-10",
+            local_pdf_path=pdf_path,
+            status="NEW",
+        )
         note_path = vault_dir / "Inbox" / "paper_chain_001.md"
         note_path.write_text("# Paper\n\nInitial\n", encoding="utf-8")
         (vault_dir / "00_Index" / "paper_collection.csv").write_text(
@@ -146,11 +485,23 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
                     library_dir=library_dir,
                     obsidian_vault=vault_dir,
                     index_all=Path("00_Index/paper_collection.csv"),
-                )
+                ),
+                ingest=SimpleNamespace(parser_backend="fitz_pdfplumber", enable_docling=True),
             ),
         )
 
         class FakeIngestAgent:
+            def __init__(self, parser_backend: str = "fitz_pdfplumber", **_kwargs):
+                self.last_table_extraction_meta = {
+                    "requested_parser_backend": parser_backend,
+                    "parser_backend": "fitz_pdfplumber",
+                    "parser_backend_fallback_used": parser_backend == "docling",
+                    "table_extraction_pass": "pass1",
+                    "table_failure_taxonomy": [],
+                    "fallback_used": False,
+                    "fallback_pages": [],
+                }
+
             def process_v2(self, pdf_path: str):
                 return DocumentArtifactV2(
                     document_id=paper_id,
@@ -272,6 +623,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
             clean_reindex=False,
             run_verify=True,
             persona_id="smoke-persona",
+            parser_backend="docling",
         )
         claimed = queue.claim_next_job()
         assert claimed is not None
@@ -286,6 +638,11 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert done.stage == "completed"
         assert done.progress == 100
         assert done.artifact_dir is not None
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        paper_row = conn.execute("SELECT status FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+        conn.close()
+        assert paper_row is not None
+        assert paper_row[0] == "INDEXED"
 
         artifact_dir = Path(done.artifact_dir)
         assert (artifact_dir / "document_artifact.json").exists()
@@ -312,6 +669,12 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["paper_id"] == paper_id
         assert run_meta["paper_id"] == paper_id
         assert run_meta["status"] == "succeeded"
+        assert meta["requested_parser_backend"] == "docling"
+        assert meta["parser_backend"] == "fitz_pdfplumber"
+        assert meta["parser_backend_fallback_used"] is True
+        assert run_meta["requested_parser_backend"] == "docling"
+        assert run_meta["parser_backend"] == "fitz_pdfplumber"
+        assert run_meta["parser_backend_fallback_used"] is True
         assert isinstance(run_meta.get("pdf_sha256"), str)
         assert len(run_meta["pdf_sha256"]) == 64
         assert "models_used" in run_meta
@@ -717,7 +1080,7 @@ def test_worker_reader_timeout_budget_is_recorded_and_failed_explicitly(tmp_path
         db_utils.DB_PATH = original_db_path
 
 
-def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
+def test_worker_clean_reindex_prunes_after_successful_index(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     original_db_path = db_utils.DB_PATH
@@ -767,15 +1130,29 @@ def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
                     tables=[],
                 )
 
-        reset_calls: list[str] = []
+        indexer_calls: list[tuple[str, str]] = []
 
         class FakeIndexerAgent:
-            def reset_doc_index(self, doc_id: str) -> int:
-                reset_calls.append(doc_id)
-                return 3
-
             def process(self, doc):
-                return IndexArtifact(doc_id=doc.document_id, vector_store_id="smoke", chunk_count=1, chunks=[])
+                indexer_calls.append(("process", doc.document_id))
+                return IndexArtifact(
+                    doc_id=doc.document_id,
+                    vector_store_id="smoke",
+                    chunk_count=1,
+                    chunks=[
+                        DocumentChunk(
+                            chunk_id="p01_c01",
+                            text="x",
+                            vector_id="doc_hash__p01_c01",
+                            section_name="abstract",
+                            page_hint=1,
+                        )
+                    ],
+                )
+
+            def prune_doc_index(self, doc_id: str, *, keep_ids: list[str]) -> int:
+                indexer_calls.append(("prune", f"{doc_id}:{','.join(keep_ids)}"))
+                return 3
 
         class FakeReaderAgent:
             def analyze(self, doc):
@@ -804,13 +1181,128 @@ def test_worker_clean_reindex_requests_index_reset(tmp_path, monkeypatch):
         assert done is not None
         assert done.status == "completed"
         assert done.clean_reindex == 1
-        assert reset_calls == [paper_id]
+        assert indexer_calls == [
+            ("process", paper_id),
+            ("prune", f"{paper_id}:doc_hash__p01_c01"),
+        ]
 
         artifact_dir = Path(done.artifact_dir)
         meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
         assert meta["clean_reindex_requested"] is True
         assert meta["clean_reindex_applied"] is True
         assert meta["clean_reindex_removed_chunks"] == 3
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_clean_reindex_skips_prune_after_partial_index(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        library_dir = tmp_path / "Library"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        vault_dir = tmp_path / "Vault"
+        (vault_dir / "00_Index").mkdir(parents=True, exist_ok=True)
+        (vault_dir / "Inbox").mkdir(parents=True, exist_ok=True)
+        paper_id = "paper_partial_clean_idx_001"
+        (library_dir / f"{paper_id}.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+        (vault_dir / "Inbox" / f"{paper_id}.md").write_text("# Paper\n", encoding="utf-8")
+        (vault_dir / "00_Index" / "paper_collection.csv").write_text(
+            "Paper_ID,DOI,Title,Note_Path\n"
+            f"{paper_id},10.1000/test,Smoke Title,Inbox/{paper_id}.md\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            job_runner_mod,
+            "load_config",
+            lambda: SimpleNamespace(
+                paths=SimpleNamespace(
+                    library_dir=library_dir,
+                    obsidian_vault=vault_dir,
+                    index_all=Path("00_Index/paper_collection.csv"),
+                )
+            ),
+        )
+
+        class FakeIngestAgent:
+            def process_v2(self, pdf_path: str):
+                return DocumentArtifactV2(
+                    document_id=paper_id,
+                    meta=ArtifactMetaV2(title="Smoke Title", authors=["A"], source_ref=pdf_path),
+                    pages=[
+                        PageV2(
+                            page_index=0,
+                            width=595.0,
+                            height=842.0,
+                            blocks=[BlockV2(block_id="b1", lines=[LineV2(line_id="l1", text="x", spans=[SpanV2(span_id="s1", text="x")])])],
+                        )
+                    ],
+                    tables=[],
+                )
+
+        indexer_calls: list[str] = []
+
+        class FakeIndexerAgent:
+            last_index_complete = False
+            last_index_attempted_chunks = 2
+            last_index_skipped_chunks = 1
+
+            def process(self, doc):
+                indexer_calls.append("process")
+                return IndexArtifact(
+                    doc_id=doc.document_id,
+                    vector_store_id="smoke",
+                    chunk_count=1,
+                    chunks=[
+                        DocumentChunk(
+                            chunk_id="p01_c01",
+                            text="x",
+                            vector_id="doc_hash__p01_c01",
+                            section_name="abstract",
+                            page_hint=1,
+                        )
+                    ],
+                )
+
+            def prune_doc_index(self, doc_id: str, *, keep_ids: list[str]) -> int:
+                indexer_calls.append("prune")
+                return 3
+
+        class FakeReaderAgent:
+            def analyze(self, doc):
+                return ClaimSet(
+                    doc_id=doc.document_id,
+                    claims=[ScientificClaim(claim_id="c1", type="efficacy", statement="claim", confidence=0.9)],
+                )
+
+        monkeypatch.setattr(job_runner_mod, "IngestAgent", FakeIngestAgent)
+        monkeypatch.setattr(job_runner_mod, "IndexerAgent", FakeIndexerAgent)
+        monkeypatch.setattr(job_runner_mod, "ReaderAgent", FakeReaderAgent)
+
+        queue = JobQueue()
+        job_id = queue.enqueue(paper_id=paper_id, clean_reindex=True)
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+        worker = worker_mod.Worker()
+        worker.process_job(claimed)
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "completed"
+        assert indexer_calls == ["process"]
+
+        artifact_dir = Path(done.artifact_dir)
+        meta = json.loads((artifact_dir / "bootstrap_meta.json").read_text(encoding="utf-8"))
+        assert meta["clean_reindex_requested"] is True
+        assert meta["clean_reindex_applied"] is False
+        assert meta["clean_reindex_skip_reason"] == "partial_replacement_vectors"
+        assert meta["clean_reindex_attempted_chunks"] == 2
+        assert meta["clean_reindex_skipped_chunks"] == 1
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -864,5 +1356,57 @@ def test_resolve_note_path_for_paper_falls_back_to_db_obsidian_path(tmp_path, mo
 
         resolved = job_runner_mod._resolve_note_path_for_paper(config, "paper_db_note_001")
         assert resolved == note_path
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_resolve_note_path_for_paper_rejects_escaping_db_obsidian_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        vault_dir = tmp_path / "Vault"
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        outside_note = tmp_path / "outside.md"
+        outside_note.write_text("# Outside\n", encoding="utf-8")
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS papers (
+                paper_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT DEFAULT 'NEW',
+                obsidian_path TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO papers (paper_id, title, status, obsidian_path)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "paper_escape_note",
+                "Escaping note path",
+                "INDEXED",
+                "../outside.md",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        config = SimpleNamespace(
+            paths=SimpleNamespace(
+                obsidian_vault=vault_dir,
+                index_all=Path("00_Index/paper_collection.csv"),
+            )
+        )
+
+        resolved = job_runner_mod._resolve_note_path_for_paper(config, "paper_escape_note")
+        assert resolved is None
     finally:
         db_utils.DB_PATH = original_db_path
