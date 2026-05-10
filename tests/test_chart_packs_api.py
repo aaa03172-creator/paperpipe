@@ -419,3 +419,31 @@ def test_chart_packs_api_returns_404_when_pack_missing(tmp_path, monkeypatch) ->
     assert client.get("/chart-packs/chartpack_missing/markdown").status_code == 404
     assert client.get("/chart-packs/chartpack_missing/charts/chart_01/data.csv").status_code == 404
     assert client.get("/chart-packs/chartpack_missing/charts/chart_01/spec.json").status_code == 404
+
+
+def test_chart_packs_api_does_not_resolve_encoded_traversal_ids_outside_root(tmp_path, monkeypatch) -> None:
+    chart_root = tmp_path / "chart_packs"
+    outside = tmp_path / "outside"
+    outside.mkdir(parents=True)
+    (outside / "chart_pack.json").write_text('{"sentinel":"do-not-read"}', encoding="utf-8")
+    (outside / "chart_pack.md").write_text("SENTINEL-MARKDOWN", encoding="utf-8")
+    (outside / "renders").mkdir()
+    (outside / "renders" / "chart_escape.svg").write_text("<svg>SENTINEL</svg>", encoding="utf-8")
+
+    monkeypatch.setenv("PAPERPIPE_CHART_PACKS_DIR", str(chart_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    client = TestClient(api_main.app)
+
+    responses = [
+        client.get("/chart-packs/..%2Foutside"),
+        client.get("/chart-packs/..%2Foutside/markdown"),
+        client.get("/chart-packs/..%2Foutside/charts/chart_escape/render.svg"),
+        client.get("/chart-packs/chartpack_safe/charts/..%2Fchart_escape/render.svg"),
+    ]
+
+    assert [response.status_code for response in responses] == [404, 404, 404, 404]
+    combined = "\n".join(response.text for response in responses)
+    assert "SENTINEL" not in combined
+    assert "do-not-read" not in combined

@@ -536,6 +536,37 @@ def test_meeting_packs_api_supports_bounded_legacy_regenerate_and_validate(tmp_p
     assert regenerated.json()["pack"]["regenerated_from_pack_id"] == legacy_id
 
 
+def test_meeting_packs_api_does_not_resolve_encoded_traversal_ids_outside_root(tmp_path, monkeypatch):
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True)
+    meeting_root = tmp_path / "meeting_packs"
+    outside = tmp_path / "outside"
+    outside.mkdir(parents=True)
+    (outside / "meeting_pack.json").write_text('{"sentinel":"do-not-read"}', encoding="utf-8")
+    (outside / "meeting_pack.md").write_text("SENTINEL-MARKDOWN", encoding="utf-8")
+
+    monkeypatch.setenv("PAPERPIPE_MEETING_PACKS_DIR", str(meeting_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    config = SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir))
+    monkeypatch.setattr(meeting_packs_router, "load_config", lambda: config)
+
+    client = TestClient(api_main.app)
+    responses = [
+        client.get("/meeting-packs/..%2Foutside"),
+        client.get("/meeting-packs/..%2Foutside/markdown"),
+        client.get("/meeting-packs/..%2Foutside/trace"),
+        client.get("/meeting-packs/..%2Foutside/validate"),
+        client.post("/meeting-packs/..%2Foutside/regenerate"),
+        client.post("/meeting-packs/..%2Foutside/rerender"),
+    ]
+
+    assert all(response.status_code in {400, 404} for response in responses)
+    combined = "\n".join(response.text for response in responses)
+    assert "SENTINEL" not in combined
+    assert "do-not-read" not in combined
+
+
 def test_meeting_packs_api_validate_marks_regenerate_unavailable_when_sources_are_missing(tmp_path, monkeypatch):
     vault_dir = tmp_path / "vault"
     meeting_root = tmp_path / "meeting_packs"
