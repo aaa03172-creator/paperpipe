@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from src.schemas.agent_artifacts import (
     ClaimSet,
     ScientificClaim,
@@ -7,6 +9,14 @@ from src.schemas.agent_artifacts import (
     VerificationStatus,
 )
 from src.schemas.core import BiomedicalClinicalExtraction
+from src.schemas.claimset_coverage import (
+    ClaimsetCoverageDuplicateWarning,
+    ClaimsetCoverageEvidenceSummary,
+    ClaimsetCoverageMetrics,
+    ClaimsetCoveragePageSummary,
+    ClaimsetCoverageSidecar,
+    ClaimsetCoverageTopicSignal,
+)
 from src.services.deepread_note_writer import (
     DEEPREAD_HEADER,
     _format_evidence_text_for_display,
@@ -35,6 +45,87 @@ def test_build_deepread_markdown_renders_claims():
     assert "Analyzed via llama3:latest" in md
     assert "Drug A improved outcome." in md
     assert "Result section evidence" in md
+
+
+def test_build_deepread_markdown_renders_coverage_warning_for_warn_or_fail():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="mechanism",
+                statement="Claims are clustered.",
+                confidence=0.91,
+            )
+        ],
+    )
+    coverage = ClaimsetCoverageSidecar(
+        paper_id="paper-1",
+        doc_id="doc1",
+        run_id="run-1",
+        source_artifacts=["claimset.resolved.json"],
+        generated_at=datetime.now(timezone.utc),
+        coverage_status="warn",
+        metrics=ClaimsetCoverageMetrics(document_page_count=9),
+        page_summary=ClaimsetCoveragePageSummary(covered_pages=[2], missing_page_ranges=["1", "3-9"]),
+        topic_signals=[
+            ClaimsetCoverageTopicSignal(
+                key="ai_computational",
+                label="AI and computational methods",
+                present_in_document=True,
+                covered_by_claimset=False,
+            )
+        ],
+        duplicate_warnings=[
+            ClaimsetCoverageDuplicateWarning(
+                claim_ids=["c1", "c2"],
+                similarity=0.8,
+                reason="claim_statements_have_high_token_overlap",
+            )
+        ],
+        evidence_summary=ClaimsetCoverageEvidenceSummary(total_spans=3, grounded_spans=3, grounded_ratio=1.0),
+        recommended_next_action="run_focused_coverage_review_for_missing_topics",
+        reason_codes=["low_page_coverage"],
+    )
+
+    md = build_deepread_markdown("llama3:latest", claimset, coverage=coverage)
+
+    assert "### Coverage Review" in md
+    assert "- **Status**: WARN" in md
+    assert "- **Gate**: Advisory only" in md
+    assert "- **Covered Pages**: 2 of 9" in md
+    assert "- **Undercovered Page Ranges**: 1, 3-9" in md
+    assert "AI and computational methods" in md
+    assert "run focused coverage review for missing topics" in md
+
+
+def test_build_deepread_markdown_omits_coverage_block_for_pass():
+    claimset = ClaimSet(
+        doc_id="doc1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="mechanism",
+                statement="Claims are distributed.",
+                confidence=0.91,
+            )
+        ],
+    )
+    coverage = ClaimsetCoverageSidecar(
+        paper_id="paper-1",
+        doc_id="doc1",
+        run_id="run-1",
+        generated_at=datetime.now(timezone.utc),
+        coverage_status="pass",
+        metrics=ClaimsetCoverageMetrics(document_page_count=2, covered_page_count=2, page_coverage_ratio=1.0),
+        page_summary=ClaimsetCoveragePageSummary(covered_pages=[1, 2]),
+        evidence_summary=ClaimsetCoverageEvidenceSummary(total_spans=2, grounded_spans=2, grounded_ratio=1.0),
+        recommended_next_action="none",
+    )
+
+    md = build_deepread_markdown("llama3:latest", claimset, coverage=coverage)
+
+    assert "### Coverage Review" not in md
 
 
 def test_build_deepread_markdown_can_include_bounded_clinical_extraction_block():

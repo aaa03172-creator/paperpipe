@@ -2,6 +2,7 @@ import re
 
 from src.schemas.core import BiomedicalClinicalExtraction
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
+from src.schemas.claimset_coverage import ClaimsetCoverageSidecar
 
 
 DEEPREAD_HEADER = "## 🤖 Agent Deep Read"
@@ -98,9 +99,14 @@ def build_deepread_markdown(
     claims_set: ClaimSet,
     stats_md: str = "",
     clinical_md: str = "",
+    coverage: ClaimsetCoverageSidecar | None = None,
 ) -> str:
     md_output = f"{DEEPREAD_HEADER}\n"
     md_output += f"**Analyzed via {model_name}**\n\n"
+    coverage_md = build_coverage_review_markdown(coverage)
+    if coverage_md:
+        md_output += coverage_md
+
     if clinical_md:
         md_output += clinical_md
 
@@ -122,6 +128,34 @@ def build_deepread_markdown(
     if stats_md:
         md_output += stats_md
     return md_output
+
+
+def build_coverage_review_markdown(coverage: ClaimsetCoverageSidecar | None) -> str:
+    if coverage is None or coverage.coverage_status == "pass":
+        return ""
+    missing_topics = [
+        signal.label
+        for signal in coverage.topic_signals
+        if signal.present_in_document and not signal.covered_by_claimset
+    ]
+    parts = [
+        "### Coverage Review",
+        f"- **Status**: {coverage.coverage_status.upper()}",
+        "- **Gate**: Advisory only",
+        (
+            f"- **Covered Pages**: {', '.join(str(page) for page in coverage.page_summary.covered_pages) or 'None'} "
+            f"of {coverage.metrics.document_page_count or 'unknown'}"
+        ),
+    ]
+    if coverage.page_summary.missing_page_ranges:
+        parts.append(f"- **Undercovered Page Ranges**: {', '.join(coverage.page_summary.missing_page_ranges)}")
+    if missing_topics:
+        parts.append(f"- **Missing Topic Signals**: {', '.join(missing_topics[:4])}")
+    if coverage.duplicate_warnings:
+        parts.append(f"- **Near-Duplicate Claim Warnings**: {len(coverage.duplicate_warnings)}")
+    parts.append(f"- **Evidence Grounding**: {coverage.evidence_summary.grounded_ratio:.0%} grounded")
+    parts.append(f"- **Recommended Next Action**: {coverage.recommended_next_action.replace('_', ' ')}")
+    return "\n".join(parts) + "\n\n"
 
 
 def upsert_deepread_section(content: str, new_section: str) -> str:
