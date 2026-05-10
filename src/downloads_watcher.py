@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 REVIEW_NEEDS_PDF_MATCH = "NEEDS_PDF_MATCH"
 UNMATCHED_SENTINEL_PAPER_ID = "__UNMATCHED__"
+TEMP_DOWNLOAD_SUFFIXES = (".crdownload", ".part", ".download", ".tmp")
 DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 
 
@@ -303,6 +304,41 @@ def process_downloaded_pdf(
     return DownloadWatchResult(status="unmatched", destination=dest, matched_paper_id=None)
 
 
+def _is_temporary_download(path: Path) -> bool:
+    name = path.name.lower()
+    return any(name.endswith(suffix) for suffix in TEMP_DOWNLOAD_SUFFIXES)
+
+
+def _wait_for_stable_file(
+    path: Path,
+    *,
+    stable_checks: int = 2,
+    interval_seconds: float = 0.5,
+    max_wait_seconds: float = 30.0,
+) -> bool:
+    deadline = time.monotonic() + max_wait_seconds
+    last_snapshot: tuple[int, int] | None = None
+    stable_count = 0
+
+    while time.monotonic() <= deadline:
+        if not path.exists():
+            return False
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return False
+        snapshot = (int(stat.st_size), int(stat.st_mtime_ns))
+        if snapshot[0] > 0 and snapshot == last_snapshot:
+            stable_count += 1
+            if stable_count >= stable_checks:
+                return True
+        else:
+            stable_count = 0
+            last_snapshot = snapshot
+        time.sleep(interval_seconds)
+    return False
+
+
 class DownloadsFileHandler(FileSystemEventHandler):
     def __init__(self, pdf_storage_dir: Path, title_threshold: float = 0.90):
         self.pdf_storage_dir = pdf_storage_dir
@@ -312,9 +348,11 @@ class DownloadsFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = Path(event.src_path)
-        if path.suffix.lower() != ".pdf":
+        if _is_temporary_download(path) or path.suffix.lower() != ".pdf":
             return
-        time.sleep(1)
+        if not _wait_for_stable_file(path):
+            logger.warning("Downloads watcher skipped unstable PDF: %s", path.name)
+            return
         try:
             result = process_downloaded_pdf(path, pdf_storage_dir=self.pdf_storage_dir, title_threshold=self.title_threshold)
             logger.info("Downloads watcher processed %s -> %s (%s)", path.name, result.status, result.destination)

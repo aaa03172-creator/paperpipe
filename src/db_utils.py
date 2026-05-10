@@ -406,8 +406,9 @@ def save_paper_state(
             cursor.execute(sql, tuple(insert_vals))
 
         conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        logger.warning("Failed to save paper state for %s: %s", identifier, exc)
     finally:
         conn.close()
 

@@ -137,6 +137,15 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_valid_app_bundle(path: Path) -> bool:
+    app_executable = path / "Contents" / "MacOS" / "Lattice"
+    return path.is_dir() and _is_valid_cli_binary(app_executable)
+
+
+def _is_valid_cli_binary(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
 def _build_bundle(*, clean: bool, skip_frontend_build: bool) -> None:
     cmd = [sys.executable, str(ROOT / "scripts" / "build_personal_runtime_bundle.py")]
     if skip_frontend_build:
@@ -147,12 +156,15 @@ def _build_bundle(*, clean: bool, skip_frontend_build: bool) -> None:
 
 
 def _ensure_artifacts_exist(paths: ReleasePaths) -> None:
-    required_paths = [paths.app_bundle, paths.cli_binary]
-    missing = [path for path in required_paths if not path.exists()]
-    if missing:
-        missing_display = ", ".join(str(path) for path in missing)
+    invalid = []
+    if not _is_valid_app_bundle(paths.app_bundle):
+        invalid.append(paths.app_bundle)
+    if not _is_valid_cli_binary(paths.cli_binary):
+        invalid.append(paths.cli_binary)
+    if invalid:
+        missing_display = ", ".join(str(path) for path in invalid)
         raise FileNotFoundError(
-            f"Expected packaging artifact is missing: {missing_display}. Run the bundle build first or pass --build."
+            f"Expected packaging artifact is missing or invalid: {missing_display}. Run the bundle build first or pass --build."
         )
 
 
@@ -337,9 +349,9 @@ def evaluate_release_preflight(
     notary_profile_detail: str | None,
 ) -> ReleasePreflight:
     artifacts = {
-        "app_bundle": paths.app_bundle.exists(),
-        "cli_binary": paths.cli_binary.exists(),
-        "support_dir": paths.support_dir.exists(),
+        "app_bundle": _is_valid_app_bundle(paths.app_bundle),
+        "cli_binary": _is_valid_cli_binary(paths.cli_binary),
+        "support_dir": paths.support_dir.is_dir(),
     }
 
     requested_identity_value = requested_identity.strip() or None
@@ -369,10 +381,10 @@ def evaluate_release_preflight(
     next_steps: list[str] = []
 
     if not artifacts["app_bundle"]:
-        blockers.append("Missing dist/Lattice.app")
+        blockers.append("Missing or invalid dist/Lattice.app")
         next_steps.append("Run the PyInstaller bundle build before the release path.")
     if not artifacts["cli_binary"]:
-        blockers.append("Missing dist/lattice")
+        blockers.append("Missing or invalid dist/lattice")
         next_steps.append("Run the PyInstaller bundle build before the release path.")
     if not tools.get("codesign", False):
         blockers.append("codesign is not available")

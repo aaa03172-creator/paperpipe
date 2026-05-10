@@ -23,6 +23,13 @@ from src.skills import runner as skills_runner
 from src.talk_packs.store import save_talk_pack_bundle
 
 
+class _FakeRequest:
+    def __init__(self, *, host: str):
+        self.headers = {"host": host}
+        self.scope = {}
+        self.url = SimpleNamespace(hostname=host)
+
+
 def _browser_headers() -> dict[str, str]:
     return {"origin": "http://testserver"}
 
@@ -1439,3 +1446,50 @@ def test_legacy_api_key_env_is_supported(tmp_path, monkeypatch):
         assert allowed.status_code == 200
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_private_routes_fail_closed_without_api_key_on_non_loopback_host(tmp_path, monkeypatch):
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    monkeypatch.delenv("LATTICE_BETA_PASSWORD", raising=False)
+    monkeypatch.delenv("PAPERPIPE_BETA_PASSWORD", raising=False)
+    monkeypatch.delenv("LATTICE_ALLOW_UNAUTHENTICATED_PRIVATE_API", raising=False)
+    monkeypatch.setenv("LATTICE_ALLOWED_HOSTS", "paperpipe.example.com")
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        client = TestClient(api_main.app)
+
+        response = client.get("/papers", headers={"host": "paperpipe.example.com"})
+
+        assert response.status_code == 401
+        assert response.json()["error_code"] == "API_KEY_NOT_CONFIGURED"
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_private_routes_allow_missing_api_key_on_loopback_host(tmp_path, monkeypatch):
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    monkeypatch.delenv("LATTICE_BETA_PASSWORD", raising=False)
+    monkeypatch.delenv("PAPERPIPE_BETA_PASSWORD", raising=False)
+    monkeypatch.delenv("LATTICE_ALLOW_UNAUTHENTICATED_PRIVATE_API", raising=False)
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        client = TestClient(api_main.app)
+
+        response = client.get("/papers", headers={"host": "127.0.0.1"})
+
+        assert response.status_code != 401
+        assert response.json() == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_private_routes_allow_explicit_unauthenticated_opt_in_on_non_loopback_host(tmp_path, monkeypatch):
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+    monkeypatch.delenv("LATTICE_BETA_PASSWORD", raising=False)
+    monkeypatch.delenv("PAPERPIPE_BETA_PASSWORD", raising=False)
+    monkeypatch.setenv("LATTICE_ALLOW_UNAUTHENTICATED_PRIVATE_API", "true")
+
+    assert api_main._allow_missing_api_key_for_private_route(_FakeRequest(host="paperpipe.example.com")) is True

@@ -255,12 +255,24 @@ def artifacts_root() -> Path:
     return (storage_root() / "artifacts").resolve()
 
 
+def _confined_child(root: Path, *parts: str) -> Path | None:
+    root_path = root.expanduser().resolve()
+    candidate = root_path.joinpath(*parts).resolve()
+    try:
+        candidate.relative_to(root_path)
+    except ValueError:
+        return None
+    return candidate
+
+
 def artifact_paper_dir_candidates(paper_id: str, root: Path | None = None) -> list[Path]:
     root_path = root.resolve() if root is not None else artifacts_root()
     candidates: list[Path] = []
     seen: set[Path] = set()
     for segment in (artifact_paper_segment(paper_id), legacy_artifact_paper_segment(paper_id)):
-        candidate = root_path / segment
+        candidate = _confined_child(root_path, segment)
+        if candidate is None:
+            continue
         if candidate not in seen:
             candidates.append(candidate)
             seen.add(candidate)
@@ -269,13 +281,14 @@ def artifact_paper_dir_candidates(paper_id: str, root: Path | None = None) -> li
 
 def preferred_artifact_paper_dir(paper_id: str, root: Path | None = None) -> Path:
     candidates = artifact_paper_dir_candidates(paper_id, root=root)
-    legacy_path = (root.resolve() if root is not None else artifacts_root()) / legacy_artifact_paper_segment(paper_id)
-    canonical_path = (root.resolve() if root is not None else artifacts_root()) / artifact_paper_segment(paper_id)
+    root_path = root.resolve() if root is not None else artifacts_root()
+    legacy_path = _confined_child(root_path, legacy_artifact_paper_segment(paper_id))
+    canonical_path = _confined_child(root_path, artifact_paper_segment(paper_id))
 
     # Preserve existing raw paper_id directories for backward compatibility.
-    if legacy_path != canonical_path and legacy_path.exists():
+    if legacy_path is not None and canonical_path is not None and legacy_path != canonical_path and legacy_path.exists():
         return legacy_path
-    if canonical_path.exists():
+    if canonical_path is not None and canonical_path.exists():
         return canonical_path
     return candidates[0]
 
@@ -285,19 +298,29 @@ def artifact_paper_dir(paper_id: str) -> Path:
 
 
 def artifact_run_dir_candidates(paper_id: str, run_id: str) -> list[Path]:
-    return [paper_dir / str(run_id) for paper_dir in artifact_paper_dir_candidates(paper_id)]
+    root_path = artifacts_root()
+    candidates: list[Path] = []
+    for paper_dir in artifact_paper_dir_candidates(paper_id):
+        candidate = _confined_child(root_path, str(paper_dir.relative_to(root_path)), str(run_id))
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
 
 
 def artifact_run_dir(paper_id: str, run_id: str) -> Path:
     preferred = preferred_artifact_paper_dir(paper_id)
-    candidates = [preferred / str(run_id)]
+    root_path = artifacts_root()
+    preferred_candidate = _confined_child(root_path, str(preferred.relative_to(root_path)), str(run_id))
+    if preferred_candidate is None:
+        preferred_candidate = preferred / artifact_paper_segment(run_id)
+    candidates = [preferred_candidate]
     for candidate in artifact_run_dir_candidates(paper_id, run_id):
         if candidate not in candidates:
             candidates.append(candidate)
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    return preferred / str(run_id)
+    return candidates[0]
 
 
 def goldset_root() -> Path:

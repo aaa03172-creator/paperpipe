@@ -113,3 +113,27 @@ def test_artifact_paths_keep_preferring_legacy_when_hashed_dir_also_exists(tmp_p
 
     assert artifact_paper_dir(paper_id) == legacy_run_dir.parent.resolve()
     assert artifact_run_dir(paper_id, "run_new") == legacy_run_dir.parent.resolve() / "run_new"
+
+
+def test_artifact_paths_confine_traversal_like_paper_ids(tmp_path, monkeypatch):
+    root = tmp_path / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(root))
+
+    paper_id = "../../outside"
+    paper_dir = artifact_paper_dir(paper_id)
+    run_dir = artifact_run_dir(paper_id, "run_001")
+
+    assert paper_dir.parent == root.resolve()
+    assert paper_dir.name.startswith("paper_")
+    assert run_dir == paper_dir / "run_001"
+
+
+def test_artifact_paths_confine_traversal_like_run_ids(tmp_path, monkeypatch):
+    root = tmp_path / "artifacts"
+    monkeypatch.setenv("PAPERPIPE_ARTIFACTS_DIR", str(root))
+
+    run_dir = artifact_run_dir("paper_safe_001", "../../outside")
+
+    assert run_dir.parent == root.resolve() / "paper_safe_001"
+    assert run_dir.name.startswith("paper_")
+    assert root.resolve() in run_dir.parents

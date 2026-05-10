@@ -29,6 +29,32 @@
 - Mention relevant tests or checks that were run, and explicitly state when verification was not run.
 - Avoid broad rewrite recommendations unless the current implementation creates a concrete correctness, security, data-integrity, or maintainability risk.
 
+## 1.6 Test-first and Codex-assisted review discipline
+- Prefer test-first work for bug fixes: add or update the smallest failing test that reproduces the defect before changing implementation when practical.
+- Apply TDD most strongly to contract-sensitive paths: FastAPI API behavior, Pydantic schemas, DB/state transitions, artifact generation, parsers, idempotent markdown replacement, inference payload boundaries, and security-sensitive flows.
+- For narrow documentation, copy, or non-behavioral UI changes, a documented verification step may be sufficient instead of a new test.
+- Keep verification proportional to risk. Prefer targeted tests, smoke checks, or builds for the touched surface before broader suites.
+- If relevant tests cannot be run, state why and describe the residual risk.
+- Use Codex-assisted review for non-trivial changes, especially changes touching schemas, persistence, state, security, artifacts, viewer flows, external inference paths, or workflow/governance rules.
+- Treat Codex-assisted review as advisory. It should surface confirmed defects, open questions, test gaps, and optional cleanup, but it does not replace human judgment, repository policy, or canonical architecture docs.
+- Do not accept Codex review suggestions that require broad rewrites unless they are tied to a concrete correctness, security, data-integrity, or maintainability risk with file/line evidence.
+
+## 1.7 Branch and worktree discipline
+- Before staging, committing, branching, or creating a worktree, inspect the current git status and preserve unrelated dirty changes.
+- Do not create branches, worktrees, commits, pushes, or PRs unless the user asks or the task clearly requires it.
+- For mixed dirty trees or non-trivial lane splits, prefer creating a clean branch/worktree from the latest merged base instead of staging directly from the dirty main worktree.
+- Keep branch strategy explicit: repository default branch is currently `main`, while some PR/CI checks may still target `master` until the integration strategy is unified.
+- Stage only the files or hunks that belong to the active lane. Use patch staging for mixed files.
+- Keep local backup branch cleanup opt-in: follow `docs/Local_Backup_Branch_Retention_2026-02-24.md`, review dry-run output first, and require explicit `--apply` for deletion.
+
+## 1.8 Change boundary and staging hygiene
+- Keep docs-only governance changes separate from runtime/API/schema changes unless the user explicitly asks for both in one lane.
+- Do not treat proposal, queue, report, archive, or fit-review docs as authorization to change runtime behavior unless a canonical doc or explicit user request adopts that change.
+- Schema, DB/state, or persisted artifact contract changes must include compatibility impact, migration/backfill expectations, and targeted tests or a clear reason tests were not run.
+- Do not silently change persisted artifact shapes without updating the owning schemas, readers, writers, and canonical docs together.
+- Do not stage generated outputs, caches, snapshots, storage artifacts, logs, local runtime files, or temporary evidence unless they are explicitly part of the requested fixture, report, or validation artifact.
+- Do not commit secrets, API keys, private document contents, or personal filesystem paths in user-facing artifacts. Prefer masked paths in logs, docs, API responses, and frontend-visible data.
+
 ## 2. MCP & Cost Control Guardrails (CRITICAL)
 If you are equipped with the Google Developer Knowledge MCP (or any external search tool):
 - **Limit `search_documents`:** Maximum 2 calls per session.

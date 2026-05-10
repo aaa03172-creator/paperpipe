@@ -273,6 +273,10 @@ def _resolve_api_key() -> str:
     ).strip()
 
 
+def _truthy_env(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _resolve_beta_username() -> str:
     return (
         os.getenv("LATTICE_BETA_USERNAME")
@@ -786,6 +790,14 @@ def _request_has_valid_api_key_header(request: Request, expected_key: str) -> bo
     return bool(provided) and secrets.compare_digest(provided, expected_key)
 
 
+def _allow_missing_api_key_for_private_route(request: Request) -> bool:
+    if _resolve_beta_password():
+        return True
+    if _truthy_env("LATTICE_ALLOW_UNAUTHENTICATED_PRIVATE_API") or _truthy_env("PAPERPIPE_ALLOW_UNAUTHENTICATED_PRIVATE_API"):
+        return True
+    return _is_loopback_host(_host_for_request(request))
+
+
 def _host_for_request(request: Request) -> str | None:
     host = str(request.headers.get("host") or "").strip()
     if host:
@@ -1246,6 +1258,19 @@ async def api_key_guard(request: Request, call_next):
             # even when they do not rewrite to a root backend path.
             MutableHeaders(scope=request.scope)["x-api-key"] = expected_key
 
+    current_path = str(request.scope.get("path") or request.url.path or "/")
+    if not expected_key and _requires_api_key(request.method, current_path) and not _allow_missing_api_key_for_private_route(request):
+        return _apply_security_headers(
+            request,
+            JSONResponse(
+                status_code=401,
+                content={
+                    "error_code": "API_KEY_NOT_CONFIGURED",
+                    "message": "Protected private routes require LATTICE_API_KEY or beta auth when served on a non-loopback host.",
+                },
+            ),
+        )
+
     if not expected_key:
         response = await call_next(request)
         response = _apply_security_headers(request, response)
@@ -1261,7 +1286,6 @@ async def api_key_guard(request: Request, call_next):
                 payload={"scope": "browser_write", "rewritten_path": rewritten_path},
             )
         return response
-    current_path = str(request.scope.get("path") or request.url.path or "/")
     if not _requires_api_key(request.method, current_path):
         response = await call_next(request)
         response = _apply_security_headers(request, response)
