@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from src.services.runtime_paths import state_db_path
+from src.services.identity import normalize_doi
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,13 @@ DB_PATH = state_db_path()
 _IMPORTED_DB_PATH = Path(DB_PATH)
 _ENV_DERIVED_DB_PATH: Path | None = None
 _DOI_UNSET = object()
+
+
+def _normalized_doi_or_none(value: Any) -> str | None:
+    normalized = normalize_doi(str(value or ""))
+    if normalized.startswith("10.") and "/" in normalized:
+        return normalized
+    return None
 
 
 def get_db_path() -> Path:
@@ -51,6 +59,46 @@ def _paper_lookup_conditions(columns: set[str]) -> list[str]:
     if "doi" in columns:
         conditions.append("doi = ?")
     return conditions
+
+
+def _ensure_papers_table(cursor: sqlite3.Cursor) -> set[str]:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT NOT NULL,
+            summary TEXT,
+            year INTEGER,
+            venue TEXT,
+            source TEXT,
+            slot TEXT,
+            status TEXT NOT NULL DEFAULT 'NEW',
+            confidence REAL,
+            gate_decision TEXT,
+            gate_reason TEXT,
+            evidence_snippet TEXT,
+            pdf_status TEXT,
+            pdf_path TEXT,
+            obsidian_path TEXT,
+            ris_path TEXT,
+            feedback_json TEXT,
+            download_attempts TEXT,
+            issues_state TEXT,
+            agent_version TEXT,
+            prompt_version TEXT,
+            processed_date TEXT,
+            processed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_slot ON papers(slot)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi)")
+    return _get_paper_columns(cursor)
+
 
 def init_db():
     """Initialize runtime tables and apply lightweight compatibility migrations."""
@@ -302,7 +350,7 @@ def save_paper_state(
     try:
         columns = _get_paper_columns(cursor)
         if not columns:
-            return
+            columns = _ensure_papers_table(cursor)
 
         if download_attempts is not None and "download_attempts" not in columns:
             try:
@@ -323,11 +371,21 @@ def save_paper_state(
                 attempts_payload = "[]"
 
         if doi is _DOI_UNSET:
-            doi_value: Any = identifier
+            doi_value: Any = _normalized_doi_or_none(identifier)
         elif doi in (None, ""):
             doi_value = None
         else:
-            doi_value = str(doi)
+            doi_value = _normalized_doi_or_none(doi)
+
+        if "paper_id" in columns and "doi" in columns and doi_value:
+            cursor.execute(
+                "SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL AND paper_id <> ?",
+                (identifier,),
+            )
+            for existing in cursor.fetchall():
+                if normalize_doi(str(existing["doi"] or "")) == doi_value and existing["paper_id"]:
+                    identifier = str(existing["paper_id"])
+                    break
 
         if "paper_id" in columns:
             insert_cols.append("paper_id")
@@ -409,6 +467,66 @@ def save_paper_state(
     except sqlite3.OperationalError as exc:
         conn.rollback()
         logger.warning("Failed to save paper state for %s: %s", identifier, exc)
+    finally:
+        conn.close()
+
+
+def find_duplicate_doi_paper_rows() -> List[Dict[str, Any]]:
+    """Return existing paper rows that share a normalized DOI without mutating data."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if "paper_id" not in columns or "doi" not in columns:
+            return []
+
+        select_columns = ["paper_id", "doi"]
+        for optional_column in (
+            "title",
+            "source",
+            "status",
+            "pdf_status",
+            "pdf_path",
+            "obsidian_path",
+            "processed_date",
+            "created_at",
+            "updated_at",
+        ):
+            if optional_column in columns:
+                select_columns.append(optional_column)
+
+        cursor.execute(
+            f"""
+            SELECT {', '.join(select_columns)}
+            FROM papers
+            WHERE doi IS NOT NULL AND TRIM(doi) <> ''
+            """
+        )
+
+        grouped_rows: dict[str, list[dict[str, Any]]] = {}
+        for row in cursor.fetchall():
+            normalized_doi = _normalized_doi_or_none(row["doi"])
+            if not normalized_doi:
+                continue
+            paper_row = {column: row[column] for column in select_columns}
+            paper_row["normalized_doi"] = normalized_doi
+            grouped_rows.setdefault(normalized_doi, []).append(paper_row)
+
+        duplicate_groups: list[dict[str, Any]] = []
+        for normalized_doi, rows in sorted(grouped_rows.items()):
+            paper_ids = sorted({str(row.get("paper_id") or "") for row in rows if row.get("paper_id")})
+            if len(rows) > 1 and len(paper_ids) > 1:
+                duplicate_groups.append(
+                    {
+                        "normalized_doi": normalized_doi,
+                        "row_count": len(rows),
+                        "paper_ids": paper_ids,
+                        "rows": sorted(rows, key=lambda item: str(item.get("paper_id") or "")),
+                    }
+                )
+        return duplicate_groups
+    except sqlite3.OperationalError:
+        return []
     finally:
         conn.close()
 
@@ -521,6 +639,7 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
 
         title = item.get('title', 'Unknown Title')
         summary = item.get('abstractNote', '')
+        doi_value = _normalized_doi_or_none(item.get("DOI") or item.get("doi"))
         
         # Find PDF path
         pdf_path = None
@@ -529,9 +648,22 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
                 pdf_path = att["path"]
                 break
         
-        # Check if exists
-        cursor.execute("SELECT paper_id, pdf_path, summary FROM papers WHERE paper_id = ?", (paper_id,))
+        existing_select = "paper_id, pdf_path, summary"
+        if "doi" in paper_columns:
+            existing_select += ", doi"
+        if "source" in paper_columns:
+            existing_select += ", source"
+
+        # Check if exists by Zotero citation key first, then by normalized DOI.
+        cursor.execute(f"SELECT {existing_select} FROM papers WHERE paper_id = ?", (paper_id,))
         row = cursor.fetchone()
+        if row is None and "doi" in paper_columns and doi_value:
+            cursor.execute(f"SELECT {existing_select} FROM papers WHERE doi IS NOT NULL")
+            for existing in cursor.fetchall():
+                if _normalized_doi_or_none(existing["doi"]) == doi_value:
+                    row = existing
+                    paper_id = str(existing["paper_id"])
+                    break
 
         if row:
             updates = []
@@ -546,38 +678,47 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
             if summary and not row['summary']:
                 updates.append("summary = ?")
                 params.append(summary)
-            
+
+            if "doi" in paper_columns and doi_value and not row["doi"]:
+                updates.append("doi = ?")
+                params.append(doi_value)
+
+            if "source" in paper_columns and not row["source"]:
+                updates.append("source = ?")
+                params.append("zotero")
+
             if updates:
                 params.append(paper_id)
                 cursor.execute(f"UPDATE papers SET {', '.join(updates)} WHERE paper_id = ?", params)
         else:
             # Insert new
             try:
+                insert_cols = ["paper_id", "title", "summary", "status"]
+                insert_vals = [paper_id, title, summary, "NEW"]
+                if "doi" in paper_columns:
+                    insert_cols.append("doi")
+                    insert_vals.append(doi_value)
+                if "source" in paper_columns:
+                    insert_cols.append("source")
+                    insert_vals.append("zotero")
                 if "issues_state" in paper_columns:
-                    cursor.execute(
-                        """
-                        INSERT INTO papers (
-                            paper_id,
-                            title,
-                            summary,
-                            status,
-                            issues_state,
-                            pdf_path,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (?, ?, ?, 'NEW', 'unavailable', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """,
-                        (paper_id, title, summary, pdf_path),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        INSERT INTO papers (paper_id, title, summary, status, pdf_path, created_at, updated_at)
-                        VALUES (?, ?, ?, 'NEW', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """,
-                        (paper_id, title, summary, pdf_path),
-                    )
+                    insert_cols.append("issues_state")
+                    insert_vals.append("unavailable")
+                if "pdf_path" in paper_columns:
+                    insert_cols.append("pdf_path")
+                    insert_vals.append(pdf_path)
+                if "created_at" in paper_columns:
+                    insert_cols.append("created_at")
+                    insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                if "updated_at" in paper_columns:
+                    insert_cols.append("updated_at")
+                    insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+                placeholders = ",".join("?" for _ in insert_cols)
+                cursor.execute(
+                    f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                    tuple(insert_vals),
+                )
                 new_count += 1
             except sqlite3.IntegrityError:
                 pass # Should not happen given check above, but safe to ignore
@@ -827,10 +968,3 @@ def reconcile_approved_decisions(dry_run: bool = True) -> Dict[str, Any]:
         "candidate_count": len(candidates),
         "updated_count": updated,
     }
-    
-def log_workflow_step(paper_id: str, step: str, message: str, level: str = "INFO"):
-    """
-    Optional: Log major workflow steps to a separate table or just standard logging.
-    For now, we use standard logging, but this is a placeholder for DB logging.
-    """
-    pass # Implementation future

@@ -46,7 +46,7 @@ If a UI proposal derived from references changes evidence handling, provenance, 
 Use external references for visual and interaction patterns around:
 - paper detail pages
 - evidence-linked readers
-- claim or evidence graphs
+- claim/evidence relationship summaries, with graph references treated as future research only
 - figure and table viewers
 - research workspace dashboards
 - notes, star, sticker, and annotation flows
@@ -82,6 +82,22 @@ Use Lazyweb only for generic UI references. Do not use PaperPipe data, PDFs, pap
 Find references for figure/table evidence viewers where the user must inspect metadata, warnings, derived outputs, and source lineage before reuse. Prefer scientific, analytics, data-review, document-review, or QA tools over marketing dashboards. Output a non-canonical report with pattern groups and risks.
 ```
 
+### Research Workspace Dashboard
+
+```text
+Use Lazyweb only for generic UI references. Do not use PaperPipe data, PDFs, paper titles, lab names, or screenshots containing user content.
+
+Find references for research or review workspace dashboards that help users resume one active document, evidence review, or artifact handoff. Avoid generic project-management dashboards, marketing homepages, and KPI-heavy SaaS overviews. Output a non-canonical report with paper-thread recovery patterns, dashboard anti-patterns, and PR-sized implications.
+```
+
+### Notes / Star / Sticker / Annotation
+
+```text
+Use Lazyweb only for generic UI references. Do not use PaperPipe data, PDFs, paper titles, lab names, or screenshots containing user content.
+
+Find references for lightweight personal notes, stars, triage labels, stickers, and annotations in dense reading or review tools. Focus on scope clarity, retrieval, provenance, and avoiding confusion between personal markers and reviewed evidence. Output a non-canonical report with safe marker patterns, unsafe sticker/annotation patterns, and whether each pattern requires a first-class anchor model.
+```
+
 ### Artifact Review Flow
 
 ```text
@@ -108,10 +124,13 @@ Curated summaries may be promoted to:
 Curated summaries should include:
 - target PaperPipe screen or flow
 - source tool and date
+- sanitized prompt used
 - reference source labels
 - what pattern is useful
 - what should not be copied
 - evidence/provenance/state impact
+- layer classification for any proposed PaperPipe change
+- recommended disposition: adopt, partial adopt, defer, or reject
 - whether the finding is recommendation, open question, or rejected pattern
 
 ## Security Rules

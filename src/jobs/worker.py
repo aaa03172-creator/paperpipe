@@ -20,6 +20,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("Worker")
 JOB_HEARTBEAT_INTERVAL_SECONDS = 30.0
 TERMINAL_STOP_STATUSES = {"completed", "failed", "cancelled"}
+_NEW_RUNNER_SIGNATURE_KWARGS = {"reasoning_persona", "profile_id", "parser_backend"}
+_CLEAN_REINDEX_SIGNATURE_KWARGS = {"clean_reindex"}
+
+
+def _is_unsupported_keyword_type_error(exc: TypeError, keywords: set[str]) -> bool:
+    message = str(exc)
+    if "unexpected keyword argument" not in message:
+        return False
+    return any(f"'{keyword}'" in message or f'"{keyword}"' in message for keyword in keywords)
 
 class Worker:
     def __init__(self):
@@ -121,7 +130,9 @@ class Worker:
             }
             try:
                 result = asyncio.run(run_deepread_job(**run_kwargs))
-            except TypeError:
+            except TypeError as exc:
+                if not _is_unsupported_keyword_type_error(exc, _NEW_RUNNER_SIGNATURE_KWARGS):
+                    raise
                 # Compatibility for patched test doubles that still use the old signature.
                 compatibility_kwargs = dict(run_kwargs)
                 compatibility_kwargs.pop("reasoning_persona", None)
@@ -129,12 +140,22 @@ class Worker:
                 compatibility_kwargs.pop("parser_backend", None)
                 try:
                     result = asyncio.run(run_deepread_job(**compatibility_kwargs))
-                except TypeError:
+                except TypeError as clean_reindex_exc:
+                    if not _is_unsupported_keyword_type_error(
+                        clean_reindex_exc,
+                        _CLEAN_REINDEX_SIGNATURE_KWARGS,
+                    ):
+                        raise
                     compatibility_kwargs.pop("clean_reindex", None)
                     result = asyncio.run(run_deepread_job(**compatibility_kwargs))
 
             state = current_state()
             if state and state.status in TERMINAL_STOP_STATUSES:
+                metadata_updates = {}
+                if result and result.get("artifact_dir"):
+                    metadata_updates["artifact_dir"] = result.get("artifact_dir")
+                if metadata_updates:
+                    self.queue.update_job(job.job_id, metadata_updates)
                 logger.info(
                     "Job %s left running state as %s before final worker write; preserving terminal state.",
                     job.job_id,

@@ -243,6 +243,21 @@ def test_research_dna_store_rejects_stale_revision_save(tmp_path):
         save_research_dna(stale, root, expected_revision=stale.revision)
 
 
+def test_research_dna_store_rejects_path_like_ids(tmp_path):
+    root = tmp_path / "research_dna"
+    dna = _sample_dna()
+    save_research_dna(dna, root)
+
+    with pytest.raises(ValueError, match="dna_id"):
+        research_dna_profile_path("../escape", root)
+
+    with pytest.raises(ValueError, match="dna_id"):
+        research_dna_log_path("valid/escape", "interview", root)
+
+    with pytest.raises(ValueError, match="manifest_id"):
+        research_dna_benchmark_manifest_path(dna.id, "../escape", root)
+
+
 def test_research_dna_query_version_snapshots_remain_query_only_after_metadata_updates(tmp_path):
     root = tmp_path / "research_dna"
     dna = _sample_dna()

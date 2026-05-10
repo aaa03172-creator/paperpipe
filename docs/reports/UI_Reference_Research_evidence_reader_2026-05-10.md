@@ -22,6 +22,25 @@ Data boundary:
 - raw Lazyweb signed screenshot URLs are not stored in this report.
 - this report is not a product requirement, biomedical evidence source, canonical state, or runtime dependency.
 
+## Curation Metadata
+
+Sanitized prompt stance:
+- use only generic UI references
+- do not use PaperPipe data, PDFs, paper titles, lab names, screenshots, user identifiers, or local paths
+- output non-canonical patterns, anti-patterns, and PR-sized implications
+
+Layer classification:
+- Lazyweb output: review/support artifact
+- proposed PaperPipe changes: must be classified separately before implementation
+- no canonical structured state, biomedical source, raw memory, runtime dependency, or user-facing export is created by this report
+
+Recommended disposition:
+- paper detail / evidence-linked reader: partial adopt
+- figure/table/image evidence viewer: partial adopt
+- artifact review / approval flow: partial adopt with guardrails
+- generic SaaS dashboard and marketing references: reject
+- product runtime integration: reject
+
 ## Queries Run
 
 ```text

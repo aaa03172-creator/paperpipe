@@ -81,6 +81,27 @@ def test_image_evidence_request_accepts_embedded_view_state_and_handoff_metadata
     assert request.handoff_targets[0].target == "napari"
 
 
+def test_image_evidence_request_rejects_path_like_ids() -> None:
+    for image_evidence_id in ("../escape", "/tmp/escape", "nested/escape", "bad id"):
+        with pytest.raises(ValidationError, match="image_evidence_id must be a single safe path segment"):
+            ImageEvidenceRequest(
+                image_evidence_id=image_evidence_id,
+                source_ref={"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+                content_format="image/png",
+            )
+
+
+def test_image_evidence_rejects_path_like_ids() -> None:
+    with pytest.raises(ValidationError, match="image_evidence_id must be a single safe path segment"):
+        ImageEvidence(
+            image_evidence_id="../escape",
+            title="Representative microscopy image",
+            created_at=datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc),
+            source_ref={"source_kind": "external_image_ref", "external_ref": "omero://image/123"},
+            content_format="image/png",
+        )
+
+
 def test_local_file_source_ref_requires_local_path() -> None:
     with pytest.raises(ValidationError):
         ImageSourceRef(source_kind="local_file")

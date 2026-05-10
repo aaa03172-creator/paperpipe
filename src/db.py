@@ -1,5 +1,4 @@
 import sqlite3
-import json
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -349,46 +348,6 @@ def save_paper_state(identifier: str, title: str, source: str, processed_date: s
         conn.commit()
     except Exception as e:
         print(f"DB Error: {e}")
-    finally:
-        conn.close()
-
-def save_embedding(doi: str, vector: list):
-    """벡터 임베딩 저장"""
-    if not doi or not vector: return
-    conn = _connect()
-    c = conn.cursor()
-    try:
-        vector_json = json.dumps(vector)
-        c.execute("""
-            INSERT INTO embeddings (doi, vector, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(doi) DO UPDATE SET
-                vector=excluded.vector,
-                updated_at=excluded.updated_at
-        """, (doi, vector_json, datetime.now()))
-        conn.commit()
-    except Exception as e:
-        print(f"DB Embedding Error: {e}")
-    finally:
-        conn.close()
-
-def get_all_embeddings() -> dict:
-    """모든 벡터 임베딩 로드 (Smart Linking용)"""
-    conn = _connect()
-    c = conn.cursor()
-    try:
-        c.execute("SELECT doi, vector FROM embeddings")
-        rows = c.fetchall()
-        result = {}
-        for r in rows:
-            try:
-                result[r[0]] = json.loads(r[1])
-            except:
-                pass
-        return result
-    except Exception as e:
-        print(f"DB Load Embedding Error: {e}")
-        return {}
     finally:
         conn.close()
 

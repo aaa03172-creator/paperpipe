@@ -81,6 +81,22 @@ def test_chart_pack_store_roundtrip_creates_expected_layout(tmp_path) -> None:
     assert list_chart_pack_ids(root) == [chart_pack.chart_pack_id]
 
 
+def test_chart_pack_store_rejects_path_like_pack_and_chart_ids(tmp_path) -> None:
+    root = tmp_path / "chart_packs"
+    outside = tmp_path / "escape.csv"
+
+    with pytest.raises(ValueError, match="chart_pack_id"):
+        chart_pack_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="chart_id"):
+        chart_pack_data_csv_path("chartpack_safe", "../../escape", root)
+
+    with pytest.raises(ValueError, match="filename"):
+        chart_pack_artifact_path("chartpack_safe", "../quality_gate.json", root)
+
+    assert not outside.exists()
+
+
 def test_chart_pack_store_overwrites_same_id_without_duplicate_dump(tmp_path) -> None:
     root = tmp_path / "chart_packs"
     original = _sample_chart_pack(title="First title")
@@ -155,6 +171,16 @@ def test_chart_pack_store_rolls_back_bundle_if_spec_write_fails(tmp_path, monkey
         specs={"chart_1": {"type": "bar"}},
         root=root,
     )
+    pack_dir = root / original.chart_pack_id
+    note_path = pack_dir / "operator_notes.txt"
+    note_path.write_text("keep operator note\n", encoding="utf-8")
+    data_note_path = pack_dir / "data" / "README.txt"
+    data_note_path.write_text("keep data note\n", encoding="utf-8")
+    spec_note_path = pack_dir / "specs" / "README.txt"
+    spec_note_path.write_text("keep spec note\n", encoding="utf-8")
+    render_note_path = pack_dir / "renders" / "README.txt"
+    render_note_path.parent.mkdir(parents=True, exist_ok=True)
+    render_note_path.write_text("keep render note\n", encoding="utf-8")
 
     updated = _sample_chart_pack(title="Updated title")
     original_atomic_write_text = chart_pack_store._atomic_write_text
@@ -185,6 +211,10 @@ def test_chart_pack_store_rolls_back_bundle_if_spec_write_fails(tmp_path, monkey
     assert loaded_markdown == "# First\n"
     assert loaded_csv == "status,count\nverified,1\n"
     assert loaded_spec == {"type": "bar"}
+    assert note_path.read_text(encoding="utf-8") == "keep operator note\n"
+    assert data_note_path.read_text(encoding="utf-8") == "keep data note\n"
+    assert spec_note_path.read_text(encoding="utf-8") == "keep spec note\n"
+    assert render_note_path.read_text(encoding="utf-8") == "keep render note\n"
 
 
 def test_chart_pack_store_does_not_leave_partial_new_bundle_if_write_fails(tmp_path, monkeypatch) -> None:

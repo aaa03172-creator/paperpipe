@@ -60,6 +60,30 @@ def test_collect_backfill_candidates_detects_missing_markdown_and_claimset(tmp_p
     assert candidates[0].claimset_missing is True
 
 
+def test_collect_backfill_candidates_treats_escaping_obsidian_path_as_missing(tmp_path: Path):
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True)
+    outside_note = tmp_path / "outside.md"
+    outside_note.write_text("# outside", encoding="utf-8")
+
+    rows = [
+        {
+            "paper_id": "doi:10.1000/escape",
+            "title": "Escaping stored note path",
+            "obsidian_path": "../outside.md",
+            "feedback_json": json.dumps({"claims": [{"statement": "already analyzed"}]}),
+            "pdf_path": None,
+        }
+    ]
+
+    candidates = collect_backfill_candidates(rows, vault_path=vault, include_test_fixtures=False)
+
+    assert len(candidates) == 1
+    assert candidates[0].paper_id == "doi:10.1000/escape"
+    assert candidates[0].markdown_missing is True
+    assert candidates[0].claimset_missing is False
+
+
 def test_enqueue_claimset_backfill_skips_open_jobs(monkeypatch):
     conn = sqlite3.connect(":memory:")
     try:

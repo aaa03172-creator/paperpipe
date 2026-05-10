@@ -621,6 +621,16 @@ def test_requeue_reclaimed_job_enqueues_explicit_replacement_and_logs_link(tmp_p
         assert payload["requeued_at"] == "2026-04-22T03:10:00+00:00"
 
         conn = db_utils.get_db_connection()
+        conn.execute("UPDATE jobs SET status = ? WHERE job_id = ?", ("completed", payload["job_id"]))
+        conn.execute("UPDATE execution_runs SET status = ? WHERE run_id = ?", ("completed", payload["run_id"]))
+        conn.commit()
+        conn.close()
+
+        second_response = client.post("/ops/jobs/job_requeue_reclaimed_001/requeue-reclaimed")
+        assert second_response.status_code == 200
+        assert second_response.json() == payload
+
+        conn = db_utils.get_db_connection()
         replacement = conn.execute(
             """
             SELECT job_id, run_id, paper_id, persona_id, reasoning_persona, profile_id,
@@ -630,6 +640,10 @@ def test_requeue_reclaimed_job_enqueues_explicit_replacement_and_logs_link(tmp_p
             """,
             (payload["job_id"],),
         ).fetchone()
+        paper_job_count = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE paper_id = ?",
+            ("paper_requeue_reclaimed_001",),
+        ).fetchone()[0]
         run_row = conn.execute(
             "SELECT trigger_source, status, params_json FROM execution_runs WHERE run_id = ?",
             (payload["run_id"],),
@@ -650,9 +664,10 @@ def test_requeue_reclaimed_job_enqueues_explicit_replacement_and_logs_link(tmp_p
         assert replacement["profile_id"] == "profile-requeue-001"
         assert replacement["run_verify"] == 1
         assert replacement["clean_reindex"] == 1
-        assert replacement["status"] == "queued"
+        assert replacement["status"] == "completed"
+        assert paper_job_count == 2
         assert run_row["trigger_source"] == "ops_requeue_reclaimed"
-        assert run_row["status"] == "queued"
+        assert run_row["status"] == "completed"
         run_params = json.loads(run_row["params_json"])
         assert run_params["parser_backend"] == "docling"
         assert run_params["reasoning_persona"] == "researcher"

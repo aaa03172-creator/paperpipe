@@ -19,6 +19,7 @@ from src.services.event_log import (
 
 logger = logging.getLogger(__name__)
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
+POST_TERMINAL_METADATA_FIELDS = {"artifact_dir", "log_path"}
 
 
 class DuplicateOpenJobError(Exception):
@@ -295,6 +296,25 @@ class JobQueue:
 
             current_status = str(current["status"] or "").strip().lower()
             if current_status in TERMINAL_JOB_STATUSES:
+                metadata_updates = {k: v for k, v in updates.items() if k in POST_TERMINAL_METADATA_FIELDS}
+                if metadata_updates:
+                    fields = []
+                    params = []
+                    for k, v in metadata_updates.items():
+                        fields.append(f"{k} = ?")
+                        params.append(v)
+                    params.append(job_id)
+                    conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE job_id = ?", params)
+                    conn.commit()
+                    ignored = sorted(str(key) for key in set(updates) - set(metadata_updates))
+                    if ignored:
+                        logger.info(
+                            "Applied metadata-only late update for terminal job %s (%s); ignored: %s",
+                            job_id,
+                            current_status,
+                            ",".join(ignored),
+                        )
+                    return
                 logger.info(
                     "Ignoring late update for terminal job %s (%s): %s",
                     job_id,

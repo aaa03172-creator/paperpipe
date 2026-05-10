@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -25,6 +26,8 @@ ChartArtifactKind = Literal["data_csv", "spec_json", "render_png", "render_svg"]
 ChartValueKind = Literal["text", "numeric", "boolean"]
 ChartScalar = str | int | float | bool
 ChartFilterValue = ChartScalar | list[ChartScalar]
+CHART_PACK_ID_PATTERN = re.compile(r"^chartpack_[A-Za-z0-9._-]+$")
+CHART_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 
 
 class ChartTemplateSpec(BaseModel):
@@ -233,14 +236,14 @@ class ChartRequest(BaseModel):
     @model_validator(mode="after")
     def normalize_chart_request(self):
         if self.chart_id is not None:
-            self.chart_id = self.chart_id.strip() or None
+            self.chart_id = _normalize_chart_id(self.chart_id)
         if self.title is not None:
             self.title = self.title.strip() or None
         return self
 
 
 class ChartDefinition(BaseModel):
-    chart_id: str = Field(..., min_length=1)
+    chart_id: str = Field(..., pattern=CHART_ID_PATTERN.pattern)
     title: str = Field(..., min_length=1)
     template_id: ChartTemplateId
     source_ref: ChartSourceRef
@@ -255,7 +258,7 @@ class ChartDefinition(BaseModel):
 
     @model_validator(mode="after")
     def validate_artifact_refs(self):
-        self.chart_id = self.chart_id.strip()
+        self.chart_id = _normalize_chart_id(self.chart_id) or ""
         self.title = self.title.strip()
         if self.data_snapshot_ref is not None and self.data_snapshot_ref.kind != "data_csv":
             raise ValueError("data_snapshot_ref must use kind=data_csv")
@@ -286,7 +289,7 @@ class ChartPackRequest(BaseModel):
 
 
 class ChartPack(BaseModel):
-    chart_pack_id: str = Field(..., pattern=r"^chartpack_[A-Za-z0-9._-]+$")
+    chart_pack_id: str = Field(..., pattern=CHART_PACK_ID_PATTERN.pattern)
     title: str = Field(..., min_length=1)
     created_at: datetime
     generated_at: datetime | None = None
@@ -344,3 +347,12 @@ def _dedupe_non_empty_strings(values: list[str], *, field_name: str) -> list[str
             normalized.append(text)
             seen.add(text)
     return normalized
+
+
+def _normalize_chart_id(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not CHART_ID_PATTERN.fullmatch(text):
+        raise ValueError("chart_id must be a single safe path segment")
+    return text

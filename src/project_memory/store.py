@@ -1,22 +1,29 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
+import re
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from src.schemas.project_memory import ProjectMemoryItem, ProjectMemoryWorkspace
+from src.services.artifact_transactions import (
+    atomic_write_text,
+    optional_text,
+    remove_empty_dir,
+    restore_optional_text,
+)
 from src.services.event_log import sanitize_event_payload_for_log
 from src.services.runtime_paths import project_memory_root as default_project_memory_root
 
 
 TProjectMemoryModel = TypeVar("TProjectMemoryModel", ProjectMemoryItem, ProjectMemoryWorkspace)
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 
 
 def project_memory_dir(project_id: str, root: Path | None = None) -> Path:
     base = (root or default_project_memory_root()).expanduser().resolve()
-    return base / project_id
+    safe_project_id = _normalize_project_id(project_id)
+    return _confined_child(base, safe_project_id)
 
 
 def project_workspace_json_path(project_id: str, root: Path | None = None) -> Path:
@@ -172,38 +179,32 @@ def _require_workspace_exists(project_id: str, root: Path | None = None) -> None
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    temp_path = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.stem}.",
-            suffix=f"{path.suffix}.tmp",
-            dir=str(path.parent),
-        )
-        os.close(fd)
-        temp_path = Path(temp_name)
-        temp_path.write_text(content, encoding="utf-8")
-        os.replace(temp_path, path)
-    except Exception as exc:
-        if temp_path and temp_path.exists():
-            os.remove(temp_path)
-        raise IOError(f"Failed to write Project Memory file to {path}: {exc}") from exc
+    atomic_write_text(path, content, error_context="Project Memory file")
 
 
 def _optional_text(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    return path.read_text(encoding="utf-8")
+    return optional_text(path)
 
 
 def _restore_optional_text(path: Path, content: str | None) -> None:
-    if content is None:
-        if path.exists():
-            os.remove(path)
-        return
-    _atomic_write_text(path, content)
+    restore_optional_text(path, content, writer=_atomic_write_text)
 
 
 def _remove_empty_dir(path: Path) -> None:
-    if path.exists() and path.is_dir() and not any(path.iterdir()):
-        path.rmdir()
+    remove_empty_dir(path)
+
+
+def _normalize_project_id(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_SEGMENT_RE.fullmatch(text):
+        raise ValueError("Project Memory project_id must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Project Memory project_id escapes storage root") from exc
+    return candidate

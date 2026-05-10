@@ -191,3 +191,11 @@ Current response:
 - `output_mode_family` may change wording density or framing, but it must not select a looser truth policy.
 - Raw memory, backend-only `Project Memory`, compiled knowledge assets, and review/gate artifacts may help focus retrieval or answer composition, but they must not become stronger truth owners than canonical evidence-linked state.
 - If a future answer path cannot recover a clear canonical/evidence trace, the response should stay explicitly uncertain or background-only rather than sounding fully grounded.
+
+## Settings And Secret Boundary
+- A future Settings UI may expose provider selection, model slots, payload-boundary policy, and redacted provider readiness.
+- The browser must not own provider API keys or backend secrets.
+- Provider credentials should be resolved server-side from environment variables, backend-controlled local config, or an OS keychain-style store.
+- Any backend-controlled local secret file must be gitignored, covered by secret scanning, and excluded from reference/debug artifacts.
+- Settings may show only redacted status such as `configured`, `missing`, `disabled by policy`, or a safe provider label.
+- Enabling a provider credential does not by itself make `/api/chat` live; chat runtime still requires a separate adopted contract and implementation.

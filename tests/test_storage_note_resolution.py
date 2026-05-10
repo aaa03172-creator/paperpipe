@@ -1,6 +1,15 @@
 import json
 
-from src.skills.storage import load_structured_state, resolve_note_path, resolve_note_slug_by_paper_id
+import pytest
+
+from src.skills.storage import (
+    load_structured_state,
+    resolve_note_path,
+    resolve_note_slug_by_paper_id,
+    structured_relpath,
+    structured_run_path,
+    structured_state_path,
+)
 
 
 def _write(path, content: str) -> None:
@@ -51,6 +60,42 @@ def test_resolve_note_path_supports_legacy_structured_slug_mapping(tmp_path):
     state = load_structured_state(vault, readable_stem, frontmatter)
     assert state is not None
     assert state.paper_slug == legacy_slug
+
+
+def test_structured_state_paths_reject_path_like_segments(tmp_path):
+    vault = tmp_path / "vault"
+
+    with pytest.raises(ValueError, match="slug"):
+        structured_relpath("../escape")
+
+    with pytest.raises(ValueError, match="slug"):
+        structured_state_path(vault, "nested/escape")
+
+    with pytest.raises(ValueError, match="run_stamp"):
+        structured_run_path(vault, "paper-note", "../run", "validate_citations")
+
+    with pytest.raises(ValueError, match="action"):
+        structured_run_path(vault, "paper-note", "20260401T000000Z", "nested/action")
+
+
+def test_load_structured_state_ignores_frontmatter_paths_outside_vault(tmp_path):
+    vault = tmp_path / "vault"
+    outside = tmp_path / "outside.json"
+    _write(
+        outside,
+        json.dumps(
+            {
+                "paper_slug": "outside",
+                "updated_at": "2026-03-28T00:00:00Z",
+                "runs": [],
+                "signals": {},
+            }
+        ),
+    )
+
+    state = load_structured_state(vault, "paper-note", {"pp": {"structured_path": "../outside.json"}})
+
+    assert state is None
 
 
 def test_resolve_note_path_ignores_backup_matches_for_legacy_slug(tmp_path):

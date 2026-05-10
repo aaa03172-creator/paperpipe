@@ -45,6 +45,10 @@ class TableData(BaseModel):
     caption: str
     data: List[List[str]] = Field(default_factory=list, description="2D array of strings representing the table")
     source_page: int
+    source_ref: Optional[str] = None
+    extraction_method: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    provenance_note: Optional[str] = None
 
 class DocumentArtifact(BaseModel):
     doc_id: str = Field(..., description="Unique ID: 'doi:...' or 'pmid:...' or 'file:...'")

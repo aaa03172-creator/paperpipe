@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
 from src.schemas.protocol_card import ProtocolCard, ProtocolVersion
 from src.services.runtime_paths import protocol_cards_root as default_protocol_cards_root
 
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+
 
 def protocol_card_dir(protocol_id: str, root: Path | None = None) -> Path:
     base = (root or default_protocol_cards_root()).expanduser().resolve()
-    return base / protocol_id
+    safe_protocol_id = _normalize_safe_segment(protocol_id, pattern=_SAFE_SEGMENT_RE, field_name="protocol_id")
+    return _confined_child(base, safe_protocol_id, field_name="protocol_id")
 
 
 def protocol_card_json_path(protocol_id: str, root: Path | None = None) -> Path:
@@ -31,7 +35,8 @@ def protocol_card_version_json_path(
     version_id: str,
     root: Path | None = None,
 ) -> Path:
-    return protocol_card_versions_dir(protocol_id, root) / f"{version_id}.json"
+    safe_version_id = _normalize_safe_segment(version_id, pattern=_SAFE_SEGMENT_RE, field_name="version_id")
+    return protocol_card_versions_dir(protocol_id, root) / f"{safe_version_id}.json"
 
 
 def save_protocol_card(protocol_card: ProtocolCard, root: Path | None = None) -> Path:
@@ -237,3 +242,19 @@ def _remove_empty_dirs(path: Path, *, stop_at: Path | None = None) -> None:
         if stop_path is not None and current.parent.resolve() == stop_path:
             break
         current = current.parent
+
+
+def _normalize_safe_segment(value: str, *, pattern: re.Pattern[str], field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not pattern.fullmatch(text):
+        raise ValueError(f"Protocol Card {field_name} must be a single safe path segment")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str, *, field_name: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Protocol Card {field_name} escapes storage root") from exc
+    return candidate

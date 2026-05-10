@@ -84,6 +84,16 @@ def test_protocol_card_store_roundtrip_creates_expected_layout(tmp_path) -> None
     assert list_protocol_card_ids(root) == [card.protocol_id]
 
 
+def test_protocol_card_store_rejects_path_like_ids(tmp_path) -> None:
+    root = tmp_path / "protocol_cards"
+
+    with pytest.raises(ValueError, match="protocol_id"):
+        protocol_card_json_path("../escape", root)
+
+    with pytest.raises(ValueError, match="version_id"):
+        protocol_card_version_json_path("protocol_alpha", "../escape", root)
+
+
 def test_protocol_card_store_rejects_missing_version_payloads(tmp_path) -> None:
     root = tmp_path / "protocol_cards"
     version_1 = _sample_protocol_version()
@@ -115,6 +125,10 @@ def test_protocol_card_store_rolls_back_if_version_write_fails(tmp_path, monkeyp
     original_version = _sample_protocol_version()
     original_card = _sample_protocol_card(original_version, title="Original title")
     save_protocol_card_bundle(original_card, "# Original\n", versions=[original_version], root=root)
+    notes_path = protocol_card_json_path(original_card.protocol_id, root).parent / "operator_notes.txt"
+    notes_path.write_text("keep operator note\n", encoding="utf-8")
+    versions_note_path = protocol_card_version_json_path(original_card.protocol_id, original_version.version_id, root).parent / "README.txt"
+    versions_note_path.write_text("keep version note\n", encoding="utf-8")
 
     updated_version = _sample_protocol_version(version_id="protver_alpha_v2", version_number=2)
     updated_card = _sample_protocol_card(original_version, updated_version, title="Updated title")
@@ -143,3 +157,6 @@ def test_protocol_card_store_rolls_back_if_version_write_fails(tmp_path, monkeyp
     assert loaded_card.title == "Original title"
     assert loaded_markdown == "# Original\n"
     assert [version.version_id for version in loaded_versions] == ["protver_alpha_v1"]
+    assert notes_path.read_text(encoding="utf-8") == "keep operator note\n"
+    assert versions_note_path.read_text(encoding="utf-8") == "keep version note\n"
+    assert not protocol_card_version_json_path(original_card.protocol_id, "protver_alpha_v2", root).exists()

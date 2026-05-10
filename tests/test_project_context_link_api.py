@@ -143,6 +143,83 @@ def test_project_context_link_post_requires_existing_workspace(tmp_path, monkeyp
     resp = client.post("/project-context-links", json=payload)
     assert resp.status_code == 404
     assert "Project Memory workspace not found" in resp.json()["detail"]
+    assert not Path("storage/project_context_links.jsonl").exists()
+
+
+def test_project_context_link_rejects_invalid_entity_type_without_appending_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_project_workspace(tmp_path, project_id="pmproj_context_invalid_entity")
+    log_file = Path("storage/project_context_links.jsonl")
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    existing_row = {
+        "project_id": "pmproj_context_invalid_entity",
+        "entity_type": "paper",
+        "entity_id": "paper_context_existing",
+        "relationship_type": "supporting_context",
+        "actor_id": "reviewer_existing",
+        "note": "Existing context link.",
+        "timestamp": "2026-04-13T00:00:00Z",
+    }
+    log_file.write_text(json.dumps(existing_row) + "\n", encoding="utf-8")
+    before = log_file.read_text(encoding="utf-8")
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/project-context-links",
+        json={
+            "project_id": "pmproj_context_invalid_entity",
+            "entity_type": "unsupported_entity",
+            "entity_id": "paper_context_001",
+            "relationship_type": "supporting_context",
+            "actor_id": "reviewer_001",
+            "note": "This should be rejected by the API contract.",
+        },
+    )
+    assert resp.status_code == 422
+    assert log_file.read_text(encoding="utf-8") == before
+
+
+def test_project_context_link_rejects_invalid_relationship_type_without_appending_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_project_workspace(tmp_path, project_id="pmproj_context_invalid_relationship")
+    log_file = Path("storage/project_context_links.jsonl")
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text("", encoding="utf-8")
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/project-context-links",
+        json={
+            "project_id": "pmproj_context_invalid_relationship",
+            "entity_type": "paper",
+            "entity_id": "paper_context_001",
+            "relationship_type": "primary",
+            "actor_id": "reviewer_001",
+            "note": "This should be rejected by the API contract.",
+        },
+    )
+    assert resp.status_code == 422
+    assert log_file.read_text(encoding="utf-8") == ""
+
+
+def test_project_context_link_rejects_path_like_project_id_without_storage_side_effect(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/project-context-links",
+        json={
+            "project_id": "pmproj_../escape",
+            "entity_type": "paper",
+            "entity_id": "paper_context_001",
+            "relationship_type": "supporting_context",
+            "actor_id": "reviewer_001",
+            "note": "This should not reach storage path resolution.",
+        },
+    )
+    assert resp.status_code == 422
+    assert "project_id" in str(resp.json()["detail"])
+    assert not Path("storage/project_context_links.jsonl").exists()
 
 
 def test_project_context_link_get_filters_and_orders_latest_first(tmp_path, monkeypatch):

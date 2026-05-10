@@ -166,3 +166,57 @@ Reviewer: Codex
 1. Decide whether project-level views need project-scoped judgment separate from the new paper-scoped operator state.
 2. If retrieval demand grows, add a dedicated `has_operator_note` filter before expanding the vocabulary or adding more badges.
 3. Reopen anchored annotations only after a separate anchor contract is written against the workbench/PDF evidence model.
+
+## Lazyweb Notes / Sticker Boundary Checkpoint (2026-05-10)
+- Screen/Flow:
+  - `/papers`, `/papers/:slug`, `/workbench/:paperId` paper-level note, star, triage, sticker-like marker, and future annotation flows
+- Goal action:
+  - users should save a lightweight paper-level judgment and recover it later without confusing personal revisit markers with canonical evidence review.
+- Primary persona:
+  - a local-first biomedical reader who marks papers for revisit, experiment relevance, or verification while keeping claim/evidence truth separate.
+- Current friction:
+  - Lazyweb-style reference searches can surface expressive annotation, sticker, mood-board, or collaboration patterns that look polished but do not carry PaperPipe provenance semantics.
+  - PaperPipe already has a safer v1 lane: `paper_note_text`, `starred`, and closed-set `triage_labels[]`, with list filters and read-only carryover into workbench/home.
+- Success metric:
+  - any future marker or annotation UI must explain its scope, store data in the correct layer, and avoid implying that a personal marker changes saved claims, evidence, or review state.
+- Quick Review:
+  - external references are useful for interaction ideas, but they are not product requirements.
+  - decorative sticker systems remain out of scope unless they become structured paper-level retrieval signals with clear copy and provenance boundaries.
+- Full Review:
+  - P0: do not add passage-level annotation from reference screenshots until PaperPipe has a first-class anchor contract.
+  - P0: do not treat star, sticker, or triage labels as evidence validity or claim truth.
+  - P1: keep note detail as the write surface and list/workbench/home as retrieval or read-only carryover surfaces.
+  - P1: if Lazyweb finds a promising pattern, translate it into PaperPipe language before implementation: personal revisit marker, review-state artifact, or evidence anchor.
+  - P2: prefer one scope note or badge vocabulary improvement over adding another visual marker family.
+- Full Review Coverage:
+  - 6P storyboard context: Problem is forgetting a paper-level judgment; Emotion is wanting a reliable personal memory without corrupting evidence truth; Action is starring, labeling, or writing `My note`; Struggle is marker semantics bleeding into review semantics; Attempt is a small paper-level operator state lane; Happy Ending is recovering the paper later with claim/evidence state untouched.
+  - BMAP: Motivation is strong for revisit markers; Ability stays high when the label set is small and scope is stated nearby; Prompt is the marker panel and list/home recovery path.
+  - B.I.A.S: Block risk comes from expressive decoration; Interpret succeeds when the marker says what it does not change; Act stays simple through one editor; Store succeeds when filters and carryover recover the judgment.
+  - Peak-End: Peak is saving a marker without leaving reading; pit is mistaking a sticker for reviewed evidence; transition is marker -> list/home recovery -> grounded review; end is a personal memory that never masquerades as biomedical truth.
+  - Ethics checks: Regret is reduced by avoiding attention-seeking marker systems; Black Mirror risk is controlled by not externalizing private notes or elevating markers into evidence state; In Real-Life stays like a careful lab notebook margin mark, not a certainty badge.
+- BMAP diagnosis:
+  - Motivation: high for personal revisit and verification reminders.
+  - Ability: harmed by many marker types; improved by the existing compact star/triage/note model.
+  - Prompt: should stay close to the existing operator marker panel and retrieval filters.
+- B.I.A.S diagnosis:
+  - Block: sticker-like UI can attract attention away from evidence reading.
+  - Interpret: marker meaning must be scoped as paper-level memory, not claim validation.
+  - Act: users should not need to choose between overlapping annotation systems.
+  - Store: the saved judgment matters only if it remains recoverable through list/home/workbench.
+- Peak-End design notes:
+  - Peak: a user marks a paper and sees that it will be recoverable later.
+  - Pit: a visual marker is interpreted as scientific confidence.
+  - Transition: detail marker -> list/home filter -> workbench read-only carryover.
+  - End: the marker helps the next session without altering canonical state.
+- Concrete changes:
+  - docs-only checkpoint; no UI, schema, route, runtime dependency, or MCP config changes.
+  - Lazyweb may be used to study generic annotation/review patterns, but prompts must be sanitized and outputs must be stored as non-canonical reference notes.
+  - future annotation work remains blocked on a provenance-backed anchor model and explicit layer classification.
+- Ethics check results:
+  - Regret: pass; avoids adding attractive but ambiguous markers.
+  - Black Mirror: pass; no private notes, PDFs, lab names, or screenshots should be sent to Lazyweb.
+  - In Real-Life: pass; the product remains a disciplined research workspace rather than a scrapbook.
+- Next PR-sized actions:
+  - keep the current star/triage/`My note` lane as the only editable marker surface.
+  - only add `has_operator_note` retrieval if usage shows that note-present recovery is a real blocker.
+  - write the anchor contract before reopening passage-level annotation or figure-region annotation UX.

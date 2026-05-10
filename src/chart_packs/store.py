@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -9,10 +10,14 @@ from typing import Any
 from src.schemas.chart_pack import ChartPack
 from src.services.runtime_paths import chart_packs_root as default_chart_packs_root
 
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+_SAFE_ARTIFACT_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}\.[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+
 
 def chart_pack_dir(chart_pack_id: str, root: Path | None = None) -> Path:
     base = (root or default_chart_packs_root()).expanduser().resolve()
-    return base / chart_pack_id
+    safe_chart_pack_id = _normalize_safe_segment(chart_pack_id, field_name="chart_pack_id")
+    return _confined_child(base, safe_chart_pack_id, field_name="chart_pack_id")
 
 
 def chart_pack_json_path(chart_pack_id: str, root: Path | None = None) -> Path:
@@ -24,7 +29,8 @@ def chart_pack_markdown_path(chart_pack_id: str, root: Path | None = None) -> Pa
 
 
 def chart_pack_artifact_path(chart_pack_id: str, filename: str, root: Path | None = None) -> Path:
-    return chart_pack_dir(chart_pack_id, root) / filename
+    safe_filename = _normalize_artifact_filename(filename)
+    return chart_pack_dir(chart_pack_id, root) / safe_filename
 
 
 def chart_pack_data_dir(chart_pack_id: str, root: Path | None = None) -> Path:
@@ -40,11 +46,13 @@ def chart_pack_renders_dir(chart_pack_id: str, root: Path | None = None) -> Path
 
 
 def chart_pack_data_csv_path(chart_pack_id: str, chart_id: str, root: Path | None = None) -> Path:
-    return chart_pack_data_dir(chart_pack_id, root) / f"{chart_id}.csv"
+    safe_chart_id = _normalize_safe_segment(chart_id, field_name="chart_id")
+    return chart_pack_data_dir(chart_pack_id, root) / f"{safe_chart_id}.csv"
 
 
 def chart_pack_spec_json_path(chart_pack_id: str, chart_id: str, root: Path | None = None) -> Path:
-    return chart_pack_specs_dir(chart_pack_id, root) / f"{chart_id}.json"
+    safe_chart_id = _normalize_safe_segment(chart_id, field_name="chart_id")
+    return chart_pack_specs_dir(chart_pack_id, root) / f"{safe_chart_id}.json"
 
 
 def chart_pack_render_path(
@@ -53,8 +61,10 @@ def chart_pack_render_path(
     extension: str = "svg",
     root: Path | None = None,
 ) -> Path:
+    safe_chart_id = _normalize_safe_segment(chart_id, field_name="chart_id")
     normalized_extension = str(extension or "svg").strip().lstrip(".") or "svg"
-    return chart_pack_renders_dir(chart_pack_id, root) / f"{chart_id}.{normalized_extension}"
+    safe_extension = _normalize_safe_segment(normalized_extension, field_name="extension")
+    return chart_pack_renders_dir(chart_pack_id, root) / f"{safe_chart_id}.{safe_extension}"
 
 
 def save_chart_pack(chart_pack: ChartPack, root: Path | None = None) -> Path:
@@ -284,6 +294,29 @@ def list_chart_pack_ids(root: Path | None = None) -> list[str]:
     if not base.exists():
         return []
     return sorted(entry.name for entry in base.iterdir() if entry.is_dir())
+
+
+def _normalize_safe_segment(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_SEGMENT_RE.fullmatch(text):
+        raise ValueError(f"Chart Pack {field_name} must be a single safe path segment")
+    return text
+
+
+def _normalize_artifact_filename(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or not _SAFE_ARTIFACT_FILENAME_RE.fullmatch(text):
+        raise ValueError("Chart Pack artifact filename must be a single safe filename")
+    return text
+
+
+def _confined_child(base: Path, safe_segment: str, *, field_name: str) -> Path:
+    candidate = (base / safe_segment).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Chart Pack {field_name} escapes storage root") from exc
+    return candidate
 
 
 def _existing_managed_paths(chart_pack_id: str, root: Path | None = None) -> set[Path]:

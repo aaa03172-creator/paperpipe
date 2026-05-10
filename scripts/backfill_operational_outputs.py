@@ -16,6 +16,7 @@ from src.config import load_config
 from src.db_utils import get_db_connection, get_db_path
 from src.exporter import run_export
 from src.jobs.queue import JobQueue
+from src.skills.storage import resolve_vault_relative_path
 from scripts.qa_report import (
     _expected_obsidian_relpath_for_candidate,
     _has_claimset_artifact,
@@ -66,7 +67,9 @@ def _note_exists(vault_path: Path, row: dict[str, Any]) -> bool:
     rel_path = str(row.get("obsidian_path") or "").strip().replace("\\", "/")
     if not rel_path:
         rel_path = _expected_obsidian_relpath_for_candidate(row)
-    target = vault_path / rel_path
+    target = resolve_vault_relative_path(vault_path, rel_path)
+    if target is None:
+        return False
     return target.exists()
 
 

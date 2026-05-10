@@ -235,6 +235,24 @@ def test_download_file_rejects_html_content_type(mock_get, mock_config, tmp_path
 
 
 @patch("src.downloader.router.requests.get")
+def test_download_file_removes_non_pdf_magic_bytes_and_does_not_copy_to_upload_dir(mock_get, mock_config, tmp_path):
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/pdf"}
+    response.iter_content.return_value = [b"not a pdf body"]
+    response.raise_for_status.return_value = None
+    mock_get.return_value = response
+
+    router = DownloadRouter(mock_config)
+    file_path = Path(mock_config.paths.pdf_storage_dir) / "bad-magic.pdf"
+    upload_copy = Path(mock_config.paths.upload_dir) / "bad-magic.pdf"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    assert router._download_file("https://example.com/bad-magic.pdf", file_path) is False
+    assert not file_path.exists()
+    assert not upload_copy.exists()
+
+
+@patch("src.downloader.router.requests.get")
 def test_download_file_uses_provider_policy_defaults(mock_get, mock_config, tmp_path):
     response = MagicMock()
     response.headers = {"Content-Type": "application/pdf"}

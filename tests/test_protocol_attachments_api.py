@@ -205,3 +205,28 @@ def test_protocol_cards_api_rejects_attachment_source_path_escape(tmp_path, monk
 
     assert response.status_code == 400
     assert "escapes bundle directory" in response.json()["detail"]
+
+
+def test_protocol_cards_api_does_not_resolve_encoded_attachment_ids_outside_root(tmp_path, monkeypatch) -> None:
+    attachments_root = tmp_path / "protocol_attachments"
+    outside = tmp_path / "outside"
+    outside.mkdir(parents=True)
+    (outside / "attachment_bundle.json").write_text('{"sentinel":"do-not-read"}', encoding="utf-8")
+    (outside / "source.txt").write_text("SENTINEL-SOURCE", encoding="utf-8")
+    (outside / "extracted.md").write_text("SENTINEL-MARKDOWN", encoding="utf-8")
+
+    monkeypatch.setenv("PAPERPIPE_PROTOCOL_ATTACHMENTS_DIR", str(attachments_root))
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERPIPE_API_KEY", raising=False)
+
+    client = TestClient(api_main.app)
+    responses = [
+        client.get("/protocol-cards/attachments/..%2Foutside"),
+        client.get("/protocol-cards/attachments/..%2Foutside/source"),
+        client.get("/protocol-cards/attachments/..%2Foutside/extracted-markdown"),
+    ]
+
+    assert all(response.status_code in {400, 404} for response in responses)
+    combined = "\n".join(response.text for response in responses)
+    assert "SENTINEL" not in combined
+    assert "do-not-read" not in combined

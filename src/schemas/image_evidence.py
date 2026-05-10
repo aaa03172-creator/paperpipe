@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import PurePosixPath
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -19,6 +20,16 @@ ImageDerivedOutputKind = Literal[
 ImageHandoffTargetKind = Literal["napari", "omero", "other_local_viewer"]
 ChecksumAlgorithm = Literal["md5", "sha1", "sha256", "sha512"]
 ImageArtifactKind = Literal["view_state_json", "handoff_json", "derived_file"]
+IMAGE_EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
+
+
+def normalize_image_evidence_id(value: str, *, field_name: str = "image_evidence_id") -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must be non-empty")
+    if not IMAGE_EVIDENCE_ID_PATTERN.fullmatch(normalized):
+        raise ValueError(f"{field_name} must be a single safe path segment")
+    return normalized
 
 
 class ImageChecksum(BaseModel):
@@ -257,7 +268,12 @@ class ImageEvidenceRequest(BaseModel):
     @model_validator(mode="after")
     def normalize_request(self):
         if self.image_evidence_id is not None:
-            self.image_evidence_id = self.image_evidence_id.strip() or None
+            normalized_image_evidence_id = self.image_evidence_id.strip()
+            self.image_evidence_id = (
+                normalize_image_evidence_id(normalized_image_evidence_id)
+                if normalized_image_evidence_id
+                else None
+            )
         if self.title is not None:
             self.title = self.title.strip() or None
         if self.paper_id is not None:
@@ -292,7 +308,7 @@ class ImageEvidence(BaseModel):
 
     @model_validator(mode="after")
     def validate_bundle(self):
-        self.image_evidence_id = self.image_evidence_id.strip()
+        self.image_evidence_id = normalize_image_evidence_id(self.image_evidence_id)
         self.title = self.title.strip()
         self.content_format = self.content_format.strip()
         if self.paper_id is not None:
