@@ -1,9 +1,12 @@
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from starlette.datastructures import MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 import asyncio
 import json
@@ -223,6 +226,92 @@ def _apply_security_headers(request: Request, response: JSONResponse | FileRespo
     return response
 
 
+_SENSITIVE_DETAIL_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "cookie",
+    "database_url",
+    "openai_api_key",
+    "password",
+    "secret",
+    "token",
+}
+_ABSOLUTE_PATH_TOKEN_RE = re.compile(
+    r"(?<![:/\w])/(?:Users|private|var|tmp|Volumes|home|opt|mnt|srv|workspace|app)"
+    r"(?:/[^\s\"'<>`|)\]}]+)*"
+)
+_SECRET_TEXT_PATTERNS = [
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE),
+    re.compile(r"\bBasic\s+[A-Za-z0-9._~+/=:-]+", re.IGNORECASE),
+    re.compile(r"\bsk-[A-Za-z0-9][A-Za-z0-9._-]{8,}"),
+    re.compile(r"\bpostgres(?:ql)?://[^\s\"'<>`|)\]}]+", re.IGNORECASE),
+]
+
+
+def _detail_key_is_sensitive(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(key).strip().lower()).strip("_")
+    if normalized in _SENSITIVE_DETAIL_KEYS:
+        return True
+    return any(token in normalized for token in ("api_key", "authorization", "password", "secret", "token"))
+
+
+def _mask_local_paths_in_text(value: str) -> str:
+    if not is_path_masking_enabled():
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        raw_path = match.group(0)
+        return mask_local_path(raw_path) or raw_path
+
+    return _ABSOLUTE_PATH_TOKEN_RE.sub(replace, value)
+
+
+def _sanitize_exception_text(value: str) -> str:
+    sanitized = value
+    for pattern in _SECRET_TEXT_PATTERNS:
+        sanitized = pattern.sub("<redacted>", sanitized)
+    return _mask_local_paths_in_text(sanitized)
+
+
+def _sanitize_exception_detail_for_response(detail: Any) -> Any:
+    if isinstance(detail, dict):
+        sanitized: dict[str, Any] = {}
+        for key, value in detail.items():
+            string_key = str(key)
+            sanitized[string_key] = (
+                "<redacted>"
+                if _detail_key_is_sensitive(string_key)
+                else _sanitize_exception_detail_for_response(value)
+            )
+        return sanitized
+    if isinstance(detail, list):
+        return [_sanitize_exception_detail_for_response(item) for item in detail]
+    if isinstance(detail, tuple):
+        return [_sanitize_exception_detail_for_response(item) for item in detail]
+    if isinstance(detail, str):
+        return _sanitize_exception_text(detail)
+    return detail
+
+
+def _drop_validation_input_echo(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _drop_validation_input_echo(item)
+            for key, item in value.items()
+            if str(key) != "input"
+        }
+    if isinstance(value, list):
+        return [_drop_validation_input_echo(item) for item in value]
+    return value
+
+
+def _sanitize_request_validation_errors(exc: RequestValidationError) -> Any:
+    errors = jsonable_encoder(exc.errors())
+    return _drop_validation_input_echo(_sanitize_exception_detail_for_response(errors))
+
+
 app = FastAPI(title="Lattice API", version="3.1.0")
 
 app.add_middleware(
@@ -236,6 +325,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def sanitized_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    response = JSONResponse(
+        status_code=exc.status_code,
+        headers=exc.headers,
+        content={"detail": _sanitize_exception_detail_for_response(exc.detail)},
+    )
+    return _apply_security_headers(request, response)
+
+
+@app.exception_handler(RequestValidationError)
+async def sanitized_request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    response = JSONResponse(
+        status_code=422,
+        content={"detail": _sanitize_request_validation_errors(exc)},
+    )
+    return _apply_security_headers(request, response)
 
 
 @app.middleware("http")
