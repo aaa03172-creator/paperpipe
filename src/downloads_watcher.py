@@ -140,6 +140,8 @@ def _enqueue_pdf_match_review(paper_id: str, reason: str, allow_multiple_open: b
     conn = get_db_connection()
     cur = conn.cursor()
     try:
+        if paper_id == UNMATCHED_SENTINEL_PAPER_ID:
+            _ensure_unmatched_sentinel_paper(cur)
         if not allow_multiple_open:
             cur.execute(
                 """
@@ -165,6 +167,32 @@ def _enqueue_pdf_match_review(paper_id: str, reason: str, allow_multiple_open: b
         return False
     finally:
         conn.close()
+
+
+def _ensure_unmatched_sentinel_paper(cur) -> None:
+    cur.execute("PRAGMA table_info(papers)")
+    columns = {str(row["name"] if "name" in row.keys() else row[1]) for row in cur.fetchall()}
+    if "paper_id" not in columns:
+        return
+
+    payload: dict[str, Any] = {"paper_id": UNMATCHED_SENTINEL_PAPER_ID}
+    if "title" in columns:
+        payload["title"] = "Unmatched downloaded PDFs"
+    if "status" in columns:
+        payload["status"] = "PENDING_REVIEW"
+    if "pdf_status" in columns:
+        payload["pdf_status"] = "manual_required"
+    if "summary" in columns:
+        payload["summary"] = "Operational sentinel for downloaded PDFs that could not be matched to a paper."
+    if "source" in columns:
+        payload["source"] = "paperpipe_downloads_watcher"
+
+    names = list(payload)
+    placeholders = ", ".join("?" for _ in names)
+    cur.execute(
+        f"INSERT OR IGNORE INTO papers ({', '.join(names)}) VALUES ({placeholders})",
+        tuple(payload[name] for name in names),
+    )
 
 
 def _update_downloaded_path(paper_id: str, destination: Path) -> None:
@@ -344,10 +372,7 @@ class DownloadsFileHandler(FileSystemEventHandler):
         self.pdf_storage_dir = pdf_storage_dir
         self.title_threshold = title_threshold
 
-    def on_created(self, event):
-        if event.is_directory:
-            return
-        path = Path(event.src_path)
+    def _process_candidate(self, path: Path) -> None:
         if _is_temporary_download(path) or path.suffix.lower() != ".pdf":
             return
         if not _wait_for_stable_file(path):
@@ -358,6 +383,16 @@ class DownloadsFileHandler(FileSystemEventHandler):
             logger.info("Downloads watcher processed %s -> %s (%s)", path.name, result.status, result.destination)
         except Exception as exc:
             logger.error("Downloads watcher failed for %s: %s", path.name, exc)
+
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        self._process_candidate(Path(event.src_path))
+
+    def on_moved(self, event):
+        if event.is_directory:
+            return
+        self._process_candidate(Path(event.dest_path))
 
 
 class DownloadsWatcherService:
