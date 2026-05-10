@@ -226,8 +226,9 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
 
         deepread = client.post("/jobs/deepread", json={"paper_id": "paper_auth_allow_001"}, headers=headers)
         assert deepread.status_code == 200
+        job_id = deepread.json()["job_id"]
 
-        cancel = client.post("/jobs/job_auth_allow_001/cancel", headers=headers)
+        cancel = client.post(f"/jobs/{job_id}/cancel", headers=headers)
         assert cancel.status_code == 200
         assert cancel.json()["status"] == "cancelled"
 
