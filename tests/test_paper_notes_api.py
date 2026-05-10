@@ -8,6 +8,7 @@ from urllib.parse import quote
 from fastapi.testclient import TestClient
 
 from backend import main as api_main
+from backend.services import job_runner as job_runner_mod
 from backend.routers import paper_notes as paper_notes_router
 from src import db_utils
 from src.schemas.paper_notes import PaperNoteIndexItem, PaperNoteOpsSummary
@@ -607,14 +608,19 @@ def test_paper_notes_support_renamed_stateful_note_with_legacy_structured_path(t
     assert list_payload["items"][0]["slug"] == readable_slug
     assert list_payload["items"][0]["structured_state_present"] is True
 
-    resolved = client.get(
-        "/paper-notes/resolve-by-paper-id",
-        params={"paper_id": "zotero:coricTargetingProdromalAlzheimer2015"},
-    )
-    assert resolved.status_code == 200
-    resolved_payload = resolved.json()
-    assert resolved_payload["slug"] == readable_slug
-    assert resolved_payload["structured_state"]["paper_slug"] == legacy_slug
+    for lookup_id in (
+        "zotero:coricTargetingProdromalAlzheimer2015",
+        "zoterocoricTargetingProdromalAlzheimer2015",
+        "coricTargetingProdromalAlzheimer2015",
+    ):
+        resolved = client.get(
+            "/paper-notes/resolve-by-paper-id",
+            params={"paper_id": lookup_id},
+        )
+        assert resolved.status_code == 200
+        resolved_payload = resolved.json()
+        assert resolved_payload["slug"] == readable_slug
+        assert resolved_payload["structured_state"]["paper_slug"] == legacy_slug
 
     detail = client.get(f"/paper-notes/{readable_slug}")
     assert detail.status_code == 200
@@ -694,6 +700,50 @@ def test_paper_notes_import_pdf_creates_note_and_pdf_route(tmp_path, monkeypatch
     assert pdf_response.headers["content-type"].startswith("application/pdf")
 
 
+def test_paper_notes_import_pdf_creates_paper_state_after_runtime_db_init(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+    monkeypatch.setattr(paper_notes_router, "_extract_import_title", lambda path, fallback_name: "Fresh DB Paper")
+
+    response = TestClient(api_main.app).post(
+        "/paper-notes/import-pdf",
+        files={"file": ("fresh-db.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_id"].startswith("userpdf-")
+    assert payload["title"] == "Fresh DB Paper"
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT paper_id, title, source, status, pdf_path, issues_state, obsidian_path FROM papers WHERE paper_id = ?",
+        (payload["paper_id"],),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row["title"] == "Fresh DB Paper"
+    assert row["source"] == "user_imported_pdf"
+    assert row["status"] == "NEW"
+    assert row["issues_state"] == "unavailable"
+    assert Path(row["pdf_path"]).exists()
+    assert row["obsidian_path"] == payload["note_path"]
+
+
 def test_paper_notes_import_pdf_persists_local_doi_hint(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
@@ -755,6 +805,155 @@ def test_paper_notes_import_pdf_persists_local_doi_hint(tmp_path, monkeypatch):
     conn.close()
     assert row is not None
     assert row[0] == "10.1126/science.aeb0045"
+
+
+def test_paper_notes_imported_pdf_can_be_enqueued_for_deepread(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+    monkeypatch.setattr(paper_notes_router, "_extract_import_title", lambda path, fallback_name: "Deep Read Ready")
+
+    client = TestClient(api_main.app)
+    import_response = client.post(
+        "/paper-notes/import-pdf",
+        files={"file": ("deep-read-ready.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+    )
+
+    assert import_response.status_code == 200
+    import_payload = import_response.json()
+    paper_id = import_payload["paper_id"]
+    expected_pdf_path = pdf_storage_dir / f"{paper_id}.pdf"
+    assert expected_pdf_path.exists()
+    assert job_runner_mod._resolve_pdf_path_from_db(paper_id) == expected_pdf_path
+
+    enqueue_response = client.post("/jobs/deepread", json={"paper_id": paper_id, "clean_reindex": True})
+
+    assert enqueue_response.status_code == 200
+    enqueue_payload = enqueue_response.json()
+    assert enqueue_payload["status"] == "queued"
+    assert enqueue_payload["run_id"]
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    job_row = conn.execute(
+        "SELECT paper_id, status, clean_reindex FROM jobs WHERE job_id = ?",
+        (enqueue_payload["job_id"],),
+    ).fetchone()
+    action_row = conn.execute(
+        """
+        SELECT action_type, payload_json
+        FROM user_actions
+        WHERE paper_id = ?
+        ORDER BY ts DESC, rowid DESC
+        LIMIT 1
+        """,
+        (paper_id,),
+    ).fetchone()
+    conn.close()
+
+    assert job_row is not None
+    assert job_row["paper_id"] == paper_id
+    assert job_row["status"] == "queued"
+    assert job_row["clean_reindex"] == 1
+    assert action_row is not None
+    assert action_row["action_type"] == "deepread_enqueued"
+    assert json.loads(action_row["payload_json"])["run_id"] == enqueue_payload["run_id"]
+
+
+def test_paper_notes_import_pdf_rejects_duplicate_existing_doi(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO papers (paper_id, doi, title, source, status) VALUES (?, ?, ?, ?, ?)",
+        ("doi:10.1126/science.aeb0045", "https://doi.org/10.1126/science.aeb0045", "Existing", "pubmed", "NEW"),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_extract_import_doi",
+        lambda path: "10.1126/science.aeb0045",
+    )
+
+    response = TestClient(api_main.app).post(
+        "/paper-notes/import-pdf",
+        files={"file": ("science-duplicate.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A paper with DOI 10.1126/science.aeb0045 already exists."
+    assert list((vault_dir / "Inbox" / "PaperPipe").glob("*.md")) == []
+    assert list(pdf_storage_dir.glob("*.pdf")) == []
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT paper_id, doi FROM papers").fetchall()
+    conn.close()
+    assert rows == [("doi:10.1126/science.aeb0045", "https://doi.org/10.1126/science.aeb0045")]
 
 
 def test_paper_notes_reimport_updates_existing_note_doi(tmp_path, monkeypatch):
@@ -880,6 +1079,66 @@ def test_paper_notes_reimport_does_not_mutate_existing_note_when_db_persist_fail
 
     assert second.status_code == 500
     assert note_path.read_text(encoding="utf-8") == original_note
+
+
+def test_paper_notes_import_pdf_cleans_up_new_db_row_after_post_save_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    vault_dir = tmp_path / "vault"
+    pdf_storage_dir = tmp_path / "pdfs"
+    db_path = tmp_path / "state.db"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+    db_utils.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            processed_date TEXT,
+            processed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            pdf_path TEXT,
+            issues_state TEXT,
+            obsidian_path TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir, pdf_storage_dir=pdf_storage_dir)),
+    )
+    monkeypatch.setattr(paper_notes_router, "_extract_import_title", lambda path, fallback_name: "Rollback Paper")
+
+    def fail_persist_note_path(*args, **kwargs):
+        raise RuntimeError("forced post-save failure")
+
+    monkeypatch.setattr(paper_notes_router, "_persist_imported_note_path", fail_persist_note_path)
+
+    response = TestClient(api_main.app).post(
+        "/paper-notes/import-pdf",
+        files={"file": ("rollback.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to persist imported paper state."
+    assert list((vault_dir / "Inbox" / "PaperPipe").glob("*.md")) == []
+    assert list(pdf_storage_dir.glob("*.pdf")) == []
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT paper_id FROM papers").fetchall()
+    conn.close()
+    assert rows == []
 
 
 def test_extract_import_doi_from_text_normalizes_science_url():

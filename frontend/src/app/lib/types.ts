@@ -136,6 +136,7 @@ export interface PaperNoteImportResponse {
   title: string;
   note_path: string;
   pdf_url: string;
+  doi?: string | null;
 }
 
 export interface PaperNoteRelated {

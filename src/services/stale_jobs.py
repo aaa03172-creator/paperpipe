@@ -382,6 +382,65 @@ def _collect_requeue_links(conn: sqlite3.Connection, job_ids: list[str]) -> dict
     return links
 
 
+def _existing_requeue_result(
+    conn: sqlite3.Connection,
+    *,
+    original_job_id: str,
+    original_run_id: str | None,
+    paper_id: str,
+) -> dict[str, Any] | None:
+    try:
+        row = conn.execute(
+            """
+            SELECT ts, payload_json
+            FROM job_events
+            WHERE job_id = ? AND event_type = 'job_requeued_replacement'
+            ORDER BY ts ASC, rowid ASC
+            LIMIT 1
+            """,
+            (original_job_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+
+    event_payload: dict[str, Any] = {}
+    try:
+        if row["payload_json"]:
+            event_payload = json.loads(str(row["payload_json"]))
+    except Exception:
+        event_payload = {}
+
+    replacement_job_id = str(event_payload.get("replacement_job_id") or "").strip()
+    if not replacement_job_id:
+        return None
+
+    replacement_run_id = str(event_payload.get("replacement_run_id") or "").strip() or None
+    replacement_paper_id = str(event_payload.get("paper_id") or "").strip() or paper_id
+    try:
+        replacement = conn.execute(
+            "SELECT run_id, paper_id FROM jobs WHERE job_id = ? LIMIT 1",
+            (replacement_job_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        replacement = None
+    if replacement is not None:
+        replacement_run_id = str(_row_value(replacement, "run_id") or "").strip() or replacement_run_id
+        replacement_paper_id = str(_row_value(replacement, "paper_id") or "").strip() or replacement_paper_id
+
+    return {
+        "outcome": "requeued",
+        "original_job_id": original_job_id,
+        "original_run_id": original_run_id,
+        "job_id": replacement_job_id,
+        "run_id": replacement_run_id,
+        "paper_id": replacement_paper_id,
+        "status": "queued",
+        "requeued_at": str(row["ts"] or "").strip(),
+    }
+
+
 def _collect_requeue_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     payload = {
         "stale_running_requeued_total": 0,
@@ -964,6 +1023,15 @@ def requeue_reclaimed_job(db_path: Path, *, job_id: str) -> dict[str, Any]:
             }
 
         original_run_id = str(_row_value(row, "run_id") or "").strip() or None
+        existing_requeue = _existing_requeue_result(
+            conn,
+            original_job_id=job_id,
+            original_run_id=original_run_id,
+            paper_id=paper_id,
+        )
+        if existing_requeue is not None:
+            return existing_requeue
+
         persona_id = str(_row_value(row, "persona_id", "default") or "default")
         reasoning_persona = str(_row_value(row, "reasoning_persona") or "").strip() or None
         profile_id = str(_row_value(row, "profile_id") or "").strip() or None

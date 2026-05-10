@@ -100,6 +100,18 @@ def test_queue_update_job_ignores_late_writes_after_terminal_state(tmp_path, mon
                 "stage": "read",
             },
         )
+        artifact_dir = tmp_path / "storage" / "artifacts" / "paper_terminal_guard_001" / "run"
+        log_path = tmp_path / "logs" / "jobs" / "terminal.log"
+        queue.update_job(
+            job_id,
+            {
+                "status": "completed",
+                "artifact_dir": str(artifact_dir),
+                "log_path": str(log_path),
+                "error_code": "LATE_ERROR",
+                "error_message": "late error should not overwrite terminal reason",
+            },
+        )
 
         done = queue.get_job(job_id)
         assert done is not None
@@ -108,6 +120,66 @@ def test_queue_update_job_ignores_late_writes_after_terminal_state(tmp_path, mon
         assert done.error_message == "terminal write"
         assert done.progress == 0
         assert done.stage is None
+        assert done.artifact_dir == str(artifact_dir)
+        assert done.log_path == str(log_path)
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_worker_preserves_cancelled_state_but_records_final_artifact_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+
+        async def fake_run_deepread_job(
+            job_id: str,
+            paper_id: str,
+            persona_id: str = "default",
+            reasoning_persona: str | None = None,
+            profile_id: str | None = None,
+            parser_backend: str | None = None,
+            run_verify: bool = False,
+            clean_reindex: bool = False,
+            run_id: str | None = None,
+            progress_callback=None,
+            cancel_check=None,
+        ):
+            while not (cancel_check and cancel_check()):
+                await asyncio.sleep(0.01)
+            artifact_dir = tmp_path / "storage" / "artifacts" / paper_id / (run_id or "run")
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            return {
+                "status": "cancelled",
+                "artifact_dir": str(artifact_dir),
+            }
+
+        monkeypatch.setattr(worker_mod, "run_deepread_job", fake_run_deepread_job)
+        monkeypatch.setattr(worker_mod, "JOB_HEARTBEAT_INTERVAL_SECONDS", 1.0)
+
+        queue = JobQueue()
+        job_id = queue.enqueue("paper_cancel_metadata_001")
+        claimed = queue.claim_next_job()
+        assert claimed is not None
+
+        worker = worker_mod.Worker()
+        worker_thread = threading.Thread(target=worker.process_job, args=(claimed,), daemon=True)
+        worker_thread.start()
+        time.sleep(0.05)
+
+        assert queue.cancel_job(job_id) == "cancelled"
+
+        worker_thread.join(timeout=2.0)
+        assert not worker_thread.is_alive()
+
+        done = queue.get_job(job_id)
+        assert done is not None
+        assert done.status == "cancelled"
+        assert done.artifact_dir == str(tmp_path / "storage" / "artifacts" / "paper_cancel_metadata_001" / done.run_id)
+        assert done.stage is None
+        assert done.progress == 0
     finally:
         db_utils.DB_PATH = original_db_path
 
