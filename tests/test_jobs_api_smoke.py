@@ -731,6 +731,41 @@ def test_job_queue_claim_respects_configurable_max_concurrency(tmp_path, monkeyp
         db_utils.DB_PATH = original_db_path
 
 
+def test_job_queue_assigns_distinct_run_ids_for_rapid_enqueues(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        queue = JobQueue()
+        first = queue.enqueue(paper_id="paper_run_collision_001")
+        second = queue.enqueue(paper_id="paper_run_collision_002")
+
+        first_job = queue.get_job(first)
+        second_job = queue.get_job(second)
+
+        assert first_job is not None
+        assert second_job is not None
+        assert first_job.run_id != second_job.run_id
+
+        conn = db_utils.get_db_connection()
+        try:
+            run_rows = conn.execute(
+                "SELECT run_id, paper_id FROM execution_runs WHERE run_id IN (?, ?)",
+                (first_job.run_id, second_job.run_id),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        assert {row["paper_id"] for row in run_rows} == {
+            "paper_run_collision_001",
+            "paper_run_collision_002",
+        }
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
 def test_job_queue_claim_uses_immediate_transaction_and_guards_queued_status(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LATTICE_MAX_CONCURRENT_JOBS", "2")

@@ -30,6 +30,7 @@ def init_db():
         paper_id TEXT PRIMARY KEY,          -- DOI priority, else PMID/ArXiv/Hash
         doi TEXT,                           -- Normalized DOI
         title TEXT NOT NULL,
+        summary TEXT,                       -- Abstract/summary text from upstream metadata
         year INTEGER,
         venue TEXT,
         source TEXT,                        -- e.g., 'zotero', 'pubmed', 'manual'

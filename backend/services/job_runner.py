@@ -423,6 +423,13 @@ def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
     }
 
 
+def _ingest_runtime_options_for_run_meta(options: Dict[str, Any]) -> Dict[str, Any]:
+    persisted = dict(options)
+    api_key = persisted.pop("cloud_table_api_key", None)
+    persisted["cloud_table_api_key_configured"] = bool(str(api_key or "").strip())
+    return persisted
+
+
 def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     try:
         atomic_write_text(
@@ -1147,7 +1154,7 @@ async def run_deepread_job(
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         if run_meta is not None:
             run_meta["parser_backend"] = parser_backend
-            run_meta["ingest_options"] = dict(ingest_runtime_options)
+            run_meta["ingest_options"] = _ingest_runtime_options_for_run_meta(ingest_runtime_options)
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
 

@@ -328,6 +328,16 @@ function canUseAutoMockFallback(): boolean {
   return APP_CONFIG.autoMockFallback && !APP_CONFIG.strictApi;
 }
 
+function canFallbackForReadError(error: unknown): boolean {
+  if (!canUseAutoMockFallback()) {
+    return false;
+  }
+  if (isApiHttpError(error)) {
+    return isProxyAvailabilityHttpError(error);
+  }
+  return true;
+}
+
 function requestHeaders(init?: RequestInit, includeJsonContentType = true): HeadersInit {
   const headers = new Headers(init?.headers ?? undefined);
   if (includeJsonContentType && !headers.has("Content-Type")) {
@@ -638,7 +648,7 @@ async function withMockFallback<T>(
   try {
     return { data: await fetcher(), isMock: false };
   } catch (error) {
-    if (!canUseAutoMockFallback()) {
+    if (!canFallbackForReadError(error)) {
       throw error;
     }
     return { data: mocker(), isMock: true, reason };
