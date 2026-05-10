@@ -88,6 +88,21 @@ def render_meeting_pack_markdown(pack: MeetingPack) -> str:
         if ref.note:
             lines.append(f"  - Note: {ref.note}")
 
+    if pack.review_artifacts:
+        lines.extend(["", "## Review Artifacts"])
+        for artifact in pack.review_artifacts:
+            lines.append(
+                f"- {artifact.kind}: {artifact.paper_slug}"
+                f"{f' run={artifact.run_id}' if artifact.run_id else ''}"
+                f" entries={artifact.entry_count}, partial={artifact.partially_observed_count}, unknown={artifact.unknown_count}"
+            )
+            if artifact.path:
+                lines.append(f"  - Path: {artifact.path}")
+            if artifact.replay_required:
+                lines.append("  - Replay required before promoting figure/table-backed claims.")
+            if artifact.note:
+                lines.append(f"  - Note: {artifact.note}")
+
     if pack.artifact_brief is not None:
         lines.extend(
             [

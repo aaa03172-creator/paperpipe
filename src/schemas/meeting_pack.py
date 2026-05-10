@@ -81,6 +81,18 @@ class MeetingPackEvidenceRef(BaseModel):
     note: str | None = None
 
 
+class MeetingPackReviewArtifact(BaseModel):
+    kind: Literal["visual_evidence_ledger"]
+    paper_slug: str = Field(..., min_length=1)
+    run_id: str | None = None
+    path: str | None = None
+    entry_count: int = Field(default=0, ge=0)
+    unknown_count: int = Field(default=0, ge=0)
+    partially_observed_count: int = Field(default=0, ge=0)
+    replay_required: bool = True
+    note: str | None = None
+
+
 class MeetingPackKeyPoint(BaseModel):
     label: str = Field(..., min_length=1)
     text: str = Field(..., min_length=1)
@@ -235,6 +247,7 @@ class MeetingPack(BaseModel):
     expected_questions: list[MeetingPackExpectedQuestion] = Field(default_factory=list)
     next_steps: list[MeetingPackNextStep] = Field(default_factory=list)
     evidence_refs: list[MeetingPackEvidenceRef] = Field(default_factory=list)
+    review_artifacts: list[MeetingPackReviewArtifact] = Field(default_factory=list)
     artifact_brief: ArtifactBrief | None = None
     artifact_brief_review: ArtifactPlanReview | None = None
 

@@ -65,6 +65,8 @@ class PaperSynthesisInputs:
     quality_gate: dict[str, Any] | None
     acceptance_contract_path: Path | None
     acceptance_contract: dict[str, Any] | None
+    visual_evidence_ledger_path: Path | None
+    visual_evidence_ledger: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -123,10 +125,12 @@ def load_paper_synthesis_inputs(
         claimset_path = run_dir / "claimset.resolved.json"
         quality_gate_path = run_dir / "quality_gate.json"
         acceptance_contract_path = run_dir / "acceptance_contract.json"
+        visual_evidence_ledger_path = run_dir / "visual_evidence_ledger.json"
         run_meta = _load_json_dict(run_meta_path)
         claimset_payload = normalize_claimset_payload(_load_json_dict(claimset_path))
         quality_gate = _load_json_dict(quality_gate_path)
         acceptance_contract = _load_json_dict(acceptance_contract_path)
+        visual_evidence_ledger = _load_json_dict(visual_evidence_ledger_path)
         if run_meta is None or claimset_payload is None:
             continue
         status = str(run_meta.get("status") or "").strip().lower()
@@ -153,6 +157,8 @@ def load_paper_synthesis_inputs(
             quality_gate=quality_gate,
             acceptance_contract_path=acceptance_contract_path if acceptance_contract is not None else None,
             acceptance_contract=acceptance_contract,
+            visual_evidence_ledger_path=visual_evidence_ledger_path if visual_evidence_ledger is not None else None,
+            visual_evidence_ledger=visual_evidence_ledger,
         )
 
     raise FileNotFoundError(
@@ -253,6 +259,19 @@ def build_paper_synthesis_for_slug(
                 if inputs.acceptance_contract_path is not None
                 else []
             ),
+            *(
+                [
+                    PaperSynthesisSourceRef(
+                        kind="visual_evidence_ledger",
+                        paper_slug=paper_slug,
+                        run_id=inputs.run_id,
+                        path=str(inputs.visual_evidence_ledger_path),
+                        note="Additive visual evidence replay artifact; not a canonical owner.",
+                    )
+                ]
+                if inputs.visual_evidence_ledger_path is not None
+                else []
+            ),
         ],
         evidence_refs=evidence_refs,
         warnings=warnings,
@@ -263,6 +282,7 @@ def build_paper_synthesis_for_slug(
         state=inputs.state,
         claim_cards=inputs.claim_cards,
         run_meta=inputs.run_meta,
+        visual_evidence_ledger=inputs.visual_evidence_ledger,
     )
     return PaperSynthesisBuildResult(synthesis=synthesis, markdown=markdown, inputs=inputs)
 
@@ -361,9 +381,16 @@ def _build_summary_text(inputs: PaperSynthesisInputs) -> str:
         "Raw-memory helpers such as project memory, work traces, or conversation logs are intentionally excluded from this synthesis contract.",
         f"Selected run `{inputs.run_id}` contributes {claim_count} claim(s) and {evidence_count} evidence span(s).",
     ]
-    if inputs.quality_gate is not None or inputs.acceptance_contract is not None:
+    if inputs.quality_gate is not None or inputs.acceptance_contract is not None or inputs.visual_evidence_ledger is not None:
         parts.append(
             "Additive review artifacts may be attached for this run, but they do not replace canonical state or resolved evidence."
+        )
+    if inputs.visual_evidence_ledger is not None:
+        metrics = inputs.visual_evidence_ledger.get("metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        parts.append(
+            "Visual evidence replay is attached as a review gate artifact "
+            f"with {int(metrics.get('entry_count') or 0)} entrie(s)."
         )
     if canonical_claim_count:
         parts.append(f"Canonical structured state currently exposes {canonical_claim_count} claim(s).")
@@ -404,6 +431,11 @@ def _build_warnings(inputs: PaperSynthesisInputs) -> list[str]:
         warnings.append(
             f"Selected run quality gate is `{quality_gate_status}`, so this synthesis should stay explicitly review-only."
         )
+    visual_metrics = _visual_evidence_metrics(inputs)
+    if visual_metrics and visual_metrics["unknown_count"] > 0:
+        warnings.append(
+            "Selected run visual evidence ledger contains unknown visual/table evidence; figure/table-backed claims must be replayed before reuse."
+        )
     return _dedupe_non_empty_strings(warnings)
 
 
@@ -430,7 +462,31 @@ def _build_uncertainty_notes(
     ).strip()
     if state_last_run_id and state_last_run_id != inputs.run_id:
         notes.append("Upstream canonical state and selected synthesis run are not aligned yet.")
+    visual_metrics = _visual_evidence_metrics(inputs)
+    if visual_metrics:
+        notes.append(
+            "Visual evidence replay summary: "
+            f"{visual_metrics['entry_count']} entrie(s), "
+            f"{visual_metrics['partially_observed_count']} partial, "
+            f"{visual_metrics['unknown_count']} unknown."
+        )
     return _dedupe_non_empty_strings(notes)
+
+
+def _visual_evidence_metrics(inputs: PaperSynthesisInputs) -> dict[str, int] | None:
+    ledger = inputs.visual_evidence_ledger
+    if not isinstance(ledger, dict):
+        return None
+    metrics = ledger.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    return {
+        "entry_count": int(metrics.get("entry_count") or 0),
+        "observed_count": int(metrics.get("observed_count") or 0),
+        "partially_observed_count": int(metrics.get("partially_observed_count") or 0),
+        "unknown_count": int(metrics.get("unknown_count") or 0),
+        "unsupported_count": int(metrics.get("unsupported_count") or 0),
+    }
 
 
 def _resolve_readiness(

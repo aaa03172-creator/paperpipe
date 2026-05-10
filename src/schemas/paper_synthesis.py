@@ -14,7 +14,7 @@ PaperSynthesisFreshness = Literal["current", "stale", "unknown"]
 PaperSynthesisArtifactFamily = Literal["paper_synthesis"]
 PaperSynthesisTemplateKind = Literal["paper", "project", "meeting", "decision", "concept"]
 PaperSynthesisRequiredSourceKind = Literal["structured_state", "claimset_resolved", "run_meta"]
-PaperSynthesisReviewArtifactKind = Literal["quality_gate", "acceptance_contract"]
+PaperSynthesisReviewArtifactKind = Literal["quality_gate", "acceptance_contract", "visual_evidence_ledger"]
 PaperSynthesisAnswerRoute = Literal["canonical_state_then_upstream_evidence"]
 PaperSynthesisSourceKind = Literal[
     "structured_state",
@@ -23,6 +23,7 @@ PaperSynthesisSourceKind = Literal[
     "paper_note_state",
     "quality_gate",
     "acceptance_contract",
+    "visual_evidence_ledger",
     "run_meta",
 ]
 
@@ -180,6 +181,7 @@ def _build_lineage_summary(source_refs: list[PaperSynthesisSourceRef]) -> PaperS
     review_artifact_kinds: list[PaperSynthesisReviewArtifactKind] = [
         "quality_gate",
         "acceptance_contract",
+        "visual_evidence_ledger",
     ]
     present_source_kinds = {item.kind for item in source_refs}
     return PaperSynthesisLineageSummary(

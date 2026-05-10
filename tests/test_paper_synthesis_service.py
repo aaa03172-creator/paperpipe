@@ -165,6 +165,46 @@ def _write_artifact_run(
     )
 
 
+def _write_visual_evidence_ledger(artifact_dir: Path, *, run_id: str, unknown_count: int = 1) -> None:
+    _write_json(
+        artifact_dir / "visual_evidence_ledger.json",
+        {
+            "schema_version": "visual_evidence_ledger.v1",
+            "layer": "review_gate_artifact",
+            "canonical_status": "non_canonical",
+            "paper_id": artifact_dir.parent.name,
+            "run_id": run_id,
+            "generated_at": "2026-04-07T12:00:00+00:00",
+            "source_artifacts": ["document_artifact.json", "figure_captions.json", "claimset.resolved.json"],
+            "metrics": {
+                "entry_count": 1,
+                "observed_count": 0,
+                "partially_observed_count": 0,
+                "unknown_count": unknown_count,
+                "unsupported_count": 0,
+                "linked_claim_count": 0,
+            },
+            "generation_replay_required": True,
+            "final_answer_validation_required": True,
+            "entries": [
+                {
+                    "evidence_id": "visual_fig_2",
+                    "kind": "microscopy",
+                    "page": 2,
+                    "figure_id": "fig_2",
+                    "caption": "Representative microscopy panels after treatment.",
+                    "status": "unknown",
+                    "failure_reason": "caption_only",
+                    "not_allowed_claims": [
+                        "Do not infer visual measurements from the caption alone."
+                    ],
+                    "source_artifact": "figure_captions.json",
+                }
+            ],
+        },
+    )
+
+
 def test_load_paper_synthesis_inputs_skips_incomplete_newer_runs(tmp_path):
     vault_path = tmp_path / "Vault"
     slug = "demo-note"
@@ -249,6 +289,33 @@ def test_build_paper_synthesis_for_slug_keeps_inputs_bounded_and_marks_review_gu
     assert "Derived from canonical structured state plus the selected `claimset.resolved.json` and `run_meta.json` only." in result.markdown
     assert "Raw-memory helpers such as project memory, work traces, or conversation logs are intentionally excluded" in result.markdown
     assert "Additive review artifacts may be attached for this run" in result.markdown
+
+
+def test_build_paper_synthesis_for_slug_replays_visual_evidence_as_review_gate(tmp_path):
+    vault_path = tmp_path / "Vault"
+    slug = "visual-note"
+    _write_structured_state(vault_path, slug, last_run_id="run-current", claim_count=1)
+
+    artifact_dir = tmp_path / "storage" / "artifacts" / slug / "run-current"
+    _write_artifact_run(artifact_dir, run_id="run-current", claim_count=1)
+    _write_visual_evidence_ledger(artifact_dir, run_id="run-current")
+
+    result = build_paper_synthesis_for_slug(
+        slug,
+        vault_path=vault_path,
+        artifacts_root=tmp_path / "storage" / "artifacts",
+        now=datetime(2026, 4, 7, 13, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.synthesis.readiness == "mixed"
+    assert "visual_evidence_ledger" in {item.kind for item in result.synthesis.source_refs}
+    assert "visual_evidence_ledger" in result.synthesis.lineage_summary.review_artifact_kinds
+    assert any("visual evidence ledger contains unknown" in warning for warning in result.synthesis.warnings)
+    assert any("Visual evidence replay summary" in note for note in result.synthesis.uncertainty_notes)
+    assert "## Visual evidence replay" in result.markdown
+    assert "status=`unknown`" in result.markdown
+    assert "Failure reason: caption_only" in result.markdown
+    assert "Do not infer visual measurements" in result.markdown
 
 
 def test_build_paper_synthesis_for_slug_warns_when_state_and_run_diverge(tmp_path):
