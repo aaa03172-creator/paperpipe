@@ -20,6 +20,8 @@ This runbook does not define lease expiry or automatic reclaim.
 
 The current runtime now records a best-effort local `heartbeat_at` for `running` jobs, but reclaim is still diagnostics-first and operator-triggered.
 
+For the broader worker restart residual-risk checklist, see `docs/PIPELINE_RESIDUAL_RISK_RUNBOOK.md`.
+
 ## Current Runtime Semantics
 
 As of 2026-04-23, the runtime exposes these bounded operator signals:
