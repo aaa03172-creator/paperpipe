@@ -460,3 +460,36 @@ Reviewer: Codex
 1. batch producer와 watcher local producer 외의 producer/artifact level source가 준비되면 `issues_state`를 추가 승격할지 검토하기
 2. 실제 note volume과 사용 패턴을 본 뒤에만 list density preset을 검토하기
 3. `issues_label`만으로 설명이 부족한 시점에만 `review_flags[]` 같은 구조화 계약 필요성을 검토하기
+
+## 8.1) Paper Detail Evidence Anchor Meter Checkpoint (2026-05-14)
+- Screen/Flow: `/papers/:slug` structured claim cards
+- Goal action: 사용자가 claim별 saved evidence anchor 상태를 한눈에 보되, 이를 새 readiness score나 approval state로 오해하지 않는다.
+- Primary persona: saved paper note detail에서 claim/evidence grounding 상태를 빠르게 훑는 연구 운영자
+- Current friction:
+  - claim card에는 evidence 목록과 개별 grounding badge가 있지만, claim 단위로 몇 개가 grounded, needs review, unresolved, not recorded인지 바로 보이지 않는다.
+  - 오래된 saved state에는 grounding metadata가 없을 수 있어, 아무 표시가 없으면 “문제 없음”처럼 읽힐 위험이 있다.
+- Quick decision:
+  - API, schema, persisted state, readiness score는 추가하지 않는다.
+  - 이미 로드된 `claim.evidence[*].grounded`와 `resolution`만 display-only로 집계한다.
+  - metadata가 없으면 숨기지 않고 `not recorded`로 표시한다.
+- Quick Review:
+  - 선택지는 늘리지 않는다.
+  - claim card 안에서만 작은 meter로 표시한다.
+  - evidence metadata 부재를 성공 상태처럼 보이게 하지 않는다.
+  - user action이나 export path는 추가하지 않는다.
+- Full Review:
+  - P0: meter가 새로운 truth score처럼 보이면 biomedical certainty를 과장할 수 있다. 그래서 label은 `Evidence anchors`로 제한하고 approval language를 쓰지 않는다.
+  - P1: not-recorded state를 숨기지 않아 legacy fixtures와 partial saved states를 정직하게 드러낸다.
+  - P2: broad coverage gauge나 rail dashboard로 확장하지 않는다.
+- Full Review Coverage:
+  - 6P storyboard context: Problem은 claim evidence 상태가 item-level badge에 흩어져 claim-level scan이 어렵다는 점이다. Emotion은 “이 claim은 믿어도 되나?”라는 불확실성이다. Action은 claim card를 열고 evidence anchors meter를 읽는 것이다. Struggle은 missing metadata가 아무 표시 없이 사라지는 순간이다. Attempt는 grounded/review/unresolved/not recorded를 작은 meter로 요약하는 것이다. Happy Ending은 사용자가 claim별 evidence 상태를 빠르게 보되, 아직 검토가 필요한 상태를 놓치지 않는 것이다.
+  - BMAP: Motivation은 높다. Ability는 작은 meter로 scan 비용을 낮춘다. Prompt는 claim text 바로 아래에 위치해 detail evidence list를 읽기 전 상태를 알려준다.
+  - B.I.A.S: Block은 evidence 상태가 긴 목록에 묻히는 것이다. Interpret는 `not recorded`를 명시해 부재를 성공으로 해석하지 않게 한다. Act는 deep link와 evidence detail을 그대로 유지한다. Store는 Paper Detail이 certainty를 과장하지 않는다는 기억을 남긴다.
+  - Peak-End: Peak는 claim마다 evidence 상태가 즉시 읽히는 순간이다. Pit는 polished claim card가 unresolved evidence를 감추는 순간이다. Transition은 claim summary -> evidence meter -> evidence list다. End는 downstream reuse 전에 grounding 상태를 기억한 채 이동하는 것이다.
+  - Ethics: Regret 통과. 사용자가 나중에 metadata 부재를 숨겼다고 느낄 위험을 줄인다. Black Mirror 통과. meter는 certainty amplification이 아니라 uncertainty visibility다. In Real-Life 통과. 좋은 연구 동료라면 “근거가 저장됐지만 일부는 검토 필요/미기록”이라고 먼저 말해준다.
+- Concrete change:
+  - Add a compact per-claim `Evidence anchors` meter.
+  - Segment states: grounded, needs review, unresolved, not recorded.
+  - Boundary: display-only summary of already-loaded saved state; no new canonical state, API field, or approval score.
+- Verification:
+  - `cd frontend && npm run build`
