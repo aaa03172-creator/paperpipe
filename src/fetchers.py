@@ -1,8 +1,10 @@
+import feedparser
 import requests
+import urllib.parse
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.schemas import Paper
@@ -16,6 +18,48 @@ RETRY_CONFIG = {
     "wait": wait_exponential(multiplier=1, min=2, max=10),
     "retry": retry_if_exception_type((requests.RequestException, ConnectionError, TimeoutError))
 }
+
+@retry(**RETRY_CONFIG)
+def fetch_arxiv(keywords: List[str], max_results: int = 5) -> List[Paper]:
+    """ArXiv에서 키워드로 논문 검색 (Retry 적용)"""
+    papers = []
+    # 검색어 조합 (OR 로직)
+    query = " OR ".join([f'all:"{k}"' for k in keywords])
+    encoded_query = urllib.parse.quote(query)
+    
+    url = f"http://export.arxiv.org/api/query?search_query={encoded_query}&start=0&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
+    
+    logger.debug(f"Fetching ArXiv: {url}")
+    feed = feedparser.parse(url)
+    
+    if hasattr(feed, 'bozo') and feed.bozo:
+        logger.warning(f"ArXiv feed parse error: {feed.bozo_exception}")
+
+    for entry in feed.entries:
+        try:
+            # 날짜 필터링 (최근 7일 이내만)
+            published = datetime(*entry.published_parsed[:6])
+            if datetime.now() - published > timedelta(days=7):
+                continue
+            
+            arxiv_id = entry.link.split("/abs/")[-1]
+            pdf_link = entry.link.replace("/abs/", "/pdf/")
+
+            papers.append(Paper(
+                id=arxiv_id,
+                title=entry.title.replace("\n", " "),
+                authors=[a.name for a in entry.authors],
+                link=entry.link,
+                published=published.strftime("%Y-%m-%d"),
+                source="ArXiv",
+                summary=entry.summary,
+                pdf_link=pdf_link
+            ))
+        except Exception as e:
+            logger.error(f"Error parsing ArXiv entry: {e}")
+            continue
+    
+    return papers
 
 def _parse_pubmed_article_date(article_data) -> str:
     """PubMed 날짜 파싱 헬퍼"""
