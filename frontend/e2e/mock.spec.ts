@@ -487,6 +487,7 @@ test("mirror grounding badges surface resolved and review-needed evidence states
   await expect(mirrorPanel).toBeVisible();
 
   await expect(mirrorPanel.getByTestId("workbench-mirror-claim-grounding-claim-1")).toContainText("Grounded");
+  await expect(mirrorPanel.getByTestId("workbench-mirror-claim-grounding-claim-2")).toContainText("Not recorded");
   await expect(mirrorPanel.getByTestId("workbench-mirror-stat-grounding-mock-check-2")).toContainText("Needs review");
 });
 
