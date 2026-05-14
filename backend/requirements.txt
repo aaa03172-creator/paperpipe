@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+python-multipart
+# Existing dependencies will be in the main requirements, but these are specific to backend

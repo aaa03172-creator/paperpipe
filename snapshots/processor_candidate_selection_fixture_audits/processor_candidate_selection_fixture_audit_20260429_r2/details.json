@@ -1,0 +1,210 @@
+{
+  "schema_version": "processor_candidate_selection_fixture_audit_details.v1",
+  "run_id": "processor_candidate_selection_fixture_audit_20260429_r2",
+  "pools": [
+    {
+      "pool_id": "clinical_pubmed_metadata_beats_preprint_freshness",
+      "slot": "clinical",
+      "expected_top1": "pmid:clinical-guideline",
+      "observed_top1": "pmid:clinical-guideline",
+      "matches_expected": true,
+      "rationale": "Clinical slots should stay conservative when a PubMed candidate has DOI/PDF support even if an arXiv candidate is fresher.",
+      "candidate_count": 3,
+      "top_candidates": [
+        {
+          "rank": 1,
+          "paper_id": "pmid:clinical-guideline",
+          "title": "Clinical guideline with stable metadata",
+          "source": "PubMed",
+          "published": "2026-03-20",
+          "score_breakdown": {
+            "base_score": 0.0,
+            "source_bonus": 0.25,
+            "metadata_bonus": 0.25,
+            "metadata_components": {
+              "doi_bonus": 0.08,
+              "pdf_bonus": 0.07,
+              "recency_bonus": 0.1,
+              "total": 0.25
+            },
+            "final_score": 0.5
+          }
+        },
+        {
+          "rank": 2,
+          "paper_id": "pmid:clinical-old-no-pdf",
+          "title": "Older clinical cohort without PDF",
+          "source": "PubMed",
+          "published": "2025-12-01",
+          "score_breakdown": {
+            "base_score": 0.0,
+            "source_bonus": 0.25,
+            "metadata_bonus": 0.13,
+            "metadata_components": {
+              "doi_bonus": 0.08,
+              "pdf_bonus": 0.0,
+              "recency_bonus": 0.05,
+              "total": 0.13
+            },
+            "final_score": 0.38
+          }
+        },
+        {
+          "rank": 3,
+          "paper_id": "arxiv:clinical-fresh-screening-model",
+          "title": "Fresh screening model preprint",
+          "source": "ArXiv",
+          "published": "2026-04-25",
+          "score_breakdown": {
+            "base_score": 0.0,
+            "source_bonus": 0.04,
+            "metadata_bonus": 0.22,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.07,
+              "recency_bonus": 0.15,
+              "total": 0.22
+            },
+            "final_score": 0.26
+          }
+        }
+      ]
+    },
+    {
+      "pool_id": "methods_recent_preprint_beats_weak_pubmed",
+      "slot": "methods",
+      "expected_top1": "arxiv:methods-benchmark-preprint",
+      "observed_top1": "arxiv:methods-benchmark-preprint",
+      "matches_expected": true,
+      "rationale": "Methods slots should be able to surface a fresh preprint when the PubMed candidate lacks DOI/PDF and recency support.",
+      "candidate_count": 3,
+      "top_candidates": [
+        {
+          "rank": 1,
+          "paper_id": "arxiv:methods-benchmark-preprint",
+          "title": "Fresh benchmark preprint with PDF",
+          "source": "ArXiv",
+          "published": "2026-04-25",
+          "score_breakdown": {
+            "base_score": -0.0,
+            "source_bonus": 0.08,
+            "metadata_bonus": 0.22,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.07,
+              "recency_bonus": 0.15,
+              "total": 0.22
+            },
+            "final_score": 0.3
+          }
+        },
+        {
+          "rank": 2,
+          "paper_id": "pmid:methods-mid-review",
+          "title": "Mid-recency methods review",
+          "source": "PubMed",
+          "published": "2026-02-01",
+          "score_breakdown": {
+            "base_score": 0.0,
+            "source_bonus": 0.18,
+            "metadata_bonus": 0.05,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.0,
+              "recency_bonus": 0.05,
+              "total": 0.05
+            },
+            "final_score": 0.23
+          }
+        },
+        {
+          "rank": 3,
+          "paper_id": "pmid:methods-old-workflow",
+          "title": "Older methods workflow with sparse metadata",
+          "source": "PubMed",
+          "published": "2025-01-01",
+          "score_breakdown": {
+            "base_score": 0.0,
+            "source_bonus": 0.18,
+            "metadata_bonus": 0.0,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.0,
+              "recency_bonus": 0.0,
+              "total": 0.0
+            },
+            "final_score": 0.18
+          }
+        }
+      ]
+    },
+    {
+      "pool_id": "mechanism_manual_signal_beats_fresh_preprint",
+      "slot": "mechanism",
+      "expected_top1": "pmid:mechanism-manual-signal",
+      "observed_top1": "pmid:mechanism-manual-signal",
+      "matches_expected": true,
+      "rationale": "Mechanism slots should preserve a strong upstream/manual ranking signal over pure freshness.",
+      "candidate_count": 3,
+      "top_candidates": [
+        {
+          "rank": 1,
+          "paper_id": "pmid:mechanism-manual-signal",
+          "title": "Mechanistic study with upstream priority",
+          "source": "PubMed",
+          "published": "2025-01-01",
+          "score_breakdown": {
+            "base_score": 0.45,
+            "source_bonus": 0.18,
+            "metadata_bonus": 0.0,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.0,
+              "recency_bonus": 0.0,
+              "total": 0.0
+            },
+            "final_score": 0.63
+          }
+        },
+        {
+          "rank": 2,
+          "paper_id": "pmid:mechanism-recent-with-doi",
+          "title": "Recent mechanism study with DOI",
+          "source": "PubMed",
+          "published": "2026-04-20",
+          "score_breakdown": {
+            "base_score": -0.0,
+            "source_bonus": 0.18,
+            "metadata_bonus": 0.23,
+            "metadata_components": {
+              "doi_bonus": 0.08,
+              "pdf_bonus": 0.0,
+              "recency_bonus": 0.15,
+              "total": 0.23
+            },
+            "final_score": 0.41
+          }
+        },
+        {
+          "rank": 3,
+          "paper_id": "arxiv:mechanism-fresh-atlas",
+          "title": "Fresh mechanism atlas preprint",
+          "source": "ArXiv",
+          "published": "2026-04-25",
+          "score_breakdown": {
+            "base_score": -0.0,
+            "source_bonus": 0.08,
+            "metadata_bonus": 0.22,
+            "metadata_components": {
+              "doi_bonus": 0.0,
+              "pdf_bonus": 0.07,
+              "recency_bonus": 0.15,
+              "total": 0.22
+            },
+            "final_score": 0.3
+          }
+        }
+      ]
+    }
+  ]
+}

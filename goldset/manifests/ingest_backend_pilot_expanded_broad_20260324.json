@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-03-24",
+  "notes": "Second expanded bounded parser eval manifest for ingest backend comparison. Non-empty local PDFs only; complements the first 18-document set with older small guidance papers, modern AD recommendations, microbiome reviews, non-AD neuroscience/ML papers, and a larger biomaterials review to probe broader fallback and section-quality behavior.",
+  "documents": [
+    {
+      "document_id": "ingest-broad-001",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/chiaravallotiCognitiveImpairmentMultiple.pdf",
+      "notes": "Older multiple-sclerosis cognitive impairment review with compact PDF structure."
+    },
+    {
+      "document_id": "ingest-broad-002",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/coricTargetingProdromalAlzheimer2015.pdf",
+      "notes": "Mid-2010s prodromal Alzheimer paper to widen pre-blood-biomarker era coverage."
+    },
+    {
+      "document_id": "ingest-broad-003",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/decarliMildCognitiveImpairment2003.pdf",
+      "notes": "Very early mild cognitive impairment review with older PDF export characteristics."
+    },
+    {
+      "document_id": "ingest-broad-004",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/duboisAlzheimerDiseaseClinicalBiological2024.pdf",
+      "notes": "Recent Alzheimer clinical-biological framing paper with modern recommendation-style layout."
+    },
+    {
+      "document_id": "ingest-broad-005",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/duboisAmnesticMCIProdromal2004.pdf",
+      "notes": "Short early prodromal AD paper for small-document edge cases."
+    },
+    {
+      "document_id": "ingest-broad-006",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonAlzheimersAssociationAppropriate2022.pdf",
+      "notes": "Appropriate use recommendations with guideline-like recommendation tables and boxes."
+    },
+    {
+      "document_id": "ingest-broad-007",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/kowalskiBrainGutMicrobiotaAxisAlzheimers2019.pdf",
+      "notes": "Gut-brain review for microbiome-specific figure and review layout coverage."
+    },
+    {
+      "document_id": "ingest-broad-008",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/liuGutMicrobiotaDysbiosis2020.pdf",
+      "notes": "Review-oriented microbiota paper with broader figure-heavy page patterns."
+    },
+    {
+      "document_id": "ingest-broad-009",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/martenssonReliabilityDeepLearning2020.pdf",
+      "notes": "Machine-learning reliability paper with dense figure and chart content outside the AD biomarker lane."
+    },
+    {
+      "document_id": "ingest-broad-010",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/mashourConsciousProcessingGlobal2020.pdf",
+      "notes": "Longer general neuroscience review for non-AD text and sectioning diversity."
+    },
+    {
+      "document_id": "ingest-broad-011",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/oddoAdvancesMicrofluidicBlood2019.pdf",
+      "notes": "Microfluidic blood-brain-barrier review likely to stress figure-heavy and table-heavy pages."
+    },
+    {
+      "document_id": "ingest-broad-012",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/fentonAdvancesBiomaterialsDrug2018.pdf",
+      "notes": "Longer biomaterials drug-delivery review for broader page-count and layout complexity."
+    }
+  ]
+}

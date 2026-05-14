@@ -1,0 +1,35 @@
+{
+  "paper_id": "zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023",
+  "citation": {
+    "title": "Prediction of Longitudinal Cognitive Decline in Preclinical Alzheimer Disease Using Plasma Biomarkers",
+    "authors_first": "Mattsson-Carlgren",
+    "year": 2023,
+    "journal_or_server": "JAMA Neurology"
+  },
+  "study_design": {
+    "design": "observational",
+    "control_type": "none",
+    "duration_weeks": 312
+  },
+  "population": {
+    "mci_only": false,
+    "n_total": 171
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "Longitudinal cognitive decline"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false,
+    "reason_if_excluded": "Prospective plasma biomarker prognostic cohort in cognitively unimpaired preclinical Alzheimer's disease rather than an intervention cohort."
+  },
+  "extraction_quality": {
+    "confidence": "high",
+    "missing_fields": [
+      "intervention"
+    ]
+  }
+}

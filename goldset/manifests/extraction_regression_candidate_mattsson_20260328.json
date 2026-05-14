@@ -1,0 +1,17 @@
+{
+  "schema_version": "extraction_regression_manifest.v1",
+  "created_at": "2026-03-28T00:30:00+09:00",
+  "notes": [
+    "One-document bounded extraction candidate probe for a longitudinal prognostic plasma biomarker cohort paper.",
+    "Gold fixture is a manually curated SpecialtyTrialExtraction snapshot grounded in local document_artifact text."
+  ],
+  "documents": [
+    {
+      "paper_id": "zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023",
+      "gold_path": "../extraction_regression/repo_grounded_prognostic_20260328/gold/zotero_mattsson-carlgrenPredictionLongitudinalCognitive2023.json",
+      "gold_source_paths": [
+        "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023/run_20260223_142907/document_artifact.json"
+      ]
+    }
+  ]
+}

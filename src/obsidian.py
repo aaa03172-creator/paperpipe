@@ -1,14 +1,41 @@
 import csv
+from io import StringIO
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
 import logging
 
-# [수정] 스키마 모듈에서 TrialExtraction 임포트
-# [수정] 스키마 모듈에서 TrialExtraction, PaperStatus 임포트
-from src.schemas import TrialExtraction, PaperStatus
+from src.schemas import BiomedicalClinicalExtraction, SpecialtyTrialExtraction, PaperStatus
+from src.skills.storage import atomic_write_text, resolve_vault_relative_path
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_csv_rows(path: Path, headers: list[str], rows: list[dict[str, Any]]) -> None:
+    buffer = StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=headers, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    atomic_write_text(path, buffer.getvalue())
+
+def _get_escalation_metadata_lines(paper: Dict[str, Any]) -> str:
+    lines = []
+    final_route = str(paper.get("escalation_final_route") or "").strip()
+    if final_route:
+        lines.append(f"> **Final Route**: {final_route}")
+
+    in_scope = paper.get("escalation_in_biomedical_scope")
+    if isinstance(in_scope, bool):
+        scope_label = "In biomedical scope" if in_scope else "Out of biomedical scope"
+        lines.append(f"> **Biomedical Scope**: {scope_label}")
+
+    raw_codes = paper.get("escalation_reason_codes")
+    if isinstance(raw_codes, list):
+        codes = [str(code).strip() for code in raw_codes if str(code).strip()]
+        if codes:
+            lines.append(f"> **Reason Codes**: {', '.join(codes)}")
+
+    return "\n".join(lines)
 
 def _get_status_callout(paper: Dict[str, Any]) -> str:
     """Action Gates 상태에 따른 Callout 생성"""
@@ -17,23 +44,29 @@ def _get_status_callout(paper: Dict[str, Any]) -> str:
         return f"\n> [!danger] ☠️ RETRACTED PAPER\n> **Details**: {paper.get('retraction_details', 'No details provided.')}\n"
     
     status_str = paper.get('processing_status')
+    escalation_meta = _get_escalation_metadata_lines(paper)
     
     if status_str == PaperStatus.QUARANTINED:
         return "\n> [!danger] Low Confidence - Quarantined\n> This paper has been flagged for low confidence and isolated.\n"
     elif status_str == PaperStatus.PENDING_REVIEW:
-        return "\n> [!warning] Requires Human Review\n> Confidence score is in the intermediate range.\n"
-    elif status_str == PaperStatus.AUTO_APPROVED:
+        body = "\n> [!warning] Requires Human Review\n> Confidence score is in the intermediate range."
+        if escalation_meta:
+            body += "\n" + escalation_meta
+        return body + "\n"
+    elif status_str == PaperStatus.APPROVED:
         # [NEW] Escalation indicator
         if paper.get('is_escalated'):
-            reason = paper.get('escalation_reason', 'Judge Approved')
-            return f"\n> [!success] Auto-Approved (Escalated)\n> **Judge Decision**: {reason}\n"
+            reason = paper.get('escalation_reason', 'Escalation Judge Approved')
+            body = f"\n> [!success] Fast-Lane Approved (Escalation Judge)\n> **Judge Decision**: {reason}"
+            if escalation_meta:
+                body += "\n" + escalation_meta
+            return body + "\n"
         return ""
     return ""
 
 def get_template_study(paper: Dict[str, Any]) -> str:
     """기전/방법론 연구용 노트 템플릿"""
-    tags_str = " ".join(paper.get('tags', []))
-    
+    status_callout = _get_status_callout(paper)
     one_liner_section = ""
     if paper.get('ai_one_liner'):
         one_liner_section = f"## 🧠 One-Liner\n> {paper['ai_one_liner']}\n"
@@ -57,10 +90,25 @@ def get_template_study(paper: Dict[str, Any]) -> str:
 > **Evidence**: "{hybrid_tags.get('evidence_span', "N/A")}"
 '''
 
+    # [NEW] Context-Aware Analysis
+    relevance_block = ""
+    relevance = paper.get('relevance_analysis')
+    if relevance:
+        relevance_block = f'''
+## 🧠 Context-Aware Analysis
+> **Gap**: {relevance.get('gap', 'N/A')}
+> **Insight**: {relevance.get('insight', 'N/A')}
+> **Limitation**: {relevance.get('limitation', 'N/A')}
+'''
+    # Tags as YAML list
+    tags_list = str(paper.get('tags', [])).replace("'", '"') # Simple list conversion
+    
     return f"""---
 type: paper
-tags: {tags_str}
-status: To Read
+aliases: ["{paper['title']}"]
+tags: {tags_list}
+cssclasses: ["paper-note"]
+status: {paper.get('reading_status', 'Inbox')}
 created: {datetime.now().strftime('%Y-%m-%d')}
 source: {paper['source']}
 url: {paper['link']}
@@ -69,18 +117,61 @@ slot: {paper['slot']}
 
 # {paper['title']}
 
+{status_callout}
 {one_liner_section}
 {evidence_block}
+{relevance_block}
 {ai_summary_section}
 
 ## 📝 Notes
 - 
 """
 
-def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtraction] = None) -> str:
-    """[수정] 임상 연구용 템플릿 (추출 데이터 반영)"""
-    tags_str = " ".join(paper.get('tags', []))
-    status = "Extracted" if extraction else "Extraction Needed"
+def _biomedical_clinical_summary_block(extraction: BiomedicalClinicalExtraction) -> str:
+    population_parts = []
+    if extraction.population.condition:
+        population_parts.append(extraction.population.condition)
+    if extraction.population.cohort_description:
+        population_parts.append(extraction.population.cohort_description)
+    if extraction.population.n_total > 0:
+        population_parts.append(f"n={extraction.population.n_total}")
+    population_str = ", ".join(population_parts) or "Not detailed"
+
+    intervention_parts = []
+    if extraction.intervention.name:
+        intervention_parts.append(extraction.intervention.name)
+    if extraction.intervention.category != "unknown":
+        intervention_parts.append(extraction.intervention.category.replace("_", " ").title())
+    if extraction.intervention.dose:
+        intervention_parts.append(extraction.intervention.dose)
+    intervention_str = ", ".join(intervention_parts) or "Not detailed"
+
+    primary_outcomes = ", ".join(endpoint.name for endpoint in extraction.outcomes.primary[:3]) or "Not detailed"
+    safety_str = "Reported" if extraction.safety_adherence.adverse_events_reported or extraction.outcomes.safety else "Not detailed"
+    followup_tag = extraction.eligibility_flags.followup_tag.replace("_", " ").title()
+
+    return f"""
+> [!summary] Clinical Snapshot
+> **Condition / Population**: {population_str}
+> **Intervention**: {intervention_str}
+> **Primary Outcomes**: {primary_outcomes}
+> **Safety**: {safety_str}
+> **Follow-Up Tag**: {followup_tag}
+"""
+
+
+def get_template_trial(
+    paper: Dict[str, Any],
+    extraction: Optional[SpecialtyTrialExtraction | BiomedicalClinicalExtraction] = None,
+) -> str:
+    """Clinical note template with default biomedical wording and optional specialty extraction overlays."""
+    status_callout = _get_status_callout(paper)
+    # Tags as YAML list
+    tags_list = str(paper.get('tags', [])).replace("'", '"')
+    
+    # status = "Extracted" if extraction else "Extraction Needed" 
+    # [UPDATED] Use ReadingStatus (Ticket 8)
+    status = paper.get('reading_status', 'Inbox')
     
     # One-Liner 섹션 생성
     one_liner_section = ""
@@ -103,26 +194,70 @@ def get_template_trial(paper: Dict[str, Any], extraction: Optional[TrialExtracti
 '''
 
     # 추출 데이터가 있으면 요약 블록을, 없으면 기본 메시지를 사용
-    if extraction:
-        # Schema에 정의된 메서드 사용
+    if isinstance(extraction, SpecialtyTrialExtraction):
+        scope_block = f"""
+> [!info] Specialty Extraction Lane
+> {SpecialtyTrialExtraction.specialty_scope_note()}
+"""
         summary_block = extraction.to_summary_block()
         data_block = "## 📊 Extracted Data (JSON)\n```json\n" + extraction.model_dump_json(indent=2) + "\n```\n"
+    elif isinstance(extraction, BiomedicalClinicalExtraction):
+        scope_block = f"""
+> [!info] Clinical Workspace Lane
+> {BiomedicalClinicalExtraction.default_scope_note()}
+"""
+        summary_block = _biomedical_clinical_summary_block(extraction)
+        data_block = "## 📊 Extracted Data (JSON)\n```json\n" + extraction.model_dump_json(indent=2) + "\n```\n"
     else:
-        # 추출 실패 시 ai_summary(에러 메시지 등)를 보여줌
+        scope_block = f"""
+> [!info] Clinical Workspace Lane
+> {BiomedicalClinicalExtraction.default_scope_note()}
+"""
         # [Fix] ai_mode가 one-liner인 경우 중복 방지
         fail_content = paper.get('ai_summary', 'No data available.')
         if paper.get('ai_mode') == 'one-liner':
             fail_content = "See One-Liner above."
-        summary_block = f"> [!warning] Extraction Failed\n> {fail_content}"
+        summary_block = f"> [!info] Clinical Extraction Pending\n> {fail_content}"
         data_block = """## 📊 Data Extraction
-| Metric | Result | p-value |
-|--------|--------|---------|
-|        |        |         |
+| Field | Result |
+|-------|--------|
+| Condition / Population |  |
+| Intervention |  |
+| Primary Outcome |  |
+"""
+
+    # [NEW] Context-Aware Analysis
+    relevance_block = ""
+    relevance = paper.get('relevance_analysis')
+    if relevance:
+        relevance_block = f'''
+## 🧠 Context-Aware Analysis
+> **Gap**: {relevance.get('gap', 'N/A')}
+> **Insight**: {relevance.get('insight', 'N/A')}
+> **Limitation**: {relevance.get('limitation', 'N/A')}
+'''
+
+    # [NEW] Optional Institutional Proxy Link
+    pdf_access_block = ""
+    if not paper.get('local_pdf_path'):
+        from src.institutional_access import extract_institutional_proxy_link
+        proxy_url = extract_institutional_proxy_link(paper.get('feedback_json'))
+        if proxy_url:
+            pdf_access_block = f"""
+> [!info] 🪪 Institutional Access Available
+> PDF was not auto-downloaded. [Download via KNU Libproxy]({proxy_url})
+"""
+        elif str(paper.get("pdf_status") or "").strip().lower() == "missing":
+            pdf_access_block = """
+> [!warning] PDF Unavailable
+> PDF is currently unavailable and no institutional access link is stored for this paper yet.
 """
 
     return f"""---
-type: clinical_trial
-tags: {tags_str}
+type: clinical_paper
+aliases: ["{paper['title']}"]
+tags: {tags_list}
+cssclasses: ["clinical-note"]
 status: {status}
 created: {datetime.now().strftime('%Y-%m-%d')}
 url: {paper['link']}
@@ -131,12 +266,15 @@ doi: {paper['doi']}
 ---
 
 # {paper['title']}
-
+{pdf_access_block}
+{status_callout}
 {one_liner_section}
-## 🏥 Trial Quick Look
+## 🏥 Clinical Quick Look
+{scope_block}
 {summary_block}
 
 {evidence_block}
+{relevance_block}
 
 {data_block}
 
@@ -186,7 +324,161 @@ def _extract_intervention_string(td: Dict[str, Any]) -> str:
             intervention_str = "Not detailed"
     return intervention_str
 
-def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool = False):
+
+def _extract_biomedical_population_string(extraction: BiomedicalClinicalExtraction) -> str:
+    population = extraction.population
+    parts = []
+    if population.condition:
+        parts.append(population.condition)
+    if population.cohort_description:
+        parts.append(population.cohort_description)
+    if population.n_total > 0:
+        parts.append(f"n={population.n_total}")
+    return ", ".join(parts) or "Not detailed"
+
+
+def _extract_biomedical_intervention_string(extraction: BiomedicalClinicalExtraction) -> str:
+    intervention = extraction.intervention
+    parts = []
+    if intervention.name:
+        parts.append(intervention.name)
+    if intervention.category != "unknown":
+        parts.append(intervention.category.replace("_", " ").title())
+    if intervention.dose:
+        parts.append(intervention.dose)
+    elif intervention.schedule:
+        parts.append(intervention.schedule)
+    if intervention.duration_weeks > 0:
+        parts.append(f"{intervention.duration_weeks} weeks")
+    return ", ".join(parts) or "Not detailed"
+
+
+def _coerce_biomedical_clinical_extraction(
+    paper: Dict[str, Any],
+    extraction: Optional[SpecialtyTrialExtraction | BiomedicalClinicalExtraction] = None,
+) -> Optional[BiomedicalClinicalExtraction]:
+    if isinstance(extraction, BiomedicalClinicalExtraction):
+        return extraction
+
+    payload = paper.get("clinical_data")
+    if isinstance(payload, BiomedicalClinicalExtraction):
+        return payload
+    if isinstance(payload, dict):
+        try:
+            return BiomedicalClinicalExtraction.model_validate(payload)
+        except Exception as exc:
+            logger.warning("Failed to parse clinical_data for CSV export: %s", exc)
+    return None
+
+
+def _build_clinical_index_fields(
+    paper: Dict[str, Any],
+    extraction: Optional[SpecialtyTrialExtraction | BiomedicalClinicalExtraction] = None,
+) -> Dict[str, str]:
+    fields = {
+        "Population": "",
+        "Intervention": "",
+        "Outcome_Cognition": "",
+        "Outcome_ADL": "",
+        "Condition": "",
+        "Primary_Outcome": "",
+        "Safety": "",
+        "Followup_Tag": "",
+    }
+
+    specialty_payload = None
+    if isinstance(extraction, SpecialtyTrialExtraction):
+        specialty_payload = extraction.model_dump(mode="json")
+    elif paper.get("trial_data"):
+        specialty_payload = paper["trial_data"]
+
+    if isinstance(specialty_payload, dict):
+        population = specialty_payload.get("population", {})
+        population_label = "MCI-only" if population.get("mci_only") else "Mixed"
+        if not population.get("mci_only"):
+            notes = population.get("comorbidity_notes")
+            if notes:
+                population_label += f" ({notes})"
+
+        fields["Population"] = population_label
+        fields["Intervention"] = _extract_intervention_string(specialty_payload)
+        fields["Outcome_Cognition"] = "Reported" if specialty_payload.get("outcomes", {}).get("cognition") else ""
+        fields["Outcome_ADL"] = "Yes" if specialty_payload.get("outcomes", {}).get("adl_function") else "No"
+        return fields
+
+    generic_payload = _coerce_biomedical_clinical_extraction(paper, extraction)
+    if generic_payload is None:
+        return fields
+
+    primary_outcomes = [endpoint.name for endpoint in generic_payload.outcomes.primary if endpoint.name]
+    safety_outcomes = [endpoint.name for endpoint in generic_payload.outcomes.safety if endpoint.name]
+    safety_summary = ""
+    if generic_payload.safety_adherence.adverse_events_reported:
+        safety_summary = generic_payload.safety_adherence.adverse_events_summary or "Adverse events reported"
+    elif safety_outcomes:
+        safety_summary = "; ".join(safety_outcomes[:3])
+
+    fields["Population"] = _extract_biomedical_population_string(generic_payload)
+    fields["Intervention"] = _extract_biomedical_intervention_string(generic_payload)
+    fields["Condition"] = generic_payload.population.condition or ""
+    fields["Primary_Outcome"] = "; ".join(primary_outcomes[:3])
+    fields["Safety"] = safety_summary
+    followup_tag = generic_payload.eligibility_flags.followup_tag
+    if followup_tag != "unknown":
+        fields["Followup_Tag"] = followup_tag.replace("_", " ").title()
+    return fields
+
+def find_related_papers(current_paper: Dict[str, Any], config) -> str:
+    """
+    [NEW] Smart Linking: Find related papers from the CSV index based on shared tags.
+    Returns a markdown list of links.
+    """
+    index_path = config.paths.obsidian_vault / config.paths.index_all
+    if not index_path.exists():
+        return ""
+        
+    related_links = []
+    current_tags = set(current_paper.get('tags', []))
+    current_id = current_paper.get('doi') or current_paper.get('link')
+    
+    try:
+        with open(index_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Skip self
+                if row.get('Paper_ID') == current_id:
+                    continue
+                
+                # Check Overlap
+                row_tags = set(row.get('Tags', '').split(';'))
+                overlap = current_tags.intersection(row_tags)
+                
+                # Similarity Logic: At least 2 shared tags or Same Slot + 1 Tag
+                if len(overlap) >= 2 or (row.get('Slot') == current_paper.get('slot') and len(overlap) >= 1):
+                    # Link Format: [[Filename]]
+                    # We need the filename. CSV has Note_Path (Inbox/Date/Filename)
+                    note_path = row.get('Note_Path', '')
+                    if note_path:
+                        filename = Path(note_path).name.replace('.md', '')
+                        link = f"- [[{filename}]] (Shared: {', '.join(list(overlap)[:3])})"
+                        related_links.append(link)
+                        
+        if related_links:
+            # Limit to top 5
+            return "\n## 🔗 Related Papers\n" + "\n".join(related_links[:5]) + "\n"
+            
+    except Exception as e:
+        logger.warning(f"Failed to find related papers: {e}")
+        
+    return ""
+
+def update_csv_index(
+    paper: Dict[str, Any],
+    file_path: Path,
+    is_clinical: bool = False,
+    relative_note_path: str = None,
+    extraction: Optional[SpecialtyTrialExtraction | BiomedicalClinicalExtraction] = None,
+):
     """
     [Fix] DOI 기준이 아니라 'Date + Slot' 기준으로 중복 방지 (Upsert)
     -> 같은 날짜, 같은 슬롯에는 무조건 1개의 행만 유지됩니다.
@@ -194,21 +486,41 @@ def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool =
     # 1. 원하는 컬럼 정의 (사용자 요청 반영)
     headers = [
         'Date', 'Slot', 'Paper_ID', 'Title', 'DOI', 
-        'Source', 'URL', 'Score', 'Status', 'Note_Path'
+        'Source', 'URL', 'Score', 'Status', 'Note_Path',
+        'Tags', 'Authors' # [NEW] Added for Smart Linking
     ]
     
     # [추가] 임상시험 전용 컬럼
     if is_clinical:
-        headers.extend(['Population', 'Intervention', 'Outcome_Cognition', 'Outcome_ADL'])
+        headers.extend(
+            [
+                'Population',
+                'Intervention',
+                'Outcome_Cognition',
+                'Outcome_ADL',
+                'Condition',
+                'Primary_Outcome',
+                'Safety',
+                'Followup_Tag',
+            ]
+        )
     
     rows = []
     updated = False
     today = datetime.now().strftime('%Y-%m-%d')
-    paper_id = paper.get('doi') or paper.get('link') # DOI 없으면 링크를 ID로
+    paper_id = paper.get('doi') or paper.get('link') or "unknown_id"
     
-    # Safe title for Note_Path (consistency with save_paper_to_obsidian)
-    safe_title = "".join(c for c in paper.get('title', '')[:50] if c.isalnum() or c in (' ', '-', '_')).strip()
-    note_path = f"Inbox/{today}/{paper.get('slot', 'Paper')}_{safe_title}.md"
+    # [NEW] Note Path Logic
+    if relative_note_path:
+        note_path = relative_note_path
+    else:
+        # Fallback (Legacy)
+        safe_title = "".join(c for c in paper.get('title', '')[:50] if c.isalnum() or c in (' ', '-', '_')).strip()
+        note_path = f"Inbox/{today}/{paper.get('slot', 'Paper')}_{safe_title}.md"
+    
+    # Prepare common fields
+    tags_val = ";".join(paper.get('tags', []))
+    authors_val = ";".join(paper.get('authors', []))
     
     # 2. 기존 파일 읽기 (있다면)
     if file_path.exists():
@@ -232,25 +544,15 @@ def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool =
                     row['URL'] = paper.get('link', '')
                     row['Note_Path'] = note_path
                     row['Score'] = "Top1" # 현재 로직상 Top1임
+                    row['Tags'] = tags_val     # [NEW]
+                    row['Authors'] = authors_val # [NEW]
                     
                     # 임상 데이터 업데이트
                     if is_clinical:
-                        # 임상 데이터 추출 (있을 경우)
-                        if paper.get('trial_data'):
-                            td = paper['trial_data']
-                            pop = td.get('population', {})
-                            
-                            # Population 상세 정보 (Schema 로직과 동기화)
-                            pop_desc = "MCI-only" if pop.get('mci_only') else "Mixed"
-                            if not pop.get('mci_only'):
-                                notes = pop.get('comorbidity_notes')
-                                if notes:
-                                    pop_desc += f" ({notes})"
-                            row['Population'] = pop_desc
-                            
-                            row['Intervention'] = _extract_intervention_string(td)
-                            row['Outcome_Cognition'] = "Reported" if td.get('outcomes', {}).get('cognition') else ""
-                            row['Outcome_ADL'] = "Yes" if td.get('outcomes', {}).get('adl_function') else "No"
+                        row.update(_build_clinical_index_fields(paper, extraction))
+                    
+                    # [UPDATED] Use ReadingStatus (Ticket 8)
+                    row['Status'] = paper.get('reading_status', 'Inbox')
 
                     updated = True
                 
@@ -263,22 +565,7 @@ def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool =
     # 3. 새 데이터 추가 (Update 안 된 경우)
     if not updated:
         # 임상 데이터 추출 (있을 경우)
-        pop_str, int_str, cog_str, adl_str = "", "", "", ""
-        if is_clinical and paper.get('trial_data'):
-            td = paper['trial_data']
-            # Population
-            pop = td.get('population', {})
-            pop_str = "MCI-only" if pop.get('mci_only') else "Mixed"
-            if not pop.get('mci_only'):
-                notes = pop.get('comorbidity_notes')
-                if notes:
-                    pop_str += f" ({notes})"
-
-            # Intervention
-            int_str = _extract_intervention_string(td)
-            # Outcomes
-            cog_str = "Reported" if td.get('outcomes', {}).get('cognition') else ""
-            adl_str = "Yes" if td.get('outcomes', {}).get('adl_function') else "No"
+        clinical_fields = _build_clinical_index_fields(paper, extraction) if is_clinical else {}
 
         new_row = {
             'Date': today,
@@ -289,15 +576,14 @@ def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool =
             'Source': paper.get('source', ''),
             'URL': paper.get('link', ''),
             'Score': "Top1",
-            'Status': "To Read",
-            'Note_Path': note_path
+            'Status': paper.get('reading_status', 'Inbox'),
+            'Note_Path': note_path,
+            'Tags': tags_val,      # [NEW]
+            'Authors': authors_val # [NEW]
         }
         
         if is_clinical:
-            new_row['Population'] = pop_str
-            new_row['Intervention'] = int_str
-            new_row['Outcome_Cognition'] = cog_str
-            new_row['Outcome_ADL'] = adl_str
+            new_row.update(clinical_fields)
             
         # [Safety] 새 행도 마찬가지로 누락된 키 보정
         for h in headers:
@@ -306,18 +592,23 @@ def update_csv_index(paper: Dict[str, Any], file_path: Path, is_clinical: bool =
         rows.append(new_row)
     
     # 4. 파일 덮어쓰기
-    with open(file_path, 'w', newline='', encoding='utf-8') as f:
-        # extrasaction='ignore': 기존 데이터에만 있고 새 헤더에는 없는 컬럼이 있어도 에러 없이 저장(해당 컬럼은 삭제됨)
-        writer = csv.DictWriter(f, fieldnames=headers, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(rows)
+    # extrasaction='ignore': 기존 데이터에만 있고 새 헤더에는 없는 컬럼이 있어도 에러 없이 저장(해당 컬럼은 삭제됨)
+    _atomic_write_csv_rows(file_path, headers, rows)
 
-def save_paper_to_obsidian(paper: Dict[str, Any], config, extraction: Optional[TrialExtraction] = None):
-    """[수정] 메인 함수: 마크다운 노트 생성 + CSV 기록 (추출 데이터 처리)"""
+def save_paper_to_obsidian(
+    paper: Dict[str, Any], 
+    config, 
+    extraction: Optional[SpecialtyTrialExtraction | BiomedicalClinicalExtraction] = None,
+    subfolder_override: str = None,
+    index_file_override: str = None
+):
+    """Main note writer with a domain-neutral clinical default and optional specialty extraction overlays."""
     vault_path = config.paths.obsidian_vault
     
-    # [NEW] Quarantine Routing
-    if paper.get('processing_status') == PaperStatus.QUARANTINED:
+    # [NEW] Determine Folder
+    if subfolder_override:
+         today_folder = vault_path / subfolder_override
+    elif paper.get('processing_status') == PaperStatus.QUARANTINED:
         # 격리 폴더: Inbox/Quarantine (날짜별 구분 없이 큐로 관리하거나, 필요시 날짜 추가)
         today_folder = vault_path / "Inbox" / "Quarantine"
     else:
@@ -330,24 +621,122 @@ def save_paper_to_obsidian(paper: Dict[str, Any], config, extraction: Optional[T
     filename = f"{paper.get('slot', 'Paper')}_{safe_title}.md"
     file_path = today_folder / filename
     
-    # [템플릿 분기] Clinical 슬롯 -> Trial Extraction Note, 그 외 -> Study Note
+    # Find Related Papers
+    related_block = find_related_papers(paper, config)
+    
+    # [템플릿 분기] Clinical 슬롯 -> Clinical note, 그 외 -> Study Note
     if paper.get('slot', '').lower() == 'clinical':
         content = get_template_trial(paper, extraction)
     else:
         content = get_template_study(paper)
         
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    # Append Related Papers
+    if related_block:
+        content += related_block
+        
+    atomic_write_text(file_path, content)
     
-    # [인덱스 1] 전체 논문 누적 (paper_collection.csv)
-    path_all = config.paths.obsidian_vault / config.paths.index_all
+    # [NEW] Calculate Relative Note Path for CSV
+    try:
+        relative_path = file_path.relative_to(vault_path)
+    except ValueError:
+        relative_path = file_path.name
+
+    # [인덱스 1] 전체 논문 누적 (paper_collection.csv OR Override)
+    if index_file_override:
+         path_all = config.paths.obsidian_vault / index_file_override
+    else:
+         path_all = config.paths.obsidian_vault / config.paths.index_all
+         
     path_all.parent.mkdir(parents=True, exist_ok=True)
-    update_csv_index(paper, path_all, is_clinical=False)
+    update_csv_index(
+        paper,
+        path_all,
+        is_clinical=False,
+        relative_note_path=str(relative_path),
+        extraction=extraction,
+    )
     
-    # [인덱스 2] 임상 추출 논문만 누적 (mct_mci_trials.csv)
-    if paper.get('slot', '').lower() == 'clinical':
+    # [인덱스 2] 임상 추출 논문만 누적 (clinical_trials.csv) -> OnDemand는 임상 인덱스 안 건드림 (규칙상)
+    # 하지만 일단 유지하되, override가 없을 때만
+    if not index_file_override and paper.get('slot', '').lower() == 'clinical':
         path_clinical = config.paths.obsidian_vault / config.paths.index_clinical
         path_clinical.parent.mkdir(parents=True, exist_ok=True)
-        update_csv_index(paper, path_clinical, is_clinical=True)
+        update_csv_index(
+            paper,
+            path_clinical,
+            is_clinical=True,
+            relative_note_path=str(relative_path),
+            extraction=extraction,
+        )
     
     return file_path
+
+def set_reading_status(paper_id_or_doi: str, new_status: str, config) -> str:
+    """
+    Updates the reading status in CSV Index and Obsidian Note.
+    Checks multiple index files (Main, OnDemand, Manual).
+    Returns the DOI if found, else None.
+    """
+    import re
+    
+    vault_path = config.paths.obsidian_vault
+    
+    # Define potential indexes
+    potential_indexes = [
+        config.paths.index_all, # 00_Index/paper_collection.csv
+        "00_Index/on_demand.csv",
+        "00_Index/manual_collection.csv"
+    ]
+    
+    target_doi = None
+    target_note_path = None
+    
+    for relative_idx_path in potential_indexes:
+        index_path = vault_path / relative_idx_path
+        if not index_path.exists():
+            continue
+            
+        updated_rows = []
+        found_in_this_file = False
+        headers = []
+        
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for row in reader:
+                    pid = row.get('Paper_ID', '')
+                    doi = row.get('DOI', '')
+                    title = row.get('Title', '')
+                    
+                    # Match Logic
+                    if paper_id_or_doi == pid or paper_id_or_doi == doi or paper_id_or_doi == title:
+                        row['Status'] = new_status
+                        target_doi = doi
+                        note_rel = row.get('Note_Path')
+                        if note_rel:
+                            target_note_path = resolve_vault_relative_path(vault_path, note_rel)
+                        found_in_this_file = True
+                        
+                    updated_rows.append(row)
+            
+            if found_in_this_file:
+                _atomic_write_csv_rows(index_path, headers, updated_rows)
+                logger.info(f"Updated status in index: {relative_idx_path}")
+                break # Stop searching other indexes if found
+                
+        except Exception as e:
+            logger.error(f"Failed to read/update index {relative_idx_path}: {e}")
+            
+    # 2. Update Obsidian Note Frontmatter (Only if note found)
+    if target_note_path and target_note_path.exists():
+        try:
+            content = target_note_path.read_text(encoding='utf-8')
+            new_content = re.sub(r'^status:.*$', f'status: {new_status}', content, count=1, flags=re.MULTILINE)
+            atomic_write_text(target_note_path, new_content)
+            logger.info(f"Updated status in note: {target_note_path}")
+        except Exception as e:
+            logger.error(f"Failed to update markdown note: {e}")
+            
+    return target_doi

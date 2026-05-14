@@ -1,0 +1,291 @@
+{
+  "summary": {
+    "generated_at": "2026-03-07T11:47:13.737036+00:00",
+    "sample_size": 30,
+    "completed": 30,
+    "timeout": 0,
+    "error": 0,
+    "ingest_failed": 0,
+    "claims_empty_count": 0,
+    "claims_non_empty_count": 30,
+    "claims_empty_ratio": 0.0,
+    "claims_non_empty_ratio": 1.0,
+    "avg_claim_count": 2.767,
+    "median_claim_count": 3.0,
+    "reader_status_distribution": {
+      "ok": 30
+    }
+  },
+  "rows": [
+    {
+      "pdf": "1411.2441.pdf",
+      "status": "completed",
+      "elapsed_sec": 85.777,
+      "doc_id": "doi:10.48550/arXiv.1411.2441",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "arnstenNeuromodulationThoughtFlexibilities2012.pdf",
+      "status": "completed",
+      "elapsed_sec": 64.917,
+      "doc_id": "doi:10.1016/j.neuron.2012.08.038",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "barulliEfficiencyCapacityCompensation2013.pdf",
+      "status": "completed",
+      "elapsed_sec": 87.412,
+      "doc_id": "doi:10.1016/j.tics.2013.08.012",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "benedictCognitiveImpairmentMultiple2020.pdf",
+      "status": "completed",
+      "elapsed_sec": 75.106,
+      "doc_id": "doi:10.1016/S1474-4422(20)30277-5",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "bialystokBilingualismConsequencesMind2012.pdf",
+      "status": "completed",
+      "elapsed_sec": 82.674,
+      "doc_id": "doi:10.1016/j.tics.2012.03.001",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "chandraGutMicrobiomeAlzheimers2023.pdf",
+      "status": "completed",
+      "elapsed_sec": 77.315,
+      "doc_id": "doi:10.1186/s13024-023-00595-7",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "chiaravallotiCognitiveImpairmentMultiple.pdf",
+      "status": "completed",
+      "elapsed_sec": 81.08,
+      "doc_id": "doi:10.1016/S1474-4422(08)70259-X",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "colomboMicrobiotaderivedShortChain2021.pdf",
+      "status": "completed",
+      "elapsed_sec": 71.197,
+      "doc_id": "doi:10.7554/eLife.59826",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "coricTargetingProdromalAlzheimer2015.pdf",
+      "status": "completed",
+      "elapsed_sec": 83.451,
+      "doc_id": "doi:10.1001/jamaneurol.2015.0607",
+      "claim_count": 4,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "craftSafetyEfficacyFeasibility2020.pdf",
+      "status": "completed",
+      "elapsed_sec": 42.78,
+      "doc_id": "doi:10.1001/jamaneurol.2020.1840",
+      "claim_count": 1,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "decarliMildCognitiveImpairment2003.pdf",
+      "status": "completed",
+      "elapsed_sec": 75.934,
+      "doc_id": "doi:10.1016/S1474-4422(03)00262-X",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "duboisAlzheimerDiseaseClinicalBiological2024.pdf",
+      "status": "completed",
+      "elapsed_sec": 65.383,
+      "doc_id": "doi:10.1001/jamaneurol.2024.3770",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "duboisAmnesticMCIProdromal2004.pdf",
+      "status": "completed",
+      "elapsed_sec": 127.666,
+      "doc_id": "doi:10.1016/S1474-4422(04)00710-0",
+      "claim_count": 7,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "duboisClinicalDiagnosisAlzheimers2021.pdf",
+      "status": "completed",
+      "elapsed_sec": 81.599,
+      "doc_id": "doi:10.1016/S1474-4422(21)00066-1",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "fentonAdvancesBiomaterialsDrug2018.pdf",
+      "status": "completed",
+      "elapsed_sec": 79.919,
+      "doc_id": "doi:10.1002/adma.201705328",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "finnSingleAdministrationCRISPR2018.pdf",
+      "status": "completed",
+      "elapsed_sec": 62.914,
+      "doc_id": "doi:10.1016/j.celrep.2018.02.014",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "fowlerTauFilamentsAre2025.pdf",
+      "status": "completed",
+      "elapsed_sec": 66.728,
+      "doc_id": "doi:10.1038/s41593-024-01801-5",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "furtadoOvercomingBloodBrain2018.pdf",
+      "status": "completed",
+      "elapsed_sec": 59.932,
+      "doc_id": "doi:10.1002/adma.201801362",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "grandeBloodbasedBiomarkersAlzheimers2025.pdf",
+      "status": "completed",
+      "elapsed_sec": 74.653,
+      "doc_id": "doi:10.1038/s41591-025-03605-x",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "hanssonAlzheimersAssociationAppropriate2022.pdf",
+      "status": "completed",
+      "elapsed_sec": 153.267,
+      "doc_id": "doi:10.1002/alz.12756",
+      "claim_count": 2,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "hanssonBloodBiomarkersAlzheimers2023.pdf",
+      "status": "completed",
+      "elapsed_sec": 78.096,
+      "doc_id": "doi:10.1038/s43587-023-00403-3",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "hanssonCSFBiomarkersAlzheimers2018.pdf",
+      "status": "completed",
+      "elapsed_sec": 57.797,
+      "doc_id": "doi:10.1016/j.jalz.2018.01.010",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "huPolyLacticAcidRecent2025.pdf",
+      "status": "completed",
+      "elapsed_sec": 77.708,
+      "doc_id": "doi:10.1002/adma.202412185",
+      "claim_count": 1,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "jessenCharacterisationSubjectiveCognitive2020.pdf",
+      "status": "completed",
+      "elapsed_sec": 141.778,
+      "doc_id": "doi:10.1016/S1474-4422(19)30368-0",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "johnsonLargescaleDeepMultilayer2022.pdf",
+      "status": "completed",
+      "elapsed_sec": 185.39,
+      "doc_id": "doi:10.1038/s41593-021-00999-y",
+      "claim_count": 4,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "karikariBloodPhosphorylatedTau2020.pdf",
+      "status": "completed",
+      "elapsed_sec": 56.499,
+      "doc_id": "doi:10.1016/S1474-4422(20)30071-5",
+      "claim_count": 1,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "kistemakerVascularizedHumanBrain2025.pdf",
+      "status": "completed",
+      "elapsed_sec": 136.531,
+      "doc_id": "doi:10.1016/j.tibtech.2024.11.021",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "kowalskiBrainGutMicrobiotaAxisAlzheimers2019.pdf",
+      "status": "completed",
+      "elapsed_sec": 54.616,
+      "doc_id": "doi:10.5056/jnm18087",
+      "claim_count": 1,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "leeDeepLearningbasedBrain2022.pdf",
+      "status": "completed",
+      "elapsed_sec": 95.216,
+      "doc_id": "doi:10.1038/s43587-022-00219-7",
+      "claim_count": 3,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    },
+    {
+      "pdf": "liuGutMicrobiotaDysbiosis2020.pdf",
+      "status": "completed",
+      "elapsed_sec": 106.488,
+      "doc_id": "doi:10.1007/s12035-020-02073-3",
+      "claim_count": 4,
+      "unknown_count": 0,
+      "reader_status": "ok"
+    }
+  ]
+}

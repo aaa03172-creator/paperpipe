@@ -1,0 +1,14 @@
+probe_id: methods_results_boundary
+taxonomy: method_reconstruction
+difficulty: easy
+source_excerpt: "Methods: Marker X was measured by ELISA. Results: Marker X was reduced at week 12."
+prompt: "Separate method setup from result claim."
+rubrics:
+  - rubric_id: method_result_split
+    description: "Answer distinguishes methods from results."
+    kind: answer_contains_all
+    terms: ["methods", "results"]
+  - rubric_id: result_claim_grounded
+    description: "Result claim has evidence support."
+    kind: locator_present
+

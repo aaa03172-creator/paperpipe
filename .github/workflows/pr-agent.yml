@@ -1,0 +1,30 @@
+name: Qodo PR-Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  pr_agent:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: Codium-ai/pr-agent@main
+        env:
+          # 여기서 사용할 LLM API 키를 설정합니다. OPENAI_API_KEY 또는 ANTHROPIC_API_KEY 등
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }} 
+          
+          # GitHub의 기본 토큰입니다. 별도의 설정이 필요 없습니다.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          
+          # 추가적인 설정들 (선택 사항)
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "true"

@@ -1,0 +1,49 @@
+version: 1
+
+defaults:
+  enabled: false
+  sandbox: native
+  network: none
+  timeout_seconds: 45
+
+project_scoped_skills:
+  - markitdown
+  - citation-management
+  - pyzotero
+  - peer-review
+  - meeting-pack-verifier
+  - chart-figure-hardening
+
+actions:
+  extract_markdown:
+    enabled: true
+    category: core-safe
+    source_skill: markitdown
+    license: MIT
+    sandbox: native
+    network: none
+    timeout_seconds: 60
+    notes: "Prefer local-only markdown extraction. Use IngestAgent fallback when MarkItDown is unavailable."
+
+  validate_citations:
+    enabled: true
+    category: core-safe
+    source_skill: citation-management
+    license: MIT
+    sandbox: native
+    network: allowlist
+    network_allowlist:
+      - api.openalex.org
+      - doi.org
+    timeout_seconds: 30
+    notes: "Validate DOI and local Zotero references only. Google Scholar scraping and arbitrary publisher probing are blocked."
+
+  critical_appraisal:
+    enabled: true
+    category: core-safe
+    source_skill: peer-review
+    license: MIT
+    sandbox: docker
+    network: none
+    timeout_seconds: 30
+    notes: "Compute appraisal from local ClaimSet and stats artifacts. No outbound network allowed."
