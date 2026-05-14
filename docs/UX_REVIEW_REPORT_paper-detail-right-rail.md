@@ -1,7 +1,7 @@
 # UX Review Report: Paper Detail Right Rail
 
-Status: Proposed route-specific UX report
-Date: 2026-05-10
+Status: Implemented route-specific UX report with follow-up evidence-meter guard
+Date: 2026-05-14
 Owner: Frontend/product maintainers
 Canonical parent: `docs/Lattice_v3_Master_Spec.md`
 Screen/Flow: `/papers/:slug` Paper Detail right rail and mobile sheet
@@ -84,7 +84,8 @@ Do not rewrite `PaperNoteDetailPage.tsx`. It is large, but it already contains e
 
 ### P2
 
-- Defer new coverage gauges until a precise metric is available.
+- Defer broad coverage gauges until a precise metric is available.
+- Allow a narrow per-claim evidence meter when it only summarizes already-loaded claim evidence anchors and grounding metadata, without creating a new readiness score or truth state.
 - Defer relationship summaries until route data can identify reuse/stale impact without inventing relationships.
 - Defer header action simplification if it risks changing tested flows; rail/sheet order can land first.
 
@@ -311,10 +312,22 @@ The micro-spike is acceptable when:
 - mobile sheet order matches the trust order
 - `ActionsPanel` is not presented as a primary evidence action
 - personal markers remain separate from claim/evidence state
+- per-claim visual evidence signals only summarize `claim.evidence[*].grounded` / `resolution` and missing metadata as `not recorded`
 - no fake `used by` or `stale impact` data is introduced
 - no dependency, schema, API, provider, chat, or runtime behavior changes
 - `/api/chat` remains stub-only
 - no new public token/config paths are added
+
+## 11.1 Follow-Up Evidence Meter
+
+The follow-up implementation may add a compact meter inside each saved claim card:
+- label: `Evidence anchors`
+- count: number of saved evidence anchors attached to the claim
+- segments: grounded, needs review, unresolved, and not recorded
+- color source: existing `--pp-*` status tokens only
+- boundary: this is a display summary of saved structured state, not a new score, approval, or product requirement
+
+This keeps the visual language useful without making the page feel like a colorful dashboard. It also avoids overstating biomedical certainty when older fixtures or saved states do not preserve grounding metadata; those cases should say `not recorded`.
 
 ## 12. Verification Plan
 

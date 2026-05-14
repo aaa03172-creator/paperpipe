@@ -688,6 +688,24 @@ interface ReviewSnapshotCounts {
 type StructuredClaim = StructuredPaperState["claimset"][number];
 type StructuredEvidence = StructuredClaim["evidence"][number];
 
+interface ClaimEvidenceMeterSegment {
+  key: string;
+  label: string;
+  count: number;
+  className: string;
+}
+
+interface ClaimEvidenceMeter {
+  total: number;
+  grounded: number;
+  needsReview: number;
+  unresolved: number;
+  unknown: number;
+  label: string;
+  detail: string;
+  segments: ClaimEvidenceMeterSegment[];
+}
+
 interface ReviewBridgeFocus {
   kind: "claim" | "evidence";
   focusId: string;
@@ -711,6 +729,80 @@ function toSafeCount(value: unknown, fallback = 0): number {
     return Math.max(0, Math.trunc(value));
   }
   return fallback;
+}
+
+function deriveClaimEvidenceMeter(evidenceList: StructuredEvidence[]): ClaimEvidenceMeter {
+  let grounded = 0;
+  let needsReview = 0;
+  let unresolved = 0;
+  let unknown = 0;
+
+  evidenceList.forEach((evidence) => {
+    if (evidence.grounded === true) {
+      grounded += 1;
+      return;
+    }
+    if (evidence.grounded === false && evidence.resolution === "AMBIGUOUS_MATCH") {
+      needsReview += 1;
+      return;
+    }
+    if (evidence.grounded === false) {
+      unresolved += 1;
+      return;
+    }
+    unknown += 1;
+  });
+
+  const total = evidenceList.length;
+  const detailParts: string[] = [];
+  if (grounded > 0) {
+    detailParts.push(`${grounded} grounded`);
+  }
+  if (needsReview > 0) {
+    detailParts.push(`${needsReview} need review`);
+  }
+  if (unresolved > 0) {
+    detailParts.push(`${unresolved} unresolved`);
+  }
+  if (unknown > 0) {
+    detailParts.push(`${unknown} not recorded`);
+  }
+
+  return {
+    total,
+    grounded,
+    needsReview,
+    unresolved,
+    unknown,
+    label: total === 1 ? "1 evidence anchor" : `${total} evidence anchors`,
+    detail: detailParts.length > 0 ? detailParts.join(" · ") : "No evidence anchors recorded",
+    segments: [
+      {
+        key: "grounded",
+        label: "Grounded",
+        count: grounded,
+        className: "bg-[var(--pp-status-completed-text)]",
+      },
+      {
+        key: "needs-review",
+        label: "Needs review",
+        count: needsReview,
+        className: "bg-[var(--pp-warning-text)]",
+      },
+      {
+        key: "unresolved",
+        label: "Unresolved",
+        count: unresolved,
+        className: "bg-[var(--pp-status-failed-text)]",
+      },
+      {
+        key: "unknown",
+        label: "Not recorded",
+        count: unknown,
+        className: "bg-[var(--pp-text-dim)]",
+      },
+    ],
+  };
 }
 
 function deriveReviewSnapshotCounts(state: StructuredPaperState | null): ReviewSnapshotCounts {
@@ -2610,81 +2702,113 @@ function ClaimSetPanel({
           <p className="text-sm text-[var(--pp-text-dim)]">Saved note state loaded, but no saved claims are recorded yet.</p>
         ) : (
           <div className="grid gap-3">
-            {claims.map((claim) => (
-              <article
-                key={claim.id}
-                id={toFocusDomId("claim", claim.id)}
-                className={`rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 ${getFocusClassName(
-                  focusTarget?.kind === "claim" && focusTarget.id === claim.id,
-                )}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-[var(--pp-text-primary)]">{claim.claim}</p>
-                    <p className="mt-1 text-[11px] text-[var(--pp-text-dim)]">{claim.id}</p>
-                    {claim.source_claim_id ? (
-                      <p className="mt-1 text-[11px] text-[var(--pp-text-dim)]">source {claim.source_claim_id}</p>
-                    ) : null}
+            {claims.map((claim) => {
+              const evidenceMeter = deriveClaimEvidenceMeter(claim.evidence);
+              return (
+                <article
+                  key={claim.id}
+                  id={toFocusDomId("claim", claim.id)}
+                  className={`rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 ${getFocusClassName(
+                    focusTarget?.kind === "claim" && focusTarget.id === claim.id,
+                  )}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[var(--pp-text-primary)]">{claim.claim}</p>
+                      <p className="mt-1 text-[11px] text-[var(--pp-text-dim)]">{claim.id}</p>
+                      {claim.source_claim_id ? (
+                        <p className="mt-1 text-[11px] text-[var(--pp-text-dim)]">source {claim.source_claim_id}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {typeof claim.confidence === "number" ? (
+                        <Badge variant="outline">{claim.confidence.toFixed(2)}</Badge>
+                      ) : null}
+                      <Link to={buildFocusHref("claim", claim.id)} className="paper-note-link text-[11px]">
+                        Deep link
+                      </Link>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    {typeof claim.confidence === "number" ? (
-                      <Badge variant="outline">{claim.confidence.toFixed(2)}</Badge>
-                    ) : null}
-                    <Link to={buildFocusHref("claim", claim.id)} className="paper-note-link text-[11px]">
-                      Deep link
-                    </Link>
+                  <div
+                    className="mt-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-2"
+                    data-testid={`paper-note-claim-evidence-meter-${claim.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] font-medium uppercase text-[var(--pp-text-dim)]">Evidence anchors</p>
+                      <p className="text-[11px] text-[var(--pp-text-secondary)]">{evidenceMeter.label}</p>
+                    </div>
+                    <div
+                      className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-[var(--pp-surface-muted)]"
+                      aria-label={`${evidenceMeter.label}: ${evidenceMeter.detail}`}
+                    >
+                      {evidenceMeter.total > 0 ? (
+                        evidenceMeter.segments.map((segment) =>
+                          segment.count > 0 ? (
+                            <span
+                              key={`${claim.id}-${segment.key}`}
+                              className={segment.className}
+                              style={{ width: `${(segment.count / evidenceMeter.total) * 100}%` }}
+                              title={`${segment.label}: ${segment.count}`}
+                            />
+                          ) : null,
+                        )
+                      ) : (
+                        <span className="w-full bg-[var(--pp-border)]" title="No evidence anchors recorded" />
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-[var(--pp-text-dim)]">{evidenceMeter.detail}</p>
                   </div>
-                </div>
-                {claim.evidence.length > 0 ? (
-                  <ul className="mt-3 space-y-2 text-xs text-[var(--pp-text-secondary)]">
-                    {claim.evidence.map((evidence, index) => {
-                      const evidenceId = evidence.id ?? `${claim.id}-evidence-${index + 1}`;
-                      const groundingBadge = getGroundingBadge(evidence.grounded, evidence.resolution);
-                      return (
-                        <li
-                          key={`${claim.id}-evidence-${index}`}
-                          id={toFocusDomId("evidence", evidenceId)}
-                          className={`rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-2 ${getFocusClassName(
-                            focusTarget?.kind === "evidence" && focusTarget.id === evidenceId,
-                          )}`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <p>{evidence.text}</p>
-                            <Link to={buildFocusHref("evidence", evidenceId)} className="paper-note-link shrink-0 text-[11px]">
-                              Deep link
-                            </Link>
-                          </div>
-                          <p className="mt-1 break-all text-[11px] text-[var(--pp-text-dim)]">{evidenceId}</p>
-                          <p className="mt-1 text-[var(--pp-text-dim)]">
-                            {evidence.locator?.section ?? evidence.section ?? "Section n/a"}
-                            {typeof (evidence.locator?.page ?? evidence.page) === "number"
-                              ? ` · page ${(evidence.locator?.page ?? evidence.page ?? 0) + 1}`
-                              : ""}
-                            {evidence.locator?.chunk_id ? ` · ${evidence.locator.chunk_id}` : ""}
-                            {evidence.locator?.source ?? evidence.source ? ` · ${evidence.locator?.source ?? evidence.source}` : ""}
-                          </p>
-                          {groundingBadge ? (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              <Badge className={groundingBadge.className}>{groundingBadge.label}</Badge>
+                  {claim.evidence.length > 0 ? (
+                    <ul className="mt-3 space-y-2 text-xs text-[var(--pp-text-secondary)]">
+                      {claim.evidence.map((evidence, index) => {
+                        const evidenceId = evidence.id ?? `${claim.id}-evidence-${index + 1}`;
+                        const groundingBadge = getGroundingBadge(evidence.grounded, evidence.resolution);
+                        return (
+                          <li
+                            key={`${claim.id}-evidence-${index}`}
+                            id={toFocusDomId("evidence", evidenceId)}
+                            className={`rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-2 ${getFocusClassName(
+                              focusTarget?.kind === "evidence" && focusTarget.id === evidenceId,
+                            )}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <p>{evidence.text}</p>
+                              <Link to={buildFocusHref("evidence", evidenceId)} className="paper-note-link shrink-0 text-[11px]">
+                                Deep link
+                              </Link>
                             </div>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {claim.tags.map((tag) => (
-                    <Badge key={`${claim.id}-tag-${tag}`}>{tag}</Badge>
-                  ))}
-                  {claim.outcomes.map((outcome) => (
-                    <Badge key={`${claim.id}-outcome-${outcome}`} variant="muted">
-                      {outcome}
-                    </Badge>
-                  ))}
-                </div>
-              </article>
-            ))}
+                            <p className="mt-1 break-all text-[11px] text-[var(--pp-text-dim)]">{evidenceId}</p>
+                            <p className="mt-1 text-[var(--pp-text-dim)]">
+                              {evidence.locator?.section ?? evidence.section ?? "Section n/a"}
+                              {typeof (evidence.locator?.page ?? evidence.page) === "number"
+                                ? ` · page ${(evidence.locator?.page ?? evidence.page ?? 0) + 1}`
+                                : ""}
+                              {evidence.locator?.chunk_id ? ` · ${evidence.locator.chunk_id}` : ""}
+                              {evidence.locator?.source ?? evidence.source ? ` · ${evidence.locator?.source ?? evidence.source}` : ""}
+                            </p>
+                            {groundingBadge ? (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                <Badge className={groundingBadge.className}>{groundingBadge.label}</Badge>
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {claim.tags.map((tag) => (
+                      <Badge key={`${claim.id}-tag-${tag}`}>{tag}</Badge>
+                    ))}
+                    {claim.outcomes.map((outcome) => (
+                      <Badge key={`${claim.id}-outcome-${outcome}`} variant="muted">
+                        {outcome}
+                      </Badge>
+                    ))}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </CardContent>

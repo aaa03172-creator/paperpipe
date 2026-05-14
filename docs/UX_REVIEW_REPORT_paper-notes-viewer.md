@@ -176,7 +176,12 @@ Reviewer: Codex
 - Concrete change:
   - `Obsidian Mirror` claim/stat snapshot에 conditional grounding badge를 추가한다.
   - `Paper Note Detail` evidence metadata 줄에도 같은 상태를 작게 노출한다.
-  - 값이 없으면 아무것도 추가하지 않아 기존 밀도를 유지한다.
+  - 값이 없으면 `Not recorded`처럼 명시하되, 새 readiness score나 approval state로 승격하지 않는다.
+
+Update (2026-05-14):
+- Paper Detail now uses a compact per-claim `Evidence anchors` meter that summarizes saved evidence anchors as grounded, needs review, unresolved, or not recorded.
+- Workbench `Obsidian Mirror` claim/stat snapshot should use the same status language. Missing grounding metadata is shown as `Not recorded` instead of disappearing, so users do not mistake absent resolver state for grounded evidence.
+- Boundary: this remains display-only metadata from saved state or mirror payloads. It is not a new readiness score, approval state, or canonical source.
 
 ## 7.7) Timeline User Action Visibility Checkpoint (2026-03-17)
 - Screen/Flow: `/workbench/:paperId` run timeline panel

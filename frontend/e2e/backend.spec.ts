@@ -241,6 +241,25 @@ async function expectNoUiOverlap(first: Locator, second: Locator, description: s
   expect(boxesOverlap(firstBox, secondBox), description).toBe(false);
 }
 
+async function expectHeadingOrder(container: Locator, headings: string[], description: string): Promise<void> {
+  const positions = await container.getByRole("heading").evaluateAll(
+    (nodes, expectedHeadings) => {
+      const labels = nodes.map((node) => node.textContent?.trim() ?? "");
+      return (expectedHeadings as string[]).map((heading) => labels.findIndex((label) => label === heading));
+    },
+    headings,
+  );
+
+  for (const [index, position] of positions.entries()) {
+    expect(position, `${description}: ${headings[index]} should be present`).toBeGreaterThanOrEqual(0);
+  }
+  for (let index = 1; index < positions.length; index += 1) {
+    expect(positions[index - 1], `${description}: ${headings[index - 1]} should appear before ${headings[index]}`).toBeLessThan(
+      positions[index],
+    );
+  }
+}
+
 async function expectImageLoaded(locator: Locator, description: string): Promise<void> {
   await expect(locator, description).toBeVisible();
   await expect
@@ -5131,6 +5150,11 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     const sheet = page.getByTestId("paper-note-sheet");
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
+    await expectHeadingOrder(
+      sheet,
+      ["Saved note state", "Saved claims", "My note", "Related Papers", "References", "Guarded actions", "Run history", "Properties"],
+      "mobile read paper note panel order",
+    );
     await expect(sheet.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Run history", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Saved claims", exact: true })).toBeVisible();
@@ -5153,6 +5177,11 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading").nth(1)).toHaveText("Saved note state");
     await expect(sheet.getByRole("heading").nth(2)).toHaveText("Saved claims");
+    await expectHeadingOrder(
+      sheet,
+      ["Saved note state", "Saved claims", "My note", "Related Papers", "References", "Guarded actions", "Appraisal", "Run history", "Properties"],
+      "mobile builder debug paper note panel order",
+    );
     await expect(sheet.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
@@ -5243,6 +5272,11 @@ test("paper notes detail supports learner and builder debug view modes", async (
   const rightAside = page.locator("main > aside").nth(1);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Saved note state");
   await expect(rightAside.getByRole("heading").nth(1)).toHaveText("Saved claims");
+  await expectHeadingOrder(
+    rightAside,
+    ["Saved note state", "Saved claims", "My note", "Related Papers", "References", "Guarded actions", "Appraisal", "Run history", "Properties"],
+    "desktop builder debug paper note rail order",
+  );
   await expect(rightAside.getByRole("heading", { name: "Guarded actions", exact: true })).toBeVisible();
   await expect(rightAside.getByRole("heading", { name: "Appraisal", exact: true })).toBeVisible();
   const appraisalPanel = page.getByTestId("paper-note-appraisal-panel");
@@ -5265,6 +5299,11 @@ test("paper notes detail supports learner and builder debug view modes", async (
   await expect(page.getByTestId("paper-note-view-mode-summary")).toContainText(PAPER_NOTE_READ_MODE_SUMMARY);
   await expect(rightAside.getByRole("heading").first()).toHaveText("Saved note state");
   await expect(rightAside.getByRole("heading").nth(1)).toHaveText("Saved claims");
+  await expectHeadingOrder(
+    rightAside,
+    ["Saved note state", "Saved claims", "My note", "Related Papers", "References", "Guarded actions", "Run history", "Properties"],
+    "desktop read paper note rail order",
+  );
   await expect(rightAside.getByRole("heading", { name: "Properties", exact: true })).toBeVisible();
 });
 
@@ -5304,6 +5343,11 @@ test("paper notes detail renders structured actions, run history, and structured
   await expect(savedStatePanel.getByTestId("paper-note-saved-state-status")).toContainText("Loaded");
   await expect(savedStatePanel).toContainText(`.pp/${structuredNoteSlug}/state.json`);
   await expect(savedStatePanel.getByTestId("paper-note-context-trace-summary")).toContainText("source paths");
+
+  const firstClaimEvidenceMeter = page.getByTestId("paper-note-claim-evidence-meter-claim_structured_001");
+  await expect(firstClaimEvidenceMeter).toContainText("Evidence anchors");
+  await expect(firstClaimEvidenceMeter).toContainText("2 evidence anchors");
+  await expect(firstClaimEvidenceMeter).toContainText("2 not recorded");
 
   const sectionNavigator = page.getByTestId("paper-note-section-navigator");
   await expect(sectionNavigator).toContainText("Section navigator");
@@ -5347,6 +5391,51 @@ test("paper notes detail renders structured actions, run history, and structured
   const structuredSignalsPeer = relatedSection.locator("li").filter({ hasText: "Structured Signals Peer Fixture" }).first();
   await expect(structuredSignalsPeer).toBeVisible();
   await expect(structuredSignalsPeer).toContainText("structured signals: Amyloid, biomarker, memory, Neurology");
+});
+
+test("paper notes detail evidence meter separates grounded, review-needed, unresolved, and unrecorded anchors", async ({ page }) => {
+  await page.route(`**/paper-notes/${encodeURIComponent(structuredNoteSlug)}*`, async (route) => {
+    const response = await route.fetch();
+    const detail = await response.json();
+    const claims = detail.structured_state?.claimset ?? [];
+    if (claims[0]?.evidence?.[0]) {
+      claims[0].evidence[0].grounded = true;
+      claims[0].evidence[0].resolution = "NORMALIZED_MATCH";
+    }
+    if (claims[0]?.evidence?.[1]) {
+      claims[0].evidence[1].grounded = false;
+      claims[0].evidence[1].resolution = "AMBIGUOUS_MATCH";
+    }
+    if (claims[1]?.evidence?.[0]) {
+      claims[1].evidence[0].grounded = false;
+      claims[1].evidence[0].resolution = "FAILED_MATCH";
+    }
+    await route.fulfill({
+      response,
+      json: detail,
+    });
+  });
+
+  await gotoUntilLive(page, `/papers/${structuredNoteSlug}`, async () => {
+    await expect(page.getByRole("banner").getByRole("heading", { name: "Structured Skills ClaimSet Fixture" })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  await expect(page.getByTestId("paper-note-review-summary")).toContainText(
+    "2 saved claims and 3 evidence excerpts are available. 1 grounded, 1 need review, and 1 remain unresolved.",
+  );
+  await expect(page.getByTestId("paper-note-review-bridge-status")).toContainText(
+    "Unresolved evidence is still blocking downstream trust.",
+  );
+
+  const firstClaimEvidenceMeter = page.getByTestId("paper-note-claim-evidence-meter-claim_structured_001");
+  await expect(firstClaimEvidenceMeter).toContainText("2 evidence anchors");
+  await expect(firstClaimEvidenceMeter).toContainText("1 grounded · 1 need review");
+
+  const secondClaimEvidenceMeter = page.getByTestId("paper-note-claim-evidence-meter-claim_structured_002");
+  await expect(secondClaimEvidenceMeter).toContainText("1 evidence anchor");
+  await expect(secondClaimEvidenceMeter).toContainText("1 unresolved");
 });
 
 test("paper notes detail surfaces missing canonical sidecar state separately from loaded-empty state", async ({ page }) => {
