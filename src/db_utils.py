@@ -6,11 +6,20 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from src.services.runtime_paths import state_db_path
+from src.services.identity import normalize_doi
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = state_db_path()
 _IMPORTED_DB_PATH = Path(DB_PATH)
+_DOI_UNSET = object()
+
+
+def _normalized_doi_or_none(value: Any) -> str | None:
+    normalized = normalize_doi(str(value or ""))
+    if normalized.startswith("10.") and "/" in normalized:
+        return normalized
+    return None
 
 
 def get_db_path() -> Path:
@@ -255,6 +264,8 @@ def save_paper_state(
     source: str,
     processed_date: str,
     *,
+    doi: Any = _DOI_UNSET,
+    pdf_status: Optional[str] = None,
     local_pdf_path: Optional[str | Path] = None,
     feedback_json: Optional[str] = None,
     download_attempts: Optional[List[Dict[str, Any]]] = None,
@@ -286,13 +297,30 @@ def save_paper_state(
             except Exception:
                 attempts_payload = "[]"
 
+        if doi is _DOI_UNSET:
+            doi_value: Any = _normalized_doi_or_none(identifier)
+        elif doi in (None, ""):
+            doi_value = None
+        else:
+            doi_value = _normalized_doi_or_none(doi)
+
+        if "paper_id" in columns and "doi" in columns and doi_value:
+            cursor.execute(
+                "SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL AND paper_id <> ?",
+                (identifier,),
+            )
+            for existing in cursor.fetchall():
+                if _normalized_doi_or_none(existing["doi"]) == doi_value and existing["paper_id"]:
+                    identifier = str(existing["paper_id"])
+                    break
+
         if "paper_id" in columns:
             insert_cols.append("paper_id")
             insert_vals.append(identifier)
             update_set.append("paper_id=excluded.paper_id")
         if "doi" in columns:
             insert_cols.append("doi")
-            insert_vals.append(identifier)
+            insert_vals.append(doi_value)
             update_set.append("doi=excluded.doi")
         if "title" in columns:
             insert_cols.append("title")
@@ -329,6 +357,10 @@ def save_paper_state(
             insert_cols.append("pdf_path")
             insert_vals.append(str(local_pdf_path))
             update_set.append("pdf_path=excluded.pdf_path")
+        if "pdf_status" in columns and pdf_status is not None:
+            insert_cols.append("pdf_status")
+            insert_vals.append(str(pdf_status))
+            update_set.append("pdf_status=excluded.pdf_status")
         if "feedback_json" in columns and feedback_json is not None:
             insert_cols.append("feedback_json")
             insert_vals.append(feedback_json)
@@ -359,8 +391,69 @@ def save_paper_state(
             cursor.execute(sql, tuple(insert_vals))
 
         conn.commit()
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        logger.warning("Failed to save paper state for %s: %s", identifier, exc)
+    finally:
+        conn.close()
+
+
+def find_duplicate_doi_paper_rows() -> List[Dict[str, Any]]:
+    """Return existing paper rows that share a normalized DOI without mutating data."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        columns = _get_paper_columns(cursor)
+        if "paper_id" not in columns or "doi" not in columns:
+            return []
+
+        select_columns = ["paper_id", "doi"]
+        for optional_column in (
+            "title",
+            "source",
+            "status",
+            "pdf_status",
+            "pdf_path",
+            "obsidian_path",
+            "processed_date",
+            "created_at",
+            "updated_at",
+        ):
+            if optional_column in columns:
+                select_columns.append(optional_column)
+
+        cursor.execute(
+            f"""
+            SELECT {', '.join(select_columns)}
+            FROM papers
+            WHERE doi IS NOT NULL AND TRIM(doi) <> ''
+            """
+        )
+
+        grouped_rows: dict[str, list[dict[str, Any]]] = {}
+        for row in cursor.fetchall():
+            normalized_doi = _normalized_doi_or_none(row["doi"])
+            if not normalized_doi:
+                continue
+            paper_row = {column: row[column] for column in select_columns}
+            paper_row["normalized_doi"] = normalized_doi
+            grouped_rows.setdefault(normalized_doi, []).append(paper_row)
+
+        duplicate_groups: list[dict[str, Any]] = []
+        for normalized_doi, rows in sorted(grouped_rows.items()):
+            paper_ids = sorted({str(row.get("paper_id") or "") for row in rows if row.get("paper_id")})
+            if len(rows) > 1 and len(paper_ids) > 1:
+                duplicate_groups.append(
+                    {
+                        "normalized_doi": normalized_doi,
+                        "row_count": len(rows),
+                        "paper_ids": paper_ids,
+                        "rows": sorted(rows, key=lambda item: str(item.get("paper_id") or "")),
+                    }
+                )
+        return duplicate_groups
     except sqlite3.OperationalError:
-        pass
+        return []
     finally:
         conn.close()
 
