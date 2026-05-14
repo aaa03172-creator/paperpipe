@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from .skills import ReadingAssistBlockKind, SkillActionInfo, StructuredPaperState
+from .provenance import ProvenanceAspect
 
 
 class PaperNoteOpsSummary(BaseModel):
@@ -318,6 +319,7 @@ class PaperNoteReferenceLink(BaseModel):
     label: str
     url: str
     source: Literal["pdf", "doi", "zotero", "external"] = "external"
+    provenance: ProvenanceAspect | None = None
 
 
 PaperNoteContextTraceOutcome = Literal["loaded", "filtered", "resolved", "derived", "missing"]
