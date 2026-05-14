@@ -850,7 +850,8 @@ export function ChartPackPage() {
                             <a
                               href={dataHref}
                               download={`${chart.chart_id}.csv`}
-                              className="inline-flex h-8 items-center rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-3 text-xs font-medium text-[var(--pp-accent-text)]"
+                              title="Review chart warnings, source lineage, and quality gate before exporting."
+                              className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-3 text-xs text-[var(--pp-text-secondary)]"
                             >
                               Export CSV
                             </a>
