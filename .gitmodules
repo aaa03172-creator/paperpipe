@@ -1,6 +1,0 @@
-[submodule "rules/product-psychology"]
-	path = rules/product-psychology
-	url = https://github.com/CuriousPaul/product-psychology-for-vibe-coding.git
-[submodule "rules/scientific-skills"]
-	path = rules/scientific-skills
-	url = https://github.com/K-Dense-AI/claude-scientific-skills.git

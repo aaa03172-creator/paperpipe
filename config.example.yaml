@@ -3,118 +3,49 @@ system:
   log_level: "INFO"
 
 paths:
-  # Update to your local environment.
-  zotero_base_dir: "/path/to/Zotero/storage"
+  # [USER MUST UPDATE THESE PATHS]
+  zotero_base_dir: "/path/to/Zotero/Papers"
   obsidian_vault: "/path/to/Obsidian/MyVault"
   index_all: "00_Index/paper_collection.csv"
-  index_clinical: "00_Index/clinical_trials.csv"
+  index_clinical: "00_Index/mct_mci_trials.csv"
   upload_dir: "/path/to/NotebookLM_Upload"
   export_dir: "export"
-  watch_folder: "/path/to/PaperPipe_Watch"
-  library_dir: "Library"
-  downloads_watch_dir: "~/Downloads"
-  pdf_storage_dir: "storage/pdfs"
 
 search:
   constraints:
-    # For mixed-source slots, keep up to this many PubMed candidates in the
-    # candidate pool before ranking. PubMed-only slots are not capped by this value.
     min_pubmed: 2
-    # For arXiv or mixed-source slots, keep at most this many preprint candidates
-    # in the candidate pool before ranking.
     max_preprint: 1
+
   slots:
     mechanism:
-      query: '("cell signaling" OR pathway OR receptor OR inflammation OR organoid OR "disease model") AND (disease OR tumor OR immune OR translational OR neural)'
+      query: '(ASM OR "acid sphingomyelinase" OR sphingolipid OR ceramide OR autophagy OR lysosome) AND (microglia OR HMGB1 OR neuroinflammation)'
       source: "pubmed"
     clinical:
-      query: '("clinical trial" OR cohort OR biomarker OR treatment OR therapy OR patient) AND (disease OR disorder OR cancer OR inflammation)'
+      query: '(MCI OR "Mild Cognitive Impairment") AND (MCT OR "Medium-chain triglyceride" OR ketone OR "ketogenic diet")'
       source: "pubmed"
     methods:
-      query: '(assay OR protocol OR workflow OR validation OR "sample preparation" OR imaging OR organoid OR biomaterial) AND (cell OR tissue OR patient OR disease)'
+      query: '"Cre-ER" OR "Cre-loxP" OR tamoxifen OR genotyping OR "recombination efficiency"'
       source: "pubmed"
 
 llm:
-  mode: "local" # Default: local-first
-  local:
-    provider: "ollama"
-    base_url: "http://localhost:11434"
-    models:
-      classifier: "llama3:8b"
-      tagger: "biomistral:7b"
-      embedder: "nomic-embed-text"
-      judge: "llama3:latest"
-      chat: "phi3"
-      extractor: "llama3:8b"
-      one_liner: "phi3"
-      deep_read: "llama3:8b"
-      relevance_analyzer: "llama3:8b"
-  cloud:
-    provider: "openai" # options: openai, anthropic
-    api_key: "" # Prefer the provider-matching env var (OPENAI_API_KEY or ANTHROPIC_API_KEY); leave blank in normal setups.
-    model: "gpt-4o"
-    embedding_model: "text-embedding-3-small"
+  provider: "openai"
+  # API Key should be set in environment variable OPENAI_API_KEY
+  api_key: "" 
+  
+  default_model: "gpt-4o-mini"
+  
   features:
-    clinical_extraction:
+    trial_extraction:
       enabled: true
-      model: "llama3:8b"
-    # Legacy alias `trial_extraction` is still accepted with a deprecation warning
-    # and is scheduled for removal after 2026-06-30.
-    specialty_trial_extraction:
-      enabled: false
-      model: "llama3:8b"
+      model: "gpt-4o-mini"
+    
     slot_classification:
       enabled: true
-      model: "llama3:8b"
+      model: "gpt-4o-mini"
+      
     one_liner:
       enabled: true
-      model: "phi3"
+      model: "gpt-4o-mini"
+      
   timeout_seconds: 120
   max_retries: 2
-
-ingest:
-  parser_backend: "fitz_pdfplumber" # options: fitz_pdfplumber, docling
-  enable_docling: false
-  enable_ocr_fallback: false
-  ocr_lang: "eng"
-  ocr_min_text_chars: 200
-  enable_table_pass2_ocr: false
-  enable_cloud_table_fallback: false
-  cloud_table_page_budget: 1
-  cloud_table_model: "gpt-4o-mini"
-  cloud_table_base_url: null
-  cloud_table_api_key: "" # Prefer OPENAI_API_KEY in the environment; leave blank unless you need an override.
-  cloud_table_timeout_seconds: 30
-
-unpaywall:
-  email: null
-
-confidence_thresholds:
-  high: 0.90
-  low: 0.70
-
-ranking:
-  bibliometrics:
-    enabled: false
-    weights:
-      novelty: 0.4
-      impact: 0.4
-      venue: 0.2
-    thresholds:
-      min_citations: 0.0
-      min_h_index: 0.0
-
-sources: {}
-entity_aliases: {}
-agents:
-  enabled: false
-  backend: "ollama_adapter"
-  main_model: "llama3:latest"
-  rag_index_path: "./storage/rag/"
-  feedback_index_path: "./storage/feedback_index/"
-  tools:
-    retrieval: true
-    python_repl: true
-    web_search: false
-  logging:
-    trace_file: "logs/agent_trace.jsonl"

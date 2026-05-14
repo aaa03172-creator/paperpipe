@@ -1,197 +1,114 @@
-
-import time
 import logging
+import re
 import shutil
+import time
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+from typing import Optional
 
-from src.config import AppConfig
-from src.fetchers import fetch_pubmed
+from pydantic import ValidationError
+from pypdf import PdfReader
+
+from src.config import AppConfig, load_config
+from src.schemas import Paper
+from src.processor import process_paper
+from src.fetchers import fetch_pubmed  
 from src.llm_provider import get_llm_provider
-from src.processor import (
-    derive_saved_issues_state,
-    process_local_pdf as processor_process_local_pdf,
-)
-from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
-from src.obsidian import save_paper_to_obsidian
-from src.zotero import export_to_ris
-from src.schemas import Paper, PaperStatus
-from src.db_utils import save_paper_state
 
-# Setup logger for this module
-logger = logging.getLogger("src.watcher")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
-class PaperFileHandler(FileSystemEventHandler):
-    """
-    Handles file system events for the watch folder.
-    """
-    def __init__(self, process_local_pdf):
-        self.process_local_pdf = process_local_pdf
-
-    def on_created(self, event):
-        if event.is_directory:
-            return
+def extract_doi_from_pdf(pdf_path: Path) -> Optional[str]:
+    """PDF 첫 페이지에서 DOI를 추출합니다."""
+    try:
+        reader = PdfReader(pdf_path)
+        if not reader.pages:
+            return None
+            
+        first_page_text = reader.pages[0].extract_text()
+        # DOI Regex (standard)
+        # Matches: 10.xxxx/xxxxx
+        doi_pattern = r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b'
+        match = re.search(doi_pattern, first_page_text, re.IGNORECASE)
         
-        path = Path(event.src_path)
+        if match:
+            return match.group(1)
+    except Exception as e:
+        logger.warning(f"Failed to extract DOI from {pdf_path}: {e}")
         
-        # Only process PDFs
-        if path.suffix.lower() == ".pdf":
-            # Wait briefly to ensure file handle is released
-            time.sleep(1)
-            logger.info(f"👀 Detected new PDF: {path.name}")
-            try:
-                self.process_local_pdf(path)
-            except Exception as e:
-                logger.error(f"❌ Error processing local PDF {path.name}: {e}")
-
-class WatcherService:
-    def __init__(self, config: AppConfig):
-        self.config = config
-        self.watch_folder = config.paths.watch_folder
-        self.observer = Observer()
-
-    def start(self, processor):
-        """
-        Starts the directory observer.
-        """
-        if not self.watch_folder:
-            logger.error("❌ Watch folder not configured in config.yaml.")
-            return
-
-        # Ensure directory exists
-        if not self.watch_folder.exists():
-            logger.info(f"📁 Creating watch folder: {self.watch_folder}")
-            self.watch_folder.mkdir(parents=True, exist_ok=True)
-
-        event_handler = PaperFileHandler(lambda path: processor.process_local_pdf(path, self.config))
-        self.observer.schedule(event_handler, str(self.watch_folder), recursive=False)
-        self.observer.start()
-        
-        logger.info(f"🔭 Watching for PDFs in: {self.watch_folder}")
-        logger.info("   (Press Ctrl+C to stop)")
-        
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self.observer.stop()
-            logger.info("🛑 Watcher stopped.")
-        
-        self.observer.join()
-
-
-def extract_doi_from_pdf(_path: Path) -> str | None:
-    """Legacy shim retained for tests that patch this symbol."""
     return None
 
+def process_local_pdf(pdf_path: Path, config: AppConfig):
+    """
+    로컬 PDF를 처리합니다.
+    1. DOI 추출
+    2. 메타데이터 검색 (PubMed Fetcher using DOI as term)
+    3. Paper 객체 생성 및 처리
+    4. 라이브러리로 이동
+    """
+    logger.info(f"Processing local PDF: {pdf_path.name}")
+    
+    doi = extract_doi_from_pdf(pdf_path)
+    paper = None
+    
+    if doi:
+        logger.info(f"Found DOI: {doi}. Fetching metadata...")
+        # Use fetch_pubmed with DOI as keyword
+        papers = fetch_pubmed([doi], max_results=1)
+        if papers:
+            paper = papers[0]
+            logger.info(f"Metadata fetched: {paper.title}")
+    
+    if not paper:
+        logger.warning(f"Metadata fetch failed or no DOI. Falling back to basic file info.")
+        paper = Paper(
+            id=doi if doi else f"local-{int(time.time())}",
+            title=pdf_path.stem.replace("_", " "),
+            authors=["Unknown"],
+            published="2024-01-01", # Placeholder
+            source="Unknown",
+            summary="Imported from local watch folder.",
+            link=f"https://doi.org/{doi}" if doi else "",
+            local_pdf_path=pdf_path
+        )
 
-def process_local_pdf(file_path: Path, config: AppConfig | None = None):
-    """Compatibility entrypoint used by legacy tests/scripts."""
-    if config is None:
-        return processor_process_local_pdf(file_path, config=None)
+    # Ensure local path is set (fetcher doesn't set it)
+    paper.local_pdf_path = pdf_path
+    
+    # Trigger Processor
+    llm_provider = get_llm_provider(config.llm)
+    
+    # We assign a default slot "manual" or "clinical" logic?
+    # Let's use 'manual' slot to indicate source.
+    paper_data = {'paper': paper, 'slot': 'manual', 'tags': ['#ManualImport']}
+    
+    try:
+        result = process_paper(paper_data, config, llm_provider, is_deep_target=False)
+        logger.info(f"Successfully processed {paper.title}")
+    except Exception as e:
+        logger.error(f"Error processing {paper.title}: {e}", exc_info=True)
 
-    doi = extract_doi_from_pdf(file_path)
-    fetched = fetch_pubmed([doi], max_results=1) if doi else []
-    paper = fetched[0] if fetched else None
-    if paper is None:
-        fallback_paper = processor_process_local_pdf(file_path, config=config)
-        if isinstance(fallback_paper, Paper):
-            paper = fallback_paper
-        else:
-            return fallback_paper
 
-    llm = get_llm_provider(config.llm, getattr(config, "entity_aliases", {}))
-    analysis_available = bool(llm)
-    tags: list[str] = []
-    confidence = 0.0
-    slot = "manual"
-    tagging_metrics: dict[str, object] = {}
-    slot_metrics: dict[str, object] = {}
-    if llm:
-        tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
-        tags = tag_payload.get("soft_tags", []) or []
-        confidence = float(tag_payload.get("confidence", 0.0) or 0.0)
-        get_tagging_metrics = getattr(llm, "get_tagging_metrics", None)
-        if callable(get_tagging_metrics):
-            metrics_candidate = get_tagging_metrics()
-            if isinstance(metrics_candidate, dict):
-                tagging_metrics = metrics_candidate
+def run_watcher(path: Path, config: AppConfig):
+    """폴더를 주기적으로 스캔하여 새로운 PDF를 처리합니다."""
+    logger.info(f"Starting Watch Folder service on {path}")
+    if not path.exists():
+        logger.error(f"Watch folder {path} does not exist!")
+        return
+
+    while True:
         try:
-            slot = llm.classify_slot({"title": paper.title, "summary": paper.summary}, slot) or slot
-        except Exception:
-            pass
-        get_slot_metrics = getattr(llm, "get_slot_classification_metrics", None)
-        if callable(get_slot_metrics):
-            metrics_candidate = get_slot_metrics()
-            if isinstance(metrics_candidate, dict):
-                slot_metrics = metrics_candidate
-
-    processing_status = PaperStatus.APPROVED if confidence >= 0.8 else PaperStatus.PENDING_REVIEW
-    issues_state = derive_saved_issues_state(
-        processing_status,
-        analysis_available=analysis_available,
-    )
-    intake_override_log = build_intake_override_log(
-        producer="watcher_local_pdf",
-        analysis_available=analysis_available,
-        llm_tagging_used=analysis_available,
-        llm_slot_classification_used=analysis_available,
-        llm_tagging_adjudication_used=bool(tagging_metrics.get("adjudication_triggered")),
-        llm_tagging_adjudication_reason=str(tagging_metrics.get("adjudication_reason") or "").strip() or None,
-        llm_slot_adjudication_used=bool(slot_metrics.get("adjudication_triggered")),
-        llm_slot_adjudication_reason=str(slot_metrics.get("adjudication_reason") or "").strip() or None,
-        input_slot="manual",
-        stored_slot=slot,
-        input_tags=tags,
-        stored_tags=tags,
-        processing_status=processing_status.value,
-        issues_state=issues_state,
-        confidence=confidence,
-    )
-
-    row = {
-        "id": paper.id,
-        "paper_id": paper.id,
-        "doi": str(getattr(paper, "doi", "") or "").strip(),
-        "title": paper.title,
-        "authors": paper.authors,
-        "published": paper.published,
-        "source": paper.source,
-        "summary": paper.summary,
-        "link": paper.link,
-        "slot": slot,
-        "tags": tags,
-        "processing_status": processing_status,
-        "pdf_path": str(file_path),
-        "local_pdf_path": str(file_path),
-    }
-    row["pdf_status"] = "downloaded"
-    row["feedback_json"] = merge_feedback_json_with_intake_override(None, intake_override_log)
-
-    save_paper_to_obsidian(row, config)
-    export_to_ris(row, Path(config.paths.export_dir))
-    save_paper_state(
-        row["paper_id"],
-        row["title"],
-        row["source"],
-        time.strftime("%Y-%m-%d"),
-        doi=row.get("doi") or None,
-        pdf_status=row.get("pdf_status"),
-        local_pdf_path=row["pdf_path"],
-        feedback_json=row["feedback_json"],
-        status=processing_status.value,
-        issues_state=issues_state,
-    )
-    if config.paths.upload_dir:
-        upload_dir = Path(config.paths.upload_dir)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        destination = upload_dir / file_path.name
-        try:
-            if destination.resolve() != file_path.resolve() and not destination.exists():
-                shutil.copy2(file_path, destination)
-        except FileNotFoundError:
-            if not destination.exists():
-                shutil.copy2(file_path, destination)
-    return row
+            # Simple polling
+            for item in path.glob("*.pdf"):
+                # Check if file is completely copied (not changing size)
+                # For simplicity, just process. Real watchers use file system events.
+                process_local_pdf(item, config)
+                
+                # Move to 'processed' folder to avoid loop
+                processed_dir = path / "processed"
+                processed_dir.mkdir(exist_ok=True)
+                shutil.move(str(item), str(processed_dir / item.name))
+                logger.info(f"Moved {item.name} to processed/")
+                
+        except Exception as e:
+            logger.error(f"Watcher loop error: {e}")
+        
+        time.sleep(10)  # Sleep 10 seconds

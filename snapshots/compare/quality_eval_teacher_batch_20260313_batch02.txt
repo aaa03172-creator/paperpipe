@@ -1,6 +1,0 @@
-baseline=/Users/jangseongjin/paperpipe/baselines/quality_eval_teacher_compare_20260310/metrics.json
-new=/Users/jangseongjin/paperpipe/snapshots/quality_eval_teacher_batch_20260313_batch02/metrics.json
-passed=True
-failed_checks=-
-regressions=-
-promotion=-
