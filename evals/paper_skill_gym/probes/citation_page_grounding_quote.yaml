@@ -1,0 +1,14 @@
+probe_id: citation_page_grounding_quote
+taxonomy: citation_page_grounding
+difficulty: easy
+source_excerpt: "Page 7: The primary endpoint was met at week 12. The paragraph is in the Results section."
+prompt: "Return the grounded claim with page and quote support."
+rubrics:
+  - rubric_id: page_mentioned
+    description: "Answer mentions page 7."
+    kind: answer_contains_all
+    terms: ["page 7"]
+  - rubric_id: quote_locator
+    description: "Answer carries a locator or quote."
+    kind: locator_present
+

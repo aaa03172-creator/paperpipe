@@ -1,0 +1,39 @@
+{
+  "run_id": "python3_apple_core_import_health_20260414",
+  "generated_at": "2026-04-14T07:38:21.812471+00:00",
+  "python_bin": "/usr/bin/python3",
+  "timeout_seconds": 5,
+  "probe_count": 3,
+  "ok_count": 0,
+  "error_count": 0,
+  "timeout_count": 3,
+  "results": [
+    {
+      "mode": "no-site",
+      "module": "select",
+      "status": "timeout",
+      "elapsed_seconds": 5.007,
+      "returncode": null,
+      "stdout": "",
+      "stderr_tail": ""
+    },
+    {
+      "mode": "no-site",
+      "module": "subprocess",
+      "status": "timeout",
+      "elapsed_seconds": 5.003,
+      "returncode": null,
+      "stdout": "",
+      "stderr_tail": ""
+    },
+    {
+      "mode": "site",
+      "module": "json",
+      "status": "timeout",
+      "elapsed_seconds": 5.003,
+      "returncode": null,
+      "stdout": "",
+      "stderr_tail": ""
+    }
+  ]
+}

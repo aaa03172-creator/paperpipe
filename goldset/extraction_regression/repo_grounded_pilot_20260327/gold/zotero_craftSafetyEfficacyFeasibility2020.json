@@ -1,0 +1,44 @@
+{
+  "paper_id": "zotero:craftSafetyEfficacyFeasibility2020",
+  "citation": {
+    "title": "Safety, Efficacy, and Feasibility of Intranasal Insulin for the Treatment of Mild Cognitive Impairment and Alzheimer Disease Dementia",
+    "authors_first": "Craft",
+    "year": 2020,
+    "journal_or_server": "JAMA Neurology"
+  },
+  "study_design": {
+    "design": "parallel_rct",
+    "blinding": "double_blind",
+    "control_type": "placebo",
+    "setting": "multi_center",
+    "duration_weeks": 52,
+    "followup_weeks": 26
+  },
+  "population": {
+    "mci_only": false,
+    "n_total": 289
+  },
+  "intervention": {
+    "product_name": "Intranasal insulin",
+    "dose_schedule": "40 IU daily",
+    "duration_weeks": 52,
+    "route": "other"
+  },
+  "comparator": {
+    "description": "Placebo"
+  },
+  "outcomes": {
+    "cognition": [
+      {
+        "name": "ADAS-Cog-12",
+        "effect_direction": "no_change"
+      }
+    ]
+  },
+  "eligibility_flags": {
+    "include_for_mci_mct_review": false
+  },
+  "extraction_quality": {
+    "confidence": "high"
+  }
+}

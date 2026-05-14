@@ -1,0 +1,50 @@
+{
+  "schema_version": "biored.document.v1",
+  "doc_id": "repo-biored-kras-pancreatic",
+  "title": "KRAS variant associates with pancreatic cancer",
+  "abstract": "KRAS G12D is associated with pancreatic cancer.\n\nKRAS remains a common driver mutation in follow-up discussion.",
+  "mentions": [
+    {
+      "mention_id": "gene-1",
+      "entity_type": "GeneOrGeneProduct",
+      "text": "KRAS",
+      "char_start": 0,
+      "char_end": 4,
+      "normalized_ids": [
+        "NCBIGene:3845"
+      ],
+      "entity_id": "entity-gene-1"
+    },
+    {
+      "mention_id": "variant-1",
+      "entity_type": "SequenceVariant",
+      "text": "G12D",
+      "char_start": 5,
+      "char_end": 9,
+      "normalized_ids": [
+        "dbSNP:rs121913529"
+      ],
+      "entity_id": "entity-variant-1"
+    },
+    {
+      "mention_id": "disease-1",
+      "entity_type": "DiseaseOrPhenotypicFeature",
+      "text": "pancreatic cancer",
+      "char_start": 29,
+      "char_end": 46,
+      "normalized_ids": [
+        "MESH:D010190"
+      ],
+      "entity_id": "entity-disease-1"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel-1",
+      "relation_type": "Association",
+      "head_mention_id": "variant-1",
+      "tail_mention_id": "disease-1",
+      "novelty": "background"
+    }
+  ]
+}

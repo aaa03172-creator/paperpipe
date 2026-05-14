@@ -1,0 +1,32 @@
+{
+  "schema_version": "bc5cdr.document.v1",
+  "doc_id": "repo-bc5cdr-aspirin-gastritis",
+  "title": "Aspirin gastritis case note",
+  "abstract": "Aspirin induced gastritis in adults.",
+  "mentions": [
+    {
+      "mention_id": "chem-1",
+      "entity_type": "chemical",
+      "text": "Aspirin",
+      "char_start": 0,
+      "char_end": 7,
+      "normalized_id": "MESH:C0004057"
+    },
+    {
+      "mention_id": "disease-1",
+      "entity_type": "disease",
+      "text": "gastritis",
+      "char_start": 16,
+      "char_end": 25,
+      "normalized_id": "MESH:D005756"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel-1",
+      "relation_type": "chemical_induced_disease",
+      "chemical_mention_id": "chem-1",
+      "disease_mention_id": "disease-1"
+    }
+  ]
+}

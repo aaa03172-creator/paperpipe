@@ -1,0 +1,29 @@
+{
+    admin off
+}
+
+beta.example.com {
+    @health path /health
+    handle @health {
+        reverse_proxy 127.0.0.1:8000 {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    @blocked not remote_ip 203.0.113.7 198.51.100.0/24
+    respond @blocked 403 {
+        body "Forbidden"
+    }
+
+    basicauth {
+        beta $2a$14$REPLACE_WITH_CADDY_HASH
+    }
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

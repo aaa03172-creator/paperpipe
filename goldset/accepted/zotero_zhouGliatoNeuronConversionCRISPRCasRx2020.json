@@ -1,0 +1,102 @@
+{
+  "schema_version": "teacher_verification.v1",
+  "paper_id": "zotero:zhouGliatoNeuronConversionCRISPRCasRx2020",
+  "bundle_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/qreview_probe_20260309/teacher/zotero_zhouGliatoNeuronConversionCRISPRCasRx2020",
+  "teacher_output_path": "/Users/jangseongjin/paperpipe/storage/artifacts/qreview_probe_20260309/teacher/zotero_zhouGliatoNeuronConversionCRISPRCasRx2020/teacher_output.json",
+  "evaluated_at": "2026-03-09T09:08:45.770200+00:00",
+  "accepted": true,
+  "reason_codes": [],
+  "findings": [],
+  "metrics": {
+    "finding_count": 0,
+    "reason_count": 0
+  },
+  "manifest": {
+    "schema_version": "teacher_bundle.v1",
+    "paper_id": "zotero:zhouGliatoNeuronConversionCRISPRCasRx2020",
+    "bundle_id": "qreview_probe_20260309:zotero_zhouGliatoNeuronConversionCRISPRCasRx2020",
+    "created_at": "2026-03-09T09:04:02.127200+00:00",
+    "git_commit": "54ab9fc08c6932a01f07c3e1c04801e75e2dcf71",
+    "model": "llama3:latest",
+    "prompt_version": null,
+    "candidate_reason_codes": [
+      "REVIEW_QUEUE_OPEN"
+    ],
+    "candidate_reason_details": [
+      "decision=NEEDS_EVIDENCE_LINK reason=Evidence span missing location metadata (page/source span)"
+    ],
+    "source": {
+      "db_path": "/Users/jangseongjin/paperpipe/storage/state.db",
+      "artifacts_root": "/Users/jangseongjin/paperpipe/storage/artifacts",
+      "latest_artifact_run_dir": "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:zhouGliatoNeuronConversionCRISPRCasRx2020/run_20260223_145400"
+    },
+    "inputs": {
+      "chunks_file": "input_chunks.jsonl",
+      "chunks_count": 132,
+      "tables_file": "tables.json",
+      "tables_count": 10,
+      "prior_output_file": "prior_output.json"
+    }
+  },
+  "teacher_output": {
+    "doc_id": "file:Zhou 등 - 2020 - Glia-to-Neuron Conversion by CRISPR-CasRx Alleviates Symptoms of Neurological Disease in Mice.pdf",
+    "claims": [
+      {
+        "claim_id": "CLM-001",
+        "type": "finding",
+        "statement": "RGCs can be efficiently converted from MG via Ptbp1 knockdown in the mature retina.",
+        "evidence_spans": [
+          {
+            "page": 4,
+            "chunk_id": "572b3730-07d1-4246-a02a-e633272ca80a",
+            "char_start": null,
+            "char_end": null,
+            "raw_text": "Together, our results showed that RGCs could be efficiently converted from MG via Ptbp1 knockdown in the mature retina.",
+            "quote": "RGCs could be efficiently converted from MG via Ptbp1 knockdown in the mature retina.",
+            "rationale": "This statement is supported by the results presented in the paper, which demonstrate the efficient conversion of MG into RGCs via Ptbp1 knockdown.",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": null,
+            "source_span": null
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.9,
+        "unknown": false,
+        "unknown_reason": null
+      },
+      {
+        "claim_id": "CLM-002",
+        "type": "finding",
+        "statement": "Besides RGCs, MG can also be converted into different subtypes of RGCs.",
+        "evidence_spans": [
+          {
+            "page": 4,
+            "chunk_id": "572b3730-07d1-4246-a02a-e633272ca80a",
+            "char_start": null,
+            "char_end": null,
+            "raw_text": "Suc-cessful induction of RGCs was also confirmed by another strategy at 2–3 weeks after co-injecting AAV-GFAP-mCherry and AAV-EFS-CasRx-Ptbp1 into the retinas of C57BL/6 mice.",
+            "quote": "Suc-cessful induction of RGCs was also confirmed by another strategy at 2–3 weeks after co-injecting AAV-GFAP-mCherry and AAV-EFS-CasRx-Ptbp1 into the retinas of C57BL/6 mice.",
+            "rationale": "This statement is supported by the results presented in the paper, which demonstrate the successful induction of RGCs via Ptbp1 knockdown and the conversion of MG into different subtypes of RGCs.",
+            "bbox_pdf": null,
+            "bbox_pct": null,
+            "highlight_source": "text_match",
+            "table_id": null,
+            "cell_id": null,
+            "unknown_reason": null,
+            "section": null,
+            "source_span": null
+          }
+        ],
+        "limitations": [],
+        "confidence": 0.8,
+        "unknown": false,
+        "unknown_reason": null
+      }
+    ]
+  }
+}

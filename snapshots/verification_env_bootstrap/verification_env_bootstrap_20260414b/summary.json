@@ -1,0 +1,154 @@
+{
+  "run_id": "verification_env_bootstrap_20260414b",
+  "generated_at": "2026-04-14T07:44:37.604433+00:00",
+  "dry_run": false,
+  "probe_runner": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+  "chosen_python_bin": "/opt/homebrew/bin/python3.14",
+  "venv_dir": "/Users/jangseongjin/paperpipe/.venv314",
+  "venv_python": "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+  "clear_existing": true,
+  "requirements_file": "/Users/jangseongjin/paperpipe/requirements.txt",
+  "extra_packages": [
+    "pytest"
+  ],
+  "candidate_probe_results": [
+    {
+      "run_id": "verification_env_bootstrap_20260414b_candidate_1",
+      "generated_at": "2026-04-14T07:44:30.916145+00:00",
+      "python_bin": "/opt/homebrew/bin/python3.14",
+      "timeout_seconds": 5,
+      "probe_count": 2,
+      "ok_count": 2,
+      "error_count": 0,
+      "timeout_count": 0,
+      "results": [
+        {
+          "mode": "no-site",
+          "module": "select",
+          "status": "ok",
+          "elapsed_seconds": 0.016,
+          "returncode": 0,
+          "stdout": "ok",
+          "stderr_tail": ""
+        },
+        {
+          "mode": "no-site",
+          "module": "subprocess",
+          "status": "ok",
+          "elapsed_seconds": 0.029,
+          "returncode": 0,
+          "stdout": "ok",
+          "stderr_tail": ""
+        }
+      ]
+    }
+  ],
+  "create_command": [
+    "/Users/jangseongjin/.local/bin/uv",
+    "venv",
+    "/Users/jangseongjin/paperpipe/.venv314",
+    "--python",
+    "/opt/homebrew/bin/python3.14",
+    "--clear"
+  ],
+  "install_command": [
+    "/Users/jangseongjin/.local/bin/uv",
+    "pip",
+    "install",
+    "--python",
+    "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "-r",
+    "/Users/jangseongjin/paperpipe/requirements.txt",
+    "pytest"
+  ],
+  "venv_import_health_command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/jangseongjin/paperpipe/scripts/check_python_import_health.py",
+    "--python-bin",
+    "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "--timeout-seconds",
+    "5",
+    "--run-id",
+    "verification_env_bootstrap_20260414b_venv_import_health"
+  ],
+  "executed_steps": [
+    {
+      "step": "create_venv",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "Using CPython 3.14.3 interpreter at: /opt/homebrew/opt/python@3.14/bin/python3.14\nCreating virtual environment at: .venv314\nActivate with: source .venv314/bin/activate"
+    },
+    {
+      "step": "install_requirements",
+      "returncode": 0,
+      "stdout_tail": "",
+      "stderr_tail": "ackaging==26.0\n + pdfminer-six==20251230\n + pdfplumber==0.11.9\n + pillow==12.2.0\n + pluggy==1.6.0\n + protobuf==6.33.6\n + pybase64==1.4.3\n + pycparser==3.0\n + pydantic==2.13.0\n + pydantic-core==2.46.0\n + pydantic-settings==2.13.1\n + pygments==2.20.0\n + pymupdf==1.27.2.2\n + pypdf==6.10.0\n + pypdfium2==5.7.0\n + pypika==0.51.1\n + pyproject-hooks==1.2.0\n + pytest==9.0.3\n + python-dateutil==2.9.0.post0\n + python-dotenv==1.2.2\n + python-multipart==0.0.26\n + pyyaml==6.0.3\n + referencing==0.37.0\n + requests==2.33.1\n + requests-oauthlib==2.0.0\n + rich==15.0.0\n + rpds-py==0.30.0\n + sgmllib3k==1.0.0\n + shellingham==1.5.4\n + six==1.17.0\n + sniffio==1.3.1\n + sse-starlette==3.3.4\n + starlette==1.0.0\n + sympy==1.14.0\n + tenacity==9.1.4\n + tokenizers==0.22.2\n + tqdm==4.67.3\n + typer==0.24.1\n + typing-extensions==4.15.0\n + typing-inspection==0.4.2\n + urllib3==2.6.3\n + uvicorn==0.44.0\n + uvloop==0.22.1\n + watchdog==6.0.0\n + watchfiles==1.1.1\n + websocket-client==1.9.0\n + websockets==16.0\n + zipp==3.23.1"
+    }
+  ],
+  "venv_import_health_summary": {
+    "run_id": "verification_env_bootstrap_20260414b_venv_import_health",
+    "generated_at": "2026-04-14T07:44:37.597084+00:00",
+    "python_bin": "/Users/jangseongjin/paperpipe/.venv314/bin/python",
+    "timeout_seconds": 5,
+    "probe_count": 6,
+    "ok_count": 6,
+    "error_count": 0,
+    "timeout_count": 0,
+    "results": [
+      {
+        "mode": "no-site",
+        "module": "select",
+        "status": "ok",
+        "elapsed_seconds": 0.025,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "no-site",
+        "module": "subprocess",
+        "status": "ok",
+        "elapsed_seconds": 0.025,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "typer",
+        "status": "ok",
+        "elapsed_seconds": 0.097,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "fastapi",
+        "status": "ok",
+        "elapsed_seconds": 0.739,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": ""
+      },
+      {
+        "mode": "site",
+        "module": "src.cli",
+        "status": "ok",
+        "elapsed_seconds": 3.415,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": "INFO:paperpipe:Logging initialized at level INFO\n"
+      },
+      {
+        "mode": "site",
+        "module": "backend.main",
+        "status": "ok",
+        "elapsed_seconds": 1.207,
+        "returncode": 0,
+        "stdout": "ok",
+        "stderr_tail": "INFO:httpx:HTTP Request: GET http://localhost:11434/api/tags \"HTTP/1.1 200 OK\"\nINFO:src.llm_provider:Ollama connected successfully at http://localhost:11434\n"
+      }
+    ]
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-03-23",
+  "notes": "Expanded bounded parser eval manifest for ingest backend comparison. Non-empty local PDFs only; mixes Alzheimer's biomarker papers, microbiome reviews, cognitive reserve papers, and general neuroscience articles to expose fallback frequency and section-quality behavior.",
+  "documents": [
+    {
+      "document_id": "ingest-expanded-001",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/1411.2441.pdf",
+      "notes": "ArXiv-style paper with DOI derivation path and long page count."
+    },
+    {
+      "document_id": "ingest-expanded-002",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/barulliEfficiencyCapacityCompensation2013.pdf",
+      "notes": "Shorter cognitive reserve review with light layout complexity."
+    },
+    {
+      "document_id": "ingest-expanded-003",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/chandraGutMicrobiomeAlzheimers2023.pdf",
+      "notes": "Microbiome review with likely table-bearing pages."
+    },
+    {
+      "document_id": "ingest-expanded-004",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonBloodBiomarkersAlzheimers2023.pdf",
+      "notes": "Known docling fallback case; keeps the previous Hansson blocker in view."
+    },
+    {
+      "document_id": "ingest-expanded-005",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/pichetbinetteConfoundingFactorsAlzheimers2023.pdf",
+      "notes": "Moderate-size AD biomarker paper with multiple tables."
+    },
+    {
+      "document_id": "ingest-expanded-006",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/therriaultBiomarkerModelingAlzheimers2022.pdf",
+      "notes": "Longer biomarker paper with raw table-fragment noise."
+    },
+    {
+      "document_id": "ingest-expanded-007",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/arnstenNeuromodulationThoughtFlexibilities2012.pdf",
+      "notes": "General neuroscience review for non-AD layout diversity."
+    },
+    {
+      "document_id": "ingest-expanded-008",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/benedictCognitiveImpairmentMultiple2020.pdf",
+      "notes": "Clinical review with multiple sclerosis focus."
+    },
+    {
+      "document_id": "ingest-expanded-009",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/bialystokBilingualismConsequencesMind2012.pdf",
+      "notes": "Compact cognitive science review with relatively plain pages."
+    },
+    {
+      "document_id": "ingest-expanded-010",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/colomboMicrobiotaderivedShortChain2021.pdf",
+      "notes": "Microbiota-focused review with longer page count."
+    },
+    {
+      "document_id": "ingest-expanded-011",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/craftSafetyEfficacyFeasibility2020.pdf",
+      "notes": "Smaller clinical paper to cover mid-size modern PDF structure."
+    },
+    {
+      "document_id": "ingest-expanded-012",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/duboisClinicalDiagnosisAlzheimers2021.pdf",
+      "notes": "Guideline-style AD diagnosis paper."
+    },
+    {
+      "document_id": "ingest-expanded-013",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/grandeBloodbasedBiomarkersAlzheimers2025.pdf",
+      "notes": "Recent long blood biomarker paper for modern AD layout coverage."
+    },
+    {
+      "document_id": "ingest-expanded-014",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonCSFBiomarkersAlzheimers2018.pdf",
+      "notes": "Older AD biomarker paper with CSF/PET framing."
+    },
+    {
+      "document_id": "ingest-expanded-015",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/jessenCharacterisationSubjectiveCognitive2020.pdf",
+      "notes": "Short guideline-style paper on subjective cognitive decline."
+    },
+    {
+      "document_id": "ingest-expanded-016",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/karikariBloodPhosphorylatedTau2020.pdf",
+      "notes": "Diagnostic biomarker paper likely to stress DOI and table handling."
+    },
+    {
+      "document_id": "ingest-expanded-017",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/olssonCSFBloodBiomarkers2016.pdf",
+      "notes": "Systematic-review style biomarker paper with older PDF layout."
+    },
+    {
+      "document_id": "ingest-expanded-018",
+      "local_path": "/Users/jangseongjin/paperpipe/Library/schindlerHeadtoheadComparisonLeading2024.pdf",
+      "notes": "Longer head-to-head blood test comparison with likely dense tables."
+    }
+  ]
+}

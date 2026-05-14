@@ -1,0 +1,79 @@
+id: dna_mci_medium_chain_triglycerides_probe_20260312
+revision: 3
+title: Mild cognitive impairment and medium-chain triglycerides (probe)
+intent: systematic_review
+status: PILOT
+scope:
+  population:
+  - mild cognitive impairment
+  intervention_or_exposure:
+  - medium-chain triglycerides
+  comparison: []
+  outcomes:
+  - cognition
+  concept_blocks: {}
+criteria:
+  include:
+  - adults with mild cognitive impairment
+  - medium-chain triglyceride intervention or exposure
+  - human clinical study
+  exclude:
+  - animal-only studies
+  - non-cognitive outcomes only
+  - protocol, editorial, or review without primary human data
+recommended_databases:
+- pubmed
+- embase
+available_databases:
+- pubmed
+filters:
+  language:
+  - en
+  study_type:
+  - randomized_controlled_trial
+  - cohort
+query_versions:
+- version: v1
+  mode: recall
+  per_db:
+    pubmed: ("mild cognitive impairment"[Title/Abstract] OR MCI[Title/Abstract]) AND
+      (("medium-chain triglycerides"[Title/Abstract]) OR ("medium chain triglyceride"[Title/Abstract])
+      OR ("medium chain triglyceride oil"[Title/Abstract]) OR MCT[Title/Abstract])
+  change_summary: initial pilot draft query for MCI and medium-chain triglycerides
+  created_at: '2026-03-12T00:00:00Z'
+  created_by: human_cli:codex
+- version: v2
+  mode: precision
+  per_db:
+    pubmed: ("mild cognitive impairment"[Title/Abstract] OR "mild neurocognitive disorder"[Title/Abstract])
+      AND (("medium-chain triglycerides"[Title/Abstract]) OR ("medium chain triglyceride"[Title/Abstract])
+      OR ("medium chain triglyceride oil"[Title/Abstract])) NOT (("systematic review"[Title])
+      OR ("meta-analysis"[Title]) OR ("narrative review"[Title]) OR (review[Publication
+      Type]) OR (hypothesis[Title]))
+  change_summary: remove ambiguous MCT acronym and block review-like titles/publication
+    type after v1 screening noise
+  created_at: '2026-03-12T00:30:00Z'
+  created_by: human_cli:codex
+pilot:
+  n: 20
+  goldset_kind: external_benchmark
+  goldset:
+  - doi:10.1016/j.bbacli.2015.01.001
+  - doi:10.1016/j.jalz.2018.12.017
+  - doi:10.1016/j.neurobiolaging.2022.04.005
+  - doi:10.1002/trc2.12217
+  - doi:10.1002/alz.12206
+  - doi:10.1016/j.plefa.2020.102236
+  goldset_sources:
+  - /Users/jangseongjin/paperpipe/research_dna/dna_mci_medium_chain_triglycerides_probe_20260312/benchmarks/pmc11074881_mci_subset_20260313.yaml
+  - /Users/jangseongjin/paperpipe/research_dna/dna_mci_medium_chain_triglycerides_probe_20260312/benchmarks/pmc9947355_mci_subset_20260313.yaml
+  - /Users/jangseongjin/paperpipe/research_dna/dna_mci_medium_chain_triglycerides_probe_20260312/benchmarks/mci_mct_external_union_20260313.yaml
+  - /Users/jangseongjin/paperpipe/docs/archive/Research_DNA_Bounded_External_Benchmark_Policy_2026-03-13.md
+  goldset_note: 'Promoted from retrospective_provisional to external_benchmark by
+    explicit operator approval on 2026-03-13 after satisfying the bounded external
+    benchmark policy: 2 independent sources, 6 clean included studies, 0 unresolved
+    mixed includes, and latest target run external_benchmark_recall=1.0 (6/6).'
+governance:
+  approved_for_pilot_at: '2026-03-12T05:56:57.967649Z'
+  approved_for_pilot_by: human_cli:codex
+  change_policy: lock after stable pilot precision/noise review
