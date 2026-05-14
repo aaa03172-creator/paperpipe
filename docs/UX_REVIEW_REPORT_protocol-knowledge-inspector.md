@@ -535,6 +535,32 @@ Canonical parent: `docs/ux-review.md`
   - `cd frontend && npm run e2e:backend -- e2e/backend.spec.ts -g "backend protocol knowledge index can seed a standalone draft from an uploaded attachment|backend protocol knowledge detail keeps extraction-failed attachment warnings visible after save|backend paper note detail can attach a protocol file and hand off a mixed draft"`
   - `cd frontend && npm run e2e:mock -- e2e/protocol-card.mock.spec.ts e2e/mock.spec.ts -g "protocol knowledge inspector filters saved cards and opens version-forward detail in mock mode|protocol knowledge inspector keeps second mock card detail aligned with the selected index item|paper note detail fallback points back to runtime checks in mock mode"`
 
+## 7.13) Attachment Source Handoff Order Checkpoint (2026-05-14)
+- Screen/Flow: `/protocol-cards` attachment draft notice and `/protocol-cards/:protocolId` saved attachment provenance card
+- Goal action: 사용자가 raw source를 열거나 내려받기 전에 extraction status, warnings, preview, and saved metadata를 먼저 읽고, source access를 provenance review action으로 이해한다.
+- Primary persona: attachment-derived protocol을 저장하거나 재검토하기 전에 원본 파일과 extracted markdown의 신뢰 경계를 확인하는 연구 운영자
+- Current friction:
+  - raw-source `Open` / `Download` priority는 media-aware로 이미 맞았지만, create notice에서는 warnings가 action 뒤에 있었고 saved detail에서는 action cluster가 metadata/warnings보다 앞에 있었다.
+  - source access 자체는 provenance review action이지만, download/open affordance가 먼저 보이면 warning/status scan을 건너뛸 수 있었다.
+- Quick decision:
+  - URL, `data-priority`, media-aware primary/secondary semantics, backend attachment route는 바꾸지 않는다.
+  - create notice에서는 extraction warning block을 source action 앞에 둔다.
+  - saved detail에서는 metadata, extraction warnings, and preview를 먼저 보여준 뒤 raw-source/bundle/markdown links를 둔다.
+- Quick Review:
+  - P0: source access는 숨기지 않는다. 특히 extraction failure에서는 raw source reopen/download가 필수 recovery action이다.
+  - P1: warning and metadata should precede handoff controls so the action is informed.
+  - P2: keep existing tests and `data-priority` coverage; this is order correction, not a new attachment model.
+- Full Review:
+  - 6P storyboard context: operator uploads or opens an attachment-backed protocol, needs to know whether extraction worked, checks warning/metadata/preview, then opens or downloads the raw source in the right mode.
+  - BMAP: motivation is high because attachments may be opaque; ability remains high because the actions stay visible; prompt improves because warning/status now comes first.
+  - B.I.A.S: Block was action-first download/open controls; Interpret improves when status and warnings frame the action; Act remains direct; Store reinforces attachment provenance as review-first.
+  - Peak-End: peak is seeing extraction status and warning before choosing raw-source access; pit is downloading first and missing extraction failure context; end is source access with provenance already in mind.
+  - Ethics: Regret pass because users are less likely to reuse opaque attachments without seeing warnings. Black Mirror pass because a file action no longer outranks source-quality signals. In Real-Life pass because a careful colleague states status before handing over a file.
+- Concrete change:
+  - Move create-stage attachment warnings above source/bundle/markdown links.
+  - Move saved detail source/bundle/markdown links below metadata, warnings, and preview.
+  - Preserve route contracts and E2E-visible `data-priority` attributes.
+
 ## 7.6) Current Note Context Placement Checkpoint (2026-04-10)
 - Screen/Flow: `/protocol-cards` index create lane
 - Goal action: 사용자가 recent note를 고르거나 note detail에서 prefilled 상태로 들어왔을 때, 현재 저장에 쓰일 note context를 manual fallback보다 먼저 확인한다.

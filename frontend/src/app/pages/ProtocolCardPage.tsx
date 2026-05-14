@@ -1062,6 +1062,15 @@ export function ProtocolCardPage() {
                           </pre>
                         </div>
                       ) : null}
+                      {attachmentDraftWarnings.length > 0 ? (
+                        <div className="mt-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-2 text-[11px] text-[var(--pp-text-secondary)]">
+                          {attachmentDraftWarnings.map((warning) => (
+                            <p key={`${warning.code}-${warning.message}`}>
+                              {warning.code}: {warning.message}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="mt-2 flex flex-wrap gap-2">
                         {attachmentSourceActions.map((action) => (
                           <a
@@ -1106,15 +1115,6 @@ export function ProtocolCardPage() {
                           </a>
                         ) : null}
                       </div>
-                      {attachmentDraftWarnings.length > 0 ? (
-                        <div className="mt-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-2 text-[11px] text-[var(--pp-text-secondary)]">
-                          {attachmentDraftWarnings.map((warning) => (
-                            <p key={`${warning.code}-${warning.message}`}>
-                              {warning.code}: {warning.message}
-                            </p>
-                          ))}
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
 
@@ -1743,51 +1743,6 @@ export function ProtocolCardPage() {
                                       {item.reference.attachmentBundleId}
                                     </p>
                                   </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {sourceActions.map((action) => (
-                                      <a
-                                        key={action.kind}
-                                        href={action.href}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        data-testid={action.testId.replace(
-                                          "protocol-card-attachment",
-                                          "protocol-card-detail-attachment",
-                                        )}
-                                        data-priority={action.primary ? "primary" : "secondary"}
-                                        className={attachmentActionLinkClassName(action.primary, { raisedSurface: true })}
-                                      >
-                                        {action.label}
-                                        {action.kind === "download" ? (
-                                          <ArrowDownToLine className="ml-1.5 h-3.5 w-3.5" />
-                                        ) : (
-                                          <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-                                        )}
-                                      </a>
-                                    ))}
-                                    <a
-                                      href={bundleUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      data-testid="protocol-card-detail-attachment-open-bundle"
-                                      className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 text-[11px] font-medium text-[var(--pp-text-primary)]"
-                                    >
-                                      Open bundle JSON
-                                      <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-                                    </a>
-                                    {markdownUrl ? (
-                                      <a
-                                        href={markdownUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        data-testid="protocol-card-detail-attachment-open-markdown"
-                                        className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 text-[11px] font-medium text-[var(--pp-text-primary)]"
-                                      >
-                                        Open extracted markdown
-                                        <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-                                      </a>
-                                    ) : null}
-                                  </div>
                                 </div>
                                 {bundle ? (
                                   <>
@@ -1867,6 +1822,51 @@ export function ProtocolCardPage() {
                                     Bundle metadata could not be loaded right now: {item.error ?? "Unknown attachment error"}
                                   </p>
                                 )}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {sourceActions.map((action) => (
+                                    <a
+                                      key={action.kind}
+                                      href={action.href}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      data-testid={action.testId.replace(
+                                        "protocol-card-attachment",
+                                        "protocol-card-detail-attachment",
+                                      )}
+                                      data-priority={action.primary ? "primary" : "secondary"}
+                                      className={attachmentActionLinkClassName(action.primary, { raisedSurface: true })}
+                                    >
+                                      {action.label}
+                                      {action.kind === "download" ? (
+                                        <ArrowDownToLine className="ml-1.5 h-3.5 w-3.5" />
+                                      ) : (
+                                        <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                                      )}
+                                    </a>
+                                  ))}
+                                  <a
+                                    href={bundleUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    data-testid="protocol-card-detail-attachment-open-bundle"
+                                    className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 text-[11px] font-medium text-[var(--pp-text-primary)]"
+                                  >
+                                    Open bundle JSON
+                                    <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                                  </a>
+                                  {markdownUrl ? (
+                                    <a
+                                      href={markdownUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      data-testid="protocol-card-detail-attachment-open-markdown"
+                                      className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 text-[11px] font-medium text-[var(--pp-text-primary)]"
+                                    >
+                                      Open extracted markdown
+                                      <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                                    </a>
+                                  ) : null}
+                                </div>
                               </article>
                             );
                           })}
