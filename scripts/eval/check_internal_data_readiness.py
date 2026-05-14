@@ -130,6 +130,9 @@ def _artifact_history_promotion_policy_path() -> Path:
 
 
 def _slot_classification_tuning_review_root() -> Path:
+    value = os.getenv("PAPERPIPE_SLOT_CLASSIFICATION_TUNING_REVIEW_ROOT")
+    if value:
+        return Path(value).expanduser().resolve()
     return (ROOT / "snapshots" / "slot_classification_tuning_review").resolve()
 
 
