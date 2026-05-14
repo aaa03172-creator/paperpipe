@@ -1,5 +1,0 @@
-paper_id,doi,title,summary,full_text,current_slot,gold_slot
-paper-clinical-001,10.1000/example-clinical-001,Plasma biomarker study in mild cognitive impairment,Human cohort biomarker study with plasma markers from 120 patients.,,mechanism,clinical
-paper-mechanism-001,10.1000/example-mechanism-001,Autophagy pathway rescue in mouse stroke model,Mouse ischemia model showing pathway rescue through autophagy modulation.,Introduction mouse ischemia model Methods autophagy modulation Results pathway rescue,clinical,mechanism
-paper-methods-001,10.1000/example-methods-001,Validation of a multiplex cytokine assay,Study focuses on validating a new multiplex assay protocol across benchmark samples.,,methods,methods
-paper-mechanism-002,10.1000/example-mechanism-002,Neuroinflammation progression in Epg5 variant mice,Mouse model study on neuroinflammation and motor deficits in a pathogenic variant.,,mechanism,mechanism
