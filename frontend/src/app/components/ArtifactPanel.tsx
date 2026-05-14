@@ -133,7 +133,10 @@ function getGroundingBadge(grounded?: boolean | null, resolution?: string | null
       className: "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]",
     };
   }
-  return null;
+  return {
+    label: "Not recorded",
+    className: "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-dim)]",
+  };
 }
 
 function getPaperSynthesisReadinessBadgeClassName(readiness: PaperSynthesisListItem["readiness"]): string {
@@ -796,6 +799,7 @@ export function ArtifactPanel({
                 href={getPaperSynthesisMarkdownUrl(paperSynthesis.synthesis_id)}
                 target="_blank"
                 rel="noreferrer"
+                title="Inspect source refs and trust reopen path before relying on compiled markdown."
                 onClick={() =>
                   logEvidenceReviewAction("workbench_open_paper_synthesis_markdown", {
                     origin: "compiled_knowledge_card",
@@ -804,7 +808,7 @@ export function ArtifactPanel({
                     readiness: paperSynthesis.readiness,
                     freshness: paperSynthesis.freshness,
                   })}
-                className="inline-flex rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-2.5 py-1 text-xs text-[var(--pp-accent-text)]"
+                className="inline-flex rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface)] px-2.5 py-1 text-xs text-[var(--pp-text-secondary)]"
               >
                 Open markdown
               </a>

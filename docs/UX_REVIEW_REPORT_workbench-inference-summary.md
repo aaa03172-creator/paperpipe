@@ -214,6 +214,31 @@ Canonical parent: `docs/UX_REVIEW_TEMPLATE.md`
   - Reset copied state when the workbench paper id changes.
   - Update backend E2E coverage for the saved-state header context.
 
+## 2026-05-14 checkpoint: Compiled Markdown Handoff Emphasis
+- Screen/Flow: `AnalysisWorkbench` artifact panel `Compiled knowledge` card
+- Goal action: let operators open the saved compiled markdown when needed without reading it as a primary trust action ahead of source refs, evidence refs, warnings, and lineage.
+- Primary persona: operator reviewing compiled paper synthesis before using the prose downstream.
+- Current friction:
+  - The card already labels the lane `Non-canonical`, shows source/evidence/warning counts, and provides a `Trust reopen path` plus `Inspect source refs`.
+  - The final `Open markdown` link still used accent treatment, so the raw compiled note could visually compete with upstream lineage review.
+- Quick decision:
+  - Keep the markdown URL, audit log action, and popup behavior unchanged.
+  - Lower only the visual treatment from accent to secondary outline and add a title reminding users to inspect source refs and trust reopen path first.
+- Quick Review:
+  - P0: do not hide raw markdown access; it remains an audit/handoff path.
+  - P1: compiled prose should not be visually stronger than lineage and source-ref review.
+  - P2: title copy is supportive only; the card structure remains the main trust boundary.
+- Full Review:
+  - 6P storyboard context: researcher sees compiled prose exists, worries whether it can be reused, checks source/evidence/warning counts and lineage, then opens markdown only when they need the derived note itself.
+  - BMAP: motivation is high for downstream reuse; ability remains high because the link stays visible; prompt shifts from “open this now” to “review lineage first, then open if needed.”
+  - B.I.A.S: Block is an accent handoff competing with trust signals; Interpret improves when the link reads as secondary audit access; Act remains one click; Store reinforces compiled knowledge as non-canonical.
+  - Peak-End: peak is seeing the trust reopen path before compiled prose; pit is treating markdown polish as reviewed truth; end is an opened markdown artifact with provenance context already in mind.
+  - Ethics: Regret pass because users are less likely to reuse prose without context. Black Mirror pass because polished derived text does not outrank uncertainty. In Real-Life pass because a careful teammate would point to sources before handing over the prose.
+- Concrete change:
+  - Change `Open markdown` from accent treatment to secondary outline treatment.
+  - Add title copy: `Inspect source refs and trust reopen path before relying on compiled markdown.`
+  - Preserve `workbench_open_paper_synthesis_markdown` audit logging and `/api/paper-syntheses/:id/markdown` URL.
+
 ## Verification
 - `python3 scripts/lint_docs.py docs/UX_REVIEW_REPORT_workbench-inference-summary.md`
 - `cd frontend && npm run build`
