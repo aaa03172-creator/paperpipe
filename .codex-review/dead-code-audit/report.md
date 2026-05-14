@@ -5,7 +5,7 @@
 Overall cleanup opportunity: Medium
 Overall removal risk: Medium / High
 
-Safest to remove first:
+Safest cleanup candidates originally identified:
 `src/test_download.py`, no-op `log_workflow_step`, unused private frontend exports, root `inspect_*.py` probes, and `copy_case.py`.
 
 Follow-up cleanup completed:
@@ -17,11 +17,14 @@ Unused-looking but risky:
 Highest-risk duplicate logic:
 Artifact bundle rollback/persistence helpers remain the highest-risk duplicate logic, but failure-injection coverage was strengthened for the artifact stores reviewed: Meeting Pack, Protocol Card, Chart Pack, Image Evidence, Talk Pack, Method Comparison, Paper Synthesis, Project Memory, and Protocol Attachment. A D4 per-store difference review now records why helper extraction should happen by store family rather than as one broad rewrite; the first shared helper extraction has been applied only to simple text bundle stores. Paper/Zotero identity expansion now has shared helpers and focused route-level regression coverage; broader API alias-contract sweeps can still be added if more surfaces are changed.
 
-Obsolete legacy code to investigate first:
+Obsolete legacy code to investigate first, not remove directly:
 The paper-synthesis compatibility route and root legacy instructions, followed by manual probe scripts.
 
 Do not remove without manual verification:
 Public routes, Typer command functions, FastAPI router handlers, skill registry actions, worker/job code, `src/providers/*`, and config aliases with scheduled removal dates.
+
+Phase 4 follow-up:
+High-risk candidates now have a dedicated manual-verification checklist in `phase4-manual-verification.md`. Current evidence reclassifies `/feedback` and `/artifact-feedback` as active runtime surfaces, `/api/chat` as a deliberate stub-only compatibility surface, Talk Pack as a bounded API/export surface without a first-party frontend route, and the legacy `trial_extraction` alias as blocked until the 2026-06-30 removal window.
 
 ## 2. Scope reviewed
 
@@ -41,27 +44,27 @@ External callers, private local scripts, cron/automation usage, runtime request 
 
 | ID | Item | Type | Status | File/line | Evidence strength | Removal risk | Suggested action |
 |---|---|---|---|---|---|---|---|
-| U1 | `src/test_download.py` | Script | Confirmed unused | `src/test_download.py:2` | Strong | Low | Remove/archive |
-| U2 | `save_embedding`, `get_all_embeddings` | Functions | Confirmed unused | `src/db.py:355`, `src/db.py:375` | Strong internal | Medium | Cleaned after audit; keep public import risk in review notes |
-| U3 | `log_workflow_step` | Function | Confirmed unused | `src/db_utils.py:831` | Strong | Low | Cleaned after audit |
-| U4 | `lifecycleToPaperStatus` | Export | Confirmed unused | `frontend/src/app/lib/ui.ts:22` | Strong | Low | Cleaned after audit |
-| U5 | Paper-note ops helpers | Exports | Confirmed unused | `frontend/src/app/lib/paperNoteOps.ts:30`, `:56` | Strong | Low | Cleaned after audit |
-| U6 | `fetch_arxiv` legacy helper | Function | Probably unused | `src/fetchers.py:23` | Good | Medium | Cleaned after audit; external/manual import risk remains review-only |
-| U7 | Retraction audit path | Script/service | Needs verification | `src/audit_retractions.py:12`, `src/retraction.py:7` | Medium | Medium | Confirm operator workflow |
-| U8 | `ChartValueKind`, `PaperSynthesisResponse` | Types | Probably unused | `frontend/src/app/lib/types.ts:668`, `:1058` | Strong internal | Low/Medium | Cleaned after audit |
-| U9 | `src/providers/*` | Modules | Do not remove | `src/providers/base.py:1` | Strong internal | High | Deprecate first |
-| U10 | `inspect_*.py` | Scripts | Probably unused | `inspect_agent.py:2` etc. | Strong | Low | Cleaned after audit |
-| U11 | `copy_case.py` | Script | Probably unused | `copy_case.py:5` | Strong | Low | Cleaned after audit |
+| U1 | `src/test_download.py` | Script | Cleaned after audit | `src/test_download.py:2` | Strong | Low | No pending removal |
+| U2 | `save_embedding`, `get_all_embeddings` | Functions | Cleaned after audit | `src/db.py:355`, `src/db.py:375` | Strong internal | Medium | Cleaned after audit; keep public import risk in review notes |
+| U3 | `log_workflow_step` | Function | Cleaned after audit | `src/db_utils.py:831` | Strong | Low | Cleaned after audit |
+| U4 | `lifecycleToPaperStatus` | Export | Cleaned after audit | `frontend/src/app/lib/ui.ts:22` | Strong | Low | Cleaned after audit |
+| U5 | Paper-note ops helpers | Exports | Cleaned after audit | `frontend/src/app/lib/paperNoteOps.ts:30`, `:56` | Strong | Low | Cleaned after audit |
+| U6 | `fetch_arxiv` legacy helper | Function | Cleaned after audit | `src/fetchers.py:23` | Good | Medium | Cleaned after audit; external/manual import risk remains review-only |
+| U7 | Retraction audit path | Script/service | Needs operator confirmation | `src/audit_retractions.py:12`, `src/retraction.py:7` | Medium | Medium | Confirm operator workflow before any archive/remove proposal |
+| U8 | `ChartValueKind`, `PaperSynthesisResponse` | Types | Cleaned after audit | `frontend/src/app/lib/types.ts:668`, `:1058` | Strong internal | Low/Medium | Cleaned after audit |
+| U9 | `src/providers/*` | Modules | Do not remove yet | `src/providers/base.py:1` | Strong internal | High | Deprecate first; do not delete directly |
+| U10 | `inspect_*.py` | Scripts | Cleaned after audit | `inspect_agent.py:2` etc. | Strong | Low | Cleaned after audit |
+| U11 | `copy_case.py` | Script | Cleaned after audit | `copy_case.py:5` | Strong | Low | Cleaned after audit |
 
 ## 4. Unreachable code summary
 
 | ID | Item | Expected entry point | Actual reachability | Status | Risk | Suggested action |
 |---|---|---|---|---|---|---|
-| R1 | Global feedback/review-log routers | First-party UI/API producers | Mounted API, no frontend caller found | Needs verification | Medium | Document producer or add caller/tests |
-| R2 | Talk Pack API | Frontend Talk Pack route | Backend mounted, no UI route | Needs verification | Medium | Keep API/test-only or add UI later |
-| R3 | `/api/chat` behavior | Chat execution | Route reachable, useful behavior always 501 | Confirmed unreachable | High | Reserved-contract or deprecation decision |
-| R4 | Retraction audit | Cron/CLI/scheduler | Only self-entry found | Probably unreachable | Medium | Confirm automation/manual use |
-| R5 | `fetch_arxiv` | Legacy fetch path | No caller found | Probably unreachable | Medium | Verify external import before removal |
+| R1 | Global feedback/review-log routers | First-party UI/API producers | Mounted API; no frontend caller found, but active runtime/admin surface | Do not remove | High | Keep; document producer if needed |
+| R2 | Talk Pack API | Frontend Talk Pack route | Backend mounted/tested/documented, no UI route | Do not remove yet | High | Keep as bounded API/export surface; handle via roadmap/API governance |
+| R3 | `/api/chat` behavior | Chat execution | Route reachable, useful behavior always 501 by design | Do not remove | High | Keep as stub-only compatibility surface |
+| R4 | Retraction audit | Cron/CLI/scheduler | Only self-entry found | Needs operator confirmation | Medium | Confirm automation/manual use before any archive/remove proposal |
+| R5 | `fetch_arxiv` | Legacy fetch path | No caller found | Cleaned after audit | Medium | No pending removal; external import risk remains review-only |
 
 ## 5. Duplicate logic summary
 
@@ -77,10 +80,10 @@ External callers, private local scripts, cron/automation usage, runtime request 
 
 | ID | Item | Why obsolete | Current usage | Risk if kept | Risk if removed | Suggested action |
 |---|---|---|---|---|---|---|
-| L1 | Paper synthesis bundle route | Deprecated; split routes preferred | No first-party frontend use found | API bloat | External callers break | Verify runtime hits first |
-| L2 | Legacy trial extraction alias | Scheduled rename | Active compatibility until 2026-06-30 | Naming ambiguity | Config break before date | Re-check after date |
+| L1 | Paper synthesis bundle route | Deprecated; split routes preferred | First-party ready, external deletion not confirmed | API bloat | External callers break | Keep until runtime/external proof |
+| L2 | Legacy trial extraction alias | Scheduled rename | Active compatibility until 2026-06-30 | Naming ambiguity | Config break before date | Re-check after removal window opens |
 | L3 | `src/providers/*` | Re-export wrappers | No internal use | Duplicate import surface | External import break | Deprecate first |
-| L4 | `/api/chat` stub | Always 501 | Reserved/stub route | Confusion | Client/docs break | Decide reserved vs deprecated |
+| L4 | `/api/chat` stub | Always 501 | Deliberate reserved/stub route | Confusion | Client/docs break | Keep unless formally deprecated |
 | L5 | Root legacy instructions | Conflicts with AGENTS/current SSOT | No tooling refs found | Agent confusion | Historical loss | Archive/mark historical |
 | L6 | Manual probe scripts | Stale/ad hoc | No refs found | Stale deps/noise | Manual diagnostics lost | Archive/remove |
 | L7 | Tracked MagicMock Chroma artifacts | Generated/mock artifacts | No production refs expected | Repo noise | Fixture risk | Cleaned after targeted verification |
@@ -92,6 +95,7 @@ See `removal-risk-matrix.md`.
 ## 8. Recommended cleanup order
 
 See `cleanup-plan.md`.
+For high-risk compatibility/public surfaces, see `phase4-manual-verification.md`.
 
 ## 9. Commands and validation
 
@@ -119,6 +123,8 @@ Commands run:
 - Follow-up D4 extended rollback verification: `.venv/bin/python -m pytest -q tests/test_project_memory_store.py tests/test_protocol_attachment_store.py` passed with 13 tests after adding Project Memory and Protocol Attachment preservation checks.
 - Follow-up D4 full reviewed-store verification: `.venv/bin/python -m pytest -q tests/test_method_comparison_store.py tests/test_paper_synthesis_store.py tests/test_image_evidence_store.py tests/test_talk_pack_store.py tests/test_chart_pack_store.py tests/test_meeting_pack_store.py tests/test_protocol_card_store.py tests/test_project_memory_store.py tests/test_protocol_attachment_store.py` passed with 64 tests.
 - Follow-up D4 helper extraction verification: `python3 -m py_compile src/services/artifact_transactions.py src/meeting_packs/store.py src/method_comparisons/store.py src/paper_syntheses/store.py src/project_memory/store.py` passed; `.venv/bin/python -m pytest -q tests/test_meeting_pack_store.py tests/test_method_comparison_store.py tests/test_paper_synthesis_store.py tests/test_project_memory_store.py` passed with 28 tests; the full reviewed-store D4 gate remained `64 passed`.
+- Follow-up Phase 4 verification: paper-synthesis compatibility route usage audit reported `offender_count=0`; route removal readiness reported `active_surface_ready=true` but `ready_to_delete_api_bundle_route_now=false`; legacy trial alias audit reported `offender_count=0`; legacy trial alias readiness reported `removal_window_open=false` and `ready_to_remove_alias_now=false` for 2026-05-14.
+- Final local evidence exhaustion pass: checked local crontab, macOS LaunchAgents/LaunchDaemons, Codex automations, local PKB references, and focused PaperPipe project/worktree references. No active local scheduler or independent operator script was found for `src/audit_retractions.py`; no independent local `src.providers` caller was found; Paper Synthesis compatibility route still lacks external-caller proof.
 - Follow-up D5 middleware contract verification: `.venv/bin/python -m pytest -q tests/test_browser_request_audit_api.py` passed with 12 tests after strengthening rate-limit response and audit payload assertions.
 - Follow-up D5 helper extraction verification: `python3 -m compileall backend/main.py` and `.venv/bin/python -m pytest -q tests/test_browser_request_audit_api.py` passed after extracting `_rate_limit_response` and `_rate_limit_audit_payload`.
 - Follow-up reference check for removed/centralized symbols was run with `rg`; remaining matches are audit docs or unrelated backend schema names, not removed frontend symbols.
@@ -149,3 +155,6 @@ FastAPI route registration, Typer command decorators, React lazy routes, skill r
 
 External callers that cannot be checked from this repository:
 Packaged users, private operator scripts, API clients, docs/bookmarks, and existing production deployments.
+
+Final local closeout:
+Local evidence has been exhausted for this lane. Remaining blockers require evidence outside this repository/local automation set: deployment request logs, packaged-user/import telemetry, or explicit operator confirmation.

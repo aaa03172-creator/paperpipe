@@ -2,7 +2,7 @@
 
 ## Obsolete or legacy candidate: L1 Paper synthesis compatibility bundle route
 
-Status: Probably obsolete
+Status: Do not remove yet
 File/line:
 `backend/routers/paper_syntheses.py:91`
 Evidence:
@@ -10,7 +10,7 @@ Route is marked `deprecated=True`; docs and headers point callers to `/manifest`
 Original purpose, if inferable:
 Compatibility response bundling manifest plus markdown for older callers.
 Current usage:
-No first-party frontend usage found; tests/scripts explicitly guard removal readiness.
+No first-party frontend usage found; tests/scripts explicitly guard removal readiness. Follow-up readiness on 2026-05-14 reported `active_surface_ready=true` but `ready_to_delete_api_bundle_route_now=false`.
 Why it appears obsolete:
 First-party clients have moved to split manifest/markdown routes.
 Risk if removed:
@@ -24,7 +24,7 @@ Suggested verification:
 
 ## Obsolete or legacy candidate: L2 legacy trial extraction feature alias
 
-Status: Confirmed obsolete
+Status: Do not remove yet
 File/line:
 Legacy trial extraction constants in `src/`, plus `src/config.py:163` and `src/config.py:216`
 Evidence:
@@ -32,7 +32,7 @@ Removal date is `2026-06-30`; config warns to use `specialty_trial_extraction`.
 Original purpose, if inferable:
 Backward-compatible config alias during feature rename.
 Current usage:
-Readiness script reports active surface clean but removal window not open on 2026-05-10.
+Readiness script reports active surface clean, but the removal window was not open on 2026-05-10 or 2026-05-14.
 Why it appears obsolete:
 New name exists and old name has scheduled removal.
 Risk if removed:
@@ -46,7 +46,7 @@ Run the legacy trial extraction removal-readiness script against the current roo
 
 ## Obsolete or legacy candidate: L3 `src/providers/*` downloader compatibility package
 
-Status: Probably obsolete
+Status: Do not remove yet
 File/line:
 `src/providers/base.py:1`, `src/providers/arxiv.py:1`, `src/providers/unpaywall.py:3`
 Evidence:
@@ -62,13 +62,13 @@ High if external/local scripts import `src.providers`.
 Risk if kept:
 Duplicate public import surface and old patch targets.
 Suggested action:
-Deprecate and search external/local users before deleting.
+Deprecate and search external/local users before deleting; do not remove directly.
 Suggested verification:
 Import audit outside repo plus `pytest -q tests/test_downloader.py tests/test_cli_unpaywall_smoke.py`.
 
 ## Obsolete or legacy candidate: L4 `/api/chat` stub-only reserved route
 
-Status: Needs verification
+Status: Do not remove
 File/line:
 `backend/main.py:4804`
 Evidence:
@@ -76,7 +76,7 @@ Both enabled and disabled branches return HTTP 501.
 Original purpose, if inferable:
 Reserved future chat/memory/RAG contract.
 Current usage:
-Route exists; no implemented chat behavior.
+Route exists; no implemented chat behavior. Follow-up Phase 4 review confirms it is documented and tested as a deliberate stub-only compatibility surface.
 Why it appears obsolete:
 If no longer reserved, it is dead product surface.
 Risk if removed:
@@ -84,7 +84,7 @@ High if docs/tests/future clients depend on a stable stub.
 Risk if kept:
 User/API confusion.
 Suggested action:
-Explicitly classify as reserved contract or start deprecation.
+Keep as reserved/stub compatibility contract unless a formal deprecation replaces it.
 Suggested verification:
 Search API docs/tests and planned Chat work.
 
@@ -112,7 +112,7 @@ Suggested verification:
 
 ## Obsolete or legacy candidate: L6 Manual probe scripts
 
-Status: Probably obsolete
+Status: Partially cleaned after audit; remaining probes are probably obsolete
 File/line:
 `inspect_agent.py:2`, `inspect_config.py:2`, `src/test_download.py:2`, `scripts/test_phase3_integration.py:16`
 Evidence:
@@ -128,13 +128,13 @@ Low / Medium if a developer still uses them manually.
 Risk if kept:
 Stale dependency noise and accidental execution.
 Suggested action:
-Archive/remove in low-risk cleanup.
+No pending removal remains for the already-cleaned probes in this audit lane. Confirm any remaining manual server/probe scripts with maintainers before proposing archive/removal.
 Suggested verification:
 Repo-wide search and ask current maintainers.
 
 ## Obsolete or legacy candidate: L7 Tracked generated `<MagicMock ...>` Chroma artifacts
 
-Status: Probably obsolete
+Status: Cleaned after audit (was probably obsolete)
 File/line:
 Tracked paths beginning `<MagicMock name='load_config().agents.__getitem__()' ...>/chroma.sqlite3`
 Evidence:
@@ -150,6 +150,6 @@ Low / Medium; could affect tests only if accidentally encoded as fixtures.
 Risk if kept:
 Repository noise and misleading source scans.
 Suggested action:
-Treat as non-code cleanup candidate, not production dead code. Remove only after confirming tests do not use them as fixtures.
+No pending removal remains in this audit lane. Treat as non-code cleanup context if similar generated artifacts reappear.
 Suggested verification:
 `rg -n "MagicMock name='load_config" .` and targeted RAG/indexer tests.

@@ -5,7 +5,7 @@
 Follow-up status:
 Completed after the audit.
 
-Items to clean up:
+Items cleaned:
 U1 `src/test_download.py`; U3 `log_workflow_step`; U4 `lifecycleToPaperStatus`; U5 unused paper-note ops helpers; U10 `inspect_*.py`; U11 `copy_case.py`.
 Reason:
 Strong no-reference evidence, no framework registration, no public API route exposure.
@@ -21,7 +21,7 @@ Restore individual files/functions from git if a manual workflow surfaces.
 Follow-up status:
 Mostly completed after the audit: U2, U6, U8, and L7 were cleaned. Remaining risk is external/manual compatibility rather than first-party reachability.
 
-Items to clean up:
+Items cleaned:
 U2 `src/db.py` embedding helpers; U6/R5 `src/fetchers.py::fetch_arxiv`; U8 unused frontend contract types; L7 tracked MagicMock Chroma artifacts if not fixtures.
 Reason:
 Likely unused internally, but public import/fixture concerns exist.
@@ -37,7 +37,7 @@ Keep removals in small commits by category so any fixture/public-import fallout 
 Follow-up status:
 D1's known frontend fallback issue-state drift was aligned with backend behavior. D2 was partially consolidated into shared backend/frontend identity helpers with parameterized and route-level alias tests. D3 now has focused backend golden tests. D4 now has stronger rollback preservation tests across the artifact stores reviewed, including Project Memory and Protocol Attachment; the first shared transaction helper extraction is now applied only to simple text bundle stores. D5 now has stronger rate-limit response/audit payload contract tests plus shared rate-limit response and audit payload helpers; broader middleware reshaping remains open because it touches security/audit behavior.
 
-Items to clean up:
+Items/families reviewed:
 D1 note-backed paper summary synthesis; D2 paper/Zotero ID expansion; D3 ops-summary derivation; D4 artifact bundle rollback helpers; D5 API rate-limit/audit helpers.
 Reason:
 These are not dead code, but they create correctness and maintenance risk.
@@ -51,9 +51,9 @@ Consolidate one rule/family at a time. Preserve old behavior byte-for-byte befor
 ## Phase 4: High-risk legacy/public/dynamic surfaces
 
 Follow-up status:
-Not cleaned. These remain manual-verification or deprecation-policy items.
+Not cleaned. These remain manual-verification or deprecation-policy items. A dedicated checklist now exists in `phase4-manual-verification.md`.
 
-Items to clean up:
+Items in this high-risk/manual-verification lane:
 U7/R4 retraction audit path; U9/L3 `src/providers/*`; R1 global feedback/review-log routers; R2 Talk Pack API-only surface; R3/L4 `/api/chat`; L1 paper synthesis compatibility bundle route; L2 legacy trial extraction alias after 2026-06-30; L5 root legacy instructions.
 Reason:
 These look obsolete/disconnected but may be used externally, manually, dynamically, or by public API contracts.
@@ -64,10 +64,16 @@ Runtime request-audit checks, external/client search, crontab/automation review,
 Rollback notes:
 Prefer formal deprecation PRs before deletion. Keep compatibility redirects or stubs where external caller uncertainty remains.
 
+Current Phase 4 status:
+`/api/chat` is a deliberate stub-only compatibility surface; `/feedback` and `/artifact-feedback` are active runtime surfaces; Talk Pack is a bounded API/export surface without a first-party frontend route; Paper Synthesis compatibility route is first-party ready but not externally safe to delete; `src/providers/*` remains a legacy public-import risk; retraction audit needs operator confirmation; `trial_extraction` alias is blocked until the 2026-06-30 removal window.
+
+Next Phase 4 action:
+Treat `src/providers/*` as a deprecation-planning item, not a deletion item. Treat `src/audit_retractions.py` as the only remaining repo-internal candidate that may be archivable after operator workflow checks; keep `src/retraction.py` and retraction rendering/schema support separate from that decision. Local evidence has been exhausted; any further closure requires deployment logs, packaged-user/import evidence, or explicit operator confirmation outside this repo/local automation set.
+
 ## Recommended sequence
 
 1. Land completed Phase 1/2 cleanup as one bounded cleanup lane if the existing dirty tree can be separated cleanly.
 2. Treat D2 as partially closed unless future alias surfaces are changed; add broader API alias sweeps only with those changes.
 3. For D4, keep `d4-store-differences.md` as the extraction gate; the simple text helper is done, while managed text and mixed/binary stores should remain separate until a focused helper stays smaller than the duplicated logic.
 4. Treat any deeper D1 backend-owned contract extraction and D5 as separate PR-sized refactors with tests first.
-4. Treat Phase 4 as product/API governance work, not ordinary dead-code deletion.
+5. Treat Phase 4 as product/API governance work, not ordinary dead-code deletion.

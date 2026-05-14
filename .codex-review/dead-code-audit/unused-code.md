@@ -2,7 +2,7 @@
 
 ## Unused candidate: U1 `src/test_download.py`
 
-Status: Confirmed unused
+Status: Cleaned after audit (was confirmed unused)
 Type: File / Script
 File/line:
 `src/test_download.py:2-10`
@@ -18,7 +18,7 @@ Production reachability:
 Not reachable from FastAPI, CLI, worker, CI, package scripts, or frontend.
 Removal risk: Low
 Suggested action:
-Remove or move to archived manual probes after checking local operator habits.
+No pending removal remains in this audit lane. If restored later, treat it as an archived manual probe and re-check local operator habits.
 Suggested verification:
 `rg -n "src.test_download|test_download.py"` and ask/inspect shell aliases outside repo if needed.
 Suggested test/check after removal:
@@ -26,7 +26,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U2 `src/db.py` embedding helpers
 
-Status: Confirmed unused
+Status: Cleaned after audit (was confirmed unused)
 Type: Function
 File/line:
 `src/db.py:355`, `src/db.py:375`
@@ -42,7 +42,7 @@ Production reachability:
 Not reached from current FastAPI, CLI, worker, indexer, or tests found.
 Removal risk: Medium
 Suggested action:
-Deprecate or remove only after confirming `src.db` public compatibility policy.
+No pending removal remains in this audit lane. Keep the public import compatibility risk in review notes if this helper surface is restored.
 Suggested verification:
 Search packaged/user scripts and run import-health checks.
 Suggested test/check after removal:
@@ -50,7 +50,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U3 `src/db_utils.py::log_workflow_step`
 
-Status: Confirmed unused
+Status: Cleaned after audit (was confirmed unused)
 Type: Function
 File/line:
 `src/db_utils.py:831`
@@ -66,7 +66,7 @@ Production reachability:
 None found.
 Removal risk: Low
 Suggested action:
-Remove in a small cleanup PR or replace with a documented no-op only if external API compatibility is desired.
+No pending removal remains in this audit lane.
 Suggested verification:
 Repo and package import search.
 Suggested test/check after removal:
@@ -74,7 +74,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U4 `frontend/src/app/lib/ui.ts::lifecycleToPaperStatus`
 
-Status: Confirmed unused
+Status: Cleaned after audit (was confirmed unused)
 Type: Export
 File/line:
 `frontend/src/app/lib/ui.ts:22`
@@ -90,7 +90,7 @@ Production reachability:
 None found.
 Removal risk: Low
 Suggested action:
-Remove export.
+No pending removal remains in this audit lane.
 Suggested verification:
 `cd frontend && npm run build`.
 Suggested test/check after removal:
@@ -98,7 +98,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U5 Paper note ops frontend helpers
 
-Status: Confirmed unused
+Status: Cleaned after audit (was confirmed unused)
 Type: Export
 File/line:
 `frontend/src/app/lib/paperNoteOps.ts:30`, `frontend/src/app/lib/paperNoteOps.ts:56`
@@ -114,7 +114,7 @@ Production reachability:
 None found.
 Removal risk: Low
 Suggested action:
-Remove unused exports.
+No pending removal remains in this audit lane.
 Suggested verification:
 `cd frontend && npm run build`.
 Suggested test/check after removal:
@@ -122,7 +122,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U6 `src/fetchers.py::fetch_arxiv`
 
-Status: Probably unused
+Status: Cleaned after audit (was probably unused)
 Type: Function
 File/line:
 `src/fetchers.py:23`
@@ -138,7 +138,7 @@ Production reachability:
 Not reached by current processor, which uses `src.fetch.get_fetchers`.
 Removal risk: Medium
 Suggested action:
-Remove only the function after a deprecation/search pass; keep `src.fetchers.fetch_pubmed` until watcher compatibility is addressed.
+No pending removal remains in this audit lane. Keep the external/manual import risk as review-only context if this helper is restored.
 Suggested verification:
 Search docs/operator scripts; run watcher tests.
 Suggested test/check after removal:
@@ -146,7 +146,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U7 Retraction audit path
 
-Status: Needs verification
+Status: Needs operator confirmation
 Type: Script / Function / Service
 File/line:
 `src/audit_retractions.py:12`, `src/retraction.py:7`
@@ -162,7 +162,7 @@ Production reachability:
 Not automatically scheduled from current repo.
 Removal risk: Medium
 Suggested action:
-Decide whether this is an active operator workflow. If not, archive/remove with docs update.
+Do not delete from repo-only evidence. Confirm whether this is an active operator workflow before any archive/remove proposal.
 Suggested verification:
 Check crontab/automations/runbooks outside repo and any current policy for retraction checks.
 Suggested test/check after removal:
@@ -170,7 +170,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U8 Frontend contract types
 
-Status: Probably unused
+Status: Cleaned after audit (was probably unused)
 Type: Type
 File/line:
 `frontend/src/app/lib/types.ts:668`, `frontend/src/app/lib/types.ts:1058`
@@ -186,7 +186,7 @@ Production reachability:
 None found in frontend runtime.
 Removal risk: Low / Medium
 Suggested action:
-Remove only if frontend type mirror does not intentionally preserve deprecated API contract names.
+No pending removal remains in this audit lane.
 Suggested verification:
 `cd frontend && npm run build`.
 Suggested test/check after removal:
@@ -194,7 +194,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U9 `src/providers/*` compatibility package
 
-Status: Do not remove
+Status: Do not remove yet
 Type: Module / Export package
 File/line:
 `src/providers/base.py:1`, `src/providers/__init__.py:1`
@@ -210,7 +210,7 @@ Production reachability:
 Not used internally.
 Removal risk: High
 Suggested action:
-Treat as public compatibility surface; deprecate before removal.
+Treat as public compatibility surface; deprecate before removal and do not delete directly.
 Suggested verification:
 Search installed scripts/notebooks and release notes; run import-health check.
 Suggested test/check after removal:
@@ -218,7 +218,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U10 root `inspect_*.py` effgen probes
 
-Status: Probably unused
+Status: Cleaned after audit (was probably unused)
 Type: Script
 File/line:
 `inspect_agent.py:2`, `inspect_basemodel.py:2`, `inspect_config.py:2`, `inspect_effgen.py:2`, `inspect_genresult.py:2`, `inspect_methods.py:2`
@@ -234,7 +234,7 @@ Production reachability:
 None found; not package scripts or tests.
 Removal risk: Low
 Suggested action:
-Remove or archive as historical probes.
+No pending removal remains in this audit lane.
 Suggested verification:
 Confirm `effgen` is not a supported runtime dependency.
 Suggested test/check after removal:
@@ -242,7 +242,7 @@ Suggested test/check after removal:
 
 ## Unused candidate: U11 `copy_case.py`
 
-Status: Probably unused
+Status: Cleaned after audit (was probably unused)
 Type: Script
 File/line:
 `copy_case.py:5`
@@ -258,7 +258,7 @@ Production reachability:
 None.
 Removal risk: Low
 Suggested action:
-Remove/archive; avoid keeping personal filesystem paths in tracked scripts.
+No pending removal remains in this audit lane; avoid restoring personal filesystem paths in tracked scripts.
 Suggested verification:
 Confirm `PaperPipe_cases.docx` is no longer generated by this path.
 Suggested test/check after removal:
