@@ -495,3 +495,13 @@ def test_internal_data_readiness_reports_manual_review_only_policy_after_gate_re
         "write_promotion_note",
         "open_explicit_rfc_before_default_owner_change",
     ]
+
+
+def test_slot_classification_tuning_review_root_can_be_overridden(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_root = tmp_path / "slot_review_root"
+    monkeypatch.setenv("PAPERPIPE_SLOT_CLASSIFICATION_TUNING_REVIEW_ROOT", str(review_root))
+
+    assert internal_data_readiness._slot_classification_tuning_review_root() == review_root.resolve()
