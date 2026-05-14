@@ -60,7 +60,7 @@ Canonical parent: `docs/ux-review.md`
 - Route level: add `/chart-packs` index and `/chart-packs/:chartPackId` detail routes.
 - Component level: render chart cards with source summary, transforms, warning chips, snapshot preview tables, and direct CSV/spec downloads.
 - Copy level: frame the viewer as a saved artifact review surface, not as a chart authoring tool.
-- Default-action level: primary action on index is `Open chart pack`; primary actions on detail are per-chart `Export CSV` and `Open spec JSON`.
+- Default-action level: primary action on index is `Open chart pack`; detail exports stay reachable inside each reviewed chart card, but CSV/spec/SVG are secondary handoff actions after warnings, source lineage, and quality gate have been read.
 - Runtime contract: real-mode downloads should use backend attachment routes; mock mode should keep download semantics through saved in-memory payloads.
 
 ## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
@@ -259,7 +259,7 @@ Canonical parent: `docs/ux-review.md`
 - Current friction:
   - 실화면 기준으로 chart pack detail에는 source `paper_id / run_id`만 있고 `/papers`나 `/workbench`로 이어지는 CTA가 전혀 없었다.
 
-## 7.8) SVG Preview Checkpoint (2026-04-20)
+## 7.8a) SVG Preview Checkpoint (2026-04-20)
 - Screen/Flow: `/chart-packs/:chartPackId` detail chart cards
 - Goal action: 사용자가 저장된 chart-pack artifact 안에서 실제 SVG render를 바로 보고, 그래도 warning/source/spec보다 더 강한 truth로 오해하지 않는다.
 - Primary persona: saved chart bundle을 notes, slides, meeting pack으로 넘기기 전에 chart appearance와 saved bundle completeness를 함께 확인하려는 연구 운영자
@@ -325,7 +325,7 @@ Canonical parent: `docs/ux-review.md`
     - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend chart pack index can create a new chart pack from the browser"`
     - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "chart pack detail layout" --update-snapshots`
 
-## 7.8) Review-Priority Rail Checkpoint (2026-04-13)
+## 7.8b) Review-Priority Rail Checkpoint (2026-04-13)
 - Screen/Flow: `/chart-packs/:chartPackId` detail right rail
 - Goal action: 사용자가 CSV/spec export 전에 이 pack이 지금 재사용 가능한지, 아니면 warnings/caution notes를 먼저 다시 봐야 하는지 첫 스캔에서 판단한다.
 - Primary persona: saved chart artifact를 notes, slides, downstream plotting 전에 검토하는 연구 운영자
@@ -400,3 +400,38 @@ Canonical parent: `docs/ux-review.md`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend chart pack viewer loads a generated chart pack and keeps exports on real routes|backend chart pack viewer keeps warning-heavy scatter packs honest on the real route|backend chart pack index can create a new chart pack from the browser"`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "chart pack detail layout|mobile.*chart pack detail layout" --update-snapshots`
   - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/visual-backend.backend.spec.ts -g "chart pack detail layout|mobile.*chart pack detail layout"`
+
+## 7.10) Chart Export Handoff Emphasis Checkpoint (2026-05-14)
+- Screen/Flow: `/chart-packs/:chartPackId` per-chart card export controls
+- Goal action: 사용자가 per-chart CSV를 바로 받을 수는 있지만, export를 primary success action으로 오해하지 않고 warning/source/quality gate를 먼저 검토한다.
+- Primary persona: saved chart artifact를 notes, slides, external plotting, or meeting material로 넘기기 전에 bundle-local provenance와 warnings를 확인하는 연구 운영자
+- Current friction:
+  - Chart cards already place warning badge, source refs, spec summary, transforms, preview, and snapshot near export controls.
+  - 하지만 `Export CSV`만 accent treatment로 남아 있어, Method Comparison과 Artifact family에서 정한 “검토 먼저, export는 handoff” hierarchy보다 강하게 읽힐 수 있었다.
+- Quick decision:
+  - route, backend attachment links, CSV/spec/SVG semantics, chart card order는 바꾸지 않는다.
+  - `Export CSV`를 `Open spec JSON` / `Open SVG`와 같은 secondary outline treatment로 맞추고, hover title에 warning/source/quality-gate review expectation을 남긴다.
+- Quick Review (5 min):
+  - 선택지는 늘리지 않는다.
+  - export path는 숨기지 않는다.
+  - warning/source/quality gate가 export보다 먼저 읽히는가를 기준으로 한다.
+  - chart polish나 download affordance가 artifact trust boundary를 덮지 않게 한다.
+- Full Review:
+  - P0: CSV export가 primary CTA처럼 보이면 사용자는 saved gate와 warnings를 건너뛰고 downstream 재사용할 수 있다. Export는 카드 안에 두되, visual priority는 review signals보다 낮아야 한다.
+  - P1: per-chart card는 source/spec/CSV refs, warnings, transforms, SVG preview, snapshot preview를 같은 review context 안에 유지해야 한다. 별도 export page나 file-browser handoff는 지금 범위가 아니다.
+  - P2: hover title은 discoverability 보조 장치일 뿐이다. 핵심 trust boundary는 rail order와 card content hierarchy가 맡는다.
+- Full Review Coverage:
+  - 6P storyboard context: Problem은 chart bundle이 보기 좋아질수록 CSV가 검토 전 handoff될 위험이다. Emotion은 “이걸 써도 되나?”라는 낮은 신뢰다. Action은 chart card를 열고 warnings/source/gate를 읽는 것이다. Struggle은 download 버튼이 review보다 먼저 행동을 재촉하는 순간이다. Attempt는 export를 secondary action으로 낮추는 것이다. Happy Ending은 CSV를 받더라도 어떤 source와 warning context에서 나온 값인지 기억한 채 재사용하는 상태다.
+  - BMAP: Motivation은 높다. Ability는 export가 가까워서 좋지만, 너무 강하면 review ability를 건너뛴다. Prompt는 `Review priority -> Quality gate -> chart card warnings/source -> secondary export` 순서로 유지한다.
+  - B.I.A.S: Block은 accent CTA가 위험 신호보다 먼저 눈에 들어오는 것이다. Interpret는 export를 handoff로 읽히게 하는 데 있다. Act는 download 가능성을 유지하되 검토 후 행동으로 둔다. Store는 Chart Pack도 Method Comparison과 같은 artifact-export grammar를 공유할 때 강화된다.
+  - Peak-End: Peak는 quality gate와 warning state를 보고 “이 pack은 어떻게 다뤄야 하는지” 바로 아는 순간이다. Pit는 CSV 버튼을 먼저 눌러 맥락 없는 숫자만 가져가는 순간이다. Transition은 review rail -> chart card -> export다. End는 exported CSV가 provenance-aware artifact로 기억되는 것이다.
+  - Ethics: Regret 통과. 사용자가 나중에 “경고가 있었는데 왜 download가 먼저 보였지?”라고 느낄 위험을 줄인다. Black Mirror 통과. polished chart/export affordance가 uncertainty를 덮지 않는다. In Real-Life 통과. 좋은 연구 동료라면 파일을 주기 전에 warning과 source를 먼저 짚어준다.
+- Concrete change:
+  - `Export CSV` visual treatment를 accent에서 secondary outline으로 낮춘다.
+  - title copy를 `Review chart warnings, source lineage, and quality gate before exporting.`로 둔다.
+  - CSV/spec/SVG links remain direct artifact handoff controls; no runtime pipeline or saved artifact shape changes.
+- Verification:
+  - `cd frontend && npm run build`
+  - `cd frontend && npx playwright test -c playwright.mock.config.ts e2e/chart-pack.mock.spec.ts -g "chart pack viewer filters saved packs and opens warning-forward detail in mock mode|chart pack viewer keeps second mock pack detail aligned with the selected index item"`
+  - `cd frontend && npx playwright test -c playwright.backend.config.ts e2e/backend.spec.ts -g "backend chart pack viewer loads a generated chart pack and keeps exports on real routes"`
+  - `python3 scripts/lint_docs.py docs/UX_REVIEW_REPORT_chart-pack-viewer.md`
