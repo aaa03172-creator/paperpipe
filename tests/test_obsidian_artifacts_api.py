@@ -128,6 +128,7 @@ def test_obsidian_artifacts_resolve_hashed_path_for_unsafe_paper_id(tmp_path, mo
 def test_obsidian_mirror_returns_generated_payload(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+    monkeypatch.setenv("LATTICE_PUBLIC_BASE_URL", "http://127.0.0.1:9000")
 
     run_dir = tmp_path / "storage" / "artifacts" / "paper_mirror_001" / "run_mirror_001"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -173,6 +174,7 @@ def test_obsidian_mirror_returns_generated_payload(tmp_path, monkeypatch):
     assert "note_exists" not in payload
     assert "note_path" not in payload
     assert "mirror claim" in payload["generated_markdown"]
+    assert "[Review in Lattice](http://127.0.0.1:9000/ui/workbench/paper_mirror_001)" in payload["generated_markdown"]
     assert "<!-- AI_AGENT_START -->" in payload["generated_markdown"]
 
 
@@ -272,6 +274,7 @@ def test_obsidian_mirror_returns_404_when_no_artifact_for_run(tmp_path, monkeypa
 def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _set_artifacts_root(monkeypatch, tmp_path / "storage" / "artifacts")
+    monkeypatch.setenv("LATTICE_PUBLIC_BASE_URL", "http://127.0.0.1:9000")
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"
 
@@ -304,6 +307,7 @@ def test_obsidian_sync_prefers_resolved_claimset(tmp_path, monkeypatch):
         content = target_note.read_text(encoding="utf-8")
         assert "resolved claim" in content
         assert "legacy claim" not in content
+        assert "[Review in Lattice](http://127.0.0.1:9000/ui/workbench/paper_sync_001)" in content
 
         conn = db_utils.get_db_connection()
         action_row = conn.execute(
