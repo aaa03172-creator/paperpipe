@@ -85,7 +85,7 @@ def test_install_layout_keeps_custom_and_external_paths_unchanged(tmp_path, monk
     _write_config(
         config_path,
         extra_paths="""
-  upload_dir: "~/Documents/NotebookLM_Upload"
+  upload_dir: "~/Documents/PaperPipe_Exports/upload"
   downloads_watch_dir: "~/Downloads"
   pdf_storage_dir: "/tmp/custom-pdfs"
 """,
@@ -98,7 +98,7 @@ def test_install_layout_keeps_custom_and_external_paths_unchanged(tmp_path, monk
 
     config = load_config(str(config_path))
 
-    assert config.paths.upload_dir == (tmp_path / "Documents" / "NotebookLM_Upload").expanduser()
+    assert config.paths.upload_dir == (tmp_path / "Documents" / "PaperPipe_Exports" / "upload").expanduser()
     assert config.paths.downloads_watch_dir == (tmp_path / "Downloads").expanduser()
     assert config.paths.pdf_storage_dir == Path("/tmp/custom-pdfs")
 
