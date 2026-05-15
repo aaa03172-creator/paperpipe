@@ -113,6 +113,29 @@
   - `run_meta.json`
   - `stdout.log` / `agent_trace.jsonl` 등
 
+### 4.2A Paper status lifecycle contract
+Paper status is canonical structured state owned by the runtime DB/state layer. User-facing notes and derived artifacts may mirror it, but they do not own the lifecycle.
+
+Deep Read completion may transition only source-ready/open ingest states to `INDEXED`:
+
+- `NULL`
+- `NEW`
+- `FETCHED`
+- `PDF_DOWNLOADED`
+- `APPROVED`
+
+Deep Read completion must not overwrite terminal, blocked, review, or user-workflow statuses such as:
+
+- `INDEXED`
+- `FAILED`
+- `QUARANTINED`
+- `PENDING_REVIEW`
+- `DONE`
+
+`APPROVED` is the canonical accepted gate status. Legacy `AUTO_APPROVED` inputs are normalized to `APPROVED` at the Pydantic boundary. `INDEXED` means the Deep Read pipeline completed and canonical structured state/artifacts were attempted for that run; it is not a human approval marker and must not hide verification warnings.
+
+The current implementation enforces this lifecycle through `_mark_paper_deepread_indexed` in `backend/services/job_runner.py` and targeted tests in `tests/test_pipeline_residual_hardening_contract.py`.
+
 ### 4.3 필수 Pydantic 스키마 (src/schemas/)
 > 아래 스키마는 **하드코딩(불변 계약)** 한다. (Schema‑Persona Boundary)
 
@@ -671,9 +694,14 @@ paperpipe/
 - `llm_params`(temperature, top_p, num_ctx 등)
 - `embed_params`(chunking, embed model)
 - `tool_policy_version`(샌드박스/도구 호출 제한 버전)
+- `provenance`(`paper_run_provenance.v1`, non-canonical review-gate summary for metadata/figure/reference lineage)
 - 현재 구현(2026-02-25):
   - worker가 `storage/artifacts/{paper_id}/{run_id}/run_meta.json` 생성
   - `pdf_sha256`, `pdf_mtime`, `llm_params`, `embed_params`, `models_used`, `tool_policy_version` 기록
+  - metadata/figure/reference provenance는 `schema_version=paper_run_provenance.v1`, `layer=review_gate_artifact`, `canonical_status=non_canonical`로 기록한다.
+  - metadata provenance는 `paper_id`, `pdf_sha256`, `pdf_mtime`, `parser_backend` lineage를 고정한다.
+  - figure provenance는 `document_artifact.json` 생성 여부를 source artifact lineage로 기록하고, figure sidecar가 없는 런타임에서는 `not_run` 상태를 유지한다.
+  - reference provenance는 Paper Notes API가 resolved reference link별 source field를 노출하며, run_meta에는 해당 API surface를 가리키는 non-canonical summary를 둔다.
   - `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 `config.yaml`, `config/profiles.yaml` 스냅샷(존재 시) 저장
 
 > 권장: run 시작 시점에 `storage/artifacts/{paper_id}/{run_id}/snapshots/`에 config/prompt를 복사해 “나중에 바뀌어도 과거 run 재현 가능”하게 한다.

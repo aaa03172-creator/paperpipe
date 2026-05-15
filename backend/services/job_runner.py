@@ -19,6 +19,16 @@ from src.agents.reader_agent import ReaderAgent
 from src.agents.stats_agent import StatsVerificationAgent
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import load_profiles
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+    PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    PROVENANCE_SOURCE_RUN_META,
+    PaperRunProvenanceSummary,
+    ProvenanceAspect,
+    ProvenanceStatus,
+)
 from src.services.citation_grounding import resolve_claimset_grounding
 from src.services.deepread_note_writer import (
     build_deepread_markdown,
@@ -100,6 +110,61 @@ def _resolve_pdf_path_from_db(paper_id: str) -> Optional[Path]:
         if conn is not None:
             conn.close()
     return None
+
+
+def _mark_paper_deepread_indexed(paper_id: str) -> bool:
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(papers)").fetchall()}
+        if "paper_id" not in columns or "status" not in columns:
+            return False
+
+        lookup_clauses = ["paper_id = ?"]
+        lookup_params: list[Any] = [paper_id]
+        if ":" in paper_id:
+            alias = paper_id.split(":", 1)[1].strip()
+            if alias:
+                lookup_clauses.append("paper_id = ?")
+                lookup_params.append(alias)
+                if paper_id.startswith("doi:") and "doi" in columns:
+                    lookup_clauses.append("lower(coalesce(doi, '')) = lower(?)")
+                    lookup_params.append(alias)
+
+        assignments = ["status = ?"]
+        params: list[Any] = ["INDEXED"]
+        now = datetime.now(timezone.utc).isoformat()
+        if "processed_at" in columns:
+            assignments.append("processed_at = ?")
+            params.append(now)
+        if "updated_at" in columns:
+            assignments.append("updated_at = ?")
+            params.append(now)
+        params.extend(lookup_params)
+
+        cursor = conn.execute(
+            f"""
+            UPDATE papers
+            SET {', '.join(assignments)}
+            WHERE ({' OR '.join(lookup_clauses)})
+              AND (status IS NULL OR status IN ('NEW', 'FETCHED', 'PDF_DOWNLOADED', 'APPROVED'))
+            """,
+            tuple(params),
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0) > 0
+    except Exception as exc:
+        logger.warning("Failed to mark paper %s as INDEXED after Deep Read: %s", paper_id, exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _resolve_note_path_for_paper(config, paper_id: str) -> Optional[Path]:
@@ -265,6 +330,13 @@ def _resolve_ingest_runtime_options(config) -> Dict[str, Any]:
     }
 
 
+def _ingest_runtime_options_for_run_meta(options: Dict[str, Any]) -> Dict[str, Any]:
+    persisted = dict(options)
+    api_key = persisted.pop("cloud_table_api_key", None)
+    persisted["cloud_table_api_key_configured"] = bool(str(api_key or "").strip())
+    return persisted
+
+
 def _write_bootstrap_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
     try:
         with open(artifact_dir / "bootstrap_meta.json", "w", encoding="utf-8") as f:
@@ -279,6 +351,78 @@ def _write_run_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("Failed to write run_meta.json: %s", exc)
+
+
+def _build_run_provenance_summary(
+    *,
+    paper_id: str,
+    run_id: str,
+    document_artifact_written: bool = False,
+    figure_caption_artifact: str | None = None,
+    figure_caption_count: int | None = None,
+    figure_status: ProvenanceStatus = "not_run",
+    reference_status: ProvenanceStatus = "not_run",
+) -> dict[str, Any]:
+    metadata_source_artifacts = [PROVENANCE_SOURCE_RUN_META]
+    figure_source_artifacts: list[str] = []
+    if document_artifact_written:
+        metadata_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
+        figure_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
+    if figure_caption_artifact:
+        figure_source_artifacts.append(PROVENANCE_SOURCE_FIGURE_CAPTIONS)
+    return PaperRunProvenanceSummary(
+        paper_id=paper_id,
+        run_id=run_id,
+        metadata=ProvenanceAspect(
+            kind="metadata",
+            status="captured",
+            source_artifacts=metadata_source_artifacts,
+            source_fields=["paper_id", "pdf_sha256", "pdf_mtime", "parser_backend"],
+        ),
+        figures=ProvenanceAspect(
+            kind="figure",
+            status=figure_status,
+            source_artifacts=figure_source_artifacts,
+            source_fields=["document_artifact.pages.blocks.lines", "figure_captions.figures"],
+            artifact_path=figure_caption_artifact,
+            count=figure_caption_count,
+        ),
+        references=ProvenanceAspect(
+            kind="reference",
+            status=reference_status,
+            source_artifacts=[
+                PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+                PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+            ],
+            source_fields=[
+                "frontmatter.pdf_url",
+                "frontmatter.doi",
+                "frontmatter.zotero_link",
+                "references.markdown_links",
+            ],
+            notes=["Paper note reference provenance is exposed by the paper-notes API when references are resolved."],
+        ),
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def _refresh_run_provenance(
+    run_meta: dict[str, Any],
+    *,
+    document_artifact_written: bool = False,
+    figure_caption_artifact: str | None = None,
+    figure_caption_count: int | None = None,
+    figure_status: ProvenanceStatus = "not_run",
+    reference_status: ProvenanceStatus = "not_run",
+) -> None:
+    run_meta["provenance"] = _build_run_provenance_summary(
+        paper_id=str(run_meta.get("paper_id") or ""),
+        run_id=str(run_meta.get("run_id") or ""),
+        document_artifact_written=document_artifact_written,
+        figure_caption_artifact=figure_caption_artifact,
+        figure_caption_count=figure_caption_count,
+        figure_status=figure_status,
+        reference_status=reference_status,
+    )
 
 
 def _sha256_file(path: Path) -> str:
@@ -659,6 +803,8 @@ async def run_deepread_job(
             "tool_policy_version": "v1",
             "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
             "status": "running",
+            "section_count": 0,
+            "provenance": _build_run_provenance_summary(paper_id=paper_id, run_id=run_id),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -724,7 +870,7 @@ async def run_deepread_job(
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         if run_meta is not None:
             run_meta["parser_backend"] = parser_backend
-            run_meta["ingest_options"] = dict(ingest_runtime_options)
+            run_meta["ingest_options"] = _ingest_runtime_options_for_run_meta(ingest_runtime_options)
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
 
@@ -760,6 +906,10 @@ async def run_deepread_job(
         with open(artifact_dir / "document_artifact.json", "w") as f:
             f.write(doc_artifact.model_dump_json(indent=2))
         bootstrap_meta["artifact_document_written"] = True
+        if run_meta is not None:
+            _refresh_run_provenance(run_meta, document_artifact_written=True)
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
@@ -1101,6 +1251,9 @@ async def run_deepread_job(
                 await emit("read", 78, f"Deep Read section upserted: {note_path.name}")
         except Exception as note_err:
             await emit("read", 78, f"Deep Read note upsert skipped: {note_err}", level="WARNING")
+
+        if _mark_paper_deepread_indexed(paper_id):
+            await emit("read", 79, "Paper status marked INDEXED")
 
         await emit("completed", 100, "Pipeline Completed Successfully")
         if queue:
