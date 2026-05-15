@@ -66,7 +66,7 @@ Daily Routine과 분리된 독립적인 검색/수집 파이프라인.
 - **Namespace:**
   - 노트: `Inbox/OnDemand/`
   - 인덱스: `00_Index/on_demand.csv`
-  - 업로드: `NotebookLM_Upload/OnDemand/`
+  - 업로드(옵션): `PaperPipe_Exports/upload/OnDemand/`
 - **Logic:** 슬롯/날짜 제약 없이 쿼리 기반 수집 및 처리.
 
 ---
