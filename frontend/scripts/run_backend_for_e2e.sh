@@ -38,7 +38,7 @@ paths:
   obsidian_vault: "${E2E_VAULT_PATH}"
   index_all: "00_Index/paper_collection.csv"
   index_clinical: "00_Index/mct_mci_trials.csv"
-  upload_dir: "${E2E_RUNTIME_DIR}/NotebookLM_Upload"
+  upload_dir: "${E2E_RUNTIME_DIR}/exports/upload"
   export_dir: "${E2E_RUNTIME_DIR}/export"
   watch_folder: "${E2E_RUNTIME_DIR}/Inbox"
   library_dir: "${E2E_RUNTIME_DIR}/Library"

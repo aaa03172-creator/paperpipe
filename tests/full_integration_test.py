@@ -130,10 +130,9 @@ def test_full_integration():
         print("❌ No RIS file found.")
         exit(1)
 
-    # D. NotebookLM Upload?
-    # In processor.py, we added logic to copy to upload_dir.
-    # Let's see if it's there.
-    print("🔍 Checking NotebookLM Upload Dir...")
+    # D. Optional export upload?
+    # In processor.py, upload_dir remains an optional export adapter target.
+    print("🔍 Checking optional export upload dir...")
     upload_files = list(upload_dir.rglob("*.pdf"))
     if upload_files:
         print(f"✅ PDF Copied to Upload Dir: {upload_files[0].name}")
