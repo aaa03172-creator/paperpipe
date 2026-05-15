@@ -72,6 +72,11 @@ class ChartSourceRef(BaseModel):
     run_id: str = Field(..., min_length=1)
     table_id: str | None = None
     source_label: str | None = None
+    source_page: int | None = None
+    table_source_ref: str | None = None
+    extraction_method: str | None = None
+    extraction_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    provenance_note: str | None = None
 
     @model_validator(mode="after")
     def validate_source_ref(self):
@@ -81,10 +86,25 @@ class ChartSourceRef(BaseModel):
             self.source_label = self.source_label.strip() or None
         if self.table_id is not None:
             self.table_id = self.table_id.strip() or None
+        if self.table_source_ref is not None:
+            self.table_source_ref = self.table_source_ref.strip() or None
+        if self.extraction_method is not None:
+            self.extraction_method = self.extraction_method.strip() or None
+        if self.provenance_note is not None:
+            self.provenance_note = self.provenance_note.strip() or None
 
         if self.source_kind == "stats_report":
-            if self.table_id is not None:
-                raise ValueError("stats_report source refs must not include table_id")
+            forbidden_fields = {
+                "table_id": self.table_id,
+                "source_page": self.source_page,
+                "table_source_ref": self.table_source_ref,
+                "extraction_method": self.extraction_method,
+                "extraction_confidence": self.extraction_confidence,
+                "provenance_note": self.provenance_note,
+            }
+            provided = [name for name, value in forbidden_fields.items() if value is not None]
+            if provided:
+                raise ValueError(f"stats_report source refs must not include {', '.join(provided)}")
             return self
         if self.source_kind == "document_table":
             if not self.table_id:

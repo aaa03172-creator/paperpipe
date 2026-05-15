@@ -237,3 +237,56 @@ def test_document_table_snapshot_supports_v2_artifact_payload(tmp_path) -> None:
         {"group": "Y", "measurement": 2},
     ]
     assert snapshot.note == "Loaded table tbl-002 with 2 data row(s)."
+
+
+def test_document_table_snapshot_preserves_table_provenance(tmp_path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    provenance_note = "Markdown table parsed from Docling text export; inspect source before reuse."
+    document = DocumentArtifactV2(
+        document_id="doc-003",
+        meta=ArtifactMetaV2(title="V2 doc", authors=[], source_ref="paper.pdf"),
+        pages=[],
+        tables=[
+            TableV2(
+                table_id="tbl-003",
+                caption="Low-confidence values",
+                data=[
+                    ["Group", "Measurement"],
+                    ["X", "1.5"],
+                    ["Y", "2.0"],
+                ],
+                source_page=4,
+                source_ref="paper.pdf#page=4",
+                extraction_method="docling.markdown_table",
+                confidence=0.45,
+                provenance_note=provenance_note,
+            )
+        ],
+    )
+    _write_v2_document_artifact(artifacts_root, "paper-003", "run-003", document)
+
+    chart = ChartRequest(
+        template_id="table_numeric_bar",
+        source_ref={
+            "source_kind": "document_table",
+            "paper_id": "paper-003",
+            "run_id": "run-003",
+            "table_id": "tbl-003",
+        },
+        field_mappings=[
+            {"target_field": "group", "source_field": "Group"},
+            {"target_field": "measurement", "source_field": "Measurement"},
+        ],
+    )
+    snapshot = build_chart_data_snapshot(chart, artifacts_root=artifacts_root)
+
+    assert snapshot.source_ref.source_page == 4
+    assert snapshot.source_ref.table_source_ref == "paper.pdf#page=4"
+    assert snapshot.source_ref.extraction_method == "docling.markdown_table"
+    assert snapshot.source_ref.extraction_confidence == 0.45
+    assert snapshot.source_ref.provenance_note == provenance_note
+    assert [warning.code for warning in snapshot.warnings] == [
+        "table_extraction_method",
+        "low_confidence_table_extraction",
+        "table_provenance_note",
+    ]

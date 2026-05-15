@@ -212,6 +212,76 @@ def test_chart_pack_list_response_orders_latest_first(tmp_path) -> None:
     ]
 
 
+def test_generate_chart_pack_persists_document_table_provenance_in_chart_sources(tmp_path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    chart_root = tmp_path / "chart_packs"
+    provenance_note = "Cloud table fallback matched by bounding-box proximity; verify against source PDF."
+    _write_v2_document_artifact(
+        artifacts_root,
+        "paper-011",
+        "run-011",
+        DocumentArtifactV2(
+            document_id="doc-011",
+            meta=ArtifactMetaV2(title="V2 doc", authors=[], source_ref="paper.pdf"),
+            pages=[],
+            tables=[
+                TableV2(
+                    table_id="tbl-011",
+                    caption="Values",
+                    data=[
+                        ["Group", "Measurement"],
+                        ["X", "1.5"],
+                        ["Y", "2.0"],
+                    ],
+                    source_page=2,
+                    source_ref="paper.pdf#page=2",
+                    extraction_method="cloud_table_fallback.test-model",
+                    confidence=0.4,
+                    provenance_note=provenance_note,
+                )
+            ],
+        ),
+    )
+
+    result = generate_chart_pack(
+        request=ChartPackRequest(
+            charts=[
+                {
+                    "template_id": "table_numeric_bar",
+                    "source_ref": {
+                        "source_kind": "document_table",
+                        "paper_id": "paper-011",
+                        "run_id": "run-011",
+                        "table_id": "tbl-011",
+                    },
+                    "field_mappings": [
+                        {"target_field": "group", "source_field": "Group"},
+                        {"target_field": "measurement", "source_field": "Measurement"},
+                    ],
+                }
+            ]
+        ),
+        root=chart_root,
+        artifacts_root=artifacts_root,
+        now=datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc),
+    )
+
+    chart_source = result.chart_pack.charts[0].source_ref
+    assert chart_source.source_page == 2
+    assert chart_source.table_source_ref == "paper.pdf#page=2"
+    assert chart_source.extraction_method == "cloud_table_fallback.test-model"
+    assert chart_source.extraction_confidence == 0.4
+    assert chart_source.provenance_note == provenance_note
+    assert result.chart_pack.source_items == [chart_source]
+    assert [warning.code for warning in result.chart_pack.charts[0].warnings] == [
+        "table_extraction_method",
+        "low_confidence_table_extraction",
+        "table_provenance_note",
+    ]
+    chart_id = result.chart_pack.charts[0].chart_id
+    assert result.specs[chart_id]["source_ref"]["extraction_method"] == "cloud_table_fallback.test-model"
+
+
 def test_generate_chart_pack_uses_distinct_default_ids_for_distinct_requests_same_second(tmp_path) -> None:
     artifacts_root = tmp_path / "artifacts"
     chart_root = tmp_path / "chart_packs"
