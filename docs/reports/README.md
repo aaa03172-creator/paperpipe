@@ -15,6 +15,7 @@ This directory stores dated evidence outputs and operational records rather than
 - current-state and posture notes such as:
   - `Current_Baseline_Recheck_2026-03-18.md`
   - `Deferred_Lanes_Recheck_2026-03-24.md`
+  - `NotebookLM_Handoff_Boundary_2026-05-14.md`
   - `Docs_Only_Cleanup_Closeout_2026-03-25.md`
   - `First_Product_Performance_Quality_Bar_2026-03-28.md`
   - `Release_Rehearsal_Run_2026-03-25.md`
