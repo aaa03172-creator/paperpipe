@@ -879,6 +879,8 @@ def test_generate_meeting_pack_treats_note_sources_as_context_only(tmp_path):
         "context-only inputs" in note
         for note in response.pack.slides[0].caution_notes
     )
+
+
     assert any("Relevance frame: SCFA project." == bullet for bullet in response.pack.slides[0].bullets)
     assert any(
         "Note context: SCFA project can frame discussion relevance" in bullet
@@ -896,6 +898,34 @@ def test_generate_meeting_pack_treats_note_sources_as_context_only(tmp_path):
         "framing bullets come from notes" in item.action
         for item in response.pack.next_steps
     )
+
+
+def test_generate_meeting_pack_uses_mode_specific_key_point_copy(tmp_path):
+    expected_prefixes = {
+        "literature_update": "Evidence update:",
+        "project_progress_update": "Project implication:",
+        "experiment_proposal": "Proposal rationale:",
+    }
+
+    for mode, prefix in expected_prefixes.items():
+        vault_path = tmp_path / mode / "vault"
+        root = tmp_path / mode / "meeting_packs"
+        slug = f"{mode}-paper"
+        _write_state(vault_path, slug)
+
+        response = generate_meeting_pack(
+            request=MeetingPackGenerateRequest(
+                mode=mode,
+                source_items=[{"type": "paper_slug", "ref": slug}],
+                max_slides=6,
+            ),
+            vault_path=vault_path,
+            root=root,
+        )
+
+        key_point_text = response.pack.one_page_summary.key_points[0].text
+        assert key_point_text.startswith(prefix)
+        assert key_point_text.endswith("Intervention changed the inflammatory pathway.")
 
 
 def test_generate_meeting_pack_surfaces_caution_for_multiple_secondary_notes(tmp_path):
