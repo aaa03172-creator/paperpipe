@@ -29,6 +29,16 @@ from src.llm_provider import get_llm_provider
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import load_profiles
 from src.schemas.core import BiomedicalClinicalExtraction
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+    PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    PROVENANCE_SOURCE_RUN_META,
+    PaperRunProvenanceSummary,
+    ProvenanceAspect,
+    ProvenanceStatus,
+)
 from src.schemas.skills import build_section_signal_summary
 from src.services.event_log import log_job_event, sanitize_event_payload_for_log, sanitize_event_text_for_log
 from src.services.identity import new_run_id
@@ -565,6 +575,78 @@ def _write_run_meta(artifact_dir: Path, payload: Dict[str, Any]) -> None:
         )
     except Exception as exc:
         logger.warning("Failed to write run_meta.json: %s", exc)
+
+
+def _build_run_provenance_summary(
+    *,
+    paper_id: str,
+    run_id: str,
+    document_artifact_written: bool = False,
+    figure_caption_artifact: str | None = None,
+    figure_caption_count: int | None = None,
+    figure_status: ProvenanceStatus = "not_run",
+    reference_status: ProvenanceStatus = "not_run",
+) -> dict[str, Any]:
+    metadata_source_artifacts = [PROVENANCE_SOURCE_RUN_META]
+    figure_source_artifacts: list[str] = []
+    if document_artifact_written:
+        metadata_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
+        figure_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
+    if figure_caption_artifact:
+        figure_source_artifacts.append(PROVENANCE_SOURCE_FIGURE_CAPTIONS)
+    return PaperRunProvenanceSummary(
+        paper_id=paper_id,
+        run_id=run_id,
+        metadata=ProvenanceAspect(
+            kind="metadata",
+            status="captured",
+            source_artifacts=metadata_source_artifacts,
+            source_fields=["paper_id", "pdf_sha256", "pdf_mtime", "parser_backend"],
+        ),
+        figures=ProvenanceAspect(
+            kind="figure",
+            status=figure_status,
+            source_artifacts=figure_source_artifacts,
+            source_fields=["document_artifact.pages.blocks.lines", "figure_captions.figures"],
+            artifact_path=figure_caption_artifact,
+            count=figure_caption_count,
+        ),
+        references=ProvenanceAspect(
+            kind="reference",
+            status=reference_status,
+            source_artifacts=[
+                PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+                PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+            ],
+            source_fields=[
+                "frontmatter.pdf_url",
+                "frontmatter.doi",
+                "frontmatter.zotero_link",
+                "references.markdown_links",
+            ],
+            notes=["Paper note reference provenance is exposed by the paper-notes API when references are resolved."],
+        ),
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def _refresh_run_provenance(
+    run_meta: dict[str, Any],
+    *,
+    document_artifact_written: bool = False,
+    figure_caption_artifact: str | None = None,
+    figure_caption_count: int | None = None,
+    figure_status: ProvenanceStatus = "not_run",
+    reference_status: ProvenanceStatus = "not_run",
+) -> None:
+    run_meta["provenance"] = _build_run_provenance_summary(
+        paper_id=str(run_meta.get("paper_id") or ""),
+        run_id=str(run_meta.get("run_id") or ""),
+        document_artifact_written=document_artifact_written,
+        figure_caption_artifact=figure_caption_artifact,
+        figure_caption_count=figure_caption_count,
+        figure_status=figure_status,
+        reference_status=reference_status,
+    )
 
 
 def _write_reader_timeout_sidecar(
@@ -1208,6 +1290,7 @@ async def run_deepread_job(
             "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
             "status": "running",
             "section_count": 0,
+            "provenance": _build_run_provenance_summary(paper_id=paper_id, run_id=run_id),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -1378,12 +1461,23 @@ async def run_deepread_job(
             if run_meta is not None:
                 run_meta["figure_caption_artifact"] = str(figure_caption_path)
                 run_meta["figure_caption_count"] = bootstrap_meta["figure_caption_count"]
+                _refresh_run_provenance(
+                    run_meta,
+                    document_artifact_written=True,
+                    figure_caption_artifact=figure_caption_path.name,
+                    figure_caption_count=bootstrap_meta["figure_caption_count"],
+                    figure_status="captured",
+                )
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
         except Exception as exc:
             logger.warning("Failed to write figure_captions.json: %s", exc)
             bootstrap_meta["artifact_figure_captions_written"] = False
             bootstrap_meta["figure_caption_error"] = str(exc)
+            if run_meta is not None:
+                _refresh_run_provenance(run_meta, document_artifact_written=True, figure_status="failed")
+                run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+                _write_run_meta(artifact_dir, run_meta)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
 
         note_path: Optional[Path] = _resolve_note_path_for_paper(config, paper_id)

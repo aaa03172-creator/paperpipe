@@ -20,6 +20,7 @@ Canonical parent: `docs/Indexer_Model_Policy_Blueprint_2026-02-18.md`
 - Naming rule: `paper_pipe_bio__{model_slug}__v{N}`.
 - If model or metric changes, create a new collection version and re-index.
 - Do not mutate old collection metric in place.
+- Production Chroma verification steps live in `docs/PIPELINE_RESIDUAL_RISK_RUNBOOK.md`.
 
 ## Commands
 ```bash
