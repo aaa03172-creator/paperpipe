@@ -174,6 +174,9 @@ For the implemented CLI surface, command group boundaries, and honest command-vs
 - `docs/Product_Positioning_Principles.md`
   - Product-level positioning note for why Lattice exists, who it helps, and which principles should survive runtime evolution.
   - Keep this separate from API/DB/schema contracts.
+- `docs/reports/NotebookLM_Handoff_Boundary_2026-05-14.md`
+  - Active product-boundary decision that keeps NotebookLM-style workflows as optional export adapters rather than a core handoff destination.
+  - Use this when active docs or code paths still imply NotebookLM upload as the intended next step.
 
 ### 3. Product/runtime SSOT
 - `docs/Lattice_v3_Master_Spec.md`

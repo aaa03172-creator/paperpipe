@@ -13,7 +13,7 @@ def _write_config(repo_root: Path, tmp_path: Path, vault: Path) -> Path:
     config_text = (repo_root / "config.example.yaml").read_text(encoding="utf-8")
     config_text = config_text.replace('/path/to/Zotero/storage', (tmp_path / "zotero").as_posix())
     config_text = config_text.replace('/path/to/Obsidian/MyVault', vault.as_posix())
-    config_text = config_text.replace('/path/to/NotebookLM_Upload', (tmp_path / "uploads").as_posix())
+    config_text = config_text.replace('/path/to/PaperPipe_Exports/upload', (tmp_path / "uploads").as_posix())
     config_text = config_text.replace('/path/to/PaperPipe_Watch', (tmp_path / "watch").as_posix())
     config_path.write_text(config_text, encoding="utf-8")
     return config_path

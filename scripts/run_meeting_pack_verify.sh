@@ -62,6 +62,6 @@ if [[ ! -d "${MEETING_PACK_SMOKE_VAULT}" ]]; then
   E2E_BOOTSTRAP_ONLY=1 "./${MEETING_PACK_BOOTSTRAP_SCRIPT}"
 fi
 rm -rf "${MEETING_PACK_SMOKE_ROOT}"
-"${PYTHON_BIN}" scripts/check_meeting_pack_real_smoke.py --root "${MEETING_PACK_SMOKE_ROOT}"
+"${PYTHON_BIN}" scripts/check_meeting_pack_real_smoke.py --root "${MEETING_PACK_SMOKE_ROOT}" --require-quality-pass
 "${PYTHON_BIN}" scripts/check_meeting_pack_storage_sync.py --root "${MEETING_PACK_SMOKE_ROOT}" --vault-path "${MEETING_PACK_SMOKE_VAULT}" --require-regenerable
 "${PYTHON_BIN}" scripts/lint_docs.py

@@ -29,6 +29,7 @@ Then use the older 2026-03 notes only as baseline, release-gate, or packaging co
   - `Current_Docs_Posture_2026-04-17.md`
   - `Current_Worktree_Lane_Triage_2026-04-07.md`
   - `Runtime_Readiness_Lane_Packaging_2026-04-07.md`
+  - `NotebookLM_Handoff_Boundary_2026-05-14.md`
   - `Current_State_Update_2026-03-24.md`
   - `Current_State_Packaging_2026-03-24.md`
   - `Current_State_Staging_Guide_2026-03-24.md`

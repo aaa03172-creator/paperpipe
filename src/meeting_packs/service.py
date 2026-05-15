@@ -657,12 +657,25 @@ def _build_key_points(
         key_points.append(
             MeetingPackKeyPoint(
                 label=_key_point_label(mode, index),
-                text=claim.claim,
+                text=_key_point_text(mode, claim.claim),
                 evidence_refs=ref_ids,
                 uncertainty_note=uncertainty_note,
             )
         )
     return key_points
+
+
+def _key_point_text(mode: str, claim_text: str) -> str:
+    text = str(claim_text or "").strip()
+    if not text:
+        return text
+    if mode == "literature_update":
+        return f"Evidence update: {text}"
+    if mode == "project_progress_update":
+        return f"Project implication: {text}"
+    if mode == "experiment_proposal":
+        return f"Proposal rationale: {text}"
+    return text
 
 
 def _build_claim_slides(

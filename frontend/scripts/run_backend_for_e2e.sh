@@ -18,7 +18,7 @@ E2E_CONFIG_PATH="${E2E_RUNTIME_DIR}/config.e2e.yaml"
 E2E_SKILLS_POLICY_PATH="${E2E_RUNTIME_DIR}/skills_policy.e2e.yaml"
 E2E_VAULT_PATH="${E2E_RUNTIME_DIR}/obsidian"
 E2E_LIBRARY_PATH="${E2E_RUNTIME_DIR}/Library"
-E2E_UPLOAD_PATH="${E2E_RUNTIME_DIR}/NotebookLM_Upload"
+E2E_UPLOAD_PATH="${E2E_RUNTIME_DIR}/exports/upload"
 E2E_EXPORT_PATH="${E2E_RUNTIME_DIR}/export"
 E2E_WATCH_PATH="${E2E_RUNTIME_DIR}/Inbox"
 E2E_DOWNLOADS_PATH="${E2E_RUNTIME_DIR}/Downloads"
@@ -1400,21 +1400,21 @@ structured_state_payload = {
             "id": "claim_c0ffee000001",
             "source_claim_id": "e2e-claim-1",
             "run_id": "skill-20260226T130003000000+0000-critical_appraisal",
-            "claim": "The intervention shows an initial improvement window during early follow-up.",
+            "claim": "Alzheimer disease should be framed for clinical use as a clinical-biological construct rather than as a purely biological entity.",
             "evidence_ids": ["evidence_deadbeef0001"],
             "evidence": [
                 {
                     "id": "evidence_deadbeef0001",
                     "claim_id": "claim_c0ffee000001",
                     "run_id": "skill-20260226T130003000000+0000-critical_appraisal",
-                    "text": "Initial improvement window observed during early follow-up period.",
+                    "text": "AD should be defined for clinical use as a clinical-biological construct, rather than as a purely biological entity.",
                     "page": 0,
-                    "section": "Key Findings & Evidence",
+                    "section": "Abstract - Objective",
                     "source": "bbox",
                     "locator": {
                         "page": 0,
-                        "span": [0, 57],
-                        "section": "Key Findings & Evidence",
+                        "span": [0, 108],
+                        "section": "Abstract - Objective",
                         "chunk_id": "chunk-e2e-001",
                         "bbox_pct": {"left": 8, "top": 10, "width": 40, "height": 20},
                         "source": "bbox",
@@ -1422,41 +1422,41 @@ structured_state_payload = {
                 }
             ],
             "confidence": 0.9,
-            "tags": ["efficacy", "biomarker"],
-            "outcomes": ["diagnostic criteria"],
+            "tags": ["definition", "clinical framing", "diagnostic criteria"],
+            "outcomes": ["clinical diagnosis", "symptomatic framing"],
         },
         {
             "id": "claim_c0ffee000002",
             "source_claim_id": "e2e-claim-3",
             "run_id": "skill-20260226T130003000000+0000-critical_appraisal",
-            "claim": "No severe adverse events were reported in the observed cohort.",
+            "claim": "Amyloid-positive-only and most biomarker-positive cognitively normal individuals should be considered at risk for AD rather than already having AD.",
             "evidence_ids": ["evidence_deadbeef0002"],
             "evidence": [
                 {
                     "id": "evidence_deadbeef0002",
                     "claim_id": "claim_c0ffee000002",
                     "run_id": "skill-20260226T130003000000+0000-critical_appraisal",
-                    "text": "No severe adverse events were reported in the observed cohort.",
+                    "text": "The working group recommends classifying amyloid-positive only and most biomarker-positive cognitively normal individuals as being at risk for AD rather than as already having AD.",
                     "page": 1,
-                    "section": "Critical Review (ClaimSet)",
+                    "section": "Abstract - Conclusions and Relevance",
                     "source": "text_match",
                     "locator": {
                         "page": 1,
-                        "span": [0, 61],
-                        "section": "Critical Review (ClaimSet)",
+                        "span": [0, 166],
+                        "section": "Abstract - Conclusions and Relevance",
                         "chunk_id": "chunk-e2e-002",
                         "source": "text_match",
                     },
                 }
             ],
             "confidence": 0.74,
-            "tags": ["safety"],
-            "outcomes": ["adverse events"],
+            "tags": ["risk framing", "biomarkers", "cognitively normal"],
+            "outcomes": ["clinical labeling", "risk communication"],
         },
     ],
-    "entities": ["Alzheimer Disease"],
+    "entities": ["Alzheimer Disease", "biomarkers"],
     "mesh": ["Biomarkers"],
-    "outcomes": ["diagnostic criteria", "adverse events"],
+    "outcomes": ["clinical diagnosis", "diagnostic criteria", "risk communication"],
 }
 
 (artifact_dir / "claimset.resolved.json").write_text(json.dumps(claimset_payload, indent=2), encoding="utf-8")
@@ -1499,6 +1499,21 @@ structured_state_payload = {
 )
 note_backed_structured_state_payload = copy.deepcopy(structured_state_payload)
 note_backed_structured_state_payload["paper_slug"] = note_backed_slug
+note_backed_structured_state_payload["claimset"][0]["claim"] = "The intervention shows an initial improvement window during early follow-up."
+note_backed_structured_state_payload["claimset"][0]["evidence"][0]["text"] = "Initial improvement window observed during early follow-up period."
+note_backed_structured_state_payload["claimset"][0]["evidence"][0]["section"] = "Key Findings & Evidence"
+note_backed_structured_state_payload["claimset"][0]["evidence"][0]["locator"]["span"] = [0, 57]
+note_backed_structured_state_payload["claimset"][0]["evidence"][0]["locator"]["section"] = "Key Findings & Evidence"
+note_backed_structured_state_payload["claimset"][0]["tags"] = ["efficacy", "biomarker"]
+note_backed_structured_state_payload["claimset"][0]["outcomes"] = ["diagnostic criteria"]
+note_backed_structured_state_payload["claimset"][1]["claim"] = "No severe adverse events were reported in the observed cohort."
+note_backed_structured_state_payload["claimset"][1]["evidence"][0]["text"] = "No severe adverse events were reported in the observed cohort."
+note_backed_structured_state_payload["claimset"][1]["evidence"][0]["section"] = "Critical Review (ClaimSet)"
+note_backed_structured_state_payload["claimset"][1]["evidence"][0]["locator"]["span"] = [0, 61]
+note_backed_structured_state_payload["claimset"][1]["evidence"][0]["locator"]["section"] = "Critical Review (ClaimSet)"
+note_backed_structured_state_payload["claimset"][1]["tags"] = ["safety"]
+note_backed_structured_state_payload["claimset"][1]["outcomes"] = ["adverse events"]
+note_backed_structured_state_payload["outcomes"] = ["diagnostic criteria", "adverse events"]
 (vault_path / ".pp" / note_backed_slug / "state.json").parent.mkdir(parents=True, exist_ok=True)
 (vault_path / ".pp" / note_backed_slug / "state.json").write_text(
     json.dumps(note_backed_structured_state_payload, indent=2),

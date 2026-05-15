@@ -8,6 +8,7 @@ import re
 import tempfile
 from contextlib import contextmanager
 from typing import Iterator
+from urllib.parse import quote, urlparse
 
 from src.config import load_config
 from src.schemas.agent_artifacts import ClaimSet, StatsReport
@@ -48,6 +49,7 @@ MARKER_BLOCK_PATTERN = re.compile(
     rf"{re.escape(MARKER_START)}.*?{re.escape(MARKER_END)}",
     flags=re.DOTALL,
 )
+DEFAULT_LATTICE_PUBLIC_BASE_URL = "http://127.0.0.1:8000"
 
 try:
     import fcntl
@@ -143,6 +145,34 @@ def _merge_agent_block(original_content: str, new_content: str) -> str:
     return f"{stripped}\n\n{new_content}\n"
 
 
+def _lattice_public_base_url() -> str:
+    raw = (
+        os.getenv("LATTICE_PUBLIC_BASE_URL")
+        or os.getenv("PAPERPIPE_PUBLIC_BASE_URL")
+        or DEFAULT_LATTICE_PUBLIC_BASE_URL
+    )
+    base_url = raw.strip().rstrip("/")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return DEFAULT_LATTICE_PUBLIC_BASE_URL
+    return base_url
+
+
+def _lattice_review_url(paper_id: str) -> str:
+    encoded_paper_id = quote(paper_id, safe="")
+    return f"{_lattice_public_base_url()}/ui/workbench/{encoded_paper_id}"
+
+
+def _lattice_return_links_markdown(paper_id: str | None) -> str:
+    if not paper_id:
+        return ""
+    return (
+        "### Lattice Return Path\n"
+        f"- [Review in Lattice]({_lattice_review_url(paper_id)})\n"
+        "- Boundary: this Obsidian note is a mirror; Lattice owns the canonical paper state.\n\n"
+    )
+
+
 def _atomic_write_text(target_file: Path, content: str) -> None:
     target_file.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
@@ -232,11 +262,17 @@ async def get_obsidian_artifacts(
         stats_report=_artifact_entry(run_dir / "stats_report.json"),
     )
 
-def _format_markdown(claim_set_data: dict | None, stats_report_data: dict | None) -> str:
+def _format_markdown(
+    claim_set_data: dict | None,
+    stats_report_data: dict | None,
+    *,
+    paper_id: str | None = None,
+) -> str:
     """Format Agent Output into verified Markdown."""
     md = []
     md.append(f"{MARKER_START}\n")
     md.append("## 🤖 PaperPipe AI Analysis\n")
+    md.append(_lattice_return_links_markdown(paper_id))
     
     # 1. Claims
     if claim_set_data:
@@ -352,7 +388,7 @@ async def get_obsidian_mirror(
     return ObsidianMirrorResponse(
         paper_id=paper_id,
         run_id=run_id,
-        generated_markdown=_format_markdown(claim_set, stats_report),
+        generated_markdown=_format_markdown(claim_set, stats_report, paper_id=paper_id),
         has_claimset=bool(claim_set),
         has_stats_report=bool(stats_report),
         claims=claims,
@@ -373,7 +409,7 @@ async def sync_to_obsidian(req: SyncRequest):
         raise HTTPException(status_code=404, detail="No artifacts found for this run.")
         
     # 2. Generate Content
-    new_content = _format_markdown(claim_set, stats_report)
+    new_content = _format_markdown(claim_set, stats_report, paper_id=req.paper_id)
     
     # 3. Find Note
     target_file = _find_existing_note_path(vault_path, req.paper_id)

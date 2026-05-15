@@ -11,6 +11,7 @@ Related docs:
 - `docs/Evidence_and_Uncertainty_Rules.md`
 - `docs/RESEARCH_DNA.md`
 - `docs/MEETING_PACK.md`
+- `docs/reports/NotebookLM_Handoff_Boundary_2026-05-14.md`
 - `docs/archive/Agent_Proposal_Fit_Review_2026-03-18.md`
 - `docs/archive/Proposal_to_Lattice_Mapping_2026-03-18.md`
 
@@ -139,6 +140,20 @@ That means:
 - current main web viewer routes do not yet include a dedicated `Research DNA` viewer
 - current frontend absence should be described as an intentional product-boundary choice for this stage, not as hidden or missing truth
 - if `Research DNA` becomes web-visible later, it should start as a bounded read-first surface rather than a broad workflow wizard
+
+## NotebookLM handoff boundary
+
+NotebookLM handoff is not a current core product assumption.
+
+Earlier PaperPipe planning included preparing upload folders for NotebookLM-style downstream use. That remains useful historical context, but it no longer defines the active product shape.
+
+Current recommended stance:
+- Lattice owns the source-grounded paper review loop directly.
+- NotebookLM-style tools may be optional export destinations or compatibility adapters.
+- NotebookLM should not be presented as the required next step after a successful paper run.
+- Any future NotebookLM export should remain downstream from canonical structured state and source-backed bundles.
+
+Use `docs/reports/NotebookLM_Handoff_Boundary_2026-05-14.md` for the full boundary decision.
 
 ## Current product shape
 

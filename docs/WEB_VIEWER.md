@@ -278,6 +278,7 @@ Obsidian Vault에 저장된 논문 노트(`.md + frontmatter`)를 웹에서 동�
     - 두 액션 모두 `POST /ops/repair-stats`를 사용하되, `Rebuild Stats`는 `skip_existing=false`로 호출한다.
     - `Sync to Obsidian`: 같은 상단 notice/success/error 패턴을 사용하며, terminal에는 `obsidian-sync summary`를 남긴다.
     - sync 중에는 repair/rebuild를 막고, repair/rebuild 중에는 sync를 비활성화한다.
+    - synced Obsidian markdown includes a `Review in Lattice` return link to `/ui/workbench/{paper_id}` inside the generated marker block. This link is an entrypoint back to canonical Lattice review state; the Obsidian note remains a mirror/export artifact.
 
 ## 인덱싱(빌드/캐시)
 - Vault 스캔 결과를 JSON으로 저장(요청 시 재생성):
