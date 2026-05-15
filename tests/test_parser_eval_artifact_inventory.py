@@ -16,7 +16,12 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _source_readiness_summary(*, default_change_ready: bool = False, passed: bool = True) -> dict:
+def _source_readiness_summary(
+    *,
+    default_change_ready: bool = False,
+    passed: bool = True,
+    advisory_only: bool = False,
+) -> dict:
     return {
         "schema_version": "parser_baseline_readiness.v1",
         "run_id": "parser_baseline_readiness_fixture",
@@ -36,6 +41,7 @@ def _source_readiness_summary(*, default_change_ready: bool = False, passed: boo
         },
         "advisory": {
             "default_change_review_evidence": {
+                "source_material_advisory_only": advisory_only,
                 "document_count_floor_met": True,
                 "freshness_floor_met": True,
             }
@@ -113,6 +119,25 @@ def test_build_parser_eval_artifact_inventory_separates_source_and_derived_lanes
     assert derived["default_change_review_eligible"] is False
     assert derived["same_page_table_rescue_patched_cell_count"] == 1
     assert "Derived OCR/repo stress evidence is review-only" in payload["decision"]["promotion_boundary"]
+
+
+def test_advisory_source_fixtures_do_not_count_as_default_change_review_evidence() -> None:
+    payload = build_parser_eval_artifact_inventory_summary(
+        source_readiness=_source_readiness_summary(advisory_only=True),
+        source_readiness_path=Path("/tmp/smoke/source/summary.json"),
+        derived_rescue_readiness=_derived_rescue_readiness_summary(),
+        derived_rescue_readiness_path=Path("/tmp/smoke/rescue/summary.json"),
+        derived_compare_metrics=_derived_compare_metrics(),
+        derived_compare_metrics_path=Path("/tmp/smoke/derived/metrics.json"),
+        run_id="parser_eval_inventory_smoke_advisory",
+    )
+
+    source = payload["lanes"]["source_pdf_readiness"]
+
+    assert payload["decision"]["passed"] is True
+    assert source["source_material_advisory_only"] is True
+    assert source["default_change_review_eligible"] is False
+    assert payload["aggregate"]["default_change_review_document_count"] == 0
 
 
 def test_build_parser_eval_artifact_inventory_blocks_misclassified_promotion_evidence() -> None:

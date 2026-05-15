@@ -101,6 +101,7 @@ def _source_readiness_lane(
     decision = _dict_value(source_readiness.get("decision"))
     advisory = _dict_value(source_readiness.get("advisory"))
     default_change_review = _dict_value(advisory.get("default_change_review_evidence"))
+    source_material_advisory_only = bool(default_change_review.get("source_material_advisory_only"))
     return {
         "lane_id": "source_pdf_readiness",
         "artifact_layer": "review_gate_artifact",
@@ -113,9 +114,11 @@ def _source_readiness_lane(
         "baseline_parser_usable": bool(decision.get("baseline_parser_usable")),
         "docling_optional_pilot_supported": bool(decision.get("docling_optional_pilot_supported")),
         "default_change_review_eligible": bool(
-            default_change_review.get("document_count_floor_met")
+            not source_material_advisory_only
+            and default_change_review.get("document_count_floor_met")
             and default_change_review.get("freshness_floor_met")
         ),
+        "source_material_advisory_only": source_material_advisory_only,
         "default_change_promotion_eligible": False,
         "document_count": _int_value(aggregate.get("compare_document_count")),
         "compare_run_count": _int_value(aggregate.get("compare_run_count")),
