@@ -29,7 +29,16 @@ from src.llm_provider import get_llm_provider
 from src.persona_modes import normalize_persona_selection, resolve_reasoning_persona_hint
 from src.profiles.profile_store import load_profiles
 from src.schemas.core import BiomedicalClinicalExtraction
-from src.schemas.provenance import PaperRunProvenanceSummary, ProvenanceAspect, ProvenanceStatus
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+    PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    PROVENANCE_SOURCE_RUN_META,
+    PaperRunProvenanceSummary,
+    ProvenanceAspect,
+    ProvenanceStatus,
+)
 from src.schemas.skills import build_section_signal_summary
 from src.services.event_log import log_job_event, sanitize_event_payload_for_log, sanitize_event_text_for_log
 from src.services.identity import new_run_id
@@ -572,21 +581,26 @@ def _build_run_provenance_summary(
     *,
     paper_id: str,
     run_id: str,
+    document_artifact_written: bool = False,
     figure_caption_artifact: str | None = None,
     figure_caption_count: int | None = None,
     figure_status: ProvenanceStatus = "not_run",
     reference_status: ProvenanceStatus = "not_run",
 ) -> dict[str, Any]:
-    figure_source_artifacts = ["document_artifact.json"]
+    metadata_source_artifacts = [PROVENANCE_SOURCE_RUN_META]
+    figure_source_artifacts: list[str] = []
+    if document_artifact_written:
+        metadata_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
+        figure_source_artifacts.append(PROVENANCE_SOURCE_DOCUMENT_ARTIFACT)
     if figure_caption_artifact:
-        figure_source_artifacts.append("figure_captions.json")
+        figure_source_artifacts.append(PROVENANCE_SOURCE_FIGURE_CAPTIONS)
     return PaperRunProvenanceSummary(
         paper_id=paper_id,
         run_id=run_id,
         metadata=ProvenanceAspect(
             kind="metadata",
             status="captured",
-            source_artifacts=["run_meta.json", "document_artifact.json"],
+            source_artifacts=metadata_source_artifacts,
             source_fields=["paper_id", "pdf_sha256", "pdf_mtime", "parser_backend"],
         ),
         figures=ProvenanceAspect(
@@ -600,7 +614,10 @@ def _build_run_provenance_summary(
         references=ProvenanceAspect(
             kind="reference",
             status=reference_status,
-            source_artifacts=["paper_note_frontmatter", "paper_note_references_section"],
+            source_artifacts=[
+                PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+                PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+            ],
             source_fields=[
                 "frontmatter.pdf_url",
                 "frontmatter.doi",
@@ -615,6 +632,7 @@ def _build_run_provenance_summary(
 def _refresh_run_provenance(
     run_meta: dict[str, Any],
     *,
+    document_artifact_written: bool = False,
     figure_caption_artifact: str | None = None,
     figure_caption_count: int | None = None,
     figure_status: ProvenanceStatus = "not_run",
@@ -623,6 +641,7 @@ def _refresh_run_provenance(
     run_meta["provenance"] = _build_run_provenance_summary(
         paper_id=str(run_meta.get("paper_id") or ""),
         run_id=str(run_meta.get("run_id") or ""),
+        document_artifact_written=document_artifact_written,
         figure_caption_artifact=figure_caption_artifact,
         figure_caption_count=figure_caption_count,
         figure_status=figure_status,
@@ -1444,6 +1463,7 @@ async def run_deepread_job(
                 run_meta["figure_caption_count"] = bootstrap_meta["figure_caption_count"]
                 _refresh_run_provenance(
                     run_meta,
+                    document_artifact_written=True,
                     figure_caption_artifact=figure_caption_path.name,
                     figure_caption_count=bootstrap_meta["figure_caption_count"],
                     figure_status="captured",
@@ -1455,7 +1475,7 @@ async def run_deepread_job(
             bootstrap_meta["artifact_figure_captions_written"] = False
             bootstrap_meta["figure_caption_error"] = str(exc)
             if run_meta is not None:
-                _refresh_run_provenance(run_meta, figure_status="failed")
+                _refresh_run_provenance(run_meta, document_artifact_written=True, figure_status="failed")
                 run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_run_meta(artifact_dir, run_meta)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)

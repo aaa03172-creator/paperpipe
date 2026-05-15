@@ -39,7 +39,11 @@ from src.schemas.paper_notes import (
     PaperNoteSectionNavigatorItem,
     PaperNoteStructuredStateLookupResponse,
 )
-from src.schemas.provenance import ProvenanceAspect
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    ProvenanceAspect,
+)
 from src.skills.registry import list_available_actions
 from src.schemas.skills import build_section_signal_summary
 from src.skills.storage import atomic_write_text, load_structured_state
@@ -1533,7 +1537,7 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="Open PDF",
             url=normalized_pdf_url,
             source="pdf",
-            source_artifacts=["note_frontmatter"],
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
             source_fields=["frontmatter.pdf_url"],
         )
 
@@ -1546,7 +1550,7 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label=extracted_pdf[0],
             url=extracted_pdf[1],
             source="pdf",
-            source_artifacts=["note_references_section"],
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION],
             source_fields=["references.markdown_links"],
         )
 
@@ -1558,7 +1562,7 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="DOI",
             url=doi_url,
             source="doi",
-            source_artifacts=["note_frontmatter"],
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
             source_fields=["frontmatter.doi"],
         )
 
@@ -1570,7 +1574,7 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="Zotero",
             url=zotero_url,
             source="zotero",
-            source_artifacts=["note_frontmatter"],
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
             source_fields=["frontmatter.zotero_link"],
         )
 
@@ -1584,7 +1588,7 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label=label,
             url=url,
             source=source,
-            source_artifacts=["note_references_section"],
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION],
             source_fields=["references.markdown_links"],
         )
 

@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field, model_validator
 ProvenanceKind = Literal["metadata", "figure", "reference"]
 ProvenanceStatus = Literal["captured", "partial", "not_run", "not_available", "failed"]
 
+PROVENANCE_SOURCE_RUN_META = "run_meta.json"
+PROVENANCE_SOURCE_DOCUMENT_ARTIFACT = "document_artifact.json"
+PROVENANCE_SOURCE_FIGURE_CAPTIONS = "figure_captions.json"
+PROVENANCE_SOURCE_NOTE_FRONTMATTER = "note_frontmatter"
+PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION = "note_references_section"
+
 
 class ProvenanceAspect(BaseModel):
     kind: ProvenanceKind
