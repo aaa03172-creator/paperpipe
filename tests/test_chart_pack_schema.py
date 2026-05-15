@@ -94,6 +94,20 @@ def test_stats_report_source_ref_rejects_table_id() -> None:
         )
 
 
+def test_stats_report_source_ref_rejects_table_provenance_fields() -> None:
+    with pytest.raises(ValidationError):
+        ChartSourceRef(
+            source_kind="stats_report",
+            paper_id="paper-001",
+            run_id="run-001",
+            source_page=1,
+            table_source_ref="paper.pdf#page=1",
+            extraction_method="docling.markdown_table",
+            extraction_confidence=0.9,
+            provenance_note="table-only provenance",
+        )
+
+
 def test_chart_artifact_ref_requires_pack_relative_path() -> None:
     with pytest.raises(ValidationError):
         ChartArtifactRef(kind="data_csv", path="/tmp/chart.csv")

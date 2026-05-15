@@ -61,6 +61,10 @@ class TableV2(BaseModel):
     caption: str
     data: List[List[str]] = Field(default_factory=list)
     source_page: int
+    source_ref: Optional[str] = None
+    extraction_method: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    provenance_note: Optional[str] = None
 
 
 class DocumentArtifactV2(BaseModel):
