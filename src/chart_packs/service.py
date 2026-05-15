@@ -70,7 +70,7 @@ def generate_chart_pack(
                 chart_id=chart_id,
                 title=chart_title,
                 template_id=chart_request.template_id,
-                source_ref=chart_request.source_ref,
+                source_ref=snapshot.source_ref,
                 field_mappings=list(chart_request.field_mappings),
                 filters=list(chart_request.filters),
                 sort=chart_request.sort,
@@ -96,7 +96,7 @@ def generate_chart_pack(
                 chart_id=chart_id,
                 title=chart_title,
                 template_id=chart_request.template_id,
-                source_ref=chart_request.source_ref,
+                source_ref=snapshot.source_ref,
                 field_mappings=list(chart_request.field_mappings),
                 filters=list(chart_request.filters),
                 sort=chart_request.sort,
@@ -114,7 +114,7 @@ def generate_chart_pack(
                 ),
             )
         )
-        source_items.append(chart_request.source_ref)
+        source_items.append(snapshot.source_ref)
         pack_warnings.extend(snapshot.warnings)
 
     chart_pack = ChartPack(

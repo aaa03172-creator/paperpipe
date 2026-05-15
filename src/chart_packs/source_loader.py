@@ -39,6 +39,7 @@ class _RawSnapshot:
     warnings: tuple[ChartWarning, ...]
     source_row_count: int
     note: str | None = None
+    source_ref: ChartSourceRef | None = None
 
 
 def build_chart_data_snapshot(
@@ -72,7 +73,7 @@ def build_chart_data_snapshot(
 
     return ChartDataSnapshot(
         template_id=chart.template_id,
-        source_ref=chart.source_ref,
+        source_ref=raw.source_ref or chart.source_ref,
         columns=columns,
         rows=rows,
         transforms=transforms,
@@ -222,8 +223,9 @@ def _document_table_snapshot(
     if table is None:
         raise FileNotFoundError(f"Table {source_ref.table_id} not found in saved document artifact")
 
+    enriched_source_ref = _enrich_document_table_source_ref(source_ref, table)
     table_rows = list(getattr(table, "data", []) or [])
-    warnings: list[ChartWarning] = []
+    warnings = _table_provenance_warnings(table, table_id=str(source_ref.table_id))
     if not table_rows:
         warnings.append(
             ChartWarning(
@@ -238,6 +240,7 @@ def _document_table_snapshot(
             warnings=tuple(warnings),
             source_row_count=0,
             note=f"Loaded empty table {source_ref.table_id}.",
+            source_ref=enriched_source_ref,
         )
 
     headers = _normalize_headers(table_rows[0])
@@ -280,7 +283,69 @@ def _document_table_snapshot(
         warnings=tuple(warnings),
         source_row_count=len(body_rows),
         note=f"Loaded table {source_ref.table_id} with {len(body_rows)} data row(s).",
+        source_ref=enriched_source_ref,
     )
+
+
+def _enrich_document_table_source_ref(source_ref: ChartSourceRef, table: Any) -> ChartSourceRef:
+    update: dict[str, Any] = {}
+    source_page = getattr(table, "source_page", None)
+    if isinstance(source_page, int):
+        update["source_page"] = source_page
+
+    table_source_ref = str(getattr(table, "source_ref", "") or "").strip()
+    if table_source_ref:
+        update["table_source_ref"] = table_source_ref
+
+    extraction_method = str(getattr(table, "extraction_method", "") or "").strip()
+    if extraction_method:
+        update["extraction_method"] = extraction_method
+
+    extraction_confidence = getattr(table, "confidence", None)
+    if isinstance(extraction_confidence, (int, float)):
+        update["extraction_confidence"] = float(extraction_confidence)
+
+    provenance_note = str(getattr(table, "provenance_note", "") or "").strip()
+    if provenance_note:
+        update["provenance_note"] = provenance_note
+
+    if not update:
+        return source_ref
+    return ChartSourceRef(**{**source_ref.model_dump(mode="python", exclude_none=True), **update})
+
+
+def _table_provenance_warnings(table: Any, *, table_id: str) -> list[ChartWarning]:
+    warnings: list[ChartWarning] = []
+    extraction_method = str(getattr(table, "extraction_method", "") or "").strip()
+    if extraction_method:
+        warnings.append(
+            ChartWarning(
+                code="table_extraction_method",
+                severity="info",
+                message=f"Table {table_id} was extracted with {extraction_method}.",
+            )
+        )
+
+    confidence = getattr(table, "confidence", None)
+    if isinstance(confidence, (int, float)) and float(confidence) < 0.6:
+        warnings.append(
+            ChartWarning(
+                code="low_confidence_table_extraction",
+                severity="warning",
+                message=f"Table {table_id} extraction confidence is {float(confidence):.2f}; inspect source provenance before reuse.",
+            )
+        )
+
+    provenance_note = str(getattr(table, "provenance_note", "") or "").strip()
+    if provenance_note:
+        warnings.append(
+            ChartWarning(
+                code="table_provenance_note",
+                severity="info",
+                message=provenance_note,
+            )
+        )
+    return warnings
 
 
 def _apply_chart_projection(
