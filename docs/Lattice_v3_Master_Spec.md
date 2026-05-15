@@ -420,6 +420,8 @@
 ### 11.2 업데이트 규칙(중복 방지)
 - frontmatter에 최소 필드:
   - `paper_id`, `citekey`, `last_run_id`, `updated_at`, `artifact_schema_version`
+- 생성된 agent marker block에는 `Review in Lattice` 링크를 포함해 Obsidian note에서 `/ui/workbench/{paper_id}`로 돌아갈 수 있게 한다.
+  - 이 링크는 Lattice canonical review surface로 돌아가는 entrypoint이며, Obsidian markdown을 canonical truth owner로 승격하지 않는다.
 - 본문은 섹션 단위로 관리:
   - `## Summary (Agent)`
   - `## Claims (Evidence-linked)`
