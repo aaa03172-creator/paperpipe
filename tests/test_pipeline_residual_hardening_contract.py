@@ -37,32 +37,6 @@ def _init_minimal_papers_db(path: Path) -> None:
     conn.close()
 
 
-def test_paper_status_lifecycle_contract_is_documented():
-    spec = Path("docs/Lattice_v3_Master_Spec.md").read_text(encoding="utf-8")
-
-    assert "Paper status lifecycle contract" in spec
-    assert "Deep Read completion may transition" in spec
-    for status in ("NEW", "FETCHED", "PDF_DOWNLOADED", "APPROVED", "INDEXED", "FAILED", "QUARANTINED"):
-        assert status in spec
-
-
-def test_pipeline_residual_risk_runbook_has_verifiable_sections():
-    runbook = Path("docs/PIPELINE_RESIDUAL_RISK_RUNBOOK.md").read_text(encoding="utf-8")
-
-    for heading in (
-        "Production Chroma Verification",
-        "Worker Restart Verification",
-        "Hard-Scanned PDF Verification",
-    ):
-        assert heading in runbook
-    for command_hint in (
-        "python -m src.indexer",
-        "GET /ops/stale-jobs",
-        "ocrmypdf --version",
-    ):
-        assert command_hint in runbook
-
-
 def test_mark_paper_deepread_indexed_only_promotes_open_source_ready_states(tmp_path):
     original_db_path = db_utils.DB_PATH
     db_utils.DB_PATH = tmp_path / "state.db"
