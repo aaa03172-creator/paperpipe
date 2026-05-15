@@ -73,6 +73,9 @@ Current branch split:
 
 Keep that split explicit until the repository branch strategy is unified.
 
+Current unification plan:
+- [Branch Unification Plan - 2026-05-15](./docs/BRANCH_UNIFICATION_PLAN_2026-05-15.md)
+
 ## Reference Docs
 
 - Local spec snapshot: [PaperPipe_Master_Spec.md](./PaperPipe_Master_Spec.md)
