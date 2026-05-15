@@ -8,7 +8,14 @@ import src.db_utils as db_utils
 import backend.services.job_runner as job_runner_mod
 from backend.routers.paper_notes import _build_references
 from src.schemas import PaperStatus
-from src.schemas.provenance import PaperRunProvenanceSummary, ProvenanceAspect
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+    PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    PaperRunProvenanceSummary,
+    ProvenanceAspect,
+)
 
 
 def test_paper_status_lifecycle_contract_is_documented():
@@ -85,7 +92,10 @@ def test_provenance_schema_covers_metadata_figure_and_reference_aspects():
         references=ProvenanceAspect(
             kind="reference",
             status="partial",
-            source_artifacts=["note_frontmatter", "note_references_section"],
+            source_artifacts=[
+                PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+                PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+            ],
             source_fields=["frontmatter.doi", "references.markdown_links"],
             count=3,
         ),
@@ -99,6 +109,29 @@ def test_provenance_schema_covers_metadata_figure_and_reference_aspects():
     assert payload["metadata"]["kind"] == "metadata"
     assert payload["figures"]["count"] == 2
     assert payload["references"]["source_fields"] == ["frontmatter.doi", "references.markdown_links"]
+
+
+def test_run_provenance_only_lists_written_document_artifact_sources():
+    before_ingest = job_runner_mod._build_run_provenance_summary(paper_id="paper-1", run_id="run-1")
+    after_document = job_runner_mod._build_run_provenance_summary(
+        paper_id="paper-1",
+        run_id="run-1",
+        document_artifact_written=True,
+        figure_caption_artifact=PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+        figure_caption_count=1,
+        figure_status="captured",
+    )
+
+    assert before_ingest["metadata"]["source_artifacts"] == ["run_meta.json"]
+    assert before_ingest["figures"]["source_artifacts"] == []
+    assert after_document["metadata"]["source_artifacts"] == [
+        "run_meta.json",
+        PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+    ]
+    assert after_document["figures"]["source_artifacts"] == [
+        PROVENANCE_SOURCE_DOCUMENT_ARTIFACT,
+        PROVENANCE_SOURCE_FIGURE_CAPTIONS,
+    ]
 
 
 def test_failed_run_meta_records_minimal_provenance_without_secrets(tmp_path, monkeypatch):
@@ -167,6 +200,7 @@ def test_failed_run_meta_records_minimal_provenance_without_secrets(tmp_path, mo
     assert secret not in raw_run_meta
     assert run_meta["provenance"]["schema_version"] == "paper_run_provenance.v1"
     assert run_meta["provenance"]["metadata"]["status"] == "captured"
+    assert run_meta["provenance"]["metadata"]["source_artifacts"] == ["run_meta.json"]
     assert run_meta["provenance"]["metadata"]["source_fields"] == [
         "paper_id",
         "pdf_sha256",
@@ -174,6 +208,7 @@ def test_failed_run_meta_records_minimal_provenance_without_secrets(tmp_path, mo
         "parser_backend",
     ]
     assert run_meta["provenance"]["figures"]["status"] == "not_run"
+    assert run_meta["provenance"]["figures"]["source_artifacts"] == []
     assert run_meta["provenance"]["references"]["status"] == "not_run"
 
 
@@ -191,7 +226,9 @@ def test_paper_note_references_include_minimal_reference_provenance():
 
     assert by_source["pdf"].provenance is not None
     assert by_source["pdf"].provenance.kind == "reference"
+    assert by_source["pdf"].provenance.source_artifacts == [PROVENANCE_SOURCE_NOTE_FRONTMATTER]
     assert by_source["pdf"].provenance.source_fields == ["frontmatter.pdf_url"]
+    assert by_source["external"].provenance.source_artifacts == [PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION]
     assert by_source["doi"].provenance.source_fields == ["frontmatter.doi"]
     assert by_source["zotero"].provenance.source_fields == ["frontmatter.zotero_link"]
     assert by_source["external"].provenance.source_fields == ["references.markdown_links"]
