@@ -158,6 +158,7 @@ cat > "${PARSER_COMPARE_METRICS}" <<JSON
   "schema_version": "ingest_backend_eval.v1",
   "generated_at": "2026-05-14T00:00:00+00:00",
   "run_id": "backend_api_smoke_parser_compare_fixture",
+  "advisory_only": true,
   "baseline_backend": "fitz_pdfplumber",
   "candidate_backend": "docling",
   "document_count": 53,

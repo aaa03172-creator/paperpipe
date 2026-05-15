@@ -274,6 +274,7 @@ def _default_change_evidence_advisory(
     min_default_change_document_count: int,
     max_default_change_artifact_age_days: int,
 ) -> dict[str, Any]:
+    source_material_advisory_only = any(bool(metrics.get("advisory_only")) for metrics in compare_metrics)
     reference_dt = _parse_iso_datetime(reference_generated_at) or datetime.now(timezone.utc)
     parsed_generated_at = [
         parsed
@@ -286,12 +287,16 @@ def _default_change_evidence_advisory(
     ]
     oldest_age_days = max(age_days) if age_days else None
     newest_age_days = min(age_days) if age_days else None
-    document_count_floor_met = compare_document_count >= min_default_change_document_count
+    document_count_floor_met = (
+        compare_document_count >= min_default_change_document_count and not source_material_advisory_only
+    )
     freshness_floor_met = (
         oldest_age_days is not None and oldest_age_days <= float(max_default_change_artifact_age_days)
+        and not source_material_advisory_only
     )
     return {
         "document_count": compare_document_count,
+        "source_material_advisory_only": source_material_advisory_only,
         "min_document_count_for_default_change_review": int(max(min_default_change_document_count, 0)),
         "document_count_floor_met": document_count_floor_met,
         "compare_artifact_generated_at_count": len(parsed_generated_at),
@@ -300,9 +305,13 @@ def _default_change_evidence_advisory(
         "max_artifact_age_days_for_default_change_review": int(max(max_default_change_artifact_age_days, 0)),
         "freshness_floor_met": freshness_floor_met,
         "review_hint": (
-            "saved evidence is broad and fresh enough to start a default-change review"
-            if document_count_floor_met and freshness_floor_met
-            else "saved evidence is enough for current baseline visibility, but not enough by itself for a default-change review"
+            "advisory-only smoke evidence can prove readiness surfaces are visible, but cannot start a default-change review"
+            if source_material_advisory_only
+            else (
+                "saved evidence is broad and fresh enough to start a default-change review"
+                if document_count_floor_met and freshness_floor_met
+                else "saved evidence is enough for current baseline visibility, but not enough by itself for a default-change review"
+            )
         ),
     }
 
@@ -532,6 +541,8 @@ def build_parser_baseline_readiness_summary(
         default_parser_change_blockers.append("bounded_sample_below_default_change_review_floor")
     if not bool(default_change_evidence.get("freshness_floor_met")):
         default_parser_change_blockers.append("parser_eval_artifacts_need_refresh_for_default_change_review")
+    if bool(default_change_evidence.get("source_material_advisory_only")):
+        default_parser_change_blockers.append("advisory_smoke_fixture_not_default_change_review_evidence")
     return {
         "schema_version": "parser_baseline_readiness.v1",
         "generated_at": generated_at,

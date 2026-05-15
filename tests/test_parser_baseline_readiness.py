@@ -25,12 +25,14 @@ def _compare_metrics(
     low_text_ratio_docs: int = 0,
     same_page_merge_docs: int = 0,
     candidate_error_count: int = 0,
+    advisory_only: bool = False,
 ) -> dict:
     candidate_success_count = document_count - candidate_error_count
     return {
         "schema_version": "ingest_backend_eval.v1",
         "generated_at": "2026-04-23T00:00:00Z",
         "run_id": run_id,
+        "advisory_only": advisory_only,
         "baseline_backend": "fitz_pdfplumber",
         "candidate_backend": "docling",
         "document_count": document_count,
@@ -176,6 +178,28 @@ def test_build_parser_baseline_readiness_blocks_candidate_regressions() -> None:
         "section_collapse_docs_present",
         "section_unclassified_low_ratio_docs_present",
         "table_merge_content_gap_docs_present",
+    ]
+
+
+def test_advisory_parser_fixtures_do_not_start_default_change_review() -> None:
+    payload = build_parser_baseline_readiness_summary(
+        compare_metrics=[_compare_metrics(document_count=53, advisory_only=True)],
+        compare_metrics_paths=[Path("/tmp/smoke/compare/metrics.json")],
+        section_summaries=[_section_summary(document_count=53)],
+        section_summary_paths=[Path("/tmp/smoke/section/summary.json")],
+        table_merge_summaries=[_table_summary(document_count=1)],
+        table_merge_summary_paths=[Path("/tmp/smoke/table/summary.json")],
+        run_id="parser_readiness_smoke_advisory",
+    )
+
+    review_evidence = payload["advisory"]["default_change_review_evidence"]
+
+    assert payload["decision"]["passed"] is True
+    assert review_evidence["source_material_advisory_only"] is True
+    assert review_evidence["document_count_floor_met"] is False
+    assert review_evidence["freshness_floor_met"] is False
+    assert "advisory_smoke_fixture_not_default_change_review_evidence" in payload["decision"][
+        "default_parser_change_blockers"
     ]
 
 
