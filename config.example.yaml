@@ -8,7 +8,7 @@ paths:
   obsidian_vault: "/path/to/Obsidian/MyVault"
   index_all: "00_Index/paper_collection.csv"
   index_clinical: "00_Index/mct_mci_trials.csv"
-  upload_dir: "/path/to/NotebookLM_Upload"
+  upload_dir: "/path/to/PaperPipe_Exports/upload"
   export_dir: "export"
 
 search:
