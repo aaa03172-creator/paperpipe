@@ -25,7 +25,7 @@ Canonical parent: `docs/ux-review.md`
 
 ### P1
 - Provide an evidence trace section that groups by paper and field, not by raw evidence id. The operator thinks in cells first.
-- Keep CSV export reachable from the detail header so the user does not have to leave the review surface to hand off a snapshot.
+- Keep CSV export reachable from the detail header so the user does not have to leave the review surface to hand off a snapshot, but style it as a secondary handoff action because review priority and evidence trace remain the first trust step.
 - CSV export should stay route-backed with attachment semantics in real mode, and note handoff should resolve only canonical paper-note candidates rather than arbitrary markdown files.
 
 ### P2
@@ -60,7 +60,7 @@ Canonical parent: `docs/ux-review.md`
 - Route level: add `/method-comparisons` index and `/method-comparisons/:comparisonId` detail routes.
 - Component level: show a horizontally scrollable comparison grid with status badges, evidence-ref counts, and note links per row.
 - Copy level: label the viewer as `claimset-only v0` and explain that missing cells reflect absent deterministic evidence, not failed rendering.
-- Default-action level: primary action on index is `Open comparison`; primary action on detail is `Export CSV`, with review context remaining visible.
+- Default-action level: primary action on index is `Open comparison`; detail export remains reachable but secondary, with review priority and evidence trace remaining visible before reuse.
 - Runtime contract: real-mode CSV export should come from the backend attachment route, and `Open note` should only target notes that satisfy the paper-note candidate rules used by the notes viewer.
 
 ## 7.3) Create-From-UI Checkpoint (2026-03-28)
@@ -131,6 +131,36 @@ Canonical parent: `docs/ux-review.md`
   - `getPapers()`를 index load와 함께 호출
   - create card에 `Recent papers` quick-pick buttons 추가
   - selected paper ids는 textarea와 동기화된 토글 방식으로 유지
+
+## 7.5) Export Handoff Emphasis Checkpoint (2026-05-14)
+- Screen/Flow: `/method-comparisons/:comparisonId` detail header and review rail
+- Goal action: keep CSV export available while preventing the header action from visually outranking review priority, warnings, and evidence trace.
+- Primary persona: researcher/operator exporting a derived comparison after checking conflict, missing-cell, and upstream note context.
+- Current friction:
+  - `Review priority` already tells users to inspect warnings and conflict-backed cells before export.
+  - The header `Export CSV` action was styled as an accent action, which made export look more primary than the review boundary.
+- Quick decision:
+  - Keep the export route and label unchanged.
+  - Downgrade the header export visual style to a secondary outline action.
+  - Add a native title hint: `Review priority and evidence trace before exporting.`
+- BMAP:
+  - Motivation: high, because CSV export is the downstream handoff.
+  - Ability: unchanged; export is still one click.
+  - Prompt: improved; review priority remains the stronger visual prompt.
+- B.I.A.S:
+  - Block: avoids a bright export CTA stealing attention from review state.
+  - Interpret: export is a handoff after review, not proof of readiness.
+  - Act: users can still export when ready.
+  - Store: method comparisons feel like derived review artifacts rather than finished spreadsheet products.
+- Peak-End:
+  - Peak: review priority and evidence trace define whether the artifact is reusable.
+  - Pit: a polished export button implies the comparison is already ready.
+  - Transition: detail review -> source note spot-check if needed -> CSV export.
+  - End: exported CSV remains tied to provenance memory.
+- Ethics:
+  - Regret: reduced by not over-promoting export before review.
+  - Black Mirror: avoids fake approval/readiness through button hierarchy.
+  - In Real-Life: a careful reviewer would say “check the warning/evidence trace, then export.”
 
 ## 7.1) Header Copy Refinement Checkpoint (2026-03-23)
 - Screen/Flow: `/method-comparisons` index header and `/method-comparisons/:comparisonId` detail header
