@@ -2561,19 +2561,19 @@ def test_papers_endpoints_include_derived_access_summary(tmp_path, monkeypatch):
         assert by_id["paper_open"]["access_summary"] == {
             "status_label": "open",
             "open_access_url": "https://oa.example/open.pdf",
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/open",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/open",
             "local_pdf_url": None,
         }
         assert by_id["paper_institution"]["access_summary"] == {
             "status_label": "institution_required",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst",
             "local_pdf_url": None,
         }
         assert by_id["paper_local"]["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/local",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/local",
             "local_pdf_url": "/papers/paper_local/pdf",
         }
         assert by_id["paper_unavailable"]["access_summary"] == {
@@ -2726,7 +2726,7 @@ def test_papers_detail_and_pdf_route_fall_back_to_note_backed_local_pdf(tmp_path
         assert payload["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1016/S1474-4422(24)00001-2",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1016/S1474-4422(24)00001-2",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
         assert payload["ops_summary"]["state"] == "action_needed"
@@ -3795,7 +3795,7 @@ def test_papers_db_row_with_stale_pdf_path_falls_back_to_note_backed_local_pdf(t
         assert payload["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/stale-fallback",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/stale-fallback",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
 
@@ -3887,7 +3887,7 @@ def test_papers_listing_includes_note_backed_items_and_sorts_by_note_updated_at(
         assert rows[0]["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/note-only",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/note-only",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
     finally:
@@ -4485,7 +4485,7 @@ def test_papers_listing_reuses_cached_note_runtime_metadata_without_rereading_ma
         assert rows[0]["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/cached-note",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/cached-note",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
     finally:
@@ -4542,7 +4542,7 @@ def test_note_backed_paper_detail_and_pdf_reuse_cached_runtime_metadata_without_
         assert payload["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/cached-detail-note",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/cached-detail-note",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
 
@@ -5284,7 +5284,7 @@ def test_papers_rail_endpoint_returns_subset_and_skips_top_level_latest_run_look
         assert rows[0]["access_summary"] == {
             "status_label": "user_imported_pdf",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/rail-note",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/rail-note",
             "local_pdf_url": f"/papers/{quote(note_id, safe='')}/pdf",
         }
         assert rows[0]["issues_state"] == "clear"
@@ -5294,7 +5294,7 @@ def test_papers_rail_endpoint_returns_subset_and_skips_top_level_latest_run_look
         assert rows[1]["access_summary"] == {
             "status_label": "institution_required",
             "open_access_url": None,
-            "institution_access_url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/rail-db",
+            "institution_access_url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/rail-db",
             "local_pdf_url": None,
         }
         for row in rows:

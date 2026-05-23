@@ -11,7 +11,7 @@ When OA is unavailable, PaperPipe can route users to legal institutional access 
 
 ## What is implemented (Feature A)
 - Generate KNU libproxy links:
-  - Prefix: `https://libproxy.knu.ac.kr/_Lib_Proxy_Url/`
+  - Prefix: `https://proxy.example.ac.kr/_Lib_Proxy_Url/`
   - DOI priority: `prefix + https://doi.org/{doi}`
   - Fallback: `prefix + publisher_url`
 - For papers without local PDF but with resolvable proxy URL during export:

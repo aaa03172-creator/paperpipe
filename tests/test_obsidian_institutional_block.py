@@ -13,7 +13,7 @@ def _base_paper() -> dict:
         "soft_tags": ["#mci"],
         "confidence": 0.85,
         "ai_summary": "summary",
-        "feedback_json": '{"links":{"institutional_proxy_url":"https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/x"}}',
+        "feedback_json": '{"links":{"institutional_proxy_url":"https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/x"}}',
         "local_pdf_path": None,
     }
 

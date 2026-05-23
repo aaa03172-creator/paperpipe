@@ -7,15 +7,15 @@ from src.institutional_access import (
 
 def test_generate_institutional_proxy_url_from_doi():
     url = generate_institutional_proxy_url(doi="10.1038/s41586-020-2165-8")
-    assert url == "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1038/s41586-020-2165-8"
+    assert url == "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1038/s41586-020-2165-8"
 
 def test_generate_institutional_proxy_url_from_clean_doi():
     url = generate_institutional_proxy_url(doi="https://doi.org/10.1038/nature1234")
-    assert url == "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1038/nature1234"
+    assert url == "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1038/nature1234"
 
 def test_generate_institutional_proxy_url_from_publisher():
     url = generate_institutional_proxy_url(publisher_url="https://www.nature.com/articles/s41586-020-2165-8")
-    assert url == "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://www.nature.com/articles/s41586-020-2165-8"
+    assert url == "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://www.nature.com/articles/s41586-020-2165-8"
 
 def test_generate_institutional_proxy_url_fallback():
     url = generate_institutional_proxy_url(doi=None, publisher_url=None)

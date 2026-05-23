@@ -24,7 +24,7 @@ def test_collect_institutional_links_respects_limit(tmp_path):
         for idx in range(3):
             payload = {
                 "links": {
-                    "institutional_proxy_url": f"https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/{idx}"
+                    "institutional_proxy_url": f"https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/{idx}"
                 }
             }
             conn.execute(
@@ -36,7 +36,7 @@ def test_collect_institutional_links_respects_limit(tmp_path):
 
         links = collect_institutional_links(limit=2, status="manual_required")
         assert len(links) == 2
-        assert all(item["url"].startswith("https://libproxy.knu.ac.kr/_Lib_Proxy_Url/") for item in links)
+        assert all(item["url"].startswith("https://proxy.example.ac.kr/_Lib_Proxy_Url/") for item in links)
     finally:
         db_utils.DB_PATH = original_db_path
 
@@ -51,8 +51,8 @@ def test_open_links_prints_and_invokes_open(monkeypatch, capsys):
 
     monkeypatch.setattr("scripts.open_download_links.subprocess.run", _fake_run)
     items = [
-        {"paper_id": "p1", "title": "Title 1", "url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1/1"},
-        {"paper_id": "p2", "title": "Title 2", "url": "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1/2"},
+        {"paper_id": "p1", "title": "Title 1", "url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1/1"},
+        {"paper_id": "p2", "title": "Title 2", "url": "https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1/2"},
     ]
 
     open_links(items)

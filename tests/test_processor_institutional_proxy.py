@@ -49,7 +49,7 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
     assert row["pdf_status"] == "manual_required"
     assert "feedback_json" in row
     assert "institutional_proxy_url" in row["feedback_json"]
-    assert "libproxy.knu.ac.kr" in row["feedback_json"]
+    assert "proxy.example.ac.kr" in row["feedback_json"]
     payload = json.loads(row["feedback_json"])
     assert payload["intake_override_log"]["producer"] == "processor_daily_slots"
     assert payload["intake_override_log"]["analysis_available"] is False

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Optional
 
-PROXY_PREFIX = "https://libproxy.knu.ac.kr/_Lib_Proxy_Url/"
+PROXY_PREFIX = os.getenv("PAPERPIPE_INSTITUTIONAL_PROXY", "")
 
 
 def _clean_doi(value: str) -> str:

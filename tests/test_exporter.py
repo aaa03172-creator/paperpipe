@@ -110,7 +110,7 @@ def test_exporter_includes_institutional_link_block_for_manual_required(tmp_path
     paper["pdf_status"] = "manual_required"
     paper["doi"] = "10.1000/inst.test"
     paper["feedback_json"] = (
-        '{"links":{"institutional_proxy_url":"https://libproxy.knu.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst.test"}}'
+        '{"links":{"institutional_proxy_url":"https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/inst.test"}}'
     )
 
     ok = export_paper_to_markdown(paper, tmp_path, overwrite=True)
