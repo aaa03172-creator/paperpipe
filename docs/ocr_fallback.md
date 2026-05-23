@@ -40,3 +40,5 @@ Canonical parent: `docs/Lattice_v3_Master_Spec.md`
   - `ocr_applied = false`
   - `ocr_error` contains reason
   - ingest continues with original PDF path
+
+Hard-scanned PDF verification steps live in `docs/PIPELINE_RESIDUAL_RISK_RUNBOOK.md`.

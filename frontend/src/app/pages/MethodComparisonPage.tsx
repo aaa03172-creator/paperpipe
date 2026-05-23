@@ -473,7 +473,8 @@ export function MethodComparisonPage() {
               <a
                 href={csvHref}
                 download={csvDownloadName}
-                className="inline-flex h-8 items-center rounded-md border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-3 text-xs font-medium text-[var(--pp-accent-text)]"
+                title="Review priority and evidence trace before exporting."
+                className="inline-flex h-8 items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 text-xs text-[var(--pp-text-secondary)]"
               >
                 Export CSV
               </a>

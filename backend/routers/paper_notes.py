@@ -39,6 +39,11 @@ from src.schemas.paper_notes import (
     PaperNoteSectionNavigatorItem,
     PaperNoteStructuredStateLookupResponse,
 )
+from src.schemas.provenance import (
+    PROVENANCE_SOURCE_NOTE_FRONTMATTER,
+    PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION,
+    ProvenanceAspect,
+)
 from src.skills.registry import list_available_actions
 from src.schemas.skills import build_section_signal_summary
 from src.skills.storage import atomic_write_text, load_structured_state
@@ -1495,11 +1500,26 @@ def _append_unique_reference(
     label: str,
     url: str,
     source: Literal["pdf", "doi", "zotero", "external"],
+    source_artifacts: list[str],
+    source_fields: list[str],
 ) -> None:
     clean_url = _normalize_link_url(url)
     if not clean_url or clean_url in seen_urls:
         return
-    output.append(PaperNoteReferenceLink(label=label, url=clean_url, source=source))
+    output.append(
+        PaperNoteReferenceLink(
+            label=label,
+            url=clean_url,
+            source=source,
+            provenance=ProvenanceAspect(
+                kind="reference",
+                status="captured",
+                source_artifacts=source_artifacts,
+                source_fields=source_fields,
+                count=1,
+            ),
+        )
+    )
     seen_urls.add(clean_url)
 
 
@@ -1517,6 +1537,8 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="Open PDF",
             url=normalized_pdf_url,
             source="pdf",
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
+            source_fields=["frontmatter.pdf_url"],
         )
 
     extracted = _extract_markdown_links(reference_block)
@@ -1528,6 +1550,8 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label=extracted_pdf[0],
             url=extracted_pdf[1],
             source="pdf",
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION],
+            source_fields=["references.markdown_links"],
         )
 
     doi_url = _normalize_doi(frontmatter.get("doi"))
@@ -1538,6 +1562,8 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="DOI",
             url=doi_url,
             source="doi",
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
+            source_fields=["frontmatter.doi"],
         )
 
     zotero_url = _pick_zotero_link(frontmatter)
@@ -1548,6 +1574,8 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label="Zotero",
             url=zotero_url,
             source="zotero",
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_FRONTMATTER],
+            source_fields=["frontmatter.zotero_link"],
         )
 
     for label, url in extracted:
@@ -1560,6 +1588,8 @@ def _build_references(frontmatter: dict[str, Any], reference_block: str) -> list
             label=label,
             url=url,
             source=source,
+            source_artifacts=[PROVENANCE_SOURCE_NOTE_REFERENCES_SECTION],
+            source_fields=["references.markdown_links"],
         )
 
     return references
