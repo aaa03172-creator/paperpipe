@@ -11,11 +11,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 SPEC_PATH = ROOT / "packaging" / "pyinstaller" / "lattice.spec"
+MACOS_NATIVE_LAUNCHER_SOURCE = ROOT / "packaging" / "macos" / "LatticeNativeLauncher.swift"
 PACKAGING_ASSET_ROOT = ROOT / "build" / "personal_runtime_assets"
+DEFAULT_BUNDLE_PROFILE = "full"
+SUPPORTED_BUNDLE_PROFILES = {"full", "cloud-ui"}
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     subprocess.run(cmd, cwd=str(cwd) if cwd is not None else None, env=env, check=True)
+
+
+def normalize_bundle_profile(profile: str | None) -> str:
+    normalized = (profile or DEFAULT_BUNDLE_PROFILE).strip().lower() or DEFAULT_BUNDLE_PROFILE
+    if normalized not in SUPPORTED_BUNDLE_PROFILES:
+        allowed = ", ".join(sorted(SUPPORTED_BUNDLE_PROFILES))
+        raise ValueError(f"Unsupported bundle profile: {profile!r}. Expected one of: {allowed}")
+    return normalized
 
 
 def cli_binary_output_path(root: Path = ROOT) -> Path:
@@ -76,9 +87,50 @@ def _stage_packaging_assets() -> Path:
     return PACKAGING_ASSET_ROOT
 
 
-def build_bundle(*, skip_frontend_build: bool, clean: bool) -> None:
+def _compile_macos_native_launcher(*, output_path: Path, swiftc: str | None = None) -> None:
+    swiftc_path = swiftc or shutil.which("swiftc")
+    if swiftc_path is None:
+        raise RuntimeError("swiftc is required to build the native macOS Lattice.app launcher")
+    if not MACOS_NATIVE_LAUNCHER_SOURCE.exists():
+        raise FileNotFoundError(f"Missing native launcher source: {MACOS_NATIVE_LAUNCHER_SOURCE}")
+    _run(
+        [
+            swiftc_path,
+            str(MACOS_NATIVE_LAUNCHER_SOURCE),
+            "-O",
+            "-framework",
+            "AppKit",
+            "-framework",
+            "WebKit",
+            "-o",
+            str(output_path),
+        ],
+        cwd=ROOT,
+    )
+
+
+def _make_macos_app_native_webview(app_bundle: Path) -> None:
+    app_exec = app_bundle / "Contents" / "MacOS" / "Lattice"
+    runtime_exec = app_bundle / "Contents" / "MacOS" / "LatticeRuntime"
+    if not app_exec.exists():
+        raise FileNotFoundError(f"Missing macOS app executable: {app_exec}")
+    if runtime_exec.exists():
+        runtime_exec.unlink()
+    app_exec.rename(runtime_exec)
+    _compile_macos_native_launcher(output_path=app_exec)
+    app_exec.chmod(0o755)
+
+
+def _ad_hoc_sign_macos_app(app_bundle: Path) -> None:
+    if shutil.which("codesign") is None:
+        return
+    _run(["codesign", "--force", "--deep", "--sign", "-", str(app_bundle)])
+
+
+def build_bundle(*, skip_frontend_build: bool, clean: bool, bundle_profile: str = DEFAULT_BUNDLE_PROFILE) -> None:
     if not SPEC_PATH.exists():
         raise FileNotFoundError(f"PyInstaller spec not found: {SPEC_PATH}")
+    normalized_bundle_profile = normalize_bundle_profile(bundle_profile)
 
     if not skip_frontend_build:
         _run(["npm", "install"], cwd=FRONTEND_DIR)
@@ -101,8 +153,14 @@ def build_bundle(*, skip_frontend_build: bool, clean: bool) -> None:
     staged_asset_root = _stage_packaging_assets()
     env = os.environ.copy()
     env["PAPERPIPE_BUNDLE_ASSET_ROOT"] = str(staged_asset_root)
+    env["PAPERPIPE_BUNDLE_PROFILE"] = normalized_bundle_profile
 
     _run(cmd, cwd=ROOT, env=env)
+
+    if sys.platform == "darwin":
+        app_bundle = ROOT / "dist" / "Lattice.app"
+        _make_macos_app_native_webview(app_bundle)
+        _ad_hoc_sign_macos_app(app_bundle)
 
     missing_outputs = [path for path in _expected_bundle_outputs() if not path.exists()]
     if missing_outputs:
@@ -124,9 +182,22 @@ def main() -> int:
         action="store_true",
         help="Ask PyInstaller to clean temporary build artifacts first.",
     )
+    parser.add_argument(
+        "--bundle-profile",
+        default=os.getenv("PAPERPIPE_BUNDLE_PROFILE", DEFAULT_BUNDLE_PROFILE),
+        choices=sorted(SUPPORTED_BUNDLE_PROFILES),
+        help=(
+            "PyInstaller dependency profile. Use `full` for the normal personal runtime, or `cloud-ui` "
+            "for a slimmer cloud-backed demo app that excludes local heavy ML stacks."
+        ),
+    )
     args = parser.parse_args()
 
-    build_bundle(skip_frontend_build=args.skip_frontend_build, clean=args.clean)
+    build_bundle(
+        skip_frontend_build=args.skip_frontend_build,
+        clean=args.clean,
+        bundle_profile=args.bundle_profile,
+    )
     return 0
 
 

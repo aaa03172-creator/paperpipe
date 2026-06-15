@@ -1,0 +1,61 @@
+name: Windows submission demo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build Windows runtime exe
+        run: uv run --extra cloud --extra packaging python scripts/build_personal_runtime_bundle.py --skip-frontend-build --bundle-profile cloud-ui
+
+      - name: Build Windows native launcher
+        run: dotnet publish packaging/windows/LatticeNativeLauncher/LatticeNativeLauncher.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/windows-native-launcher
+
+      - name: Build Windows submission package
+        run: uv run --extra cloud --extra packaging python scripts/build_windows_submission_demo_package.py
+
+      - name: Smoke packaged runtime shell
+        run: uv run --extra cloud --extra packaging python scripts/check_windows_personal_runtime_smoke.py --mode packaged --config-path "${{ runner.temp }}\\lattice\\config.yaml"
+
+      - name: Smoke submission package
+        run: uv run --extra cloud --extra packaging python scripts/check_windows_submission_demo_package.py
+
+      - name: Upload Windows submission package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lattice-Windows-Contest-Submission
+          path: dist/Lattice-Windows-Contest-Submission.zip
+          if-no-files-found: error

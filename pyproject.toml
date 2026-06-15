@@ -35,6 +35,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cloud = [
+    "google-cloud-firestore>=2.19.0",
+    "google-cloud-storage>=2.18.0",
+]
 parser-eval = [
     "docling>=2.18.0,<3.0.0",
 ]
@@ -53,3 +57,14 @@ lattice = "src.cli:entrypoint"
 where = ["."]
 include = ["src*", "scripts*", "backend*"]
 namespaces = true
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = [
+    "smoke: fast local smoke coverage for changed developer workflow surfaces.",
+    "real_smoke: opt-in checks that exercise real local services, files, or browser flows.",
+    "network: opt-in checks that may touch external network services.",
+    "external_inference: opt-in checks that may call external model providers.",
+    "slow: longer-running checks that are normally excluded from tight edit loops.",
+    "goldset: evaluation or regression checks backed by curated goldset fixtures.",
+]
