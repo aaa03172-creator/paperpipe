@@ -8,6 +8,7 @@ import src.db_utils as db_utils
 from src.jobs.queue import JobQueue
 from backend import main as api_main
 from backend.routers import obsidian as obsidian_router
+from src.services.path_masking import mask_local_paths_in_text
 
 
 def _setup_temp_db(tmp_path, monkeypatch):
@@ -16,6 +17,20 @@ def _setup_temp_db(tmp_path, monkeypatch):
     db_utils.DB_PATH = tmp_path / "state.db"
     db_utils.init_db()
     return original_db_path
+
+
+def test_mask_local_paths_in_text_handles_comma_separated_paths(monkeypatch):
+    monkeypatch.setenv("LATTICE_MASK_LOCAL_PATHS", "true")
+    text = (
+        "paths=/Users/example/project/a.json,"
+        "/Users/example/project/b.json;/private/tmp/c.json"
+    )
+
+    masked = mask_local_paths_in_text(text)
+
+    assert "/Users/example" not in masked
+    assert "/private/tmp" not in masked
+    assert "paths=.../a.json,.../b.json;.../c.json" == masked
 
 
 def test_papers_endpoint_masks_absolute_pdf_path_by_default(tmp_path, monkeypatch):

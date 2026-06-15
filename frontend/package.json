@@ -24,18 +24,19 @@
     "e2e:backend:update": "playwright test -c playwright.backend.config.ts --update-snapshots"
   },
   "dependencies": {
-    "@react-pdf-viewer/core": "^3.12.0",
-    "@react-pdf-viewer/highlight": "^3.12.0",
-    "@react-pdf-viewer/page-navigation": "^3.12.0",
-    "@react-pdf-viewer/search": "^3.12.0",
     "lucide-react": "^0.575.0",
-    "pdfjs-dist": "^3.11.174",
+    "pdfjs-dist": "^5.4.296",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "react-pdf": "^10.4.1",
     "react-router-dom": "^7.13.1",
     "remark-gfm": "^4.0.1",
     "zustand": "^5.0.11"
+  },
+  "overrides": {
+    "brace-expansion": "1.1.13",
+    "tar": "7.5.16"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

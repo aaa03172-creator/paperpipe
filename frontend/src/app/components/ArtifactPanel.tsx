@@ -1,5 +1,5 @@
 import { ReactNode, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleHelp, FileText, FlaskConical, NotebookPen } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleHelp, FileText, FlaskConical, NotebookPen, ShieldCheck } from "lucide-react";
 import { getPaperSynthesisManifest, getPaperSynthesisMarkdownUrl, logClientUserAction } from "../lib/api";
 import {
   EvidenceHighlight,
@@ -41,6 +41,14 @@ interface PaperSynthesisManifestState {
   data: PaperSynthesisManifest | null;
   loading: boolean;
   error: string | null;
+}
+
+interface EvidenceGroundingScorecardSummary {
+  readinessStatus: string;
+  canonicalStatus: string;
+  reasonCodes: string[];
+  recommendedNextAction: string | null;
+  metrics: Array<{ label: string; value: string }>;
 }
 
 function verdictStyle(level: NotebookArtifact["verdict"]["level"]): { icon: ReactNode; className: string } {
@@ -217,6 +225,94 @@ function formatInferenceToken(value: string): string {
     return "none";
   }
   return normalized.replace(/[_-]+/g, " ");
+}
+
+function formatEvidenceGroundingToken(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "not available";
+  }
+  return normalized.replace(/[_-]+/g, " ");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function metricDisplayValue(metrics: Record<string, unknown>, key: string): string | null {
+  const metric = metrics[key];
+  if (!isRecord(metric)) {
+    return null;
+  }
+  const status = stringValue(metric.status);
+  if (status && status !== "available") {
+    return formatEvidenceGroundingToken(status);
+  }
+  const value = numberValue(metric.value);
+  if (value === null) {
+    return null;
+  }
+  if (value >= 0 && value <= 1) {
+    return `${Math.round(value * 100)}%`;
+  }
+  return String(value);
+}
+
+function extractEvidenceGroundingScorecard(rawArtifact: unknown): EvidenceGroundingScorecardSummary | null {
+  if (!isRecord(rawArtifact)) {
+    return null;
+  }
+  const entry = rawArtifact.evidence_grounding_scorecard;
+  if (!isRecord(entry) || entry.exists !== true || !isRecord(entry.data)) {
+    return null;
+  }
+
+  const data = entry.data;
+  const runtimeProxyMetrics = isRecord(data.runtime_proxy_metrics) ? data.runtime_proxy_metrics : {};
+  const metricCandidates = [
+    ["Grounded evidence", "grounded_evidence_ratio"],
+    ["Page coverage", "page_coverage_ratio"],
+    ["Correction link", "correction_feedback_link_rate"],
+    ["Review burden", "review_burden_per_paper"],
+  ];
+  const metrics = metricCandidates
+    .map(([label, key]) => {
+      const value = metricDisplayValue(runtimeProxyMetrics, key);
+      return value ? { label, value } : null;
+    })
+    .filter((item): item is { label: string; value: string } => item !== null)
+    .slice(0, 4);
+
+  return {
+    readinessStatus: stringValue(data.readiness_status) ?? "not_available",
+    canonicalStatus: stringValue(data.canonical_status) ?? "non_canonical",
+    reasonCodes: stringArrayValue(data.reason_codes),
+    recommendedNextAction: stringValue(data.recommended_next_action),
+    metrics,
+  };
+}
+
+function getEvidenceGroundingReadinessBadgeClassName(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pass") {
+    return "border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]";
+  }
+  if (normalized === "fail") {
+    return "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]";
+  }
+  return "border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]";
 }
 
 function getInferenceBackendBadgeClassName(value: string): string {
@@ -436,6 +532,7 @@ export function ArtifactPanel({
     activeClaimIndex >= 0 && activeClaimState
       ? `Active ${circledNumber(activeClaimIndex)} · ${activeClaimState.health === "mapped" ? `p.${activeClaimState.page}` : activeClaimState.health === "search_fallback" ? `Text fallback p.${activeClaimState.page}` : "Missing evidence"}`
       : "Select claim to inspect evidence link";
+  const evidenceGroundingScorecard = extractEvidenceGroundingScorecard(rawArtifact);
 
   return (
     <section className="surface-card flex h-full min-h-0 flex-col p-3">
@@ -597,6 +694,66 @@ export function ArtifactPanel({
             />
           </article>
         ) : null}
+
+        <article
+          className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] p-3"
+          data-testid="workbench-evidence-grounding-scorecard"
+        >
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Evidence grounding
+          </div>
+          {evidenceGroundingScorecard ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-1.5">
+                <Badge
+                  className={getEvidenceGroundingReadinessBadgeClassName(evidenceGroundingScorecard.readinessStatus)}
+                  data-testid="workbench-evidence-grounding-readiness"
+                >
+                  {formatEvidenceGroundingToken(evidenceGroundingScorecard.readinessStatus)}
+                </Badge>
+                <Badge
+                  className="border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-secondary)]"
+                  data-testid="workbench-evidence-grounding-canonical"
+                >
+                  Non-canonical review gate
+                </Badge>
+                <Badge className="border-[var(--pp-border)] bg-[var(--pp-surface)] text-[var(--pp-text-secondary)]">
+                  {formatEvidenceGroundingToken(evidenceGroundingScorecard.canonicalStatus)}
+                </Badge>
+              </div>
+              {evidenceGroundingScorecard.metrics.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {evidenceGroundingScorecard.metrics.map((metric) => (
+                    <div key={metric.label} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-2">
+                      <p className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">{metric.label}</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--pp-text-primary)]">{metric.value}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {evidenceGroundingScorecard.reasonCodes.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5" data-testid="workbench-evidence-grounding-reasons">
+                  {evidenceGroundingScorecard.reasonCodes.slice(0, 6).map((reasonCode) => (
+                    <Badge
+                      key={reasonCode}
+                      className="border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]"
+                    >
+                      {reasonCode}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+              {evidenceGroundingScorecard.recommendedNextAction ? (
+                <p className="text-xs text-[var(--pp-text-secondary)]">
+                  {formatEvidenceGroundingToken(evidenceGroundingScorecard.recommendedNextAction)}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--pp-text-dim)]">Not generated yet.</p>
+          )}
+        </article>
 
         {inferenceSummary ? (
           <article

@@ -445,6 +445,15 @@ async function openBackendWorkbenchAndSelectSecondClaim(page: Page) {
 async function getStablePdfPage(page: Page) {
   const pdfPage = page.getByRole("region", { name: /^Page 1$/ }).first();
   await expect(pdfPage).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const box = await pdfPage.boundingBox();
+        return box?.width ?? 0;
+      },
+      { message: "PDF page should settle to the responsive viewer width" },
+    )
+    .toBeLessThan(700);
   return pdfPage;
 }
 
@@ -887,6 +896,19 @@ async function stabilizeTriageDashboardVisualCopy(page: Page) {
     if (await resumeHint.count()) {
       await resumeHint.evaluate((node) => {
         node.textContent = "Saved checks need attention before export.";
+      });
+    }
+    await resumeCard.getByTestId("home-resume-state-badge").evaluate((node) => {
+      node.textContent = "Blocked";
+      node.className =
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium gap-1 border-[var(--pp-warning-border)] bg-[var(--pp-warning-bg)] text-[var(--pp-warning-text)]";
+    });
+    const accessBadge = resumeCard.getByTestId("home-resume-access-badge");
+    if (await accessBadge.count()) {
+      await accessBadge.evaluate((node) => {
+        node.textContent = "Local PDF";
+        node.className =
+          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium gap-1 border-[var(--pp-status-completed-border)] bg-[var(--pp-status-completed-bg)] text-[var(--pp-status-completed-text)]";
       });
     }
     const resumeMeta = resumeCard.locator("div.min-w-0").first();

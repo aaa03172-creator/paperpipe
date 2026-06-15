@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { House } from "lucide-react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
@@ -52,6 +52,11 @@ const RuntimeReadinessPage = lazy(async () => {
   return { default: module.RuntimeReadinessPage };
 });
 
+const SettingsPage = lazy(async () => {
+  const module = await import("./app/pages/SettingsPage");
+  return { default: module.SettingsPage };
+});
+
 function GlobalHomeButton() {
   const location = useLocation();
   const hideOnPrimaryPaperLoop = location.pathname === "/" || location.pathname === "/papers";
@@ -71,6 +76,31 @@ function GlobalHomeButton() {
   );
 }
 
+function RouteFocusReset() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.hash) {
+      return;
+    }
+    const previousTabIndex = document.body.getAttribute("tabindex");
+    document.body.setAttribute("tabindex", "-1");
+    const resetFocus = window.setTimeout(() => {
+      document.body.focus({ preventScroll: true });
+    }, 0);
+    return () => {
+      window.clearTimeout(resetFocus);
+      if (previousTabIndex === null) {
+        document.body.removeAttribute("tabindex");
+      } else {
+        document.body.setAttribute("tabindex", previousTabIndex);
+      }
+    };
+  }, [location.hash, location.pathname]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <Suspense
@@ -80,6 +110,7 @@ export default function App() {
         </div>
       }
     >
+      <RouteFocusReset />
       <GlobalHomeButton />
       <Routes>
         <Route path="/" element={<TriageDashboard />} />
@@ -96,6 +127,7 @@ export default function App() {
         <Route path="/protocol-cards" element={<ProtocolCardPage />} />
         <Route path="/protocol-cards/:protocolId" element={<ProtocolCardPage />} />
         <Route path="/ready" element={<RuntimeReadinessPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/workbench/:paperId" element={<AnalysisWorkbench />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

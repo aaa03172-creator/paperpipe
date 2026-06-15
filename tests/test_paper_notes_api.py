@@ -13,7 +13,7 @@ from backend.services import job_runner as job_runner_mod
 from backend.routers import paper_notes as paper_notes_router
 from src import db_utils
 from src.agents.ingest_agent import IngestAgent
-from src.schemas.paper_notes import PaperNoteIndexItem, PaperNoteOpsSummary
+from src.schemas.paper_notes import PaperNoteImportResponse, PaperNoteIndexItem, PaperNoteOpsSummary
 from src.services.paper_operator_state_store import operator_state_path
 
 
@@ -95,6 +95,42 @@ def _fixture_structured_state(slug: str) -> dict:
         "entities": ["Fixture"],
         "mesh": ["Fixture"],
         "outcomes": ["hidden"],
+    }
+
+
+def test_import_pdf_route_runs_payload_processing_in_worker_thread(monkeypatch):
+    calls = {}
+
+    async def fake_run_sync(func):
+        calls["used_worker_thread"] = True
+        return func()
+
+    def fake_import_pdf_payload(*, filename: str, payload: bytes):
+        calls["filename"] = filename
+        calls["payload"] = payload
+        return PaperNoteImportResponse(
+            paper_id="userpdf-threaded",
+            slug="threaded-import",
+            title="Threaded Import",
+            note_path="Inbox/PaperPipe/threaded-import.md",
+            pdf_url="/papers/userpdf-threaded/pdf",
+            doi=None,
+        )
+
+    monkeypatch.setattr(paper_notes_router.anyio.to_thread, "run_sync", fake_run_sync)
+    monkeypatch.setattr(paper_notes_router, "import_pdf_payload", fake_import_pdf_payload)
+
+    response = TestClient(api_main.app).post(
+        "/paper-notes/import-pdf",
+        files={"file": ("threaded.pdf", b"%PDF-threaded", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["paper_id"] == "userpdf-threaded"
+    assert calls == {
+        "used_worker_thread": True,
+        "filename": "threaded.pdf",
+        "payload": b"%PDF-threaded",
     }
 
 
@@ -524,6 +560,30 @@ def test_paper_notes_home_context_marks_note_context_limited_when_index_fails(mo
     }
 
 
+def test_paper_notes_list_returns_empty_index_when_index_fails(monkeypatch):
+    monkeypatch.setattr(paper_notes_router, "_resolve_vault_path", lambda: Path("/missing"))
+    monkeypatch.setattr(
+        paper_notes_router,
+        "_build_index",
+        lambda vault_path: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes?page=3&page_size=10&sort_by=date_processed&sort_order=desc")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 0
+    assert payload["page"] == 1
+    assert payload["page_size"] == 10
+    assert payload["total_pages"] == 1
+    assert payload["available_tags"] == []
+    assert payload["available_statuses"] == []
+    assert payload["available_reading_assist_note_count"] == 0
+    assert payload["available_reading_assist_locales"] == []
+    assert payload["items"] == []
+
+
 def test_paper_notes_search_prefers_query_relevance_before_secondary_sort(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
@@ -714,6 +774,7 @@ def test_paper_notes_import_pdf_creates_note_and_pdf_route(tmp_path, monkeypatch
     note_body = note_path.read_text(encoding="utf-8")
     assert "Imported from a local PDF on this machine." in note_body
     assert "Open in Workbench" in note_body
+    assert f"- {payload['paper_id']}" in note_body
 
     listing = client.get("/paper-notes")
     assert listing.status_code == 200
@@ -988,7 +1049,7 @@ def test_paper_notes_imported_pdf_resolves_to_parser_input(tmp_path, monkeypatch
     assert row["obsidian_path"] == payload["note_path"]
 
 
-def test_paper_notes_import_pdf_rejects_duplicate_existing_doi(tmp_path, monkeypatch):
+def test_paper_notes_import_pdf_merges_duplicate_existing_doi(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     vault_dir = tmp_path / "vault"
@@ -1040,15 +1101,34 @@ def test_paper_notes_import_pdf_rejects_duplicate_existing_doi(tmp_path, monkeyp
         files={"file": ("science-duplicate.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "A paper with DOI 10.1126/science.aeb0045 already exists."
-    assert list((vault_dir / "Inbox" / "PaperPipe").glob("*.md")) == []
-    assert list(pdf_storage_dir.glob("*.pdf")) == []
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_id"] == "doi:10.1126/science.aeb0045"
+    assert payload["pdf_url"] == f"/papers/{quote(payload['paper_id'], safe='')}/pdf"
+
+    notes = list((vault_dir / "Inbox" / "PaperPipe").glob("*.md"))
+    assert len(notes) == 1
+    note_body = notes[0].read_text(encoding="utf-8")
+    assert "id: doi:10.1126/science.aeb0045" in note_body
+    assert "- doi:10.1126/science.aeb0045" in note_body
+
+    stored_pdfs = list(pdf_storage_dir.glob("*.pdf"))
+    assert len(stored_pdfs) == 1
+    pdf_response = TestClient(api_main.app).get(payload["pdf_url"])
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
 
     conn = sqlite3.connect(db_path)
-    rows = conn.execute("SELECT paper_id, doi FROM papers").fetchall()
+    rows = conn.execute("SELECT paper_id, doi, pdf_path, obsidian_path FROM papers").fetchall()
     conn.close()
-    assert rows == [("doi:10.1126/science.aeb0045", "https://doi.org/10.1126/science.aeb0045")]
+    assert rows == [
+        (
+            "doi:10.1126/science.aeb0045",
+            "10.1126/science.aeb0045",
+            str(stored_pdfs[0]),
+            payload["note_path"],
+        )
+    ]
 
 
 def test_paper_notes_reimport_updates_existing_note_doi(tmp_path, monkeypatch):
@@ -1483,6 +1563,152 @@ def test_paper_notes_list_uses_runtime_storage_for_index_cache_path(tmp_path, mo
     payload = response.json()
     assert payload["index_path"] == str(expected_index_path)
     assert expected_index_path.exists()
+
+
+def test_paper_notes_list_syncs_existing_db_row_from_note_frontmatter(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_HOME", str(tmp_path / "app-home"))
+    db_path = tmp_path / "state.db"
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            updated_at TEXT,
+            obsidian_path TEXT,
+            reading_status TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO papers (
+            paper_id, doi, title, source, status, updated_at, obsidian_path, reading_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "zotero:frontmatter-sync-note",
+            None,
+            "Frontmatter Sync Note",
+            "test",
+            "PENDING_REVIEW",
+            None,
+            None,
+            None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "frontmatter-sync-note.md",
+        _note_content(
+            note_id="zotero:frontmatter-sync-note",
+            alias="Frontmatter Sync Note",
+            tags=["Ops/Sync"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="INDEXED",
+            doi="https://doi.org/10.5555/Frontmatter.Sync",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes")
+    assert response.status_code == 200
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT doi, status, obsidian_path, updated_at FROM papers WHERE paper_id = ?",
+        ("zotero:frontmatter-sync-note",),
+    ).fetchone()
+    conn.close()
+
+    assert row["doi"] == "10.5555/frontmatter.sync"
+    assert row["status"] == "INDEXED"
+    assert row["obsidian_path"] == "Inbox/PaperPipe/frontmatter-sync-note.md"
+    assert row["updated_at"]
+
+
+def test_paper_notes_list_keeps_reading_status_out_of_pipeline_status(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PAPERPIPE_HOME", str(tmp_path / "app-home"))
+    db_path = tmp_path / "state.db"
+    monkeypatch.setenv("PAPERPIPE_DB_PATH", str(db_path))
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE papers (
+            paper_id TEXT PRIMARY KEY,
+            doi TEXT,
+            title TEXT,
+            source TEXT,
+            status TEXT,
+            updated_at TEXT,
+            obsidian_path TEXT,
+            reading_status TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO papers (paper_id, title, source, status)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("zotero:reading-status-note", "Reading Status Note", "test", "APPROVED"),
+    )
+    conn.commit()
+    conn.close()
+
+    vault_dir = tmp_path / "vault"
+    _write(
+        vault_dir / "Inbox" / "PaperPipe" / "reading-status-note.md",
+        _note_content(
+            note_id="zotero:reading-status-note",
+            alias="Reading Status Note",
+            tags=["Ops/Sync"],
+            date_processed="2026-03-10",
+            confidence=0.7,
+            status="Inbox",
+        ),
+    )
+
+    monkeypatch.setattr(
+        paper_notes_router,
+        "load_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(obsidian_vault=vault_dir)),
+    )
+
+    client = TestClient(api_main.app)
+    response = client.get("/paper-notes")
+    assert response.status_code == 200
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT status, reading_status FROM papers WHERE paper_id = ?",
+        ("zotero:reading-status-note",),
+    ).fetchone()
+    conn.close()
+
+    assert row["status"] == "APPROVED"
+    assert row["reading_status"] == "Inbox"
 
 
 def test_paper_notes_list_reuses_fresh_index_cache_without_rebuilding(tmp_path, monkeypatch):

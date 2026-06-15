@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import hashlib
+import logging
 from math import ceil
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Literal
 from urllib.parse import quote, unquote, urlparse
 
+import anyio
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 import sqlite3
 import yaml
@@ -59,9 +61,21 @@ from src.services.runtime_paths import artifacts_root, storage_root
 from src.services.event_log import sanitize_event_text_for_log
 
 router = APIRouter(prefix="/paper-notes", tags=["paper-notes"])
+logger = logging.getLogger(__name__)
 
 _ALLOWED_REFERENCE_URL_SCHEMES = {"http", "https", "file", "zotero"}
 _ALLOWED_REFERENCE_INTERNAL_PREFIXES = ("/papers/",)
+_PAPER_PROCESSING_STATUSES = {
+    "NEW",
+    "FETCHED",
+    "PDF_MISSING",
+    "PENDING_REVIEW",
+    "GATED",
+    "APPROVED",
+    "QUARANTINED",
+    "INDEXED",
+    "FAILED",
+}
 
 EXCLUDED_DIR_NAMES = {".obsidian", "_backup"}
 DEFAULT_PAGE_SIZE = 30
@@ -93,7 +107,7 @@ READING_ASSIST_HEADING_ALIASES = {
 
 INDEX_CACHE_META_KEY = "_cache_meta"
 INDEX_CACHE_RUNTIME_NOTE_METADATA_KEY = "_runtime_note_metadata"
-INDEX_CACHE_FORMAT_VERSION = 2
+INDEX_CACHE_FORMAT_VERSION = 3
 
 
 def _index_cache_path() -> Path:
@@ -654,6 +668,8 @@ def _build_index_item(
     if not _is_paper_note(frontmatter, relative_path):
         return None
 
+    _sync_note_frontmatter_to_paper_state(vault_path, note_path, frontmatter)
+
     aliases = _to_str_list(frontmatter.get("aliases"))
     title = aliases[0] if aliases else _extract_title(body, note_path.stem)
     tags = _to_str_list(frontmatter.get("tags"))
@@ -791,6 +807,94 @@ def _normalize_import_doi(raw: str) -> str | None:
     return None
 
 
+def _normalize_frontmatter_doi_for_db(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = normalize_doi(text)
+    return _normalize_import_doi(normalized) or (normalized if normalized else None)
+
+
+def _frontmatter_paper_id(note_path: Path, frontmatter: dict[str, Any]) -> str | None:
+    explicit_id = str(frontmatter.get("id") or "").strip()
+    if explicit_id:
+        return explicit_id
+    stem = note_path.stem.strip()
+    return stem or None
+
+
+def _frontmatter_reading_status(frontmatter: dict[str, Any]) -> str | None:
+    explicit = str(frontmatter.get("reading_status") or "").strip()
+    if explicit:
+        return explicit
+    raw_status = str(frontmatter.get("status") or "").strip()
+    if raw_status and _normalize_status(raw_status) not in _PAPER_PROCESSING_STATUSES:
+        return raw_status
+    return None
+
+
+def _sync_note_frontmatter_to_paper_state(
+    vault_path: Path,
+    note_path: Path,
+    frontmatter: dict[str, Any],
+) -> bool:
+    paper_id = _frontmatter_paper_id(note_path, frontmatter)
+    if not paper_id:
+        return False
+
+    try:
+        relative_note_path = note_path.relative_to(vault_path).as_posix()
+    except ValueError:
+        return False
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(papers)")
+        columns = {str(row[1]) for row in cursor.fetchall()}
+        if "paper_id" not in columns:
+            return False
+
+        cursor.execute("SELECT * FROM papers WHERE paper_id = ? LIMIT 1", (paper_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return False
+
+        assignments: list[str] = []
+        params: list[Any] = []
+
+        def _queue_update(column: str, value: str | None) -> None:
+            if column not in columns or value is None:
+                return
+            current = row[column]
+            if str(current or "") == value:
+                return
+            assignments.append(f"{column} = ?")
+            params.append(value)
+
+        normalized_status = _normalize_status(frontmatter.get("status"))
+        if normalized_status in _PAPER_PROCESSING_STATUSES:
+            _queue_update("status", normalized_status)
+        _queue_update("reading_status", _frontmatter_reading_status(frontmatter))
+        _queue_update("doi", _normalize_frontmatter_doi_for_db(frontmatter.get("doi")))
+        _queue_update("obsidian_path", relative_note_path)
+
+        if not assignments:
+            return False
+        if "updated_at" in columns:
+            assignments.append("updated_at = ?")
+            params.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        params.append(paper_id)
+        cursor.execute(f"UPDATE papers SET {', '.join(assignments)} WHERE paper_id = ?", tuple(params))
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.OperationalError as exc:
+        logger.debug("Skipping paper note frontmatter DB sync for %s: %s", paper_id, exc)
+        return False
+    finally:
+        conn.close()
+
+
 def _extract_import_doi_from_text(text: str) -> str | None:
     for match in DOI_PATTERN.finditer(str(text or "")):
         doi = _normalize_import_doi(match.group(0))
@@ -856,9 +960,10 @@ def _build_imported_note_markdown(
     imported_at: str,
     doi: str | None = None,
 ) -> str:
+    aliases = list(dict.fromkeys([title, paper_id]))
     frontmatter = {
         "id": paper_id,
-        "aliases": [title],
+        "aliases": aliases,
         "tags": ["PaperPipe/Imported"],
         "date_processed": imported_at,
         "status": "NEW",
@@ -929,6 +1034,13 @@ def _find_imported_paper_id_by_doi(doi: str | None) -> str | None:
         columns = {str(row[1]) for row in cursor.fetchall()}
         if "paper_id" not in columns or "doi" not in columns:
             return None
+        cursor.execute(
+            "SELECT paper_id FROM papers WHERE doi = ? LIMIT 1",
+            (normalized_doi,),
+        )
+        exact = cursor.fetchone()
+        if exact:
+            return str(exact["paper_id"] or "").strip() or None
         cursor.execute("SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL")
         for row in cursor.fetchall():
             if normalize_doi(str(row["doi"] or "")) == normalized_doi:
@@ -980,17 +1092,18 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
     pdf_storage_dir.mkdir(parents=True, exist_ok=True)
 
     digest = hashlib.sha1(payload).hexdigest()
-    paper_id = f"userpdf-{digest[:16]}"
-    pdf_path = pdf_storage_dir / f"{paper_id}.pdf"
+    content_paper_id = f"userpdf-{digest[:16]}"
+    pdf_path = pdf_storage_dir / f"{content_paper_id}.pdf"
     imported_at = datetime.now(tz=timezone.utc).date().isoformat()
     note_dir = _paper_notes_home_dir(vault_path)
     note_dir.mkdir(parents=True, exist_ok=True)
-    pdf_url = f"/papers/{quote(paper_id, safe='')}/pdf"
 
     created_pdf = False
     created_note = False
     should_upsert_existing_note_doi = False
-    paper_state_existed_before_import = _paper_state_persisted(paper_id)
+    paper_id = content_paper_id
+    note_path: Path | None = None
+    paper_state_existed_before_import = False
     try:
         if not pdf_path.exists():
             _atomic_write_bytes(pdf_path, payload)
@@ -1000,10 +1113,9 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
         doi = _extract_import_doi(pdf_path)
         existing_paper_id = _find_imported_paper_id_by_doi(doi)
         if existing_paper_id and existing_paper_id != paper_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"A paper with DOI {doi} already exists.",
-            )
+            paper_id = existing_paper_id
+        pdf_url = f"/papers/{quote(paper_id, safe='')}/pdf"
+        paper_state_existed_before_import = _paper_state_persisted(paper_id)
         slug = f"{_slugify_import_title(title)}-{digest[:8]}"
         note_path = note_dir / f"{slug}.md"
         note_relative_path = note_path.relative_to(vault_path).as_posix()
@@ -1050,7 +1162,7 @@ def import_pdf_payload(*, filename: str, payload: bytes) -> PaperNoteImportRespo
         if should_upsert_existing_note_doi:
             _upsert_imported_note_doi(note_path, paper_id=paper_id, doi=doi)
     except Exception as exc:
-        if created_note:
+        if created_note and note_path is not None:
             note_path.unlink(missing_ok=True)
         if created_pdf:
             pdf_path.unlink(missing_ok=True)
@@ -1184,6 +1296,22 @@ def _build_index(vault_path: Path) -> PaperNoteListResponse:
         json.dumps(cache_payload, ensure_ascii=False, indent=2),
     )
     return payload
+
+
+def _build_empty_index_response(*, page_size: int = DEFAULT_PAGE_SIZE) -> PaperNoteListResponse:
+    return PaperNoteListResponse(
+        generated_at=datetime.now(tz=timezone.utc).isoformat(),
+        index_path=str(_index_cache_path()),
+        total=0,
+        page=1,
+        page_size=page_size,
+        total_pages=1,
+        available_tags=[],
+        available_statuses=[],
+        available_reading_assist_note_count=0,
+        available_reading_assist_locales=[],
+        items=[],
+    )
 
 
 def _build_home_context(index: PaperNoteListResponse) -> PaperNotesHomeContextResponse:
@@ -2180,8 +2308,11 @@ def list_paper_notes(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=200),
 ):
-    vault_path = _resolve_vault_path()
-    index = _build_index(vault_path)
+    try:
+        vault_path = _resolve_vault_path()
+        index = _build_index(vault_path)
+    except Exception:
+        return _build_empty_index_response(page_size=page_size)
     artifact_cache: ArtifactSnapshotCache = {}
     visible_items = _dedupe_equivalent_note_items_with_ops(
         index.items,
@@ -2282,7 +2413,9 @@ async def import_paper_pdf(
         )
     finally:
         await file.close()
-    return import_pdf_payload(filename=filename, payload=payload)
+    return await anyio.to_thread.run_sync(
+        lambda: import_pdf_payload(filename=filename, payload=payload)
+    )
 
 
 @router.get("/{slug}/operator-state", response_model=PaperNoteOperatorState)

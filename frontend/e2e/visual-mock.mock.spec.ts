@@ -19,6 +19,15 @@ async function openMockWorkbenchAndSelectSecondClaim(page: Page) {
 async function getStablePdfPage(page: Page) {
   const pdfPage = page.getByRole("region", { name: /^Page 1$/ }).first();
   await expect(pdfPage).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const box = await pdfPage.boundingBox();
+        return box?.width ?? 0;
+      },
+      { message: "PDF page should settle to the responsive viewer width" },
+    )
+    .toBeLessThan(700);
   return pdfPage;
 }
 

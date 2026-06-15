@@ -2,14 +2,24 @@ import { ChangeEvent, Children, ReactNode, isValidElement, useCallback, useEffec
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Copy, ExternalLink, FileText, FlaskConical, Languages, LibraryBig, Link2, PanelRightOpen, Save, ScrollText, ShieldCheck, Star, Upload } from "lucide-react";
+import { ArrowLeft, Cloud, Copy, Download, ExternalLink, FileText, FlaskConical, ImageIcon, Languages, LibraryBig, Link2, PanelRightOpen, RefreshCw, Save, ScrollText, ShieldCheck, Star, Table2, Upload } from "lucide-react";
 import {
   createProtocolDraftFromAttachment,
   enqueueDeepRead,
   getApiErrorMessage,
+  getCloudPaper,
+  getCloudPaperDerivedArtifacts,
+  getCloudPaperDownstreamArtifactRegistry,
+  getCloudPaperDownstreamHandoff,
+  getCloudPaperDownstreamPromotionPlan,
+  getCloudPaperDownstreamPromotionReadiness,
+  getCloudPaperPage,
   getJob,
   getPaperNoteDetail,
+  hydrateCloudPaper,
   logClientUserAction,
+  prepareCloudPaperObsidianExport,
+  registerCloudPaperDownstreamArtifacts,
   runSkillAction,
   updatePaperNoteOperatorState,
 } from "../lib/api";
@@ -28,6 +38,15 @@ import {
   CriticalAppraisalConcern,
   CriticalAppraisalQuestion,
   CriticalAppraisalReport,
+  CloudPaperBundlePublic,
+  CloudPaperDerivedArtifactsResponse,
+  CloudPaperDownstreamArtifactRegistryResponse,
+  CloudPaperDownstreamArtifactRegistrationResponse,
+  CloudPaperDownstreamHandoffSummary,
+  CloudPaperDownstreamPromotionPlanResponse,
+  CloudPaperDownstreamPromotionReadinessResponse,
+  CloudPaperObsidianExportResponse,
+  CloudPaperPageArtifactPublic,
   JobLifecycle,
   OutputModeFamily,
   PaperNoteContextTrace,
@@ -2948,17 +2967,546 @@ function OperatorStatePanel({
   );
 }
 
+function formatCloudPaperStatusLabel(status: CloudPaperBundlePublic["processing_status"]): string {
+  if (status === "ready") {
+    return "Cloud ready";
+  }
+  if (status === "running") {
+    return "Processing";
+  }
+  if (status === "pending") {
+    return "Queued";
+  }
+  if (status === "failed") {
+    return "Failed";
+  }
+  return "Blocked";
+}
+
+function getCloudPaperStatusTone(status: CloudPaperBundlePublic["processing_status"]): ReturnType<typeof getFreeformStatusTone> {
+  if (status === "ready") {
+    return "success";
+  }
+  if (status === "running" || status === "pending") {
+    return "warning";
+  }
+  if (status === "failed" || status === "blocked") {
+    return "danger";
+  }
+  return "muted";
+}
+
+function CloudPaperDetailShell({
+  paperId,
+  bundle,
+  page,
+  derivedArtifacts,
+  downstreamHandoff,
+  obsidianExport,
+  downstreamRegistration,
+  downstreamRegistry,
+  downstreamPromotionReadiness,
+  downstreamPromotionPlan,
+  loading,
+  pageLoading,
+  hydrating,
+  downstreamActionLoading,
+  loadError,
+  actionError,
+  mockReason,
+  onLoadPage,
+  onHydrate,
+  onPrepareObsidianExport,
+  onRegisterDownstreamArtifacts,
+}: {
+  paperId: string;
+  bundle: CloudPaperBundlePublic | null;
+  page: CloudPaperPageArtifactPublic | null;
+  derivedArtifacts: CloudPaperDerivedArtifactsResponse | null;
+  downstreamHandoff: CloudPaperDownstreamHandoffSummary | null;
+  obsidianExport: CloudPaperObsidianExportResponse | null;
+  downstreamRegistration: CloudPaperDownstreamArtifactRegistrationResponse | null;
+  downstreamRegistry: CloudPaperDownstreamArtifactRegistryResponse | null;
+  downstreamPromotionReadiness: CloudPaperDownstreamPromotionReadinessResponse | null;
+  downstreamPromotionPlan: CloudPaperDownstreamPromotionPlanResponse | null;
+  loading: boolean;
+  pageLoading: boolean;
+  hydrating: boolean;
+  downstreamActionLoading: "obsidian" | "registration" | null;
+  loadError: string | null;
+  actionError: string | null;
+  mockReason: string | null;
+  onLoadPage: () => void;
+  onHydrate: () => void;
+  onPrepareObsidianExport: () => void;
+  onRegisterDownstreamArtifacts: () => void;
+}) {
+  const canReadPage = bundle?.allowed_actions.includes("read_page") ?? false;
+  const canHydrate = bundle?.allowed_actions.includes("hydrate_download") ?? false;
+  const canExport = bundle?.allowed_actions.includes("export") ?? false;
+  const hydration = bundle?.local_hydration ?? null;
+  const hydrationStatus = hydration?.status ?? "not_hydrated";
+  const firstWarning = bundle?.warnings[0]?.message ?? null;
+  const pageBlocks = page?.blocks ?? [];
+  const ocrPreview = derivedArtifacts?.ocr_blocks[0] ?? null;
+  const tablePreview = derivedArtifacts?.tables[0] ?? null;
+  const figurePreview = derivedArtifacts?.figures[0] ?? null;
+  const figureAnalysisPreview = derivedArtifacts?.figure_analyses[0] ?? null;
+  const downstreamCandidates = downstreamHandoff?.downstream_adapter.candidates ?? [];
+  const meetingPackItemCount = downstreamHandoff?.meeting_pack_context.items.length ?? 0;
+  const chartRowCount = downstreamHandoff?.chart_table_snapshot?.rows.length ?? 0;
+  const chartSourceKind = downstreamHandoff?.chart_table_snapshot?.source_ref.source_kind ?? null;
+  const imageEvidenceSourceKind = downstreamHandoff?.image_evidence_request?.source_ref.source_kind ?? null;
+  const methodContextItem = downstreamHandoff?.method_comparison_context.items[0] ?? null;
+  const obsidianReady = downstreamHandoff?.obsidian_section_markdown.includes("derived_noncanonical") ?? false;
+  const selectedTableCandidateId = downstreamHandoff?.selected_table_candidate?.candidate_id ?? null;
+  const selectedFigureCandidateId = downstreamHandoff?.selected_figure_candidate?.candidate_id ?? null;
+  const downstreamCommandDisabled = !canExport || !downstreamHandoff || downstreamActionLoading !== null;
+  const registryRegistrationCount = downstreamRegistry?.registrations.length ?? 0;
+  const promotionReadinessSummary = downstreamPromotionReadiness
+    ? `${downstreamPromotionReadiness.promotion_status} / ${downstreamPromotionReadiness.approved_artifact_count}/${downstreamPromotionReadiness.total_artifact_count} approved`
+    : null;
+  const promotionBlockerSummary =
+    downstreamPromotionReadiness && downstreamPromotionReadiness.blockers.length > 0
+      ? downstreamPromotionReadiness.blockers[0].code
+      : null;
+  const promotionPlanSummary = downstreamPromotionPlan
+    ? `${downstreamPromotionPlan.plan_status} dry-run / ${downstreamPromotionPlan.promotion_items.length} items`
+    : null;
+  const promotionPlanBlockedReason =
+    downstreamPromotionPlan && downstreamPromotionPlan.blockers.length > 0
+      ? downstreamPromotionPlan.blockers[0].code
+      : null;
+  const registryArtifactStatuses =
+    downstreamRegistry?.registrations.flatMap((registration) =>
+      registration.registered_artifacts.map((artifact) => ({
+        artifactId: artifact.artifact_id,
+        lane: artifact.lane,
+        reviewStatus: artifact.review_status,
+        latestReviewEvent: artifact.review_events.at(-1) ?? null,
+      })),
+    ) ?? [];
+
+  return (
+    <div className="min-h-screen bg-[var(--pp-canvas)] p-4 pb-24 md:pb-4" data-testid="cloud-paper-detail-viewer">
+      <header className="surface-card mb-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Cloud paper viewer</p>
+            <h1 className="mt-1 text-xl font-semibold text-[var(--pp-text-primary)]">{paperId}</h1>
+            <p className="mt-1 text-sm text-[var(--pp-text-secondary)]">
+              Read the normalized server-generated page in the same paper detail shell. Evidence-linked saved state still takes precedence when present.
+            </p>
+            {mockReason ? <p className="mt-2 text-xs text-[var(--pp-text-dim)]">Fallback mode: {mockReason}</p> : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/papers" className={buttonClassName({ variant: "ghost", size: "sm" })}>
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to list
+            </Link>
+            <Link to="/ready" className={buttonClassName({ variant: "outline", size: "sm" })}>
+              Runtime checks
+            </Link>
+            <Button type="button" size="sm" variant="outline" onClick={onLoadPage} disabled={!canReadPage || pageLoading || loading}>
+              {pageLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              {page ? "Refresh page" : "Load page"}
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={onHydrate} disabled={!canHydrate || hydrating || loading}>
+              {hydrating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : canHydrate ? <Download className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+              {hydrating ? "Hydrating" : canHydrate ? "Hydrate local" : "Download locked"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {bundle ? (
+            <StatusBadge label={formatCloudPaperStatusLabel(bundle.processing_status)} tone={getCloudPaperStatusTone(bundle.processing_status)} />
+          ) : null}
+          {bundle ? <Badge variant="outline">role {bundle.permissions.role}</Badge> : null}
+          {bundle ? <Badge variant="outline">{bundle.payload_class}</Badge> : null}
+          <Badge variant={hydrationStatus === "hydrated" ? "default" : hydrationStatus === "stale" ? "outline" : "muted"}>
+            {hydrationStatus === "hydrated" ? "Available offline" : hydrationStatus === "stale" ? "Offline copy stale" : "Cloud source"}
+          </Badge>
+        </div>
+
+        {loadError ? <p className="mt-3 text-sm text-[var(--pp-status-failed-text)]">API error: {loadError}</p> : null}
+        {actionError ? <p className="mt-3 text-sm text-[var(--pp-status-failed-text)]">Cloud action failed: {actionError}</p> : null}
+        {firstWarning ? <p className="mt-3 text-sm text-[var(--pp-status-failed-text)]">{firstWarning}</p> : null}
+
+        <WorkspaceContextStrip
+          testId="cloud-paper-workspace-context"
+          description="Cloud source, generated page, and local hydration state stay visible without exposing provider internals."
+        >
+          <WorkspaceContextCard eyebrow="Cloud source" testId="cloud-paper-workspace-context-source">
+            <p className="break-all text-sm font-medium text-[var(--pp-text-primary)]">{paperId}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {bundle ? <Badge variant="outline">lab {bundle.lab_id}</Badge> : null}
+              {bundle?.run_id ? <Badge variant="outline">run {bundle.run_id}</Badge> : null}
+            </div>
+          </WorkspaceContextCard>
+          <WorkspaceContextCard eyebrow="Page artifact" testId="cloud-paper-workspace-context-page">
+            <p className="text-sm text-[var(--pp-text-primary)]">
+              {page ? "Normalized page artifact loaded in this viewer." : "Page artifact is available after the cloud paper is ready."}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {page ? <Badge variant="outline">blocks {page.blocks.length}</Badge> : null}
+              {bundle?.page_schema_version ? <Badge variant="outline">{bundle.page_schema_version}</Badge> : null}
+            </div>
+          </WorkspaceContextCard>
+          <WorkspaceContextCard eyebrow="Derived artifacts" testId="cloud-paper-workspace-context-derived">
+            <p className="text-sm text-[var(--pp-text-primary)]">
+              {derivedArtifacts ? "OCR, table, and figure artifacts are available as derived context." : "Derived artifact context loads after the paper is ready."}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {derivedArtifacts ? <Badge variant="outline">ocr {derivedArtifacts.ocr_blocks.length}</Badge> : null}
+              {derivedArtifacts ? <Badge variant="outline">tables {derivedArtifacts.tables.length}</Badge> : null}
+              {derivedArtifacts ? <Badge variant="outline">figures {derivedArtifacts.figures.length}</Badge> : null}
+            </div>
+          </WorkspaceContextCard>
+          <WorkspaceContextCard eyebrow="Local hydration" testId="cloud-paper-workspace-context-hydration">
+            <p className="text-sm text-[var(--pp-text-primary)]">
+              {hydrationStatus === "hydrated"
+                ? "A checksum-tracked local bundle is available."
+                : hydrationStatus === "stale"
+                  ? "A local bundle exists, but it does not match the current cloud source."
+                  : "No local bundle is active for this device."}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge variant={canHydrate ? "outline" : "muted"}>{canHydrate ? "hydrate permitted" : "hydrate locked"}</Badge>
+              {hydration?.hydrated_at ? <Badge variant="outline">hydrated {formatDateTime(hydration.hydrated_at)}</Badge> : null}
+            </div>
+          </WorkspaceContextCard>
+        </WorkspaceContextStrip>
+      </header>
+
+      {loading ? <p className="text-sm text-[var(--pp-text-dim)]">Loading cloud paper...</p> : null}
+
+      {!loading && !loadError ? (
+        <main className="grid grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
+          <aside className="hidden xl:block">
+            <div className="sticky top-4 grid gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Trust order</CardTitle>
+                  <CardDescription>Cloud page text is reusable derived content, not replacement canonical evidence.</CardDescription>
+                </CardHeader>
+                <Separator />
+                <CardContent className="grid gap-2 pt-4 text-sm text-[var(--pp-text-secondary)]">
+                  <p>1. Raw PDF source checksum</p>
+                  <p>2. Cloud page artifact provenance</p>
+                  <p>3. Local hydrated bundle state</p>
+                  <p>4. Evidence-linked structured state when available</p>
+                </CardContent>
+              </Card>
+            </div>
+          </aside>
+
+          <section className="grid min-h-0 gap-4">
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Cloud className="h-4 w-4 text-[var(--pp-accent-text)]" />
+                  <CardTitle>Cloud page</CardTitle>
+                </div>
+                <CardDescription>Normalized server-generated page blocks, redacted for the browser.</CardDescription>
+              </CardHeader>
+              <Separator />
+              <CardContent className="pt-4">
+                {!page ? (
+                  <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 text-sm text-[var(--pp-text-secondary)]">
+                    {canReadPage ? "Load the page artifact to read processed page text here." : "This paper is not ready or this session cannot read the page."}
+                  </div>
+                ) : (
+                  <article className="grid gap-3" data-testid="cloud-paper-page-blocks">
+                    {pageBlocks.map((block) => (
+                      <section key={block.block_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">page {block.page}</Badge>
+                          <Badge variant="muted">{block.kind}</Badge>
+                          <Badge variant="outline">{block.block_id}</Badge>
+                        </div>
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--pp-text-primary)]">
+                          {block.text ?? "No text content for this block."}
+                        </p>
+                      </section>
+                    ))}
+                  </article>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <aside className="hidden xl:block">
+            <div className="sticky top-4 grid gap-4">
+              <Card data-testid="cloud-paper-derived-artifacts">
+                <CardHeader>
+                  <CardTitle>Derived artifacts</CardTitle>
+                  <CardDescription>Server-side OCR, table, and figure context stays secondary to canonical evidence.</CardDescription>
+                </CardHeader>
+                <Separator />
+                <CardContent className="grid gap-3 pt-4 text-sm text-[var(--pp-text-secondary)]">
+                  {!derivedArtifacts ? (
+                    <p>Derived artifacts load after the cloud paper is ready.</p>
+                  ) : (
+                    <>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center gap-2 text-[var(--pp-text-primary)]">
+                          <FileText className="h-4 w-4 text-[var(--pp-accent-text)]" />
+                          <span className="font-medium">OCR</span>
+                          <Badge variant="outline">{derivedArtifacts.ocr_blocks.length}</Badge>
+                        </div>
+                        <p className="mt-2 line-clamp-3">{ocrPreview?.text ?? "No OCR blocks available."}</p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center gap-2 text-[var(--pp-text-primary)]">
+                          <Table2 className="h-4 w-4 text-[var(--pp-accent-text)]" />
+                          <span className="font-medium">Tables</span>
+                          <Badge variant="outline">{derivedArtifacts.tables.length}</Badge>
+                        </div>
+                        <p className="mt-2">{tablePreview?.caption ?? "No reconstructed tables available."}</p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center gap-2 text-[var(--pp-text-primary)]">
+                          <ImageIcon className="h-4 w-4 text-[var(--pp-accent-text)]" />
+                          <span className="font-medium">Figures</span>
+                          <Badge variant="outline">{derivedArtifacts.figures.length}</Badge>
+                        </div>
+                        <p className="mt-2">{figurePreview?.caption ?? "No figure crops available."}</p>
+                        {figurePreview?.image_route ? (
+                          <p className="mt-2 text-xs text-[var(--pp-text-dim)]">Image proxy available through same-origin API.</p>
+                        ) : null}
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center gap-2 text-[var(--pp-text-primary)]">
+                          <FlaskConical className="h-4 w-4 text-[var(--pp-accent-text)]" />
+                          <span className="font-medium">Figure analysis</span>
+                          <Badge variant="outline">{derivedArtifacts.figure_analyses.length}</Badge>
+                        </div>
+                        <p className="mt-2">{figureAnalysisPreview?.summary ?? "No figure analysis available."}</p>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <Card data-testid="cloud-paper-downstream-handoff">
+                <CardHeader>
+                  <CardTitle>Downstream handoff</CardTitle>
+                  <CardDescription>Adapter outputs stay background or derived until reviewed state promotes them.</CardDescription>
+                </CardHeader>
+                <Separator />
+                <CardContent className="grid gap-3 pt-4 text-sm text-[var(--pp-text-secondary)]">
+                  {!downstreamHandoff ? (
+                    <p>Downstream handoff loads after derived artifacts are ready.</p>
+                  ) : (
+                    <>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Meeting Pack</span>
+                          <Badge variant="outline">{downstreamHandoff.meeting_pack_context.readiness}</Badge>
+                        </div>
+                        <p className="mt-2">{meetingPackItemCount} background items, evidence refs locked.</p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Chart Pack</span>
+                          <Badge variant="outline">{chartSourceKind ?? "unavailable"}</Badge>
+                        </div>
+                        <p className="mt-2">
+                          {selectedTableCandidateId
+                            ? `Selected table ${selectedTableCandidateId}. ${chartRowCount} table rows with non-canonical warning.`
+                            : "No table candidate is ready for Chart Pack."}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Image Evidence</span>
+                          <Badge variant="outline">{imageEvidenceSourceKind ?? "unavailable"}</Badge>
+                        </div>
+                        <p className="mt-2">
+                          {selectedFigureCandidateId
+                            ? `Selected figure ${selectedFigureCandidateId}. Figure crop uses the same-origin image proxy.`
+                            : "No figure candidate is ready for Image Evidence."}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Method Comparison</span>
+                          <Badge variant="outline">{methodContextItem?.comparison_cell_status ?? "missing"}</Badge>
+                        </div>
+                        <p className="mt-2">{downstreamHandoff.method_comparison_context.readiness} context, no claimset replacement.</p>
+                      </div>
+                      <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Obsidian</span>
+                          <Badge variant="outline">{obsidianReady ? "derived_noncanonical" : "pending"}</Badge>
+                        </div>
+                        <p className="mt-2">{downstreamCandidates.length} marker-bounded candidates ready for export.</p>
+                      </div>
+                      <div
+                        className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3"
+                        data-testid="cloud-paper-downstream-actions"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-[var(--pp-text-primary)]">
+                          <span className="font-medium">Export actions</span>
+                          <Badge variant="outline">{canExport ? "review_pending" : "permission_required"}</Badge>
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="justify-start"
+                            disabled={downstreamCommandDisabled}
+                            onClick={onPrepareObsidianExport}
+                          >
+                            <Save className="mr-2 h-4 w-4" />
+                            {downstreamActionLoading === "obsidian" ? "Preparing" : "Prepare Obsidian"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="justify-start"
+                            disabled={downstreamCommandDisabled}
+                            onClick={onRegisterDownstreamArtifacts}
+                          >
+                            <Upload className="mr-2 h-4 w-4" />
+                            {downstreamActionLoading === "registration" ? "Registering" : "Register artifacts"}
+                          </Button>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-xs text-[var(--pp-text-dim)]">
+                          <p>
+                            Obsidian:{" "}
+                            <span className="text-[var(--pp-text-secondary)]">
+                              {obsidianExport
+                                ? `${obsidianExport.export_status} / ${obsidianExport.review_status}`
+                                : canExport
+                                  ? "not prepared"
+                                  : "export permission required"}
+                            </span>
+                          </p>
+                          <p>
+                            Registry:{" "}
+                            <span className="text-[var(--pp-text-secondary)]">
+                              {downstreamRegistry && downstreamRegistry.registry_status === "available"
+                                ? `${registryRegistrationCount} registration read back / ${downstreamRegistry.review_status}`
+                                : downstreamRegistration
+                                  ? `${downstreamRegistration.registered_artifacts.length} artifacts / ${downstreamRegistration.review_status}`
+                                : canExport
+                                  ? "not registered"
+                                  : "export permission required"}
+                            </span>
+                          </p>
+                          <p>
+                            Promotion readiness:{" "}
+                            <span className="text-[var(--pp-text-secondary)]">
+                              {promotionReadinessSummary ?? "not checked"}
+                            </span>
+                            {promotionBlockerSummary ? (
+                              <span className="ml-1 text-[var(--pp-text-dim)]">blocker {promotionBlockerSummary}</span>
+                            ) : null}
+                          </p>
+                          <p>
+                            Promotion plan:{" "}
+                            <span className="text-[var(--pp-text-secondary)]">
+                              {promotionPlanSummary ?? "not checked"}
+                            </span>
+                            {downstreamPromotionPlan ? (
+                              <span className="ml-1 text-[var(--pp-text-dim)]">
+                                no canonical mutation
+                              </span>
+                            ) : null}
+                            {promotionPlanBlockedReason ? (
+                              <span className="ml-1 text-[var(--pp-text-dim)]">plan blocker {promotionPlanBlockedReason}</span>
+                            ) : null}
+                          </p>
+                          {registryArtifactStatuses.length > 0 ? (
+                            <div className="grid gap-1" data-testid="cloud-paper-downstream-registry-artifacts">
+                              {registryArtifactStatuses.slice(0, 5).map((artifact) => (
+                                <p key={artifact.artifactId}>
+                                  {artifact.lane}:{" "}
+                                  <span className="text-[var(--pp-text-secondary)]">{artifact.reviewStatus}</span>
+                                  {artifact.latestReviewEvent ? (
+                                    <span className="ml-1 text-[var(--pp-text-dim)]">
+                                      {artifact.latestReviewEvent.reviewer_role} review event
+                                      {artifact.latestReviewEvent.reviewer_note_recorded ? " / note recorded" : ""}
+                                    </span>
+                                  ) : null}
+                                </p>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Provenance</CardTitle>
+                  <CardDescription>Only public processing metadata is shown.</CardDescription>
+                </CardHeader>
+                <Separator />
+                <CardContent className="grid gap-3 pt-4 text-sm">
+                  <div>
+                    <p className="text-xs text-[var(--pp-text-dim)]">Processor</p>
+                    <p className="mt-1 text-[var(--pp-text-primary)]">{bundle?.provenance_summary.processor_name ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-[var(--pp-text-dim)]">Created</p>
+                    <p className="mt-1 text-[var(--pp-text-primary)]">
+                      {bundle?.provenance_summary.created_at ? formatDateTime(bundle.provenance_summary.created_at) : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-[var(--pp-text-dim)]">Source checksum</p>
+                    <p className="mt-1 break-all font-mono text-xs text-[var(--pp-text-secondary)]">
+                      {bundle?.provenance_summary.source_pdf_sha256 ?? "-"}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </aside>
+        </main>
+      ) : null}
+    </div>
+  );
+}
+
 export function PaperNoteDetailPage() {
   const params = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const slug = params.slug ?? "";
+  const cloudMode = searchParams.get("source") === "cloud";
   const requestedReadingAssistLocale = (searchParams.get("reading_assist_locale") ?? "").trim().toLowerCase() || null;
 
   const [data, setData] = useState<PaperNoteDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mockReason, setMockReason] = useState<string | null>(null);
+  const [cloudBundle, setCloudBundle] = useState<CloudPaperBundlePublic | null>(null);
+  const [cloudPage, setCloudPage] = useState<CloudPaperPageArtifactPublic | null>(null);
+  const [cloudDerivedArtifacts, setCloudDerivedArtifacts] = useState<CloudPaperDerivedArtifactsResponse | null>(null);
+  const [cloudDownstreamHandoff, setCloudDownstreamHandoff] = useState<CloudPaperDownstreamHandoffSummary | null>(null);
+  const [cloudObsidianExport, setCloudObsidianExport] = useState<CloudPaperObsidianExportResponse | null>(null);
+  const [cloudDownstreamRegistration, setCloudDownstreamRegistration] =
+    useState<CloudPaperDownstreamArtifactRegistrationResponse | null>(null);
+  const [cloudDownstreamRegistry, setCloudDownstreamRegistry] =
+    useState<CloudPaperDownstreamArtifactRegistryResponse | null>(null);
+  const [cloudDownstreamPromotionReadiness, setCloudDownstreamPromotionReadiness] =
+    useState<CloudPaperDownstreamPromotionReadinessResponse | null>(null);
+  const [cloudDownstreamPromotionPlan, setCloudDownstreamPromotionPlan] =
+    useState<CloudPaperDownstreamPromotionPlanResponse | null>(null);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudPageLoading, setCloudPageLoading] = useState(false);
+  const [cloudHydrating, setCloudHydrating] = useState(false);
+  const [cloudDownstreamActionLoading, setCloudDownstreamActionLoading] = useState<"obsidian" | "registration" | null>(null);
+  const [cloudLoadError, setCloudLoadError] = useState<string | null>(null);
+  const [cloudActionError, setCloudActionError] = useState<string | null>(null);
+  const [cloudMockReason, setCloudMockReason] = useState<string | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [operatorDraft, setOperatorDraft] = useState<PaperNoteOperatorState | null>(null);
   const [savingOperatorState, setSavingOperatorState] = useState(false);
@@ -2979,6 +3527,7 @@ export function PaperNoteDetailPage() {
   const actionRunLockRef = useRef(false);
   const protocolAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const detailRequestIdRef = useRef(0);
+  const cloudRequestIdRef = useRef(0);
   const mountedRef = useRef(true);
 
   const loadDetail = useCallback(async (targetSlug: string, readingAssistLocale?: string | null) => {
@@ -3032,8 +3581,132 @@ export function PaperNoteDetailPage() {
   }, []);
 
   useEffect(() => {
+    if (cloudMode) {
+      setLoading(false);
+      setLoadError(null);
+      setData(null);
+      setOperatorDraft(null);
+      return;
+    }
     void loadDetail(slug, requestedReadingAssistLocale);
-  }, [loadDetail, requestedReadingAssistLocale, slug]);
+  }, [cloudMode, loadDetail, requestedReadingAssistLocale, slug]);
+
+  useEffect(() => {
+    if (!cloudMode) {
+      setCloudBundle(null);
+      setCloudPage(null);
+      setCloudDerivedArtifacts(null);
+      setCloudDownstreamHandoff(null);
+      setCloudObsidianExport(null);
+      setCloudDownstreamRegistration(null);
+      setCloudDownstreamRegistry(null);
+      setCloudDownstreamPromotionReadiness(null);
+      setCloudDownstreamPromotionPlan(null);
+      setCloudLoadError(null);
+      setCloudActionError(null);
+      setCloudMockReason(null);
+      setCloudLoading(false);
+      setCloudDownstreamActionLoading(null);
+      return;
+    }
+    const requestId = cloudRequestIdRef.current + 1;
+    cloudRequestIdRef.current = requestId;
+    let active = true;
+
+    async function loadCloudDetail() {
+      setCloudLoading(true);
+      setCloudLoadError(null);
+      setCloudActionError(null);
+      setCloudPage(null);
+      setCloudDerivedArtifacts(null);
+      setCloudDownstreamHandoff(null);
+      setCloudObsidianExport(null);
+      setCloudDownstreamRegistration(null);
+      setCloudDownstreamRegistry(null);
+      setCloudDownstreamPromotionReadiness(null);
+      setCloudDownstreamPromotionPlan(null);
+      setCloudDownstreamActionLoading(null);
+      try {
+        const paperResult = await getCloudPaper(slug);
+        if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+          return;
+        }
+        setCloudBundle(paperResult.data);
+        setCloudMockReason(paperResult.isMock && paperResult.reason ? paperResult.reason : null);
+        if (paperResult.data.allowed_actions.includes("read_page")) {
+          const pageResult = await getCloudPaperPage(slug);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudPage(pageResult.data);
+          const derivedResult = await getCloudPaperDerivedArtifacts(slug);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudDerivedArtifacts(derivedResult.data);
+          const handoffResult = await getCloudPaperDownstreamHandoff(slug);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudDownstreamHandoff(handoffResult.data);
+          const registryResult = await getCloudPaperDownstreamArtifactRegistry(slug);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudDownstreamRegistry(registryResult.data);
+          const promotionReadinessResult = await getCloudPaperDownstreamPromotionReadiness(slug, registryResult.data);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudDownstreamPromotionReadiness(promotionReadinessResult.data);
+          const promotionPlanResult = await getCloudPaperDownstreamPromotionPlan(slug, registryResult.data);
+          if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+            return;
+          }
+          setCloudDownstreamPromotionPlan(promotionPlanResult.data);
+          setCloudMockReason(
+            promotionPlanResult.isMock && promotionPlanResult.reason
+              ? promotionPlanResult.reason
+            : promotionReadinessResult.isMock && promotionReadinessResult.reason
+              ? promotionReadinessResult.reason
+            : registryResult.isMock && registryResult.reason
+              ? registryResult.reason
+              : handoffResult.isMock && handoffResult.reason
+              ? handoffResult.reason
+              : derivedResult.isMock && derivedResult.reason
+                ? derivedResult.reason
+              : pageResult.isMock && pageResult.reason
+                ? pageResult.reason
+                : paperResult.reason ?? null,
+          );
+        }
+      } catch (error) {
+        if (!active || !mountedRef.current || cloudRequestIdRef.current !== requestId) {
+          return;
+        }
+        setCloudBundle(null);
+        setCloudPage(null);
+        setCloudDerivedArtifacts(null);
+        setCloudDownstreamHandoff(null);
+        setCloudObsidianExport(null);
+        setCloudDownstreamRegistration(null);
+        setCloudDownstreamRegistry(null);
+        setCloudDownstreamPromotionReadiness(null);
+        setCloudDownstreamPromotionPlan(null);
+        setCloudMockReason(null);
+        setCloudLoadError(getApiErrorMessage(error));
+      } finally {
+        if (active && mountedRef.current && cloudRequestIdRef.current === requestId) {
+          setCloudLoading(false);
+        }
+      }
+    }
+
+    void loadCloudDetail();
+    return () => {
+      active = false;
+    };
+  }, [cloudMode, slug]);
 
   useEffect(() => {
     const jobId = importDeepReadJob?.jobId;
@@ -3311,6 +3984,10 @@ export function PaperNoteDetailPage() {
   }
 
   useEffect(() => {
+    if (cloudMode) {
+      document.title = `${slug} · Cloud paper | Lattice`;
+      return;
+    }
     if (note?.title) {
       document.title = `${note.title} | Lattice`;
       return;
@@ -3320,7 +3997,7 @@ export function PaperNoteDetailPage() {
       return;
     }
     document.title = "Paper Note | Lattice";
-  }, [note?.title, slug]);
+  }, [cloudMode, note?.title, slug]);
 
   useEffect(() => {
     if (!focusTarget) {
@@ -3365,6 +4042,138 @@ export function PaperNoteDetailPage() {
     setSearchParams(next, { replace: true });
   }
 
+  async function refreshCloudPage() {
+    if (!slug || cloudPageLoading) {
+      return;
+    }
+    setCloudPageLoading(true);
+    setCloudActionError(null);
+    setCloudObsidianExport(null);
+    setCloudDownstreamRegistration(null);
+    setCloudDownstreamRegistry(null);
+    setCloudDownstreamPromotionReadiness(null);
+    setCloudDownstreamPromotionPlan(null);
+    try {
+      const result = await getCloudPaperPage(slug);
+      setCloudPage(result.data);
+      const derivedResult = await getCloudPaperDerivedArtifacts(slug);
+      setCloudDerivedArtifacts(derivedResult.data);
+      const handoffResult = await getCloudPaperDownstreamHandoff(slug);
+      setCloudDownstreamHandoff(handoffResult.data);
+      const registryResult = await getCloudPaperDownstreamArtifactRegistry(slug);
+      setCloudDownstreamRegistry(registryResult.data);
+      const promotionReadinessResult = await getCloudPaperDownstreamPromotionReadiness(slug, registryResult.data);
+      setCloudDownstreamPromotionReadiness(promotionReadinessResult.data);
+      const promotionPlanResult = await getCloudPaperDownstreamPromotionPlan(slug, registryResult.data);
+      setCloudDownstreamPromotionPlan(promotionPlanResult.data);
+      setCloudMockReason(
+        promotionPlanResult.isMock && promotionPlanResult.reason
+          ? promotionPlanResult.reason
+        : promotionReadinessResult.isMock && promotionReadinessResult.reason
+          ? promotionReadinessResult.reason
+        : registryResult.isMock && registryResult.reason
+          ? registryResult.reason
+          : handoffResult.isMock && handoffResult.reason
+          ? handoffResult.reason
+          : derivedResult.isMock && derivedResult.reason
+            ? derivedResult.reason
+          : result.isMock && result.reason
+            ? result.reason
+            : cloudMockReason,
+      );
+    } catch (error) {
+      setCloudDerivedArtifacts(null);
+      setCloudDownstreamHandoff(null);
+      setCloudObsidianExport(null);
+      setCloudDownstreamRegistration(null);
+      setCloudDownstreamRegistry(null);
+      setCloudDownstreamPromotionReadiness(null);
+      setCloudDownstreamPromotionPlan(null);
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setCloudPageLoading(false);
+    }
+  }
+
+  async function hydrateCloudDetail() {
+    if (!slug || cloudHydrating) {
+      return;
+    }
+    setCloudHydrating(true);
+    setCloudActionError(null);
+    try {
+      const result = await hydrateCloudPaper(slug);
+      setCloudBundle((current) =>
+        current
+          ? {
+              ...current,
+              local_hydration: result.data,
+            }
+          : current,
+      );
+      if (result.isMock && result.reason) {
+        setCloudMockReason(result.reason);
+      }
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setCloudHydrating(false);
+    }
+  }
+
+  async function prepareCloudObsidianExportAction() {
+    if (!slug || cloudDownstreamActionLoading !== null) {
+      return;
+    }
+    setCloudDownstreamActionLoading("obsidian");
+    setCloudActionError(null);
+    try {
+      const result = await prepareCloudPaperObsidianExport(
+        slug,
+        cloudObsidianExport?.note_markdown ?? cloudDownstreamHandoff?.obsidian_section_markdown ?? "",
+      );
+      setCloudObsidianExport(result.data);
+      if (result.isMock && result.reason) {
+        setCloudMockReason(result.reason);
+      }
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setCloudDownstreamActionLoading(null);
+    }
+  }
+
+  async function registerCloudDownstreamArtifactsAction() {
+    if (!slug || cloudDownstreamActionLoading !== null) {
+      return;
+    }
+    setCloudDownstreamActionLoading("registration");
+    setCloudActionError(null);
+    try {
+      const result = await registerCloudPaperDownstreamArtifacts(slug);
+      setCloudDownstreamRegistration(result.data);
+      const registryResult = await getCloudPaperDownstreamArtifactRegistry(slug, result.data);
+      setCloudDownstreamRegistry(registryResult.data);
+      const promotionReadinessResult = await getCloudPaperDownstreamPromotionReadiness(slug, registryResult.data);
+      setCloudDownstreamPromotionReadiness(promotionReadinessResult.data);
+      const promotionPlanResult = await getCloudPaperDownstreamPromotionPlan(slug, registryResult.data);
+      setCloudDownstreamPromotionPlan(promotionPlanResult.data);
+      if (result.isMock && result.reason) {
+        setCloudMockReason(result.reason);
+      } else if (promotionPlanResult.isMock && promotionPlanResult.reason) {
+        setCloudMockReason(promotionPlanResult.reason);
+      } else if (promotionReadinessResult.isMock && promotionReadinessResult.reason) {
+        setCloudMockReason(promotionReadinessResult.reason);
+      } else if (registryResult.isMock && registryResult.reason) {
+        setCloudMockReason(registryResult.reason);
+      }
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setCloudDownstreamActionLoading(null);
+    }
+  }
+
   async function copyImportPaperId() {
     if (!workbenchPaperId || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       return;
@@ -3406,6 +4215,34 @@ export function PaperNoteDetailPage() {
     } finally {
       setQueueingImportDeepRead(false);
     }
+  }
+
+  if (cloudMode) {
+    return (
+      <CloudPaperDetailShell
+        paperId={slug}
+        bundle={cloudBundle}
+        page={cloudPage}
+        derivedArtifacts={cloudDerivedArtifacts}
+        downstreamHandoff={cloudDownstreamHandoff}
+        obsidianExport={cloudObsidianExport}
+        downstreamRegistration={cloudDownstreamRegistration}
+        downstreamRegistry={cloudDownstreamRegistry}
+        downstreamPromotionReadiness={cloudDownstreamPromotionReadiness}
+        downstreamPromotionPlan={cloudDownstreamPromotionPlan}
+        loading={cloudLoading}
+        pageLoading={cloudPageLoading}
+        hydrating={cloudHydrating}
+        downstreamActionLoading={cloudDownstreamActionLoading}
+        loadError={cloudLoadError}
+        actionError={cloudActionError}
+        mockReason={cloudMockReason}
+        onLoadPage={refreshCloudPage}
+        onHydrate={hydrateCloudDetail}
+        onPrepareObsidianExport={prepareCloudObsidianExportAction}
+        onRegisterDownstreamArtifacts={registerCloudDownstreamArtifactsAction}
+      />
+    );
   }
 
   return (

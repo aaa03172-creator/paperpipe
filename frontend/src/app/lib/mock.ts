@@ -6,6 +6,21 @@ import type {
   ChartPackResponse,
   ChartTemplateId,
   ChartWarning,
+  CloudPaperBundlePublic,
+  CloudPaperDerivedArtifactsResponse,
+  CloudPaperDownstreamArtifactRegistryResponse,
+  CloudPaperDownstreamArtifactCandidate,
+  CloudPaperDownstreamArtifactRegistrationResponse,
+  CloudPaperDownstreamHandoffSummary,
+  CloudPaperDownstreamLane,
+  CloudPaperDownstreamPromotionPlanResponse,
+  CloudPaperDownstreamPromotionReadinessResponse,
+  CloudPaperDownstreamReviewStatus,
+  CloudPaperHydrationState,
+  CloudPaperListResponse,
+  CloudPaperObsidianExportResponse,
+  CloudPaperPageArtifactPublic,
+  CloudPaperSearchResponse,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
   EvidenceHighlight,
@@ -69,6 +84,60 @@ const MOCK_GENERATED_METHOD_COMPARISONS = new Map<string, MethodComparisonRespon
 const MOCK_GENERATED_METHOD_COMPARISON_ORDER: string[] = [];
 const MOCK_GENERATED_PROTOCOL_CARDS = new Map<string, ProtocolCardResponse>();
 const MOCK_GENERATED_PROTOCOL_CARD_ORDER: string[] = [];
+const MOCK_CLOUD_PAPER_CREATED_AT = "2026-05-30T01:02:03Z";
+
+function buildMockCloudPaper(
+  paperId: string,
+  processingStatus: CloudPaperBundlePublic["processing_status"],
+  options?: { warningCode?: string },
+): CloudPaperBundlePublic {
+  const canRead = processingStatus === "ready";
+  return {
+    schema_version: "cloud_paper_bundle_public.v1",
+    paper_id: paperId,
+    lab_id: "lab_001",
+    processing_status: processingStatus,
+    payload_class: "local_only",
+    page_schema_version: canRead ? "cloud_page_artifact.v1" : null,
+    run_id: `run_${paperId}`,
+    warnings: options?.warningCode
+      ? [
+          {
+            code: options.warningCode,
+            message: `Mock cloud paper is ${processingStatus}.`,
+            severity: "high",
+          },
+        ]
+      : [],
+    permissions: {
+      role: "reader",
+      can_read_page: canRead,
+      can_read_pdf: false,
+      can_hydrate: false,
+      can_upload: false,
+      can_delete: false,
+      can_run_optional_ai: false,
+      can_export: false,
+      can_share: false,
+    },
+    provenance_summary: {
+      uploaded_by: "mock_user",
+      processor_name: "paperpipe-mock-cloud-page-worker",
+      processor_version: "0.1.0",
+      created_at: MOCK_CLOUD_PAPER_CREATED_AT,
+      source_pdf_sha256: "a".repeat(64),
+    },
+    local_hydration: {
+      status: "not_hydrated",
+      device_id: null,
+      local_bundle_ref: null,
+      hydrated_at: null,
+      source_pdf_sha256: "a".repeat(64),
+      page_artifact_sha256: canRead ? "b".repeat(64) : null,
+    },
+    allowed_actions: canRead ? ["read_page"] : [],
+  };
+}
 
 function formatMockChartPackTimestamp(value: Date): string {
   return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
@@ -1813,6 +1882,24 @@ function toArtifactBundle(paperId: string, runId: string, notebook: NotebookArti
           tool_policy_version: "v3.0",
         },
       },
+      evidence_grounding_scorecard: {
+        exists: true,
+        path: `storage/artifacts/${paperId}/${runId}/evidence_grounding_scorecard.json`,
+        data: {
+          schema_version: "evidence_grounding_scorecard.v1",
+          layer: "review_gate_artifact",
+          canonical_status: "non_canonical",
+          readiness_status: "warn",
+          reason_codes: ["missing_p0_gold_metrics", "accepted_corrections_not_replayable"],
+          recommended_next_action: "review_proxy_warnings_before_promotion",
+          runtime_proxy_metrics: {
+            grounded_evidence_ratio: { status: "available", value: 0.6 },
+            page_coverage_ratio: { status: "available", value: 0.3 },
+            correction_feedback_link_rate: { status: "available", value: 0 },
+            review_burden_per_paper: { status: "available", value: 1 },
+          },
+        },
+      },
       document_artifact: {
         exists: true,
         path: `storage/artifacts/${paperId}/${runId}/document.json`,
@@ -3375,6 +3462,658 @@ export function getMockPaperNotesIndex(params?: MockPaperNoteQuery): PaperNoteLi
     available_reading_assist_note_count: availableReadingAssistNoteCount,
     available_reading_assist_locales: availableReadingAssistLocales,
     items: deepClone(filtered.slice(start, start + pageSize)),
+  };
+}
+
+export function getMockCloudPapers(): CloudPaperListResponse {
+  return {
+    schema_version: "cloud_paper_list.v1",
+    items: [
+      buildMockCloudPaper("paper_mock_ready", "ready"),
+      buildMockCloudPaper("paper_mock_running", "running"),
+      buildMockCloudPaper("paper_mock_failed", "failed", { warningCode: "MOCK_FAILED" }),
+    ],
+  };
+}
+
+export function getMockCloudPaper(paperId: string): CloudPaperBundlePublic {
+  const existing = getMockCloudPapers().items.find((item) => item.paper_id === paperId);
+  if (existing) {
+    return deepClone(existing);
+  }
+  return buildMockCloudPaper(paperId, "ready");
+}
+
+export function hydrateMockCloudPaper(paperId: string): CloudPaperHydrationState {
+  return {
+    status: "hydrated",
+    device_id: null,
+    local_bundle_ref: null,
+    hydrated_at: new Date().toISOString(),
+    source_pdf_sha256: "a".repeat(64),
+    page_artifact_sha256: paperId.trim() ? "b".repeat(64) : null,
+  };
+}
+
+export function getMockCloudPaperPage(paperId: string): CloudPaperPageArtifactPublic {
+  return {
+    schema_version: "cloud_page_artifact_public.v1",
+    paper_id: paperId,
+    run_id: `run_${paperId}`,
+    page_schema_version: "cloud_page_artifact.v1",
+    source_pdf_sha256: "a".repeat(64),
+    blocks: [
+      {
+        block_id: "block_001",
+        page: 1,
+        kind: "text",
+        text: "Mock processed page text for cloud paper API contract verification.",
+        bbox_pct: { left: 0.1, top: 0.1, width: 0.8, height: 0.2 },
+        payload_class: "local_only",
+        metadata: { section: "abstract" },
+      },
+    ],
+    warnings: [],
+    provenance_summary: {
+      uploaded_by: "mock_user",
+      processor_name: "paperpipe-mock-cloud-page-worker",
+      processor_version: "0.1.0",
+      created_at: MOCK_CLOUD_PAPER_CREATED_AT,
+      source_pdf_sha256: "a".repeat(64),
+    },
+  };
+}
+
+export function getMockCloudPaperDerivedArtifacts(paperId: string): CloudPaperDerivedArtifactsResponse {
+  const sourcePdfSha256 = "a".repeat(64);
+  const noDownstreamCandidates = paperId === "paper_mock_no_downstream_candidates";
+  return {
+    schema_version: "cloud_paper_derived_artifacts.v1",
+    paper_id: paperId,
+    run_id: `run_${paperId}`,
+    source_pdf_sha256: sourcePdfSha256,
+    payload_class: "local_only",
+    ocr_blocks: [
+      {
+        ocr_block_id: "ocr_001",
+        text: "Mock OCR text recovered from a rendered cloud PDF page.",
+        confidence: 0.91,
+        source: {
+          page: 1,
+          source_pdf_sha256: sourcePdfSha256,
+          block_id: "block_001",
+          bbox_pct: { left: 0.1, top: 0.1, width: 0.8, height: 0.2 },
+        },
+        payload_class: "local_only",
+        metadata: { engine: "mock-ocr" },
+      },
+    ],
+    tables: noDownstreamCandidates
+      ? []
+      : [
+          {
+            table_id: "table_001",
+            page: 2,
+            caption: "Mock reconstructed table from cloud PDF layout.",
+            columns: ["Group", "N"],
+            rows: [["Control", "10"], ["Treatment", "12"]],
+            confidence: 0.82,
+            source: { page: 2, source_pdf_sha256: sourcePdfSha256 },
+            payload_class: "local_only",
+            metadata: {},
+          },
+        ],
+    figures: noDownstreamCandidates
+      ? []
+      : [
+          {
+            figure_id: "figure_001",
+            page: 3,
+            caption: "Mock figure crop from rendered cloud PDF page.",
+            bbox_pct: { left: 0.1, top: 0.1, width: 0.7, height: 0.5 },
+            image_available: true,
+            image_route: `/api/cloud/papers/${paperId}/figures/figure_001/image`,
+            confidence: 0.77,
+            source: { page: 3, source_pdf_sha256: sourcePdfSha256 },
+            payload_class: "local_only",
+            metadata: {},
+          },
+        ],
+    figure_analyses: noDownstreamCandidates
+      ? []
+      : [
+          {
+            analysis_id: "figure_analysis_001",
+            figure_id: "figure_001",
+            page: 3,
+            summary: "Mock figure analysis placeholder derived from a server-side figure crop.",
+            confidence: 0.7,
+            source: { page: 3, source_pdf_sha256: sourcePdfSha256 },
+            payload_class: "local_only",
+            metadata: {},
+          },
+        ],
+    warnings: [],
+    provenance_summary: {
+      uploaded_by: "mock_user",
+      processor_name: "paperpipe-mock-derived-artifact-worker",
+      processor_version: "0.1.0",
+      created_at: MOCK_CLOUD_PAPER_CREATED_AT,
+      source_pdf_sha256: sourcePdfSha256,
+    },
+  };
+}
+
+export function getMockCloudPaperDownstreamHandoff(paperId: string): CloudPaperDownstreamHandoffSummary {
+  const derived = getMockCloudPaperDerivedArtifacts(paperId);
+  const provenance = derived.provenance_summary;
+  const tableArtifact = derived.tables[0] ?? null;
+  const figureArtifact = derived.figures[0] ?? null;
+  const figureAnalysis = derived.figure_analyses[0] ?? null;
+  const candidates: CloudPaperDownstreamArtifactCandidate[] = [
+    {
+      candidate_id: "ocr_001",
+      kind: "ocr_text",
+      paper_id: derived.paper_id,
+      run_id: derived.run_id,
+      payload_class: derived.payload_class,
+      canonical_status: "derived_noncanonical",
+      allowed_lanes: ["meeting_pack", "method_comparison", "obsidian_export"],
+      source: derived.ocr_blocks[0].source,
+      title: "OCR block ocr_001",
+      text: derived.ocr_blocks[0].text,
+      table_columns: [],
+      table_rows: [],
+      confidence: derived.ocr_blocks[0].confidence,
+      provenance_summary: provenance,
+    },
+  ];
+  if (tableArtifact) {
+    candidates.push({
+      candidate_id: tableArtifact.table_id,
+      kind: "table",
+      paper_id: derived.paper_id,
+      run_id: derived.run_id,
+      payload_class: derived.payload_class,
+      canonical_status: "derived_noncanonical",
+      allowed_lanes: ["chart_pack", "meeting_pack", "method_comparison", "obsidian_export"],
+      source: tableArtifact.source,
+      title: tableArtifact.caption ?? `Table ${tableArtifact.table_id}`,
+      text: tableArtifact.caption,
+      table_columns: tableArtifact.columns,
+      table_rows: tableArtifact.rows,
+      confidence: tableArtifact.confidence,
+      provenance_summary: provenance,
+    });
+  }
+  if (figureArtifact) {
+    candidates.push({
+      candidate_id: figureArtifact.figure_id,
+      kind: "figure",
+      paper_id: derived.paper_id,
+      run_id: derived.run_id,
+      payload_class: derived.payload_class,
+      canonical_status: "derived_noncanonical",
+      allowed_lanes: ["image_evidence", "meeting_pack", "obsidian_export"],
+      source: figureArtifact.source,
+      title: figureArtifact.caption ?? `Figure ${figureArtifact.figure_id}`,
+      text: figureArtifact.caption,
+      table_columns: [],
+      table_rows: [],
+      image_route: figureArtifact.image_route,
+      confidence: figureArtifact.confidence,
+      provenance_summary: provenance,
+    });
+  }
+  if (figureAnalysis && figureArtifact) {
+    candidates.push({
+      candidate_id: figureAnalysis.analysis_id,
+      kind: "figure_analysis",
+      paper_id: derived.paper_id,
+      run_id: derived.run_id,
+      payload_class: derived.payload_class,
+      canonical_status: "derived_noncanonical",
+      allowed_lanes: ["image_evidence", "meeting_pack", "obsidian_export"],
+      source: figureAnalysis.source,
+      title: `Analysis for ${figureAnalysis.figure_id}`,
+      text: figureAnalysis.summary,
+      table_columns: [],
+      table_rows: [],
+      image_route: figureArtifact.image_route,
+      confidence: figureAnalysis.confidence,
+      provenance_summary: provenance,
+    });
+  }
+  const selectedTableCandidate = candidates.find((candidate) => candidate.kind === "table") ?? null;
+  const selectedFigureCandidate = candidates.find((candidate) => candidate.kind === "figure") ?? null;
+  return {
+    downstream_adapter: {
+      schema_version: "cloud_paper_downstream_adapter.v1",
+      paper_id: derived.paper_id,
+      run_id: derived.run_id,
+      source_pdf_sha256: derived.source_pdf_sha256,
+      payload_class: derived.payload_class,
+      candidates,
+      warnings: [],
+      provenance_summary: provenance,
+    },
+    selected_table_candidate: selectedTableCandidate,
+    selected_figure_candidate: selectedFigureCandidate,
+    meeting_pack_context: {
+      schema_version: "meeting_pack_cloud_derived_context.v1",
+      readiness: "background_only",
+      items: [
+        { support_type: "background", canonical_status: "derived_noncanonical", evidence_refs: [] },
+        { support_type: "background", canonical_status: "derived_noncanonical", evidence_refs: [] },
+      ],
+    },
+    chart_table_snapshot: selectedTableCandidate
+      ? {
+          source_ref: { source_kind: "cloud_derived_table", table_id: selectedTableCandidate.candidate_id },
+          rows: [{ Group: "Control", N: 10 }, { Group: "Treatment", N: 12 }],
+          warnings: [
+            {
+              code: "cloud_derived_noncanonical",
+              severity: "warning",
+              message: "This chart snapshot is derived from server-side table reconstruction, not canonical structured evidence.",
+            },
+          ],
+        }
+      : null,
+    image_evidence_request: selectedFigureCandidate
+      ? {
+          source_ref: {
+            source_kind: "external_image_ref",
+            external_ref: `/api/cloud/papers/${paperId}/figures/${selectedFigureCandidate.candidate_id}/image`,
+            local_path: null,
+          },
+          linked_claim_refs: [],
+          warnings: [
+            {
+              code: "cloud_derived_noncanonical",
+              severity: "warning",
+              message: "This Image Evidence request uses a cloud-derived figure crop, not canonical structured evidence.",
+            },
+          ],
+        }
+      : null,
+    method_comparison_context: {
+      schema_version: "method_comparison_cloud_derived_context.v1",
+      readiness: "background_only",
+      items: [
+        { comparison_cell_status: "missing", canonical_status: "derived_noncanonical", evidence_refs: [] },
+        { comparison_cell_status: "missing", canonical_status: "derived_noncanonical", evidence_refs: [] },
+      ],
+    },
+    obsidian_section_markdown: [
+      `<!-- paperpipe:cloud-derived:start paper_id=${paperId} run_id=run_${paperId} -->`,
+      "## Cloud-Derived Context",
+      "- Canonical status: derived_noncanonical",
+      "<!-- paperpipe:cloud-derived:end -->",
+    ].join("\n"),
+  };
+}
+
+export function prepareMockCloudPaperObsidianExport(
+  paperId: string,
+  existingMarkdown = "",
+): CloudPaperObsidianExportResponse {
+  const handoff = getMockCloudPaperDownstreamHandoff(paperId);
+  const sectionMarkdown = handoff.obsidian_section_markdown.trim() + "\n";
+  const noteMarkdown = replaceMockCloudDerivedSection(existingMarkdown, sectionMarkdown);
+  return {
+    schema_version: "cloud_paper_obsidian_export.v1",
+    paper_id: paperId,
+    run_id: handoff.downstream_adapter.run_id,
+    artifact_id: `cloud_obsidian_export_${paperId}`,
+    export_status: "prepared",
+    canonical_status: "derived_noncanonical",
+    review_status: "review_pending",
+    source_pdf_sha256: handoff.downstream_adapter.source_pdf_sha256,
+    payload_class: handoff.downstream_adapter.payload_class,
+    section_markers: {
+      start: sectionMarkdown.split("\n")[0],
+      end: "<!-- paperpipe:cloud-derived:end -->",
+    },
+    section_markdown: sectionMarkdown,
+    note_markdown: noteMarkdown,
+    warnings: [],
+    provenance_summary: handoff.downstream_adapter.provenance_summary,
+  };
+}
+
+export function registerMockCloudPaperDownstreamArtifacts(
+  paperId: string,
+  lanes: CloudPaperDownstreamLane[] = ["meeting_pack", "chart_pack", "image_evidence", "method_comparison", "obsidian_export"],
+): CloudPaperDownstreamArtifactRegistrationResponse {
+  const handoff = getMockCloudPaperDownstreamHandoff(paperId);
+  const registered_artifacts = lanes
+    .map((lane) => {
+      const candidateIds = handoff.downstream_adapter.candidates
+        .filter((candidate) => candidate.allowed_lanes.includes(lane))
+        .map((candidate) => candidate.candidate_id);
+      if (candidateIds.length === 0) {
+        return null;
+      }
+      return {
+        artifact_id: `cloud_downstream_${lane}_${paperId}`,
+        lane,
+        candidate_ids: candidateIds,
+        candidate_count: candidateIds.length,
+        canonical_status: "derived_noncanonical" as const,
+        review_status: "review_pending" as const,
+        review_events: [],
+        source_pdf_sha256: handoff.downstream_adapter.source_pdf_sha256,
+        payload_class: handoff.downstream_adapter.payload_class,
+      };
+    })
+    .filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
+
+  return {
+    schema_version: "cloud_paper_downstream_artifact_registration.v1",
+    paper_id: paperId,
+    run_id: handoff.downstream_adapter.run_id,
+    registration_status: "registered",
+    canonical_status: "derived_noncanonical",
+    review_status: "review_pending",
+    source_pdf_sha256: handoff.downstream_adapter.source_pdf_sha256,
+    payload_class: handoff.downstream_adapter.payload_class,
+    registered_artifacts,
+    warnings: [],
+    provenance_summary: handoff.downstream_adapter.provenance_summary,
+  };
+}
+
+export function getMockCloudPaperDownstreamArtifactRegistry(
+  paperId: string,
+  registration?: CloudPaperDownstreamArtifactRegistrationResponse | null,
+): CloudPaperDownstreamArtifactRegistryResponse {
+  const handoff = getMockCloudPaperDownstreamHandoff(paperId);
+  const registrations =
+    registration
+      ? [registration]
+      : paperId === "paper_mock_promotion_ready"
+        ? [reviewAllRegistrationArtifacts(registerMockCloudPaperDownstreamArtifacts(paperId), "review_approved")]
+      : paperId === "paper_mock_reviewed"
+        ? [reviewRegistrationArtifact(registerMockCloudPaperDownstreamArtifacts(paperId), "review_approved")]
+        : [];
+  return {
+    schema_version: "cloud_paper_downstream_artifact_registry.v1",
+    paper_id: paperId,
+    run_id: handoff.downstream_adapter.run_id,
+    registry_status: registrations.length > 0 ? "available" : "empty",
+    canonical_status: "derived_noncanonical",
+    review_status: aggregateMockRegistrationReviewStatus(registrations),
+    source_pdf_sha256: handoff.downstream_adapter.source_pdf_sha256,
+    payload_class: handoff.downstream_adapter.payload_class,
+    registrations,
+    warnings: [],
+    provenance_summary: handoff.downstream_adapter.provenance_summary,
+  };
+}
+
+export function getMockCloudPaperDownstreamPromotionReadiness(
+  paperId: string,
+  registry?: CloudPaperDownstreamArtifactRegistryResponse | null,
+): CloudPaperDownstreamPromotionReadinessResponse {
+  const resolvedRegistry = registry ?? getMockCloudPaperDownstreamArtifactRegistry(paperId);
+  const artifacts = resolvedRegistry.registrations.flatMap((registration) => registration.registered_artifacts);
+  const blockers: CloudPaperDownstreamPromotionReadinessResponse["blockers"] = [];
+  for (const artifact of artifacts) {
+    if (artifact.review_status === "review_pending") {
+      blockers.push({
+        code: "review_pending",
+        message: "Registered downstream artifact is still pending review.",
+        artifact_id: artifact.artifact_id,
+        lane: artifact.lane,
+      });
+    }
+    if (artifact.review_status === "review_rejected") {
+      blockers.push({
+        code: "review_rejected",
+        message: "Registered downstream artifact was rejected during review.",
+        artifact_id: artifact.artifact_id,
+        lane: artifact.lane,
+      });
+    }
+  }
+  if (artifacts.length === 0) {
+    blockers.push({
+      code: "registry_empty",
+      message: "No registered downstream artifacts are available for promotion review.",
+      artifact_id: null,
+      lane: null,
+    });
+  }
+  const approvedArtifactCount = artifacts.filter((artifact) => artifact.review_status === "review_approved").length;
+  const pendingArtifactCount = artifacts.filter((artifact) => artifact.review_status === "review_pending").length;
+  const rejectedArtifactCount = artifacts.filter((artifact) => artifact.review_status === "review_rejected").length;
+  const eligible = artifacts.length > 0 && blockers.length === 0;
+  return {
+    schema_version: "cloud_paper_downstream_promotion_readiness.v1",
+    paper_id: resolvedRegistry.paper_id,
+    run_id: resolvedRegistry.run_id,
+    promotion_status: eligible ? "eligible" : "blocked",
+    eligible,
+    canonical_status: "derived_noncanonical",
+    review_status: resolvedRegistry.review_status,
+    total_artifact_count: artifacts.length,
+    approved_artifact_count: approvedArtifactCount,
+    pending_artifact_count: pendingArtifactCount,
+    rejected_artifact_count: rejectedArtifactCount,
+    blockers,
+    source_pdf_sha256: resolvedRegistry.source_pdf_sha256,
+    payload_class: resolvedRegistry.payload_class,
+    warnings: resolvedRegistry.warnings,
+    provenance_summary: resolvedRegistry.provenance_summary,
+  };
+}
+
+export function getMockCloudPaperDownstreamPromotionPlan(
+  paperId: string,
+  registry?: CloudPaperDownstreamArtifactRegistryResponse | null,
+): CloudPaperDownstreamPromotionPlanResponse {
+  const resolvedRegistry = registry ?? getMockCloudPaperDownstreamArtifactRegistry(paperId);
+  const readiness = getMockCloudPaperDownstreamPromotionReadiness(paperId, resolvedRegistry);
+  const artifacts = resolvedRegistry.registrations.flatMap((registration) => registration.registered_artifacts);
+  return {
+    schema_version: "cloud_paper_downstream_promotion_plan.v1",
+    paper_id: resolvedRegistry.paper_id,
+    run_id: resolvedRegistry.run_id,
+    plan_status: readiness.eligible ? "ready" : "blocked",
+    dry_run: true,
+    mutation_applied: false,
+    promotion_target: "canonical_structured_state",
+    canonical_status: "derived_noncanonical",
+    review_status: resolvedRegistry.review_status,
+    total_artifact_count: readiness.total_artifact_count,
+    approved_artifact_count: readiness.approved_artifact_count,
+    pending_artifact_count: readiness.pending_artifact_count,
+    rejected_artifact_count: readiness.rejected_artifact_count,
+    blockers: readiness.blockers,
+    promotion_items: readiness.eligible
+      ? artifacts
+          .filter((artifact) => artifact.review_status === "review_approved")
+          .map((artifact) => ({
+            artifact_id: artifact.artifact_id,
+            lane: artifact.lane,
+            candidate_ids: artifact.candidate_ids,
+            candidate_count: artifact.candidate_count,
+            review_status: "review_approved" as const,
+            canonical_status: "derived_noncanonical" as const,
+            promotion_action: "prepare_canonical_state_promotion" as const,
+            source_pdf_sha256: artifact.source_pdf_sha256,
+            payload_class: artifact.payload_class,
+          }))
+      : [],
+    source_pdf_sha256: resolvedRegistry.source_pdf_sha256,
+    payload_class: resolvedRegistry.payload_class,
+    warnings: resolvedRegistry.warnings,
+    provenance_summary: resolvedRegistry.provenance_summary,
+  };
+}
+
+export function reviewMockCloudPaperDownstreamArtifact(
+  paperId: string,
+  artifactId: string,
+  reviewStatus: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">,
+): CloudPaperDownstreamArtifactRegistryResponse {
+  const registry = getMockCloudPaperDownstreamArtifactRegistry(paperId, registerMockCloudPaperDownstreamArtifacts(paperId));
+  const registrations = registry.registrations.map((registration) => {
+    const registered_artifacts = registration.registered_artifacts.map((artifact) =>
+      artifact.artifact_id === artifactId
+        ? {
+            ...artifact,
+            review_status: reviewStatus,
+            review_events: [...artifact.review_events, mockReviewEvent(artifact.artifact_id, reviewStatus)],
+          }
+        : artifact,
+    );
+    return {
+      ...registration,
+      registered_artifacts,
+      review_status: aggregateMockArtifactReviewStatus(registered_artifacts),
+    };
+  });
+  return {
+    ...registry,
+    review_status: aggregateMockRegistrationReviewStatus(registrations),
+    registrations,
+  };
+}
+
+function reviewRegistrationArtifact(
+  registration: CloudPaperDownstreamArtifactRegistrationResponse,
+  reviewStatus: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">,
+): CloudPaperDownstreamArtifactRegistrationResponse {
+  const firstArtifactId = registration.registered_artifacts[0]?.artifact_id ?? null;
+  if (!firstArtifactId) {
+    return registration;
+  }
+  const registered_artifacts = registration.registered_artifacts.map((artifact) =>
+    artifact.artifact_id === firstArtifactId
+      ? {
+          ...artifact,
+          review_status: reviewStatus,
+          review_events: [...artifact.review_events, mockReviewEvent(artifact.artifact_id, reviewStatus)],
+        }
+      : artifact,
+  );
+  return {
+    ...registration,
+    registered_artifacts,
+    review_status: aggregateMockArtifactReviewStatus(registered_artifacts),
+  };
+}
+
+function reviewAllRegistrationArtifacts(
+  registration: CloudPaperDownstreamArtifactRegistrationResponse,
+  reviewStatus: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">,
+): CloudPaperDownstreamArtifactRegistrationResponse {
+  const registered_artifacts = registration.registered_artifacts.map((artifact) => ({
+    ...artifact,
+    review_status: reviewStatus,
+    review_events: [...artifact.review_events, mockReviewEvent(artifact.artifact_id, reviewStatus)],
+  }));
+  return {
+    ...registration,
+    registered_artifacts,
+    review_status: aggregateMockArtifactReviewStatus(registered_artifacts),
+  };
+}
+
+function mockReviewEvent(
+  artifactId: string,
+  reviewStatus: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">,
+) {
+  return {
+    event_id: `cloud_downstream_review_${artifactId}`,
+    artifact_id: artifactId,
+    review_status: reviewStatus,
+    reviewer_role: "maintainer" as const,
+    reviewed_at: "2026-06-03T00:00:00.000Z",
+    reviewer_note_recorded: true,
+  };
+}
+
+function aggregateMockRegistrationReviewStatus(
+  registrations: CloudPaperDownstreamArtifactRegistrationResponse[],
+): CloudPaperDownstreamReviewStatus {
+  return aggregateMockArtifactReviewStatus(registrations.flatMap((registration) => registration.registered_artifacts));
+}
+
+function aggregateMockArtifactReviewStatus(
+  artifacts: Array<{ review_status: CloudPaperDownstreamReviewStatus }>,
+): CloudPaperDownstreamReviewStatus {
+  const statuses = new Set(artifacts.map((artifact) => artifact.review_status));
+  if (statuses.size === 0 || statuses.has("review_pending")) {
+    return "review_pending";
+  }
+  if (statuses.has("review_rejected")) {
+    return "review_rejected";
+  }
+  return "review_approved";
+}
+
+function replaceMockCloudDerivedSection(existingMarkdown: string, sectionMarkdown: string): string {
+  const section = sectionMarkdown.trim();
+  const existing = existingMarkdown.trim();
+  if (!existing) {
+    return `${section}\n`;
+  }
+  const startPrefix = "<!-- paperpipe:cloud-derived:start ";
+  const endMarker = "<!-- paperpipe:cloud-derived:end -->";
+  const startIndex = existing.indexOf(startPrefix);
+  const endIndex = startIndex >= 0 ? existing.indexOf(endMarker, startIndex) : -1;
+  if (startIndex < 0 || endIndex < 0) {
+    return `${existing}\n\n${section}\n`;
+  }
+  const prefix = existing.slice(0, startIndex).trim();
+  const suffix = existing.slice(endIndex + endMarker.length).trim();
+  return [prefix, section, suffix].filter(Boolean).join("\n\n") + "\n";
+}
+
+function mockCloudSearchTerms(query: string): string[] {
+  return query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+export function searchMockCloudPapers(query: string): CloudPaperSearchResponse {
+  const cleanedQuery = query.trim();
+  const terms = mockCloudSearchTerms(cleanedQuery);
+  if (terms.length === 0) {
+    return {
+      schema_version: "cloud_paper_search.v1",
+      query: cleanedQuery,
+      items: [],
+    };
+  }
+
+  const items = getMockCloudPapers().items
+    .filter((bundle) => bundle.processing_status === "ready" && bundle.allowed_actions.includes("read_page"))
+    .map((bundle) => {
+      const page = getMockCloudPaperPage(bundle.paper_id);
+      const matched_blocks = page.blocks
+        .filter((block) => terms.every((term) => (block.text ?? "").toLowerCase().includes(term)))
+        .map((block) => ({
+          block_id: block.block_id,
+          page: block.page,
+          kind: block.kind,
+          text_snippet: block.text ?? "",
+          payload_class: block.payload_class,
+          metadata: block.metadata,
+        }));
+      return { bundle, matched_blocks };
+    })
+    .filter((item) => item.matched_blocks.length > 0);
+
+  return {
+    schema_version: "cloud_paper_search.v1",
+    query: cleanedQuery,
+    items,
   };
 }
 

@@ -1,5 +1,5 @@
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "file:", "zotero:"]);
-const ALLOWED_INTERNAL_PREFIXES = ["/papers/"];
+const ALLOWED_INTERNAL_PREFIXES = ["/api/papers/", "/papers/"];
 
 export function sanitizeRenderableHref(value?: string | null): string | null {
   const text = String(value ?? "").trim();

@@ -1,11 +1,11 @@
 import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowUpDown, Check, Search, Upload, X } from "lucide-react";
-import { getApiErrorMessage, getPaperNotesIndex, importPaperPdf } from "../lib/api";
+import { ArrowUpDown, Check, Cloud, Download, FileText, RefreshCw, Search, ShieldCheck, Upload, X } from "lucide-react";
+import { getApiErrorMessage, getCloudPaperAuthPreflight, getCloudPaperPage, getCloudPapers, getPaperNotesIndex, hydrateCloudPaper, importPaperPdf, searchCloudPapers, uploadCloudPaperPdf } from "../lib/api";
 import { getPaperNoteOpsActionLabel, getPaperNoteOpsReason, paperNoteToPaperIdCandidates } from "../lib/paperNoteOps";
 import { formatPaperNoteTriageLabel, PAPER_NOTE_OPERATOR_TRIAGE_LABELS } from "../lib/paperOperatorState";
 import { formatFreeformStatusLabel, getFreeformStatusTone, getStatusToneClassName } from "../lib/statusSystem";
-import { PaperNoteOperatorTriageLabel, PaperNoteSummary } from "../lib/types";
+import { CloudPaperAuthPreflightResponse, CloudPaperBundlePublic, CloudPaperHydrationState, CloudPaperPageArtifactPublic, CloudPaperSearchHit, PaperNoteOperatorTriageLabel, PaperNoteSummary } from "../lib/types";
 import { OperationalStateSummary } from "../components/OperationalStateSummary";
 import { StatusBadge } from "../components/StatusBadge";
 import { Badge } from "../components/ui/badge";
@@ -619,15 +619,342 @@ function PaperNoteListRow({
   );
 }
 
+function formatCloudPaperStatusLabel(status: CloudPaperBundlePublic["processing_status"]): string {
+  if (status === "ready") {
+    return "Cloud ready";
+  }
+  if (status === "running") {
+    return "Processing";
+  }
+  if (status === "pending") {
+    return "Queued";
+  }
+  if (status === "failed") {
+    return "Failed";
+  }
+  return "Blocked";
+}
+
+function cloudPaperStatusTone(status: CloudPaperBundlePublic["processing_status"]): "success" | "warning" | "danger" | "muted" {
+  if (status === "ready") {
+    return "success";
+  }
+  if (status === "running" || status === "pending") {
+    return "warning";
+  }
+  if (status === "failed" || status === "blocked") {
+    return "danger";
+  }
+  return "muted";
+}
+
+function CloudPaperListRow({
+  item,
+  pagePreview,
+  hydrationState,
+  loadingPage,
+  hydrating,
+  onLoadPage,
+  onHydrate,
+}: {
+  item: CloudPaperBundlePublic;
+  pagePreview?: CloudPaperPageArtifactPublic | null;
+  hydrationState?: CloudPaperHydrationState | null;
+  loadingPage: boolean;
+  hydrating: boolean;
+  onLoadPage: (paperId: string) => void;
+  onHydrate: (paperId: string) => void;
+}) {
+  const canReadPage = item.allowed_actions.includes("read_page");
+  const canHydrate = item.allowed_actions.includes("hydrate_download");
+  const effectiveHydration = hydrationState ?? item.local_hydration ?? null;
+  const hydrationStatus = effectiveHydration?.status ?? "not_hydrated";
+  const primaryWarning = item.warnings[0]?.message;
+  const previewText = pagePreview?.blocks.find((block) => block.text?.trim())?.text?.trim();
+
+  return (
+    <article className="rounded-lg border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3" data-testid="cloud-paper-list-row">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-start gap-2">
+            <Cloud className="mt-0.5 h-4 w-4 text-[var(--pp-accent-text)]" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[var(--pp-text-primary)]">{item.paper_id}</p>
+              <p className="mt-1 text-xs text-[var(--pp-text-dim)]">
+                Lab {item.lab_id} · {item.provenance_summary.processor_name} · {formatDate(item.provenance_summary.created_at)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${listBadgeClassName(cloudPaperStatusTone(item.processing_status))}`}>
+              {formatCloudPaperStatusLabel(item.processing_status)}
+            </span>
+            <Badge variant={hydrationStatus === "hydrated" ? "default" : "muted"}>
+              {hydrationStatus === "hydrated" ? "Available offline" : "Cloud source"}
+            </Badge>
+            <Badge variant="outline">{item.payload_class}</Badge>
+            {canHydrate ? <Badge variant="outline">download allowed</Badge> : <Badge variant="muted">read-only device</Badge>}
+          </div>
+          {primaryWarning ? (
+            <p className="mt-2 text-xs text-[var(--pp-status-failed-text)]">{primaryWarning}</p>
+          ) : (
+            <p className="mt-2 text-xs text-[var(--pp-text-secondary)]">
+              Server page data is used directly in this installed UI; local files are only written when policy allows hydration.
+            </p>
+          )}
+          {previewText ? (
+            <div className="mt-3 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3" data-testid="cloud-paper-page-preview">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--pp-text-dim)]">Page preview</p>
+              <p className="mt-1 line-clamp-3 text-xs text-[var(--pp-text-secondary)]">{previewText}</p>
+            </div>
+          ) : null}
+        </div>
+        <div className="grid gap-2 rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3">
+          <dl className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <dt className="text-[var(--pp-text-dim)]">Run</dt>
+              <dd className="mt-1 truncate text-[var(--pp-text-primary)]">{item.run_id ?? "pending"}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--pp-text-dim)]">Role</dt>
+              <dd className="mt-1 text-[var(--pp-text-primary)]">{item.permissions.role}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--pp-text-dim)]">Page schema</dt>
+              <dd className="mt-1 truncate text-[var(--pp-text-primary)]">{item.page_schema_version ?? "not ready"}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--pp-text-dim)]">Actions</dt>
+              <dd className="mt-1 text-[var(--pp-text-primary)]">{item.allowed_actions.length}</dd>
+            </div>
+          </dl>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => onLoadPage(item.paper_id)} disabled={!canReadPage || loadingPage}>
+              {loadingPage ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              {loadingPage ? "Loading" : pagePreview ? "Refresh page" : "Preview page"}
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => onHydrate(item.paper_id)} disabled={!canHydrate || hydrating}>
+              {hydrating ? <RefreshCw className="h-4 w-4 animate-spin" /> : canHydrate ? <Download className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+              {hydrating ? "Downloading" : canHydrate ? "Hydrate" : "Locked"}
+            </Button>
+            <Link
+              to={`/papers/${encodeURIComponent(item.paper_id)}?source=cloud`}
+              className={buttonClassName({ size: "sm" })}
+              data-testid="cloud-paper-open-viewer"
+            >
+              Open viewer
+            </Link>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CloudPaperSearchResults({
+  query,
+  items,
+  loading,
+  error,
+  mockReason,
+}: {
+  query: string;
+  items: CloudPaperSearchHit[];
+  loading: boolean;
+  error: string | null;
+  mockReason: string | null;
+}) {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return null;
+  }
+
+  return (
+    <div
+      className="border-b border-[var(--pp-border)] bg-[var(--pp-surface)] px-3 py-3"
+      data-testid="cloud-paper-search-results"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Cloud page matches</p>
+          <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">
+            {loading ? "Searching processed page text..." : `${items.length} cloud match${items.length === 1 ? "" : "es"} for "${trimmedQuery}"`}
+          </p>
+        </div>
+        {mockReason ? <Badge variant="muted">mock search</Badge> : null}
+      </div>
+      {error ? (
+        <p className="mt-3 text-xs text-[var(--pp-status-failed-text)]">Cloud search failed: {error}</p>
+      ) : null}
+      {!loading && !error && items.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {items.map((item) => {
+            const firstMatch = item.matched_blocks[0];
+            return (
+              <Link
+                key={item.bundle.paper_id}
+                to={`/papers/${encodeURIComponent(item.bundle.paper_id)}?source=cloud`}
+                className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 text-left transition hover:border-[var(--pp-accent-border)]"
+                data-testid="cloud-paper-search-result-row"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Cloud className="h-4 w-4 text-[var(--pp-accent-text)]" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-[var(--pp-text-primary)]">{item.bundle.paper_id}</span>
+                  <Badge variant="outline">page {firstMatch.page}</Badge>
+                  <Badge variant="muted">{firstMatch.payload_class}</Badge>
+                </div>
+                <p className="mt-2 line-clamp-2 text-xs text-[var(--pp-text-secondary)]">{firstMatch.text_snippet}</p>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+      {!loading && !error && items.length === 0 ? (
+        <p className="mt-3 text-xs text-[var(--pp-text-dim)]">No readable cloud pages matched this search.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function getCloudAuthStatusLabel(preflight: CloudPaperAuthPreflightResponse | null): string {
+  if (!preflight) {
+    return "Checking";
+  }
+  if (preflight.status === "ready") {
+    return "GCP auth ready";
+  }
+  if (preflight.status === "submission_bundle") {
+    return "Submitted demo ready";
+  }
+  if (preflight.status === "auth_missing") {
+    return "ADC sign-in needed";
+  }
+  if (preflight.status === "permission_denied") {
+    return "Access needed";
+  }
+  if (preflight.status === "misconfigured") {
+    return "Cloud config needed";
+  }
+  if (preflight.status === "dependency_missing") {
+    return "Cloud runtime missing";
+  }
+  if (preflight.status === "mock_mode") {
+    return "Mock mode";
+  }
+  return "Cloud check failed";
+}
+
+function getCloudAuthToneClassName(status: CloudPaperAuthPreflightResponse["status"] | "loading" | "error"): string {
+  if (status === "ready" || status === "submission_bundle") {
+    return "border-[var(--pp-status-ready-border)] bg-[var(--pp-status-ready-bg)] text-[var(--pp-status-ready-text)]";
+  }
+  if (status === "auth_missing" || status === "permission_denied" || status === "misconfigured" || status === "dependency_missing" || status === "error") {
+    return "border-[var(--pp-status-failed-border)] bg-[var(--pp-status-failed-bg)] text-[var(--pp-status-failed-text)]";
+  }
+  return "border-[var(--pp-border)] bg-[var(--pp-surface-muted)] text-[var(--pp-text-secondary)]";
+}
+
+function CloudAuthPreflightPanel({
+  preflight,
+  loading,
+  error,
+  mockReason,
+  onRefresh,
+}: {
+  preflight: CloudPaperAuthPreflightResponse | null;
+  loading: boolean;
+  error: string | null;
+  mockReason: string | null;
+  onRefresh: () => void;
+}) {
+  const status = error ? "error" : loading ? "loading" : preflight?.status ?? "unavailable";
+  const statusLabel = error ? "Cloud check failed" : loading ? "Checking GCP auth" : getCloudAuthStatusLabel(preflight);
+  const commands = preflight?.setup_commands ?? [];
+  const shouldShowCommands = commands.length > 0 && preflight?.status !== "ready";
+  const canCopyCommands = shouldShowCommands && typeof navigator !== "undefined" && Boolean(navigator.clipboard);
+  const checkItems = preflight?.checks ?? [];
+
+  async function copyCommands() {
+    if (!canCopyCommands) {
+      return;
+    }
+    await navigator.clipboard.writeText(commands.join("\n"));
+  }
+
+  return (
+    <div className="border-b border-[var(--pp-border)] bg-[var(--pp-surface)] px-3 py-3" data-testid="cloud-auth-preflight">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className={getCloudAuthToneClassName(status)}>
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {statusLabel}
+            </Badge>
+            {preflight?.project_id ? <Badge variant="muted">project {preflight.project_id}</Badge> : null}
+            {preflight?.firestore_collection ? <Badge variant="muted">metadata {preflight.firestore_collection}</Badge> : null}
+          </div>
+          <p className="mt-2 text-sm text-[var(--pp-text-secondary)]">
+            {error
+              ? `Cloud auth check could not run: ${error}`
+              : preflight?.next_action_label ?? "Checking whether this computer can read the shared GCP demo data."}
+          </p>
+          {mockReason ? <p className="mt-1 text-xs text-[var(--pp-text-dim)]">Fallback mode: {mockReason}</p> : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {shouldShowCommands ? (
+            <Button type="button" variant="outline" size="sm" onClick={copyCommands} disabled={!canCopyCommands}>
+              <Check className="h-4 w-4" />
+              Copy commands
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Check again
+          </Button>
+        </div>
+      </div>
+      {shouldShowCommands ? (
+        <pre className="mt-3 overflow-x-auto rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] p-3 text-xs text-[var(--pp-text-primary)]">
+          {commands.join("\n")}
+        </pre>
+      ) : null}
+      {checkItems.length > 0 ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {checkItems.map((check) => (
+            <div key={check.check_id} className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
+              <div className="flex items-center gap-2">
+                {check.status === "ok" ? (
+                  <Check className="h-4 w-4 text-[var(--pp-status-ready-text)]" />
+                ) : check.status === "error" ? (
+                  <X className="h-4 w-4 text-[var(--pp-status-failed-text)]" />
+                ) : (
+                  <Cloud className="h-4 w-4 text-[var(--pp-text-dim)]" />
+                )}
+                <p className="text-xs font-semibold text-[var(--pp-text-primary)]">{check.label}</p>
+              </div>
+              <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">{check.message}</p>
+              {check.remediation ? <p className="mt-1 text-xs text-[var(--pp-text-dim)]">{check.remediation}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function PaperNotesListPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const loadSequence = useRef(0);
+  const cloudAuthSequence = useRef(0);
+  const cloudLoadSequence = useRef(0);
+  const cloudSearchSequence = useRef(0);
   const tagPickerRef = useRef<HTMLDivElement | null>(null);
   const importCalloutRef = useRef<HTMLDivElement | null>(null);
   const importButtonRef = useRef<HTMLButtonElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const cloudUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [items, setItems] = useState<PaperNoteSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -638,6 +965,24 @@ export function PaperNotesListPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mockReason, setMockReason] = useState<string | null>(null);
+  const [cloudPapers, setCloudPapers] = useState<CloudPaperBundlePublic[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(true);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudMockReason, setCloudMockReason] = useState<string | null>(null);
+  const [cloudAuthPreflight, setCloudAuthPreflight] = useState<CloudPaperAuthPreflightResponse | null>(null);
+  const [cloudAuthLoading, setCloudAuthLoading] = useState(true);
+  const [cloudAuthError, setCloudAuthError] = useState<string | null>(null);
+  const [cloudAuthMockReason, setCloudAuthMockReason] = useState<string | null>(null);
+  const [cloudPagePreviewById, setCloudPagePreviewById] = useState<Record<string, CloudPaperPageArtifactPublic>>({});
+  const [cloudHydrationById, setCloudHydrationById] = useState<Record<string, CloudPaperHydrationState>>({});
+  const [cloudSearchHits, setCloudSearchHits] = useState<CloudPaperSearchHit[]>([]);
+  const [cloudSearchLoading, setCloudSearchLoading] = useState(false);
+  const [cloudSearchError, setCloudSearchError] = useState<string | null>(null);
+  const [cloudSearchMockReason, setCloudSearchMockReason] = useState<string | null>(null);
+  const [loadingCloudPageId, setLoadingCloudPageId] = useState<string | null>(null);
+  const [hydratingCloudPaperId, setHydratingCloudPaperId] = useState<string | null>(null);
+  const [cloudActionError, setCloudActionError] = useState<string | null>(null);
+  const [isCloudUploading, setIsCloudUploading] = useState(false);
   const [queryInput, setQueryInput] = useState(() => searchParams.get("q") ?? "");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [tagInput, setTagInput] = useState(() => searchParams.get("tag_input") ?? "");
@@ -730,6 +1075,115 @@ export function PaperNotesListPage() {
     };
   }, [activeReadingAssistLocale, page, pageSize, query, readingAssistFilter, selectedTags, sortBy, sortOrder, starredOnly, statusFilter, structuredOnly, triageFilter]);
 
+  async function loadCloudAuthPreflight() {
+    const seq = cloudAuthSequence.current + 1;
+    cloudAuthSequence.current = seq;
+    setCloudAuthLoading(true);
+    setCloudAuthError(null);
+    try {
+      const result = await getCloudPaperAuthPreflight();
+      if (cloudAuthSequence.current !== seq) {
+        return;
+      }
+      setCloudAuthPreflight(result.data);
+      setCloudAuthMockReason(result.isMock && result.reason ? result.reason : null);
+    } catch (error) {
+      if (cloudAuthSequence.current !== seq) {
+        return;
+      }
+      setCloudAuthPreflight(null);
+      setCloudAuthMockReason(null);
+      setCloudAuthError(getApiErrorMessage(error));
+    } finally {
+      if (cloudAuthSequence.current === seq) {
+        setCloudAuthLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    void loadCloudAuthPreflight();
+  }, []);
+
+  useEffect(() => {
+    const seq = cloudLoadSequence.current + 1;
+    cloudLoadSequence.current = seq;
+    let active = true;
+
+    async function loadCloudPapers() {
+      setCloudLoading(true);
+      setCloudError(null);
+      try {
+        const result = await getCloudPapers();
+        if (!active || cloudLoadSequence.current !== seq) {
+          return;
+        }
+        setCloudPapers(result.data.items);
+        setCloudMockReason(result.isMock && result.reason ? result.reason : null);
+      } catch (error) {
+        if (!active || cloudLoadSequence.current !== seq) {
+          return;
+        }
+        setCloudPapers([]);
+        setCloudMockReason(null);
+        setCloudError(getApiErrorMessage(error));
+      } finally {
+        if (active && cloudLoadSequence.current === seq) {
+          setCloudLoading(false);
+        }
+      }
+    }
+
+    void loadCloudPapers();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    const seq = cloudSearchSequence.current + 1;
+    cloudSearchSequence.current = seq;
+    if (!trimmedQuery) {
+      setCloudSearchHits([]);
+      setCloudSearchLoading(false);
+      setCloudSearchError(null);
+      setCloudSearchMockReason(null);
+      return;
+    }
+
+    let active = true;
+
+    async function loadCloudSearch() {
+      setCloudSearchLoading(true);
+      setCloudSearchError(null);
+      try {
+        const result = await searchCloudPapers(trimmedQuery);
+        if (!active || cloudSearchSequence.current !== seq) {
+          return;
+        }
+        setCloudSearchHits(result.data.items);
+        setCloudSearchMockReason(result.isMock && result.reason ? result.reason : null);
+      } catch (error) {
+        if (!active || cloudSearchSequence.current !== seq) {
+          return;
+        }
+        setCloudSearchHits([]);
+        setCloudSearchMockReason(null);
+        setCloudSearchError(getApiErrorMessage(error));
+      } finally {
+        if (active && cloudSearchSequence.current === seq) {
+          setCloudSearchLoading(false);
+        }
+      }
+    }
+
+    void loadCloudSearch();
+    return () => {
+      active = false;
+    };
+  }, [query]);
+
   useEffect(() => {
     document.title = "Paper Notes | Lattice";
   }, []);
@@ -809,6 +1263,10 @@ export function PaperNotesListPage() {
     importInputRef.current?.click();
   }
 
+  function openCloudUploadPicker() {
+    cloudUploadInputRef.current?.click();
+  }
+
   async function handleImportSelection(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0];
     event.target.value = "";
@@ -825,6 +1283,62 @@ export function PaperNotesListPage() {
       setImportError(getApiErrorMessage(error));
     } finally {
       setIsImporting(false);
+    }
+  }
+
+  async function handleCloudUploadSelection(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = "";
+    if (!selectedFile) {
+      return;
+    }
+
+    setCloudActionError(null);
+    setIsCloudUploading(true);
+    try {
+      const result = await uploadCloudPaperPdf(selectedFile);
+      setCloudPapers((current) => [result.data, ...current.filter((item) => item.paper_id !== result.data.paper_id)]);
+      navigate(`/papers/${encodeURIComponent(result.data.paper_id)}?source=cloud`);
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setIsCloudUploading(false);
+    }
+  }
+
+  async function handleLoadCloudPage(paperId: string) {
+    setCloudActionError(null);
+    setLoadingCloudPageId(paperId);
+    try {
+      const result = await getCloudPaperPage(paperId);
+      setCloudPagePreviewById((current) => ({ ...current, [paperId]: result.data }));
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setLoadingCloudPageId((current) => (current === paperId ? null : current));
+    }
+  }
+
+  async function handleHydrateCloudPaper(paperId: string) {
+    setCloudActionError(null);
+    setHydratingCloudPaperId(paperId);
+    try {
+      const result = await hydrateCloudPaper(paperId);
+      setCloudHydrationById((current) => ({ ...current, [paperId]: result.data }));
+      setCloudPapers((current) =>
+        current.map((item) =>
+          item.paper_id === paperId
+            ? {
+                ...item,
+                local_hydration: result.data,
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setCloudActionError(getApiErrorMessage(error));
+    } finally {
+      setHydratingCloudPaperId((current) => (current === paperId ? null : current));
     }
   }
 
@@ -1100,6 +1614,10 @@ export function PaperNotesListPage() {
     ? "This page is currently in fallback mode, so finish runtime setup first. Once the live backend is ready, you can import one PDF and open the saved note right away."
     : "Start with one PDF on this machine. If automatic pickup is not ready yet, import it here and Lattice will open the saved note right away.";
   const visibleSummary = useMemo(() => buildVisibleSummary(items), [items]);
+  const cloudReadyCount = cloudPapers.filter((item) => item.processing_status === "ready").length;
+  const cloudProcessingCount = cloudPapers.filter((item) => item.processing_status === "pending" || item.processing_status === "running").length;
+  const cloudBlockedCount = cloudPapers.filter((item) => item.processing_status === "failed" || item.processing_status === "blocked").length;
+  const cloudUploadDisabled = Boolean(cloudMockReason) || cloudAuthPreflight?.status === "submission_bundle" || isCloudUploading;
 
   return (
     <div className="min-h-screen bg-[var(--pp-canvas)] p-4">
@@ -1416,6 +1934,110 @@ export function PaperNotesListPage() {
           </div>
         ) : null}
       </header>
+
+      <section className="surface-card mb-4 overflow-hidden" data-testid="cloud-paper-index">
+        <div className="flex flex-col gap-3 border-b border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pp-text-dim)]">Cloud paper/page</p>
+            <h2 className="mt-1 text-base font-semibold text-[var(--pp-text-primary)]">Server-backed papers</h2>
+            <p className="mt-1 text-xs text-[var(--pp-text-secondary)]">
+              Cloud PDF storage and server-generated page artifacts are shown here without splitting away from the paper index.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            <input
+              ref={cloudUploadInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={handleCloudUploadSelection}
+              className="hidden"
+              data-testid="cloud-paper-upload-input"
+            />
+            <Button
+              type="button"
+              onClick={openCloudUploadPicker}
+              disabled={cloudUploadDisabled}
+              variant="outline"
+              size="sm"
+              data-testid="cloud-paper-upload-button"
+            >
+              {isCloudUploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {isCloudUploading ? "Uploading" : "Upload cloud PDF"}
+            </Button>
+            <div className="grid min-w-full grid-cols-3 gap-2 text-xs md:min-w-[300px]">
+            <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">Ready</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--pp-text-primary)]">{cloudReadyCount}</p>
+            </div>
+            <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">Processing</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--pp-text-primary)]">{cloudProcessingCount}</p>
+            </div>
+            <div className="rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-[var(--pp-text-dim)]">Needs check</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--pp-text-primary)]">{cloudBlockedCount}</p>
+            </div>
+            </div>
+          </div>
+        </div>
+        <CloudAuthPreflightPanel
+          preflight={cloudAuthPreflight}
+          loading={cloudAuthLoading}
+          error={cloudAuthError}
+          mockReason={cloudAuthMockReason}
+          onRefresh={() => {
+            void loadCloudAuthPreflight();
+          }}
+        />
+        {cloudMockReason ? (
+          <div className="border-b border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-text-dim)]">
+            Fallback mode: {cloudMockReason}
+          </div>
+        ) : null}
+        {cloudActionError ? (
+          <div className="border-b border-[var(--pp-border)] bg-[var(--pp-surface-muted)] px-3 py-2 text-xs text-[var(--pp-status-failed-text)]">
+            Cloud action failed: {cloudActionError}
+          </div>
+        ) : null}
+        <CloudPaperSearchResults
+          query={query}
+          items={cloudSearchHits}
+          loading={cloudSearchLoading}
+          error={cloudSearchError}
+          mockReason={cloudSearchMockReason}
+        />
+        {cloudError ? (
+          <div className="p-4 text-sm text-[var(--pp-status-failed-text)]" data-testid="cloud-paper-load-error">
+            API error: {cloudError}
+          </div>
+        ) : cloudLoading ? (
+          <div className="space-y-3 p-3" aria-label="Loading cloud papers">
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <div key={`cloud-loading-${idx}`} className="rounded-lg border border-[var(--pp-border)] bg-[var(--pp-surface)] p-3">
+                <div className="h-4 w-2/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+                <div className="mt-3 h-3 w-3/5 animate-pulse rounded bg-[var(--pp-surface-muted)]" />
+              </div>
+            ))}
+          </div>
+        ) : cloudPapers.length > 0 ? (
+          <div className="space-y-3 p-3">
+            {cloudPapers.map((item) => (
+              <CloudPaperListRow
+                key={item.paper_id}
+                item={item}
+                pagePreview={cloudPagePreviewById[item.paper_id] ?? null}
+                hydrationState={cloudHydrationById[item.paper_id] ?? null}
+                loadingPage={loadingCloudPageId === item.paper_id}
+                hydrating={hydratingCloudPaperId === item.paper_id}
+                onLoadPage={handleLoadCloudPage}
+                onHydrate={handleHydrateCloudPaper}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="p-4 text-sm text-[var(--pp-text-secondary)]">No cloud papers are visible for this lab and device.</div>
+        )}
+      </section>
 
       <section className="surface-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-3 py-2 text-xs text-[var(--pp-text-dim)]">

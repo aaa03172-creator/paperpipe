@@ -18,6 +18,44 @@ export interface RuntimeReadinessResponse {
   checks: RuntimeReadinessCheck[];
 }
 
+export type RuntimeLLMMode = "local" | "cloud" | "hybrid";
+export type RuntimeLLMProvider = "openai" | "anthropic" | "gemini";
+export type RuntimeLLMApiKeySource = "none" | "config" | "env";
+export type RuntimeLLMConnectionTestStatus = "ok" | "failed";
+
+export interface RuntimeLLMSettingsResponse {
+  mode: RuntimeLLMMode;
+  provider: RuntimeLLMProvider;
+  model: string;
+  embedding_model?: string | null;
+  api_key_configured: boolean;
+  api_key_source: RuntimeLLMApiKeySource;
+  api_key_masked?: string | null;
+  provider_env_var: string;
+  config_path: string;
+  env_override_active: boolean;
+}
+
+export interface RuntimeLLMSettingsUpdateRequest {
+  mode?: RuntimeLLMMode;
+  provider?: RuntimeLLMProvider;
+  model?: string | null;
+  embedding_model?: string | null;
+  api_key?: string | null;
+  clear_api_key?: boolean;
+}
+
+export interface RuntimeLLMConnectionTestResponse {
+  status: RuntimeLLMConnectionTestStatus;
+  mode: RuntimeLLMMode;
+  provider: RuntimeLLMProvider;
+  model: string;
+  api_key_source: RuntimeLLMApiKeySource;
+  provider_env_var: string;
+  latency_ms?: number | null;
+  detail: string;
+}
+
 export type PipelineStage = "ingest" | "index" | "read" | "verify" | "completed";
 
 export type ReasoningPersonaId = "librarian" | "researcher" | "extractor_reviewer";
@@ -103,6 +141,419 @@ export interface PaperNoteListResponse {
   available_reading_assist_note_count: number;
   available_reading_assist_locales: string[];
   items: PaperNoteSummary[];
+}
+
+export type CloudPaperPayloadClass = "local_only" | "lab_allowed" | "external_allowed";
+export type CloudPaperProcessingStatus = "pending" | "running" | "ready" | "failed" | "blocked";
+export type CloudPaperRole = "lab_admin" | "maintainer" | "reviewer" | "reader";
+export type CloudPaperAction =
+  | "read_page"
+  | "read_pdf"
+  | "hydrate_download"
+  | "run_optional_ai"
+  | "export"
+  | "share"
+  | "upload"
+  | "delete";
+export type CloudPaperHydrationStatus = "not_hydrated" | "hydrated" | "stale" | "failed" | "blocked";
+
+export interface CloudPaperWarning {
+  code: string;
+  message: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+}
+
+export interface CloudPaperPermissions {
+  role: CloudPaperRole;
+  can_read_page: boolean;
+  can_read_pdf: boolean;
+  can_hydrate: boolean;
+  can_upload: boolean;
+  can_delete: boolean;
+  can_run_optional_ai: boolean;
+  can_export: boolean;
+  can_share: boolean;
+}
+
+export interface CloudPaperProvenanceSummary {
+  uploaded_by: string;
+  processor_name: string;
+  processor_version: string;
+  created_at: string;
+  source_pdf_sha256: string;
+}
+
+export interface CloudPaperHydrationState {
+  status: CloudPaperHydrationStatus;
+  device_id?: string | null;
+  local_bundle_ref?: string | null;
+  hydrated_at?: string | null;
+  source_pdf_sha256?: string | null;
+  page_artifact_sha256?: string | null;
+}
+
+export interface CloudPaperBundlePublic {
+  schema_version: "cloud_paper_bundle_public.v1";
+  paper_id: string;
+  lab_id: string;
+  processing_status: CloudPaperProcessingStatus;
+  payload_class: CloudPaperPayloadClass;
+  page_schema_version?: string | null;
+  run_id?: string | null;
+  warnings: CloudPaperWarning[];
+  permissions: CloudPaperPermissions;
+  provenance_summary: CloudPaperProvenanceSummary;
+  local_hydration?: CloudPaperHydrationState | null;
+  allowed_actions: CloudPaperAction[];
+}
+
+export interface CloudPaperListResponse {
+  schema_version: "cloud_paper_list.v1";
+  items: CloudPaperBundlePublic[];
+}
+
+export type CloudPaperAuthPreflightStatus =
+  | "ready"
+  | "mock_mode"
+  | "submission_bundle"
+  | "misconfigured"
+  | "dependency_missing"
+  | "auth_missing"
+  | "permission_denied"
+  | "unavailable";
+export type CloudPaperAuthPreflightCheckStatus = "ok" | "warning" | "error" | "skipped";
+
+export interface CloudPaperAuthPreflightCheck {
+  check_id: string;
+  label: string;
+  status: CloudPaperAuthPreflightCheckStatus;
+  message: string;
+  remediation?: string | null;
+}
+
+export interface CloudPaperAuthPreflightResponse {
+  schema_version: "cloud_paper_auth_preflight.v1";
+  status: CloudPaperAuthPreflightStatus;
+  adapter: "mock" | "gcs";
+  project_id?: string | null;
+  firestore_collection?: string | null;
+  credential_source: string;
+  checks: CloudPaperAuthPreflightCheck[];
+  next_action_label: string;
+  setup_commands: string[];
+}
+
+export interface CloudPaperUploadIntentResponse {
+  upload_intent_id: string;
+  paper_id: string;
+  upload_mode: "mock" | "backend_mediated" | "signed_url";
+  expires_at: string;
+}
+
+export interface CloudPaperSourceUploadResponse {
+  paper_id: string;
+  upload_status: "upload_received";
+  source_pdf_sha256: string;
+  source_pdf_size_bytes: number;
+  content_type: "application/pdf";
+}
+
+export interface CloudPaperSearchBlockHit {
+  block_id: string;
+  page: number;
+  kind: "text" | "table" | "figure";
+  text_snippet: string;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperSearchHit {
+  bundle: CloudPaperBundlePublic;
+  matched_blocks: CloudPaperSearchBlockHit[];
+}
+
+export interface CloudPaperSearchResponse {
+  schema_version: "cloud_paper_search.v1";
+  query: string;
+  items: CloudPaperSearchHit[];
+}
+
+export interface CloudPaperPageBlock {
+  block_id: string;
+  page: number;
+  kind: "text" | "table" | "figure";
+  text?: string | null;
+  bbox_pct?: Record<string, number> | null;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperPageArtifactPublic {
+  schema_version: "cloud_page_artifact_public.v1";
+  paper_id: string;
+  run_id: string;
+  page_schema_version: string;
+  source_pdf_sha256: string;
+  blocks: CloudPaperPageBlock[];
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDerivedArtifactSourceLocator {
+  page: number;
+  source_pdf_sha256: string;
+  block_id?: string | null;
+  bbox_pct?: Record<string, number> | null;
+}
+
+export interface CloudPaperDerivedArtifactOcrBlock {
+  ocr_block_id: string;
+  text: string;
+  confidence: number;
+  source: CloudPaperDerivedArtifactSourceLocator;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperDerivedArtifactTable {
+  table_id: string;
+  page: number;
+  caption?: string | null;
+  columns: string[];
+  rows: string[][];
+  confidence: number;
+  source: CloudPaperDerivedArtifactSourceLocator;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperDerivedArtifactFigure {
+  figure_id: string;
+  page: number;
+  caption?: string | null;
+  bbox_pct?: Record<string, number> | null;
+  image_available: boolean;
+  image_route?: string | null;
+  confidence: number;
+  source: CloudPaperDerivedArtifactSourceLocator;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperDerivedArtifactFigureAnalysis {
+  analysis_id: string;
+  figure_id: string;
+  page: number;
+  summary: string;
+  confidence: number;
+  source: CloudPaperDerivedArtifactSourceLocator;
+  payload_class: CloudPaperPayloadClass;
+  metadata: Record<string, unknown>;
+}
+
+export interface CloudPaperDerivedArtifactsResponse {
+  schema_version: "cloud_paper_derived_artifacts.v1";
+  paper_id: string;
+  run_id: string;
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  ocr_blocks: CloudPaperDerivedArtifactOcrBlock[];
+  tables: CloudPaperDerivedArtifactTable[];
+  figures: CloudPaperDerivedArtifactFigure[];
+  figure_analyses: CloudPaperDerivedArtifactFigureAnalysis[];
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDownstreamArtifactCandidate {
+  candidate_id: string;
+  kind: "ocr_text" | "table" | "figure" | "figure_analysis";
+  paper_id: string;
+  run_id: string;
+  payload_class: CloudPaperPayloadClass;
+  canonical_status: "derived_noncanonical";
+  allowed_lanes: Array<"meeting_pack" | "chart_pack" | "image_evidence" | "method_comparison" | "obsidian_export">;
+  source: CloudPaperDerivedArtifactSourceLocator;
+  title: string;
+  text?: string | null;
+  table_columns: string[];
+  table_rows: string[][];
+  image_route?: string | null;
+  confidence?: number | null;
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export type CloudPaperDownstreamLane =
+  | "meeting_pack"
+  | "chart_pack"
+  | "image_evidence"
+  | "method_comparison"
+  | "obsidian_export";
+export type CloudPaperDownstreamReviewStatus = "review_pending" | "review_approved" | "review_rejected";
+
+export interface CloudPaperDownstreamAdapterResponse {
+  schema_version: "cloud_paper_downstream_adapter.v1";
+  paper_id: string;
+  run_id: string;
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  candidates: CloudPaperDownstreamArtifactCandidate[];
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDownstreamHandoffSummary {
+  downstream_adapter: CloudPaperDownstreamAdapterResponse;
+  selected_table_candidate?: CloudPaperDownstreamArtifactCandidate | null;
+  selected_figure_candidate?: CloudPaperDownstreamArtifactCandidate | null;
+  meeting_pack_context: {
+    schema_version: "meeting_pack_cloud_derived_context.v1";
+    readiness: "background_only";
+    items: Array<{ support_type: "background"; canonical_status: "derived_noncanonical"; evidence_refs: string[] }>;
+  };
+  chart_table_snapshot: {
+    source_ref: { source_kind: "cloud_derived_table"; table_id?: string | null };
+    rows: Array<Record<string, string | number | boolean | null>>;
+    warnings: Array<{ code: string; message: string; severity?: string }>;
+  } | null;
+  image_evidence_request: {
+    source_ref: { source_kind: "external_image_ref"; external_ref?: string | null; local_path?: string | null };
+    linked_claim_refs: unknown[];
+    warnings: Array<{ code: string; message: string; severity?: string }>;
+  } | null;
+  method_comparison_context: {
+    schema_version: "method_comparison_cloud_derived_context.v1";
+    readiness: "background_only";
+    items: Array<{ comparison_cell_status: "missing"; canonical_status: "derived_noncanonical"; evidence_refs: unknown[] }>;
+  };
+  obsidian_section_markdown: string;
+}
+
+export interface CloudPaperObsidianExportResponse {
+  schema_version: "cloud_paper_obsidian_export.v1";
+  paper_id: string;
+  run_id: string;
+  artifact_id: string;
+  export_status: "prepared";
+  canonical_status: "derived_noncanonical";
+  review_status: "review_pending";
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  section_markers: {
+    start: string;
+    end: string;
+  };
+  section_markdown: string;
+  note_markdown: string;
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperRegisteredDownstreamArtifact {
+  artifact_id: string;
+  lane: CloudPaperDownstreamLane;
+  candidate_ids: string[];
+  candidate_count: number;
+  canonical_status: "derived_noncanonical";
+  review_status: CloudPaperDownstreamReviewStatus;
+  review_events: Array<{
+    event_id: string;
+    artifact_id: string;
+    review_status: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">;
+    reviewer_role: "lab_admin" | "maintainer" | "reviewer" | "reader";
+    reviewed_at: string;
+    reviewer_note_recorded: boolean;
+  }>;
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+}
+
+export interface CloudPaperDownstreamArtifactRegistrationResponse {
+  schema_version: "cloud_paper_downstream_artifact_registration.v1";
+  paper_id: string;
+  run_id: string;
+  registration_status: "registered";
+  canonical_status: "derived_noncanonical";
+  review_status: CloudPaperDownstreamReviewStatus;
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  registered_artifacts: CloudPaperRegisteredDownstreamArtifact[];
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDownstreamArtifactRegistryResponse {
+  schema_version: "cloud_paper_downstream_artifact_registry.v1";
+  paper_id: string;
+  run_id: string;
+  registry_status: "empty" | "available";
+  canonical_status: "derived_noncanonical";
+  review_status: CloudPaperDownstreamReviewStatus;
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  registrations: CloudPaperDownstreamArtifactRegistrationResponse[];
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDownstreamPromotionBlocker {
+  code: "registry_empty" | "review_pending" | "review_rejected";
+  message: string;
+  artifact_id?: string | null;
+  lane?: CloudPaperDownstreamLane | null;
+}
+
+export interface CloudPaperDownstreamPromotionReadinessResponse {
+  schema_version: "cloud_paper_downstream_promotion_readiness.v1";
+  paper_id: string;
+  run_id: string;
+  promotion_status: "eligible" | "blocked";
+  eligible: boolean;
+  canonical_status: "derived_noncanonical";
+  review_status: CloudPaperDownstreamReviewStatus;
+  total_artifact_count: number;
+  approved_artifact_count: number;
+  pending_artifact_count: number;
+  rejected_artifact_count: number;
+  blockers: CloudPaperDownstreamPromotionBlocker[];
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
+}
+
+export interface CloudPaperDownstreamPromotionPlanItem {
+  artifact_id: string;
+  lane: CloudPaperDownstreamLane;
+  candidate_ids: string[];
+  candidate_count: number;
+  review_status: "review_approved";
+  canonical_status: "derived_noncanonical";
+  promotion_action: "prepare_canonical_state_promotion";
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+}
+
+export interface CloudPaperDownstreamPromotionPlanResponse {
+  schema_version: "cloud_paper_downstream_promotion_plan.v1";
+  paper_id: string;
+  run_id: string;
+  plan_status: "ready" | "blocked";
+  dry_run: true;
+  mutation_applied: false;
+  promotion_target: "canonical_structured_state";
+  canonical_status: "derived_noncanonical";
+  review_status: CloudPaperDownstreamReviewStatus;
+  total_artifact_count: number;
+  approved_artifact_count: number;
+  pending_artifact_count: number;
+  rejected_artifact_count: number;
+  blockers: CloudPaperDownstreamPromotionBlocker[];
+  promotion_items: CloudPaperDownstreamPromotionPlanItem[];
+  source_pdf_sha256: string;
+  payload_class: CloudPaperPayloadClass;
+  warnings: CloudPaperWarning[];
+  provenance_summary: CloudPaperProvenanceSummary;
 }
 
 export interface PaperNotesHomeContext {
