@@ -3,7 +3,6 @@ import logging
 import re
 from typing import List, Optional
 import chromadb
-from chromadb.config import Settings
 from src.agents.adapter import OllamaModelAdapter
 from src.schemas.agent_artifacts import DocumentArtifact, IndexArtifact, DocumentChunk
 from src.contracts.document_artifact_v2 import DocumentArtifactV2
@@ -147,10 +146,10 @@ class IndexerAgent:
         logger.info(f"Indexer Agent processing: {header.doc_id}")
         
         chunks: List[DocumentChunk] = []
-        ids = []
-        embeddings = []
-        metadatas = []
-        documents = []
+        candidate_ids = []
+        candidate_metadatas = []
+        candidate_documents = []
+        candidate_chunks: List[DocumentChunk] = []
         page_chunk_counts: dict[int, int] = {}
         attempted_chunks = 0
         skipped_chunks = 0
@@ -175,18 +174,9 @@ class IndexerAgent:
                     chunk_ordinal=chunk_ordinal,
                 )
                 vector_id = make_vector_id(doc_id=header.doc_id, chunk_id=chunk_id)
-                
-                # Create embedding
-                embedding = self.adapter.embed(text_chunk, model=self.embedding_model)
-                if not embedding:
-                    skipped_chunks += 1
-                    logger.warning(f"Failed to embed chunk {i} in section {section.name}")
-                    continue
-                
-                # Append to lists for batch add
-                ids.append(vector_id)
-                embeddings.append(embedding)
-                metadatas.append({
+
+                candidate_ids.append(vector_id)
+                candidate_metadatas.append({
                     "doc_id": header.doc_id,
                     "title": header.title,
                     "section": section.name,
@@ -200,10 +190,10 @@ class IndexerAgent:
                     "vector_id_version": VECTOR_ID_VERSION,
                     "source": header.source_ref,
                 })
-                documents.append(text_chunk)
+                candidate_documents.append(text_chunk)
                 
                 # Create Schema Object
-                chunks.append(DocumentChunk(
+                candidate_chunks.append(DocumentChunk(
                     chunk_id=chunk_id,
                     text=text_chunk,
                     vector_id=vector_id,
@@ -213,6 +203,37 @@ class IndexerAgent:
                     chunk_ordinal=chunk_ordinal,
                     chunk_id_version=CHUNK_ID_VERSION,
                 ))
+
+        embed_batch = getattr(self.adapter, "embed_batch", None)
+        if callable(embed_batch):
+            candidate_embeddings = embed_batch(candidate_documents, model=self.embedding_model)
+        else:
+            candidate_embeddings = [
+                self.adapter.embed(text_chunk, model=self.embedding_model)
+                for text_chunk in candidate_documents
+            ]
+
+        ids = []
+        embeddings = []
+        metadatas = []
+        documents = []
+        for idx, text_chunk in enumerate(candidate_documents):
+            embedding = candidate_embeddings[idx] if idx < len(candidate_embeddings) else []
+            if not embedding:
+                skipped_chunks += 1
+                metadata = candidate_metadatas[idx]
+                logger.warning(
+                    "Failed to embed chunk %s in section %s",
+                    metadata.get("chunk_ordinal"),
+                    metadata.get("section"),
+                )
+                continue
+
+            ids.append(candidate_ids[idx])
+            embeddings.append(embedding)
+            metadatas.append(candidate_metadatas[idx])
+            documents.append(text_chunk)
+            chunks.append(candidate_chunks[idx])
         
         # Batch upsert to Chroma
         if ids:

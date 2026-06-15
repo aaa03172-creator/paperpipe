@@ -207,3 +207,46 @@ class OllamaModelAdapter(BaseModel):
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
             return []
+
+    def embed_batch(self, texts: List[str], model: str = "nomic-embed-text") -> List[List[float]]:
+        """
+        Generates embeddings for multiple texts with the Ollama batch API when available.
+        Falls back to single embeddings for compatibility with older Ollama clients.
+        """
+        if not texts:
+            return []
+        if not self.provider.is_available():
+            logger.error("Ollama Provider not available for batch embeddings.")
+            return [[] for _text in texts]
+
+        request_started = perf_counter()
+        embed_method = getattr(self.provider.ollama_client, "embed", None)
+        if callable(embed_method):
+            try:
+                response = embed_method(model=model, input=texts)
+                embeddings = self._response_value(response, "embeddings")
+                if isinstance(embeddings, list) and len(embeddings) == len(texts):
+                    self.last_request_meta = {
+                        "status": "ok",
+                        "provider": "ollama",
+                        "host": getattr(self.provider, "host", None),
+                        "model": model,
+                        "embedding_count": len(texts),
+                        "request_wall_seconds": round(perf_counter() - request_started, 3),
+                        "batch_api": True,
+                    }
+                    return embeddings
+            except Exception as exc:
+                logger.info("Ollama batch embed unavailable; falling back to single embeddings: %s", exc)
+
+        embeddings = [self.embed(text, model=model) for text in texts]
+        self.last_request_meta = {
+            "status": "ok",
+            "provider": "ollama",
+            "host": getattr(self.provider, "host", None),
+            "model": model,
+            "embedding_count": len(texts),
+            "request_wall_seconds": round(perf_counter() - request_started, 3),
+            "batch_api": False,
+        }
+        return embeddings

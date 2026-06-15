@@ -308,6 +308,14 @@ class IngestConfig(BaseModel):
     cloud_table_api_key: Optional[str] = None
     cloud_table_timeout_seconds: int = 30
 
+
+class PerformanceConfig(BaseModel):
+    embedding_batch_size: int = Field(default=16, ge=1, le=128)
+    reader_max_context_chars: int = Field(default=16000, ge=6000, le=48000)
+    max_concurrent_jobs: int = Field(default=1, ge=1, le=4)
+    local_gpu_backend: Literal["ollama_metal", "mlx", "mps", "none"] = "ollama_metal"
+
+
 # [Ticket v3.0] Agent Configuration
 class AgentToolsConfig(BaseModel):
     retrieval: bool = True
@@ -335,6 +343,7 @@ class AppConfig(BaseModel):
     unpaywall: UnpaywallConfig = Field(default_factory=UnpaywallConfig)
     confidence_thresholds: ConfidenceThresholds = Field(default_factory=ConfidenceThresholds)
     ranking: RankingConfig = Field(default_factory=RankingConfig)
+    performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     sources: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     entity_aliases: Dict[str, str] = Field(default_factory=dict)
     agents: Optional[AgentConfig] = None # [Ticket v3.0] 

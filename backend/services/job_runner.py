@@ -75,6 +75,7 @@ from src.timeout_policy import (
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.services.runtime_paths import artifact_run_dir, config_file_path, feedback_log_path, profiles_config_path
+from src.services.performance_profile import StageTimer, summarize_stage_timings
 from src.services.privacy_preflight import (
     build_privacy_preflight_response,
     privacy_preflight_should_block,
@@ -1057,6 +1058,7 @@ async def run_deepread_job(
     artifact_dir: Optional[Path] = None
     bootstrap_meta: Optional[Dict[str, Any]] = None
     run_meta: Optional[Dict[str, Any]] = None
+    stage_timings: list[dict[str, Any]] = []
     selection = normalize_persona_selection(
         persona_id=persona_id,
         reasoning_persona=reasoning_persona,
@@ -1136,6 +1138,27 @@ async def run_deepread_job(
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
 
+    def _write_performance_meta() -> None:
+        if artifact_dir is None:
+            return
+        summary = summarize_stage_timings(stage_timings)
+        if run_meta is not None:
+            run_meta["performance"] = {
+                "schema_version": "performance_profile.v1",
+                "stage_timings": list(stage_timings),
+                "summary": summary,
+            }
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
+        if bootstrap_meta is not None:
+            bootstrap_meta["performance_summary"] = summary
+            _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+
+    def _record_stage_timing(timer: StageTimer) -> None:
+        timer.finish()
+        stage_timings.append(timer.to_meta())
+        _write_performance_meta()
+
     try:
         if await is_cancelled():
             return _job_result("cancelled")
@@ -1208,6 +1231,11 @@ async def run_deepread_job(
             "anchor_verify_api": {"provider": "none", "status": "not_run", "reason_codes": []},
             "status": "running",
             "section_count": 0,
+            "performance": {
+                "schema_version": "performance_profile.v1",
+                "stage_timings": [],
+                "summary": summarize_stage_timings([]),
+            },
             "started_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -1267,6 +1295,7 @@ async def run_deepread_job(
             "artifact_clinical_extraction_written": False,
             "clinical_extraction_status": "not_run",
             "clinical_extraction_note_type": "unknown",
+            "performance_summary": summarize_stage_timings([]),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
@@ -1275,6 +1304,8 @@ async def run_deepread_job(
         if await is_cancelled():
             _mark_run_meta("cancelled")
             return _job_result("cancelled")
+        ingest_timer = StageTimer("ingest")
+        ingest_timer.__enter__()
         logger.info(f"Starting Ingest for {pdf_path.name}")
         await emit("ingest", 10, f"Ingesting PDF: {pdf_path.name}")
         requested_parser_backend = str(parser_backend or "").strip().lower() or None
@@ -1514,11 +1545,14 @@ async def run_deepread_job(
             _write_run_meta(artifact_dir, run_meta)
             
         await emit("ingest", 25, f"Ingested {len(doc_artifact.pages)} pages")
+        _record_stage_timing(ingest_timer)
 
         # 3. Index
         if await is_cancelled():
             _mark_run_meta("cancelled")
             return _job_result("cancelled")
+        index_timer = StageTimer("index")
+        index_timer.__enter__()
         await emit("index", 30, "Indexing content...")
         indexer_agent = IndexerAgent()
         clean_reindex_doc_id: str | None = None
@@ -1558,11 +1592,14 @@ async def run_deepread_job(
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
              
         await emit("index", 45, f"Indexed {index_artifact.chunk_count} chunks")
+        _record_stage_timing(index_timer)
 
         # 4. Read (Claim Extraction)
         if await is_cancelled():
             _mark_run_meta("cancelled")
             return _job_result("cancelled")
+        reader_timer = StageTimer("reader")
+        reader_timer.__enter__()
         await emit("read", 50, "Reader Agent analyzing...")
         hint_sections: list[str] = []
         reasoning_hint = resolve_reasoning_persona_hint(selection.reasoning_persona)
@@ -1643,11 +1680,22 @@ async def run_deepread_job(
             run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_run_meta(artifact_dir, run_meta)
         await emit("read", 54, f"Reader timeout budget: {reader_timeout_budget}s")
+        performance_config = getattr(config, "performance", None)
+        reader_max_context_chars = int(
+            getattr(performance_config, "reader_max_context_chars", 16000) or 16000
+        )
+        bootstrap_meta["reader_max_context_chars"] = reader_max_context_chars
+        _write_bootstrap_meta(artifact_dir, bootstrap_meta)
+        if run_meta is not None:
+            run_meta["reader_max_context_chars"] = reader_max_context_chars
+            run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_run_meta(artifact_dir, run_meta)
         try:
             reader_agent = ReaderAgent(
                 model_name=main_model,
                 persona_hint=persona_hint,
                 attempt_order=reader_attempt_order,
+                max_context_chars=reader_max_context_chars,
             )
         except TypeError:
             try:
@@ -1655,6 +1703,7 @@ async def run_deepread_job(
                 reader_agent = ReaderAgent(
                     model_name=main_model,
                     persona_hint=persona_hint,
+                    max_context_chars=reader_max_context_chars,
                 )
             except TypeError:
                 # Final fallback for minimal test doubles.
@@ -1967,12 +2016,15 @@ async def run_deepread_job(
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
             
         await emit("read", 75, f"Extracted {len(claim_set.claims)} claims")
+        _record_stage_timing(reader_timer)
 
         # 5. Verify (Optional)
         if run_verify:
             if await is_cancelled():
                 _mark_run_meta("cancelled")
                 return _job_result("cancelled")
+            verify_timer = StageTimer("verify")
+            verify_timer.__enter__()
             await emit("verify", 80, "Stats Verification Agent running...")
             try:
                 if StatsVerificationAgent is None:
@@ -2058,6 +2110,7 @@ async def run_deepread_job(
                     run_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                     _write_run_meta(artifact_dir, run_meta)
                 await emit("verify", 85, f"Verification failed: {str(e)}", level="WARNING")
+            _record_stage_timing(verify_timer)
 
         # 6. Complete
         _mark_run_meta("succeeded")

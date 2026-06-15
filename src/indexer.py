@@ -1,14 +1,18 @@
 import argparse
 import json
+import logging
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+INDEXER_DEVICE_ENV = "PAPERPIPE_INDEXER_DEVICE"
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -17,6 +21,30 @@ def _utc_now_iso() -> str:
 
 def _model_slug(model_name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", model_name.lower()).strip("_")
+
+
+def _detect_mps_device() -> str | None:
+    try:
+        import torch  # type: ignore
+    except ImportError:
+        return None
+
+    try:
+        if bool(torch.backends.mps.is_available()):
+            return "mps"
+    except Exception:
+        return None
+    return None
+
+
+def resolve_embedding_device(requested_device: str | None = None) -> str | None:
+    raw_device = requested_device if requested_device is not None else os.getenv(INDEXER_DEVICE_ENV)
+    normalized = str(raw_device or "auto").strip().lower()
+    if normalized in {"", "auto"}:
+        return _detect_mps_device()
+    if normalized in {"default", "none"}:
+        return None
+    return normalized
 
 
 
@@ -120,6 +148,7 @@ class PaperIndexer:
         bge_query_prefix: str = "auto",
         chroma_client: Any | None = None,
         embedder: Any | None = None,
+        embedding_device: str | None = None,
         now_fn: Callable[[], str] = _utc_now_iso,
     ) -> None:
         self.db_path = db_path
@@ -130,12 +159,15 @@ class PaperIndexer:
         self.bge_query_prefix = bge_query_prefix
         self._chroma_client = chroma_client
         self._embedder = embedder
+        self._requested_embedding_device = embedding_device
+        self.embedding_device: str | None = None
         self._now_fn = now_fn
 
     def _ensure_embedder(self) -> Any:
         if self._embedder is not None:
             return self._embedder
 
+        self.embedding_device = resolve_embedding_device(self._requested_embedding_device)
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
@@ -144,7 +176,21 @@ class PaperIndexer:
                 "Install it in the active environment."
             ) from exc
 
-        self._embedder = SentenceTransformer(self.model_name)
+        try:
+            if self.embedding_device:
+                self._embedder = SentenceTransformer(self.model_name, device=self.embedding_device)
+            else:
+                self._embedder = SentenceTransformer(self.model_name)
+        except Exception:
+            if self.embedding_device != "mps":
+                raise
+            logger.warning(
+                "SentenceTransformer MPS initialization failed for %s; falling back to CPU.",
+                self.model_name,
+                exc_info=True,
+            )
+            self.embedding_device = "cpu"
+            self._embedder = SentenceTransformer(self.model_name, device="cpu")
         return self._embedder
 
     def _ensure_chroma_client(self) -> Any:
@@ -295,6 +341,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Apply BGE retrieval prefix for query encoding (default: auto)",
     )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help=(
+            "SentenceTransformer device: auto, cpu, mps, cuda, cuda:0, or default. "
+            f"Defaults to ${INDEXER_DEVICE_ENV} or auto MPS detection."
+        ),
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -319,6 +373,7 @@ def main() -> None:
         collection_name=args.collection,
         collection_version=args.version,
         bge_query_prefix=args.bge_query_prefix,
+        embedding_device=args.device,
     )
 
     if args.command == "index":
