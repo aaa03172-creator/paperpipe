@@ -1,5 +1,7 @@
 {
   "schema_version": "local_pdf_ingest_index_oracle.v1",
+  "eval_id": "science_aeb0045_ingest_index_oracle_20260429",
+  "subset": "oracle",
   "generated_at": "2026-04-29",
   "manifest_batch_id": "science_aeb0045_ingest_index_oracle_20260429",
   "layer": "review_gate_artifact",
@@ -8,6 +10,7 @@
   "documents": [
     {
       "document_id": "science-aeb0045",
+      "case_id": "science-aeb0045",
       "paper_id": "doi:10.1126/science.aeb0045",
       "local_path": "~/Downloads/science.aeb0045.pdf",
       "payload_class": "local_only",
@@ -19,7 +22,10 @@
         "table_count": 0,
         "min_chunk_count": 70,
         "require_page_hints": true,
-        "required_chunk_ids": ["p01_c01", "p09_c01"]
+        "required_chunk_ids": [
+          "p01_c01",
+          "p09_c01"
+        ]
       },
       "notes": "Review paper with conceptual figures and no parsed data tables. Useful for local import/deepread continuity and page-linked chunking checks."
     }

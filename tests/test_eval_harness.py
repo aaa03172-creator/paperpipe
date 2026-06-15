@@ -14,9 +14,12 @@ def _write_goldset(goldset_dir: Path, local_pdf: Path, query_text: str = "test q
         json.dumps(
             {
                 "schema_version": "1.0",
+                "eval_id": "eval-harness-fixture",
+                "subset": "smoke",
                 "documents": [
                     {
                         "document_id": "doc-001",
+                        "case_id": "case-001",
                         "local_path": str(local_pdf),
                         "notes": "fixture",
                     }
@@ -96,6 +99,19 @@ def test_eval_harness_snapshot_integrity_for_fixture_doc(tmp_path):
     _run_eval(repo_root, goldset_dir, snapshots_dir, "run_integrity")
 
     run_root = snapshots_dir / "run_integrity"
+    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+    metadata = summary["metadata"]
+
+    assert metadata["schema_version"] == "eval_run_metadata.v1"
+    assert metadata["harness"] == "scripts/eval/run_eval.py"
+    assert metadata["run_id"] == "run_integrity"
+    assert metadata["mode"] == "snapshot"
+    assert metadata["payload_class"] == "local_only"
+    assert metadata["provider"] == "deterministic"
+    assert metadata["model"] is None
+    assert metadata["eval_id"] == "eval-harness-fixture"
+    assert metadata["case_ids"] == ["case-001"]
+    assert metadata["subset"] == "smoke"
     assert (run_root / "summary.json").exists()
     assert (run_root / "ingest" / "doc-001.json").exists()
     assert (run_root / "reader" / "doc-001.json").exists()

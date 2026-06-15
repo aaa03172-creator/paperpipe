@@ -1,35 +1,43 @@
 {
   "schema_version": "1.0",
+  "eval_id": "ingest_backend_pilot_20260323",
+  "subset": "pilot",
   "generated_at": "2026-03-23",
   "notes": "Bounded parser eval manifest for ingest backend comparison. Non-empty local PDFs only; intended for sidecar evaluation, not runtime truth.",
   "documents": [
     {
       "document_id": "ingest-pilot-001",
+      "case_id": "ingest-pilot-001",
       "local_path": "/Users/jangseongjin/paperpipe/Library/1411.2441.pdf",
       "notes": "ArXiv-style paper with DOI-derivation path and longer text body."
     },
     {
       "document_id": "ingest-pilot-002",
+      "case_id": "ingest-pilot-002",
       "local_path": "/Users/jangseongjin/paperpipe/Library/barulliEfficiencyCapacityCompensation2013.pdf",
       "notes": "Short review-style paper; useful as a lighter PDF fixture."
     },
     {
       "document_id": "ingest-pilot-003",
+      "case_id": "ingest-pilot-003",
       "local_path": "/Users/jangseongjin/paperpipe/Library/chandraGutMicrobiomeAlzheimers2023.pdf",
       "notes": "Review article with DOI in front matter and likely table-like content."
     },
     {
       "document_id": "ingest-pilot-004",
+      "case_id": "ingest-pilot-004",
       "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonBloodBiomarkersAlzheimers2023.pdf",
       "notes": "Nature Aging review article; useful for DOI preservation checks."
     },
     {
       "document_id": "ingest-pilot-005",
+      "case_id": "ingest-pilot-005",
       "local_path": "/Users/jangseongjin/paperpipe/Library/pichetbinetteConfoundingFactorsAlzheimers2023.pdf",
       "notes": "Research article with DOI and moderate PDF size."
     },
     {
       "document_id": "ingest-pilot-006",
+      "case_id": "ingest-pilot-006",
       "local_path": "/Users/jangseongjin/paperpipe/Library/therriaultBiomarkerModelingAlzheimers2022.pdf",
       "notes": "Longer paper with table-like content hints for parser comparison."
     }

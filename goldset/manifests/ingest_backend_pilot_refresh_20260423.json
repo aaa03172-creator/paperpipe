@@ -1,121 +1,146 @@
 {
   "schema_version": "1.0",
+  "eval_id": "ingest_backend_pilot_refresh_20260423",
+  "subset": "pilot",
   "generated_at": "2026-04-23",
   "manifest_batch_id": "ingest_backend_pilot_refresh_20260423",
   "notes": "Refresh bounded parser eval manifest for ingest backend comparison. Non-empty local PDFs only; excludes the previous 30-document ingest backend pilot manifests and widens the saved evidence set beyond Alzheimer's biomarker PDFs into CRISPR, BBB/drug delivery, memory/neuroscience, microbiome, and machine-learning layout cases.",
   "documents": [
     {
       "document_id": "ingest-refresh-001",
+      "case_id": "ingest-refresh-001",
       "local_path": "/Users/jangseongjin/paperpipe/Library/finnSingleAdministrationCRISPR2018.pdf",
       "notes": "CRISPR paper outside the AD biomarker lane."
     },
     {
       "document_id": "ingest-refresh-002",
+      "case_id": "ingest-refresh-002",
       "local_path": "/Users/jangseongjin/paperpipe/Library/fowlerTauFilamentsAre2025.pdf",
       "notes": "Recent tau structure paper with likely figure-heavy layout."
     },
     {
       "document_id": "ingest-refresh-003",
+      "case_id": "ingest-refresh-003",
       "local_path": "/Users/jangseongjin/paperpipe/Library/furtadoOvercomingBloodBrain2018.pdf",
       "notes": "Blood-brain-barrier and delivery review for dense biomedical layout coverage."
     },
     {
       "document_id": "ingest-refresh-004",
+      "case_id": "ingest-refresh-004",
       "local_path": "/Users/jangseongjin/paperpipe/Library/huPolyLacticAcidRecent2025.pdf",
       "notes": "Materials/drug-delivery review for non-neuroscience table and figure structure."
     },
     {
       "document_id": "ingest-refresh-005",
+      "case_id": "ingest-refresh-005",
       "local_path": "/Users/jangseongjin/paperpipe/Library/johnsonLargescaleDeepMultilayer2022.pdf",
       "notes": "Large machine-learning paper for non-biomedical dense technical layout coverage."
     },
     {
       "document_id": "ingest-refresh-006",
+      "case_id": "ingest-refresh-006",
       "local_path": "/Users/jangseongjin/paperpipe/Library/kistemakerVascularizedHumanBrain2025.pdf",
       "notes": "Recent human brain model paper for modern biomedical layout coverage."
     },
     {
       "document_id": "ingest-refresh-007",
+      "case_id": "ingest-refresh-007",
       "local_path": "/Users/jangseongjin/paperpipe/Library/leeDeepLearningbasedBrain2022.pdf",
       "notes": "Deep-learning brain paper for model/chart-heavy PDF structure."
     },
     {
       "document_id": "ingest-refresh-008",
+      "case_id": "ingest-refresh-008",
       "local_path": "/Users/jangseongjin/paperpipe/Library/liuLandmarkbasedDeepMultiinstance2018.pdf",
       "notes": "Machine-learning imaging paper with compact technical layout."
     },
     {
       "document_id": "ingest-refresh-009",
+      "case_id": "ingest-refresh-009",
       "local_path": "/Users/jangseongjin/paperpipe/Library/mattsson-carlgrenPredictionLongitudinalCognitive2023.pdf",
       "notes": "AD clinical prediction paper not present in prior parser manifests."
     },
     {
       "document_id": "ingest-refresh-010",
+      "case_id": "ingest-refresh-010",
       "local_path": "/Users/jangseongjin/paperpipe/Library/megurMicrobiotaGutBrain2020.pdf",
       "notes": "Microbiota gut-brain paper for review-style biomedical layout diversity."
     },
     {
       "document_id": "ingest-refresh-011",
+      "case_id": "ingest-refresh-011",
       "local_path": "/Users/jangseongjin/paperpipe/Library/millerWorkingMemory202018.pdf",
       "notes": "Working-memory neuroscience paper for non-AD text structure."
     },
     {
       "document_id": "ingest-refresh-012",
+      "case_id": "ingest-refresh-012",
       "local_path": "/Users/jangseongjin/paperpipe/Library/nybergMemoryAgingBrain2012.pdf",
       "notes": "Memory and aging review for older neuroscience PDF layout."
     },
     {
       "document_id": "ingest-refresh-013",
+      "case_id": "ingest-refresh-013",
       "local_path": "/Users/jangseongjin/paperpipe/Library/parkDiscoveryDualactionSmall2022.pdf",
       "notes": "Small-molecule discovery paper for chemistry/biomed table stress."
     },
     {
       "document_id": "ingest-refresh-014",
+      "case_id": "ingest-refresh-014",
       "local_path": "/Users/jangseongjin/paperpipe/Library/seoCurrentUnderstandingAlzheimers2024.pdf",
       "notes": "Recent Alzheimer review outside the previous parser manifests."
     },
     {
       "document_id": "ingest-refresh-015",
+      "case_id": "ingest-refresh-015",
       "local_path": "/Users/jangseongjin/paperpipe/Library/shifrutGenomewideCRISPRScreens2018.pdf",
       "notes": "CRISPR screen paper for dense figures and tables."
     },
     {
       "document_id": "ingest-refresh-016",
+      "case_id": "ingest-refresh-016",
       "local_path": "/Users/jangseongjin/paperpipe/Library/sochockaGutMicrobiomeAlterations2019.pdf",
       "notes": "Gut microbiome review for biomedical review layout coverage."
     },
     {
       "document_id": "ingest-refresh-017",
+      "case_id": "ingest-refresh-017",
       "local_path": "/Users/jangseongjin/paperpipe/Library/tangMesoporousSilicaNanoparticles2012.pdf",
       "notes": "Nanoparticle delivery review with older dense figure/table layout."
     },
     {
       "document_id": "ingest-refresh-018",
+      "case_id": "ingest-refresh-018",
       "local_path": "/Users/jangseongjin/paperpipe/Library/weiGenomewideCRISPRScreens2021.pdf",
       "notes": "Genome-wide CRISPR screen review for large biomedical layout coverage."
     },
     {
       "document_id": "ingest-refresh-019",
+      "case_id": "ingest-refresh-019",
       "local_path": "/Users/jangseongjin/paperpipe/Library/wenzelShortchainFattyAcids2020.pdf",
       "notes": "Short-chain fatty acid paper for microbiome/metabolism layout coverage."
     },
     {
       "document_id": "ingest-refresh-020",
+      "case_id": "ingest-refresh-020",
       "local_path": "/Users/jangseongjin/paperpipe/Library/xiaEngineeringMacrophagesCancer2020.pdf",
       "notes": "Macrophage engineering paper for non-neuro biomedical layout diversity."
     },
     {
       "document_id": "ingest-refresh-021",
+      "case_id": "ingest-refresh-021",
       "local_path": "/Users/jangseongjin/paperpipe/Library/xuEngineeredMiniatureCRISPRCas2021.pdf",
       "notes": "Miniature CRISPR-Cas paper for methods-heavy biomedical layout."
     },
     {
       "document_id": "ingest-refresh-022",
+      "case_id": "ingest-refresh-022",
       "local_path": "/Users/jangseongjin/paperpipe/Library/yusteNeuronalEnsemblesBuilding2024.pdf",
       "notes": "Recent neuroscience review for broad text and figure layout coverage."
     },
     {
       "document_id": "ingest-refresh-023",
+      "case_id": "ingest-refresh-023",
       "local_path": "/Users/jangseongjin/paperpipe/Library/zhouGliatoNeuronConversionCRISPRCasRx2020.pdf",
       "notes": "CRISPR-CasRx glia-to-neuron paper for modern biomedical layout coverage."
     }

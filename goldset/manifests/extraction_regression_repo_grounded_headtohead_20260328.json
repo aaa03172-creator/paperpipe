@@ -1,5 +1,7 @@
 {
   "schema_version": "extraction_regression_manifest.v1",
+  "eval_id": "extraction_regression_repo_grounded_headtohead_20260328",
+  "subset": "regression",
   "created_at": "2026-03-28T10:40:00+09:00",
   "notes": [
     "Diagnostic bounded repo-grounded extraction pilot over the multicohort eleven-paper set plus one four-cohort p-tau181 diagnostic-performance study.",
@@ -10,6 +12,7 @@
   "documents": [
     {
       "paper_id": "zotero:coricTargetingProdromalAlzheimer2015",
+      "case_id": "zotero:coricTargetingProdromalAlzheimer2015",
       "gold_path": "../extraction_regression/repo_grounded_pilot_20260327/gold/zotero_coricTargetingProdromalAlzheimer2015.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:coricTargetingProdromalAlzheimer2015/run_20260223_134233/document_artifact.json"
@@ -17,6 +20,7 @@
     },
     {
       "paper_id": "zotero:craftSafetyEfficacyFeasibility2020",
+      "case_id": "zotero:craftSafetyEfficacyFeasibility2020",
       "gold_path": "../extraction_regression/repo_grounded_pilot_20260327/gold/zotero_craftSafetyEfficacyFeasibility2020.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:craftSafetyEfficacyFeasibility2020/run_20260223_134233/document_artifact.json"
@@ -24,6 +28,7 @@
     },
     {
       "paper_id": "zotero:duboisAmnesticMCIProdromal2004",
+      "case_id": "zotero:duboisAmnesticMCIProdromal2004",
       "gold_path": "../extraction_regression/repo_grounded_pilot_20260327/gold/zotero_duboisAmnesticMCIProdromal2004.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisAmnesticMCIProdromal2004/run_20260223_144102/document_artifact.json"
@@ -31,6 +36,7 @@
     },
     {
       "paper_id": "zotero:therriaultBiomarkerModelingAlzheimers2022",
+      "case_id": "zotero:therriaultBiomarkerModelingAlzheimers2022",
       "gold_path": "../extraction_regression/repo_grounded_pilot_20260327/gold/zotero_therriaultBiomarkerModelingAlzheimers2022.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:therriaultBiomarkerModelingAlzheimers2022/run_20260223_144102/document_artifact.json"
@@ -38,6 +44,7 @@
     },
     {
       "paper_id": "zotero:hanssonBloodBiomarkersAlzheimers2023",
+      "case_id": "zotero:hanssonBloodBiomarkersAlzheimers2023",
       "gold_path": "../extraction_regression/repo_grounded_pilot_20260327/gold/zotero_hanssonBloodBiomarkersAlzheimers2023.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:hanssonBloodBiomarkersAlzheimers2023/run_20260223_140928/document_artifact.json"
@@ -45,6 +52,7 @@
     },
     {
       "paper_id": "zotero:decarliMildCognitiveImpairment2003",
+      "case_id": "zotero:decarliMildCognitiveImpairment2003",
       "gold_path": "../extraction_regression/repo_grounded_expanded_20260327/gold/zotero_decarliMildCognitiveImpairment2003.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:decarliMildCognitiveImpairment2003/run_20260223_134233/document_artifact.json"
@@ -52,6 +60,7 @@
     },
     {
       "paper_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
+      "case_id": "zotero:duboisClinicalDiagnosisAlzheimers2021",
       "gold_path": "../extraction_regression/repo_grounded_expanded_20260327/gold/zotero_duboisClinicalDiagnosisAlzheimers2021.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:duboisClinicalDiagnosisAlzheimers2021/run_20260223_135000/document_artifact.json"
@@ -59,6 +68,7 @@
     },
     {
       "paper_id": "zotero:grandeBloodbasedBiomarkersAlzheimers2025",
+      "case_id": "zotero:grandeBloodbasedBiomarkersAlzheimers2025",
       "gold_path": "../extraction_regression/repo_grounded_broader_20260328/gold/zotero_grandeBloodbasedBiomarkersAlzheimers2025.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:grandeBloodbasedBiomarkersAlzheimers2025/run_20260223_144102/document_artifact.json"
@@ -66,6 +76,7 @@
     },
     {
       "paper_id": "zotero:chandraGutMicrobiomeAlzheimers2023",
+      "case_id": "zotero:chandraGutMicrobiomeAlzheimers2023",
       "gold_path": "../extraction_regression/repo_grounded_diverse_20260328/gold/zotero_chandraGutMicrobiomeAlzheimers2023.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:chandraGutMicrobiomeAlzheimers2023/run_20260223_133239/document_artifact.json"
@@ -73,6 +84,7 @@
     },
     {
       "paper_id": "zotero:jessenCharacterisationSubjectiveCognitive2020",
+      "case_id": "zotero:jessenCharacterisationSubjectiveCognitive2020",
       "gold_path": "../extraction_regression/repo_grounded_generalized_20260328/gold/zotero_jessenCharacterisationSubjectiveCognitive2020.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:jessenCharacterisationSubjectiveCognitive2020/run_20260223_140928/document_artifact.json"
@@ -80,6 +92,7 @@
     },
     {
       "paper_id": "zotero:pichetbinetteConfoundingFactorsAlzheimers2023",
+      "case_id": "zotero:pichetbinetteConfoundingFactorsAlzheimers2023",
       "gold_path": "../extraction_regression/repo_grounded_multicohort_20260328/gold/zotero_pichetbinetteConfoundingFactorsAlzheimers2023.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:pichetbinetteConfoundingFactorsAlzheimers2023/run_20260223_142907/document_artifact.json"
@@ -87,6 +100,7 @@
     },
     {
       "paper_id": "zotero:karikariBloodPhosphorylatedTau2020",
+      "case_id": "zotero:karikariBloodPhosphorylatedTau2020",
       "gold_path": "../extraction_regression/repo_grounded_diagnostic_20260328/gold/zotero_karikariBloodPhosphorylatedTau2020.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:karikariBloodPhosphorylatedTau2020/run_20260223_140928/document_artifact.json"
@@ -94,6 +108,7 @@
     },
     {
       "paper_id": "zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023",
+      "case_id": "zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023",
       "gold_path": "../extraction_regression/repo_grounded_prognostic_20260328/gold/zotero_mattsson-carlgrenPredictionLongitudinalCognitive2023.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/zotero:mattsson-carlgrenPredictionLongitudinalCognitive2023/run_20260223_142907/document_artifact.json"
@@ -101,6 +116,7 @@
     },
     {
       "paper_id": "zotero:schindlerHeadtoheadComparisonLeading2024",
+      "case_id": "zotero:schindlerHeadtoheadComparisonLeading2024",
       "gold_path": "../extraction_regression/repo_grounded_headtohead_20260328/gold/zotero_schindlerHeadtoheadComparisonLeading2024.json",
       "gold_source_paths": [
         "/Users/jangseongjin/paperpipe/storage/artifacts/schindlerHeadtoheadComparisonLeading2024/a001a45b-b6dd-4b95-bf00-2a9d73da2933/document_artifact.json"
