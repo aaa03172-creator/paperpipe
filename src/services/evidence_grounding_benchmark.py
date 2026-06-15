@@ -730,14 +730,17 @@ def run_evidence_grounding_benchmark(
 
     for item in manifest.items:
         run_dir = _resolve_run_dir(item.run_dir, base_dir=base_dir)
-        fixed_gold = gold_records_by_paper_id.get(item.paper_id or "")
+        item_paper_id = item.paper_id
+        if item_paper_id is None and len(gold_records_by_paper_id) == 1:
+            item_paper_id = next(iter(gold_records_by_paper_id))
+        fixed_gold = gold_records_by_paper_id.get(item_paper_id or "")
         try:
             scorecard = build_evidence_grounding_scorecard_from_run_dir(
                 run_dir,
                 paper_understanding_gold=fixed_gold,
                 paper_understanding_gold_source=_fixed_gold_source(
                     manifest=manifest,
-                    paper_id=item.paper_id,
+                    paper_id=item_paper_id,
                     gold=fixed_gold,
                 ),
                 candidate_config=item.candidate_config,
@@ -749,7 +752,7 @@ def run_evidence_grounding_benchmark(
             EvidenceGroundingBenchmarkScorecardItem(
                 candidate_id=item.candidate_id,
                 run_dir=str(run_dir),
-                paper_id=item.paper_id or scorecard.paper_id,
+                paper_id=item_paper_id or scorecard.paper_id,
                 run_id=item.run_id or scorecard.run_id,
                 scorecard=scorecard,
                 candidate_config=item.candidate_config,
@@ -29516,6 +29519,10 @@ def _is_available_number(metric: Any) -> bool:
         and getattr(metric, "status", None) == "available"
         and isinstance(getattr(metric, "value", None), (int, float))
     )
+
+
+def _diagnostic_error_detail(exc: Exception) -> str:
+    return str(exc).replace("\n", " ").strip() or exc.__class__.__name__
 
 
 def build_evidence_grounding_p0_overstatement_review_packet_from_benchmark_reports(

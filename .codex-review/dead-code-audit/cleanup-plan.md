@@ -65,7 +65,7 @@ Rollback notes:
 Prefer formal deprecation PRs before deletion. Keep compatibility redirects or stubs where external caller uncertainty remains.
 
 Current Phase 4 status:
-`/api/chat` is a deliberate stub-only compatibility surface; `/feedback` and `/artifact-feedback` are active runtime surfaces; Talk Pack is a bounded API/export surface without a first-party frontend route; Paper Synthesis compatibility route is first-party ready but not externally safe to delete; `src/providers/*` remains a legacy public-import risk; retraction audit needs operator confirmation; `trial_extraction` alias is blocked until the 2026-06-30 removal window.
+`/api/chat` is a deliberate stub-only compatibility surface; `/feedback` and `/artifact-feedback` are active runtime surfaces; Talk Pack is a bounded API/export surface without a first-party frontend route; Paper Synthesis compatibility route is first-party ready but not externally safe to delete; `src/providers/*` remains a legacy public-import risk; retraction audit needs operator confirmation; `trial-extraction` alias is blocked until the 2026-06-30 removal window.
 
 Next Phase 4 action:
 Treat `src/providers/*` as a deprecation-planning item, not a deletion item. Treat `src/audit_retractions.py` as the only remaining repo-internal candidate that may be archivable after operator workflow checks; keep `src/retraction.py` and retraction rendering/schema support separate from that decision. Local evidence has been exhausted; any further closure requires deployment logs, packaged-user/import evidence, or explicit operator confirmation outside this repo/local automation set.

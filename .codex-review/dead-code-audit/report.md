@@ -24,7 +24,7 @@ Do not remove without manual verification:
 Public routes, Typer command functions, FastAPI router handlers, skill registry actions, worker/job code, `src/providers/*`, and config aliases with scheduled removal dates.
 
 Phase 4 follow-up:
-High-risk candidates now have a dedicated manual-verification checklist in `phase4-manual-verification.md`. Current evidence reclassifies `/feedback` and `/artifact-feedback` as active runtime surfaces, `/api/chat` as a deliberate stub-only compatibility surface, Talk Pack as a bounded API/export surface without a first-party frontend route, and the legacy `trial_extraction` alias as blocked until the 2026-06-30 removal window.
+High-risk candidates now have a dedicated manual-verification checklist in `phase4-manual-verification.md`. Current evidence reclassifies `/feedback` and `/artifact-feedback` as active runtime surfaces, `/api/chat` as a deliberate stub-only compatibility surface, Talk Pack as a bounded API/export surface without a first-party frontend route, and the legacy `trial-extraction` alias as blocked until the 2026-06-30 removal window.
 
 ## 2. Scope reviewed
 

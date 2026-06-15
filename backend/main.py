@@ -4799,6 +4799,8 @@ def _validate_profile_selection(selection) -> None:
     profile_id = str(getattr(selection, "profile_id", "") or "").strip()
     if not profile_id:
         return
+    if getattr(selection, "reasoning_persona", None):
+        return
     try:
         conf = load_profiles()
     except Exception as exc:

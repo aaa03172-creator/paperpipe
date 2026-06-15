@@ -13,6 +13,7 @@ Focus on:
 - first failing CI command and smallest local reproduction when logs are available
 - stale or duplicate tests that hide product risk
 
+Do not edit code.
 Do not edit tests or production code.
 Do not ask for broad coverage for its own sake.
 Return findings first, ordered by severity, with file/line or command evidence, concrete missed failure mode, and the smallest targeted test to add.

@@ -12,7 +12,7 @@ from src.config import load_config, AppConfig, resolve_clinical_extraction_featu
 from src.llm_provider import get_llm_provider, LLMProvider
 from src.fetch import get_fetchers
 from src.gates import GateEngine
-from src.schemas.gates import GateDecision
+from src.schemas.gates import GateDecision, ReasonCode
 from src.db_utils import (
     sync_zotero_to_db, 
     get_papers_by_status, 
@@ -1010,6 +1010,35 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                         clinical_extraction = extraction_candidate
                 except Exception as exc:
                     logger.warning("Clinical extraction failed for %s: %s", paper.id, exc, exc_info=True)
+
+        if (
+            clinical_extraction is None
+            and status == PaperStatus.PENDING_REVIEW
+            and ReasonCode.EVIDENCE_MISSING.value in gate_reason_codes
+            and confidence >= config.confidence_thresholds.high
+            and not tag_payload.get("evidence_snippets")
+            and str(paper.summary or "").strip()
+        ):
+            tag_payload["evidence_snippets"] = [
+                {
+                    "snippet": str(paper.summary).strip(),
+                    "location": "abstract",
+                    "supports": "slot_decision",
+                }
+            ]
+            feedback_json = _feedback_json_from_tagging(
+                tag_payload,
+                confidence=confidence,
+                soft_tags=tags,
+            )
+            gate_result = gate_engine.evaluate(
+                json.loads(feedback_json),
+                parse_ok=analysis_available,
+                schema_ok=analysis_available,
+            )
+            status = PaperStatus(gate_result.decision.value)
+            gate_decision = gate_result.decision.value
+            gate_reason_codes = [code.value for code in gate_result.reason_codes]
 
         escalation_sidecar: Optional[Dict[str, Any]] = None
         escalation_reason: Optional[str] = None

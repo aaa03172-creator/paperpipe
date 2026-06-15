@@ -2607,6 +2607,72 @@ def self_test(json_output: bool = typer.Option(False, "--json", help="Emit machi
         raise typer.Exit(code=1)
 
 
+@app.command("audit-retractions")
+def audit_retractions(
+    apply: bool = typer.Option(False, "--apply", help="Persist detected retractions to the runtime DB."),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Maximum number of papers to audit."),
+    sleep_seconds: float = typer.Option(
+        0.5,
+        "--sleep-seconds",
+        min=0,
+        help="Delay between external retraction checks.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+):
+    from src.services import retraction_audit as retraction_audit_service
+
+    summary = retraction_audit_service.run_retraction_audit(
+        apply=apply,
+        limit=limit,
+        sleep_seconds=sleep_seconds,
+    )
+    payload = summary.as_dict()
+    if json_output:
+        _emit_json(payload)
+        return
+
+    mode = "apply" if apply else "dry-run"
+    console.print(f"[bold blue]Retraction audit[/bold blue] ({mode})")
+    console.print(f"Total papers: {summary.total_papers}")
+    console.print(f"Checked: {summary.checked_count}")
+    console.print(f"Retracted found: {summary.retracted_count}")
+    console.print(f"Marked retracted: {summary.marked_count}")
+    console.print(f"Skipped known retracted: {summary.skipped_known_retracted}")
+    console.print(f"Skipped missing identifier: {summary.skipped_missing_identifier}")
+    console.print(f"Errors: {summary.error_count}")
+    if summary.error_count:
+        raise typer.Exit(code=1)
+
+
+@app.command("talk-pack-list")
+def talk_pack_list(json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output.")):
+    from src.talk_packs import service as talk_pack_service
+
+    response = talk_pack_service.talk_pack_list_response()
+    payload = response.model_dump(mode="json")
+    if json_output:
+        _emit_json(payload)
+        return
+    for item in payload["items"]:
+        console.print(f"{item['talk_pack_id']}  {item['title']}")
+
+
+@app.command("talk-pack-show")
+def talk_pack_show(talk_pack_id: str):
+    from src.talk_packs import service as talk_pack_service
+
+    pack = talk_pack_service.get_talk_pack(talk_pack_id)
+    _emit_json(talk_pack_service.talk_pack_response_payload(pack).model_dump(mode="json"))
+
+
+@app.command("talk-pack-render-deck")
+def talk_pack_render_deck(talk_pack_id: str):
+    from src.talk_packs import service as talk_pack_service
+
+    response = talk_pack_service.render_talk_pack_deck_pptx(talk_pack_id)
+    _emit_json(response.model_dump(mode="json"))
+
+
 @app.command("quarantine-fixture-states")
 def quarantine_fixture_states(
     apply: bool = typer.Option(

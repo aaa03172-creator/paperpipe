@@ -787,7 +787,7 @@ def run_export(overwrite: bool = True):
     Exports all APPROVED/INDEXED papers to Obsidian.
     """
     config = load_config()
-    institutional_proxy_url = getattr(config.system, "institutional_proxy_url", None)
+    institutional_proxy_url = getattr(getattr(config, "system", None), "institutional_proxy_url", None)
     vault_path_str = config.paths.obsidian_vault
     if not vault_path_str:
         logger.error("obsidian_vault path not set in config.")

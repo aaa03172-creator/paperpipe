@@ -1721,15 +1721,19 @@ async def run_deepread_job(
             )
         except TypeError:
             try:
-                # Test doubles may accept the legacy constructor without attempt_order.
                 reader_agent = ReaderAgent(
                     model_name=main_model,
                     persona_hint=persona_hint,
                     max_context_chars=reader_max_context_chars,
                 )
             except TypeError:
-                # Final fallback for minimal test doubles.
-                reader_agent = ReaderAgent()
+                try:
+                    reader_agent = ReaderAgent(
+                        model_name=main_model,
+                        persona_hint=persona_hint,
+                    )
+                except TypeError:
+                    reader_agent = ReaderAgent()
         timeout_override = _apply_reader_timeout_budget(reader_agent, reader_timeout_budget)
         bootstrap_meta["reader_provider_timeout_sec"] = timeout_override["effective_timeout_sec"]
         bootstrap_meta["reader_provider_timeout_override_applied"] = bool(timeout_override["applied"])
