@@ -3,6 +3,7 @@ name: backend-api-smoke
 on:
   pull_request:
     branches:
+      - main
       - master
   workflow_dispatch:
 
@@ -30,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
           pip install -r requirements.txt
-          pip install ruff
+          pip install ruff pytest
 
       - name: Run backend API smoke gate
         run: ./scripts/run_backend_api_smoke.sh

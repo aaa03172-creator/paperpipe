@@ -3,6 +3,7 @@ name: pr-scope-guard
 on:
   pull_request:
     branches:
+      - main
       - master
 
 jobs:
