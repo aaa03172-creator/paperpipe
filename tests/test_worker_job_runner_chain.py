@@ -691,6 +691,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert run_meta["handoff_artifacts"]["context_manifest_path"].endswith("context_manifest.json")
         assert run_meta["reader_timeout_budget_sec"] >= 60
         assert run_meta["reader_timeout_triggered"] is False
+        assert run_meta["reader_max_context_chars"] == 16000
         assert run_meta["selected_backend"] == "local"
         assert run_meta["payload_class"] == "local_only"
         assert run_meta["redaction_applied"] is False
@@ -698,6 +699,19 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert run_meta["inference_lanes"]["reader"]["payload_class"] == "local_only"
         assert run_meta["reader_analysis"]["return_mode"] == "success"
         assert run_meta["reader_analysis"]["attempt_count"] == 1
+        performance = run_meta["performance"]
+        assert performance["schema_version"] == "performance_profile.v1"
+        assert [entry["stage"] for entry in performance["stage_timings"]] == [
+            "ingest",
+            "index",
+            "reader",
+            "verify",
+        ]
+        assert all(isinstance(entry["wall_seconds"], float) for entry in performance["stage_timings"])
+        assert performance["summary"]["stage_count"] == 4
+        assert performance["summary"]["timed_stage_count"] == 4
+        assert performance["summary"]["total_observed_wall_seconds"] >= 0.0
+        assert meta["performance_summary"] == performance["summary"]
         assert "persona_id" in meta
         assert "similar_feedback_count" in meta
         assert meta["run_verify"] is True
@@ -752,6 +766,7 @@ def test_worker_uses_real_job_runner_chain_smoke(tmp_path, monkeypatch):
         assert meta["reader_page_count"] == 1
         assert meta["reader_table_count"] == 0
         assert meta["reader_timeout_triggered"] is False
+        assert meta["reader_max_context_chars"] == 16000
         assert "reader_provider_timeout_sec" in meta
         assert meta["reader_analysis"]["selected_attempt_label"] == "primary"
         assert meta["claimset_readiness"] == "ready"

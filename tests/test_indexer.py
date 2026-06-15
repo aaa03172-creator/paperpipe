@@ -1,7 +1,16 @@
 import sqlite3
+import sys
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
-from src.indexer import DEFAULT_EMBEDDING_MODEL, PaperIndexer, default_collection_name
+import src.indexer as indexer_module
+from src.indexer import (
+    DEFAULT_EMBEDDING_MODEL,
+    INDEXER_DEVICE_ENV,
+    PaperIndexer,
+    default_collection_name,
+    resolve_embedding_device,
+)
 
 
 DDL_SQL = """
@@ -230,6 +239,84 @@ def test_default_model_policy_is_neuml_and_collection_v1():
     assert indexer.model_name == DEFAULT_EMBEDDING_MODEL
     assert indexer.model_name == "NeuML/pubmedbert-base-embeddings"
     assert indexer.collection_name == default_collection_name("NeuML/pubmedbert-base-embeddings", 1)
+
+
+def _fake_torch_module(*, mps_available: bool) -> ModuleType:
+    module = ModuleType("torch")
+    module.backends = SimpleNamespace(
+        mps=SimpleNamespace(is_available=lambda: mps_available),
+    )
+    return module
+
+
+def test_resolve_embedding_device_auto_prefers_mps_when_available(monkeypatch):
+    monkeypatch.delenv(INDEXER_DEVICE_ENV, raising=False)
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch_module(mps_available=True))
+
+    assert resolve_embedding_device("auto") == "mps"
+
+
+def test_resolve_embedding_device_accepts_cpu_override(monkeypatch):
+    monkeypatch.setenv(INDEXER_DEVICE_ENV, "mps")
+
+    assert resolve_embedding_device("cpu") == "cpu"
+
+
+def test_paper_indexer_passes_detected_mps_device_to_sentence_transformer(monkeypatch):
+    constructed: list[dict[str, str | None]] = []
+    module = ModuleType("sentence_transformers")
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str, device: str | None = None):
+            constructed.append({"model_name": model_name, "device": device})
+
+        def encode(self, texts, normalize_embeddings=True):
+            return [[1.0] for _text in texts]
+
+    module.SentenceTransformer = FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch_module(mps_available=True))
+
+    indexer = PaperIndexer(db_path=":memory:", model_name="test-model", embedding_device="auto")
+    indexer._ensure_embedder()
+
+    assert constructed == [{"model_name": "test-model", "device": "mps"}]
+
+
+def test_paper_indexer_falls_back_to_cpu_when_mps_initialization_fails(monkeypatch):
+    constructed_devices: list[str | None] = []
+    module = ModuleType("sentence_transformers")
+
+    class FakeSentenceTransformer:
+        def __init__(self, _model_name: str, device: str | None = None):
+            constructed_devices.append(device)
+            if device == "mps":
+                raise RuntimeError("mps unavailable for this model")
+
+        def encode(self, texts, normalize_embeddings=True):
+            return [[1.0] for _text in texts]
+
+    module.SentenceTransformer = FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+    indexer = PaperIndexer(db_path=":memory:", embedding_device="mps")
+    indexer._ensure_embedder()
+
+    assert indexer.embedding_device == "cpu"
+    assert constructed_devices == ["mps", "cpu"]
+
+
+def test_paper_indexer_skips_device_detection_when_embedder_is_injected(monkeypatch):
+    embedder = FakeEmbedder()
+
+    def fail_device_resolution(_requested_device=None):
+        raise AssertionError("device detection should be lazy for injected embedders")
+
+    monkeypatch.setattr(indexer_module, "resolve_embedding_device", fail_device_resolution)
+
+    indexer = PaperIndexer(db_path=":memory:", embedder=embedder, embedding_device="auto")
+
+    assert indexer._ensure_embedder() is embedder
 
 
 def test_bge_query_prefix_auto_applies_for_bge_model(tmp_path):

@@ -86,6 +86,13 @@ ingest:
   cloud_table_api_key: "" # Prefer OPENAI_API_KEY in the environment; leave blank unless you need an override.
   cloud_table_timeout_seconds: 30
 
+performance:
+  # Safe defaults for Apple Silicon machines with 16GB memory.
+  embedding_batch_size: 16
+  reader_max_context_chars: 16000
+  max_concurrent_jobs: 1
+  local_gpu_backend: "ollama_metal"
+
 unpaywall:
   email: null
 
