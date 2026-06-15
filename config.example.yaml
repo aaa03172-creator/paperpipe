@@ -1,6 +1,9 @@
 system:
   backfill_limit_days: 3
   log_level: "INFO"
+  # Optional. Prefer config over ad-hoc local edits; PAPERPIPE_INSTITUTIONAL_PROXY
+  # remains supported as an environment fallback for existing deployments.
+  institutional_proxy_url: null
 
 paths:
   # Update to your local environment.
@@ -50,9 +53,9 @@ llm:
       deep_read: "llama3:8b"
       relevance_analyzer: "llama3:8b"
   cloud:
-    provider: "openai" # options: openai, anthropic
-    api_key: "" # Prefer the provider-matching env var (OPENAI_API_KEY or ANTHROPIC_API_KEY); leave blank in normal setups.
-    model: "gpt-4o"
+    provider: "openai" # options: openai, anthropic, gemini
+    api_key: "" # Prefer the provider-matching env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY); leave blank in normal setups.
+    model: "gpt-5.4-mini"
     embedding_model: "text-embedding-3-small"
   features:
     clinical_extraction:

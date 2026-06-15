@@ -132,7 +132,7 @@ from src.services.event_log import (
     sanitize_event_payload_for_log,
     sanitize_event_text_for_log,
 )
-from src.services.path_masking import is_path_masking_enabled, mask_local_path
+from src.services.path_masking import is_path_masking_enabled, mask_local_path, mask_local_paths_in_text as mask_local_paths_in_text_shared
 from src.services.paper_ops_summary import (
     artifact_snapshot_from_run_dir,
     ArtifactOperationalSnapshot,
@@ -166,15 +166,21 @@ from .routers import (
     artifact_feedback,
     artifact_generation_outcomes,
     chart_packs,
+    claim_evidence_corrections,
+    cloud_papers,
+    evidence_grounding,
+    evidence_grounding_scorecards,
     feedback,
     image_evidence,
     meeting_packs,
     method_comparisons,
     obsidian,
+    paper_understanding_gold,
     paper_syntheses,
     paper_notes,
     project_context_links,
     protocol_cards,
+    runtime_settings,
     skills,
     talk_packs,
 )
@@ -519,6 +525,7 @@ _PRIVATE_DATA_ROUTE_PREFIXES: tuple[str, ...] = (
     "/artifact-feedback",
     "/artifact-generation-outcomes",
     "/chart-packs",
+    "/cloud",
     "/feedback",
     "/image-evidence",
     "/jobs",
@@ -534,6 +541,7 @@ _PRIVATE_DATA_ROUTE_PREFIXES: tuple[str, ...] = (
     "/project-context-links",
     "/protocol-cards",
     "/research-dna",
+    "/runtime-settings",
     "/runs",
     "/talk-packs",
     "/user-actions",
@@ -594,6 +602,10 @@ def _requires_api_key(method: str, path: str) -> bool:
         return True
     if normalized.startswith("/chart-packs/"):
         return True
+    if normalized.startswith("/cloud/"):
+        return True
+    if normalized.startswith("/evidence-grounding/"):
+        return True
     if normalized.startswith("/method-comparisons/"):
         return True
     if normalized.startswith("/paper-syntheses/"):
@@ -601,6 +613,8 @@ def _requires_api_key(method: str, path: str) -> bool:
     if normalized.startswith("/talk-packs/"):
         return True
     if normalized.startswith("/protocol-cards/") or normalized == "/protocol-cards":
+        return True
+    if normalized.startswith("/runtime-settings/") or normalized == "/runtime-settings":
         return True
     return bool(re.match(r"^/jobs/[^/]+/cancel$", normalized))
 
@@ -4772,13 +4786,34 @@ def _persona_options(include_disabled: bool) -> list[PersonaOption]:
                 title=profile.title,
                 enabled=profile.enabled,
                 kind="profile",
-                notes=profile.notes,
+                notes=mask_local_paths_in_text_shared(profile.notes) if profile.notes else None,
                 schedule=profile.schedule,
                 query_focus=profile.query.to_boolean_string(),
                 source="yaml",
             )
         )
     return options
+
+
+def _validate_profile_selection(selection) -> None:
+    profile_id = str(getattr(selection, "profile_id", "") or "").strip()
+    if not profile_id:
+        return
+    try:
+        conf = load_profiles()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load persona profiles: {exc}") from exc
+    if any(profile.id == profile_id for profile in conf.profiles):
+        return
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error_code": "UNKNOWN_PROFILE_ID",
+            "message": f"Unknown profile_id: {profile_id}",
+            "profile_id": profile_id,
+        },
+    )
+
 
 @app.get("/health")
 def health_check():
@@ -5710,7 +5745,7 @@ def get_paper(paper_id: str) -> PaperDetailResponse:
     return item
 
 
-@app.get("/papers/{paper_id}/pdf")
+@app.get("/papers/{paper_id:path}/pdf")
 def get_paper_pdf(paper_id: str):
     conn = get_db_connection()
     vault_path: Path | None = None
@@ -5817,6 +5852,7 @@ def enqueue_job(job_req: JobCreate):
         reasoning_persona=job_req.reasoning_persona,
         profile_id=job_req.profile_id,
     )
+    _validate_profile_selection(selection)
     try:
         job_id = queue.enqueue(
             job_req.paper_id,
@@ -6088,14 +6124,20 @@ async def job_events(job_id: str, request: Request):
 app.include_router(obsidian.router)
 app.include_router(artifact_feedback.router)
 app.include_router(artifact_generation_outcomes.router)
+app.include_router(claim_evidence_corrections.router)
+app.include_router(evidence_grounding_scorecards.router)
+app.include_router(evidence_grounding.router)
 app.include_router(feedback.router)
+app.include_router(paper_understanding_gold.router)
 app.include_router(paper_notes.router)
 app.include_router(project_context_links.router)
 app.include_router(skills.router)
+app.include_router(runtime_settings.router)
 app.include_router(talk_packs.router)
 app.include_router(meeting_packs.router)
 app.include_router(image_evidence.router)
 app.include_router(chart_packs.router)
+app.include_router(cloud_papers.router)
 app.include_router(method_comparisons.router)
 app.include_router(paper_syntheses.router)
 app.include_router(protocol_cards.router)
