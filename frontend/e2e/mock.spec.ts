@@ -112,6 +112,18 @@ test("runtime readiness page explains forced-mock diagnostics without dead-endin
   await expect(page.getByTestId("runtime-readiness-fix-live-backend")).toContainText("Restore the live backend signal");
 });
 
+test("settings API key field supports clipboard paste in mock mode", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/settings");
+
+  await expect(page.getByRole("heading", { name: "LLM provider" })).toBeVisible();
+  await page.evaluate(() => navigator.clipboard.writeText("sk-lattice-test-paste-key"));
+  await page.getByRole("button", { name: "Paste key" }).click();
+
+  await expect(page.getByLabel("API key")).toHaveValue("sk-lattice-test-paste-key");
+  await expect(page.getByText("API key pasted. Save settings when ready.")).toBeVisible();
+});
+
 test("paper note detail fallback points back to runtime checks in mock mode", async ({ page }) => {
   await page.goto("/papers/ketogenicInterventionGlucoseVariability2024");
 
@@ -123,6 +135,121 @@ test("paper note detail fallback points back to runtime checks in mock mode", as
   await expect(page.getByTestId("paper-note-runtime-guidance")).toContainText("If you expected live note data here");
   await expect(page.getByRole("link", { name: "Runtime checks", exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("paper-note-section-navigator")).toContainText("Structured signals");
+});
+
+test("cloud paper opens in the existing detail viewer shell in mock mode", async ({ page }) => {
+  await page.goto("/papers/paper_mock_ready?source=cloud");
+
+  await expect(page.getByTestId("cloud-paper-detail-viewer")).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("heading", { name: "paper_mock_ready" })).toBeVisible();
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("Cloud source");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("Page artifact");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("Derived artifacts");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("ocr 1");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("tables 1");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("figures 1");
+  await expect(page.getByTestId("cloud-paper-workspace-context")).toContainText("Local hydration");
+  await expect(page.getByTestId("cloud-paper-page-blocks")).toContainText(
+    "Mock processed page text for cloud paper API contract verification.",
+  );
+  const derivedArtifacts = page.getByTestId("cloud-paper-derived-artifacts");
+  await expect(derivedArtifacts).toContainText("Derived artifacts");
+  await expect(derivedArtifacts).toContainText("Mock OCR text recovered from a rendered cloud PDF page.");
+  await expect(derivedArtifacts).toContainText("Mock reconstructed table from cloud PDF layout.");
+  await expect(derivedArtifacts).toContainText("Mock figure crop from rendered cloud PDF page.");
+  await expect(derivedArtifacts).toContainText("Mock figure analysis placeholder derived from a server-side figure crop.");
+  const downstreamHandoff = page.getByTestId("cloud-paper-downstream-handoff");
+  await expect(downstreamHandoff).toContainText("Downstream handoff");
+  await expect(downstreamHandoff).toContainText("Meeting Pack");
+  await expect(downstreamHandoff).toContainText("background_only");
+  await expect(downstreamHandoff).toContainText("Chart Pack");
+  await expect(downstreamHandoff).toContainText("cloud_derived_table");
+  await expect(downstreamHandoff).toContainText("Selected table table_001");
+  await expect(downstreamHandoff).toContainText("Image Evidence");
+  await expect(downstreamHandoff).toContainText("external_image_ref");
+  await expect(downstreamHandoff).toContainText("Selected figure figure_001");
+  await expect(downstreamHandoff).toContainText("Method Comparison");
+  await expect(downstreamHandoff).toContainText("missing");
+  await expect(downstreamHandoff).toContainText("Obsidian");
+  await expect(downstreamHandoff).toContainText("derived_noncanonical");
+  const downstreamActions = page.getByTestId("cloud-paper-downstream-actions");
+  await expect(downstreamActions).toContainText("Export actions");
+  await expect(downstreamActions).toContainText("permission_required");
+  await expect(downstreamActions).toContainText("export permission required");
+  await expect(downstreamActions.getByRole("button", { name: "Prepare Obsidian" })).toBeDisabled();
+  await expect(downstreamActions.getByRole("button", { name: "Register artifacts" })).toBeDisabled();
+  await expect(page.getByText("Trust order")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Provenance" })).toBeVisible();
+});
+
+test("cloud paper downstream handoff shows empty states when table and figure candidates are unavailable", async ({ page }) => {
+  await page.goto("/papers/paper_mock_no_downstream_candidates?source=cloud");
+
+  await expect(page.getByTestId("cloud-paper-detail-viewer")).toBeVisible();
+  const downstreamHandoff = page.getByTestId("cloud-paper-downstream-handoff");
+  await expect(downstreamHandoff).toContainText("Downstream handoff");
+  await expect(downstreamHandoff).toContainText("Chart Pack");
+  await expect(downstreamHandoff).toContainText("unavailable");
+  await expect(downstreamHandoff).toContainText("No table candidate is ready for Chart Pack.");
+  await expect(downstreamHandoff).toContainText("Image Evidence");
+  await expect(downstreamHandoff).toContainText("No figure candidate is ready for Image Evidence.");
+  await expect(downstreamHandoff).not.toContainText("Selected table");
+  await expect(downstreamHandoff).not.toContainText("Selected figure");
+});
+
+test("cloud paper downstream registry readback shows reviewed artifact status", async ({ page }) => {
+  await page.goto("/papers/paper_mock_reviewed?source=cloud");
+
+  await expect(page.getByTestId("cloud-paper-detail-viewer")).toBeVisible();
+  const downstreamActions = page.getByTestId("cloud-paper-downstream-actions");
+  await expect(downstreamActions).toContainText("1 registration read back / review_pending");
+  const registryArtifacts = page.getByTestId("cloud-paper-downstream-registry-artifacts");
+  await expect(registryArtifacts).toContainText("review_approved");
+  await expect(registryArtifacts).toContainText("maintainer review event");
+  await expect(registryArtifacts).toContainText("note recorded");
+  await expect(downstreamActions).toContainText("Promotion readiness");
+  await expect(downstreamActions).toContainText("blocked / 1/5 approved");
+  await expect(downstreamActions).toContainText("blocker review_pending");
+  await expect(downstreamActions).toContainText("Promotion plan");
+  await expect(downstreamActions).toContainText("blocked dry-run / 0 items");
+  await expect(downstreamActions).toContainText("no canonical mutation");
+  await expect(downstreamActions).toContainText("plan blocker review_pending");
+});
+
+test("cloud paper downstream promotion readiness becomes eligible after all artifacts are approved", async ({ page }) => {
+  await page.goto("/papers/paper_mock_promotion_ready?source=cloud");
+
+  await expect(page.getByTestId("cloud-paper-detail-viewer")).toBeVisible();
+  const downstreamActions = page.getByTestId("cloud-paper-downstream-actions");
+  await expect(downstreamActions).toContainText("Promotion readiness");
+  await expect(downstreamActions).toContainText("eligible / 5/5 approved");
+  await expect(downstreamActions).toContainText("Promotion plan");
+  await expect(downstreamActions).toContainText("ready dry-run / 5 items");
+  await expect(downstreamActions).toContainText("no canonical mutation");
+  await expect(downstreamActions).not.toContainText("blocker");
+});
+
+test("paper notes search surfaces readable cloud page matches in mock mode", async ({ page }) => {
+  await page.goto("/papers?q=processed");
+
+  const cloudSearch = page.getByTestId("cloud-paper-search-results");
+  await expect(cloudSearch).toBeVisible();
+  await expect(cloudSearch).toContainText('1 cloud match for "processed"');
+  const result = cloudSearch.getByTestId("cloud-paper-search-result-row").first();
+  await expect(result).toContainText("paper_mock_ready");
+  await expect(result).toContainText("Mock processed page text");
+  await expect(result).toHaveAttribute("href", "/papers/paper_mock_ready?source=cloud");
+});
+
+test("paper notes cloud auth preflight guides live GCP setup from mock mode", async ({ page }) => {
+  await page.goto("/papers");
+
+  const authPanel = page.getByTestId("cloud-auth-preflight");
+  await expect(authPanel).toBeVisible();
+  await expect(authPanel).toContainText("Mock mode");
+  await expect(authPanel).toContainText("Use a live runtime to check Google Cloud authentication.");
+  await expect(authPanel).toContainText("Cloud adapter");
+  await expect(authPanel).toContainText("Check again");
 });
 
 test("structured paper note detail keeps review focus close to reading", async ({ page }) => {
@@ -278,6 +405,24 @@ test("workbench surfaces inference summary in mock mode", async ({ page }) => {
   await expect(inferenceCard.getByTestId("workbench-inference-redaction")).toContainText("no redaction");
   await expect(inferenceCard.getByTestId("workbench-inference-lane-reader")).toContainText("reader");
   await expect(inferenceCard.getByTestId("workbench-inference-lane-reader")).toContainText("llama3:8b");
+});
+
+test("workbench surfaces evidence grounding scorecard in mock mode", async ({ page }) => {
+  await page.goto("/workbench/paper-2023-imaging");
+
+  const scorecard = page.getByTestId("workbench-evidence-grounding-scorecard");
+  await expect(scorecard).toBeVisible();
+  await expect(scorecard).toContainText("Evidence grounding");
+  await expect(scorecard.getByTestId("workbench-evidence-grounding-readiness")).toContainText("warn");
+  await expect(scorecard.getByTestId("workbench-evidence-grounding-canonical")).toContainText(
+    "Non-canonical review gate",
+  );
+  await expect(scorecard.getByTestId("workbench-evidence-grounding-reasons")).toContainText(
+    "missing_p0_gold_metrics",
+  );
+  await expect(scorecard.getByTestId("workbench-evidence-grounding-reasons")).toContainText(
+    "accepted_corrections_not_replayable",
+  );
 });
 
 test("encoded paper id route does not crash in workbench", async ({ page }) => {

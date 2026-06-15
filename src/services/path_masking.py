@@ -1,4 +1,11 @@
 from pathlib import Path
+import re
+
+
+_ABSOLUTE_PATH_TOKEN_RE = re.compile(
+    r"(?<![:/\w])/(?:Users|private|var|tmp|Volumes|home|opt|mnt|srv|workspace|app)"
+    r"(?:/[^\s,\"'<>`;|)\]}]+)*"
+)
 
 
 def _is_falsey(raw: str) -> bool:
@@ -35,3 +42,14 @@ def mask_local_path(raw_path: str | None) -> str | None:
     except Exception:
         name = path.name.strip()
         return f".../{name}" if name else ".../"
+
+
+def mask_local_paths_in_text(value: str) -> str:
+    if not is_path_masking_enabled():
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        raw_path = match.group(0)
+        return mask_local_path(raw_path) or raw_path
+
+    return _ABSOLUTE_PATH_TOKEN_RE.sub(replace, value)

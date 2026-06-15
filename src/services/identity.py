@@ -11,6 +11,20 @@ _DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", re.IGNOREC
 _SAFE_PAPER_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+def _file_content_paper_id(file_path: str | Path) -> str | None:
+    path = Path(file_path).expanduser()
+    try:
+        if not path.exists() or not path.is_file():
+            return None
+        digest = hashlib.sha1()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return f"userpdf-{digest.hexdigest()[:16]}"
+    except OSError:
+        return None
+
+
 def normalize_doi(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -60,6 +74,9 @@ def make_runtime_paper_id(
         return f"pmid:{str(pmid).strip()}"
 
     if file_path:
+        content_id = _file_content_paper_id(file_path)
+        if content_id:
+            return content_id
         return bridge_doc_id_to_paper_id(f"file:{Path(file_path)}")
 
     raise ValueError("Unable to determine runtime paper_id")

@@ -121,6 +121,41 @@ def test_load_config_prefers_anthropic_api_key_env_when_provider_is_anthropic(tm
     assert config.llm.cloud.api_key == "anthropic-env-key"
 
 
+def test_load_config_accepts_openai_responses_api_opt_in(tmp_path, monkeypatch):
+    config_path = tmp_path / "responses-config.yaml"
+    _write_config(config_path, vault_name="responses-api")
+    raw = config_path.read_text(encoding="utf-8")
+    raw = raw.replace('provider: "openai"', 'provider: "openai"\n    openai_api: "responses"', 1)
+    config_path.write_text(raw, encoding="utf-8")
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    config = load_config(str(config_path))
+
+    assert config.llm.cloud.provider == "openai"
+    assert config.llm.cloud.openai_api == "responses"
+
+
+def test_load_config_accepts_openai_json_schema_opt_in(tmp_path, monkeypatch):
+    config_path = tmp_path / "responses-schema-config.yaml"
+    _write_config(config_path, vault_name="responses-schema-api")
+    raw = config_path.read_text(encoding="utf-8")
+    raw = raw.replace(
+        'provider: "openai"',
+        'provider: "openai"\n    openai_api: "responses"\n    openai_json_mode: "json_schema"',
+        1,
+    )
+    config_path.write_text(raw, encoding="utf-8")
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    config = load_config(str(config_path))
+
+    assert config.llm.cloud.provider == "openai"
+    assert config.llm.cloud.openai_api == "responses"
+    assert config.llm.cloud.openai_json_mode == "json_schema"
+
+
 def test_db_utils_follows_db_env_override_after_import(tmp_path, monkeypatch):
     original_db_path = db_utils.DB_PATH
     env_db_path = tmp_path / "env-state.db"

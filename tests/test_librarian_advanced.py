@@ -70,6 +70,28 @@ class TestAdvancedLibrarian(unittest.TestCase):
         self.assertEqual(patch_req.target_profile_id, "test_prof")
         self.assertEqual(patch_req.ops[0].value, 50)
 
+    @patch("src.agents.profile_chat_agent.load_config")
+    @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
+    def test_audit_fix_generation_strips_json_code_fence(self, MockAdapter, mock_load_config):
+        mock_load_config.return_value = MagicMock(agents=None)
+        agent = ProfileChatAgent()
+        mock_instance = MockAdapter.return_value
+        mock_instance.generate.return_value.text = """
+        ```json
+        {
+            "target_profile_id": "test_prof",
+            "ops": [
+                {"op": "replace", "path": "limits.max_results_per_run", "value": 40, "rationale": "Reduce limit"}
+            ]
+        }
+        ```
+        """
+
+        patch_req = agent.suggest_audit_fix(self.profile, hit_ratio=0.8, days=7)
+
+        self.assertEqual(patch_req.target_profile_id, "test_prof")
+        self.assertEqual(patch_req.ops[0].value, 40)
+
     def test_run_stats_db(self):
         """Verify DB logging and retrieval."""
         # Use in-memory DB or temporary file?

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import difflib
 import re
 from typing import Any
 
@@ -25,6 +26,13 @@ class _ResolvedDocumentBlockMatch:
     section_name: str
     bbox_pdf: list[float] | None
     resolution: str
+
+
+@dataclass(frozen=True)
+class _TokenPosition:
+    token: str
+    start: int
+    end: int
 
 
 def resolve_claimset_grounding(
@@ -164,41 +172,55 @@ def _expand_claim_statement_bbox_variants(statement: str) -> list[str]:
 
 def _find_match_in_chunk(chunk: object, candidates: list[str]) -> _ResolvedMatch | None:
     chunk_text = getattr(chunk, "text", "")
-    for text in candidates:
-        found = _find_text_location(chunk_text, text)
-        if found is None:
-            continue
-        return _ResolvedMatch(
-            chunk_id=str(getattr(chunk, "chunk_id", "") or ""),
-            section_name=str(getattr(chunk, "section_name", "") or ""),
-            page_hint=getattr(chunk, "page_hint", None),
-            char_start=found[0],
-            char_end=found[1],
-            resolution=found[2],
-        )
-    return None
-
-
-def _find_unique_match(chunks: list, candidates: list[str]) -> _ResolvedMatch | str | None:
-    for text in candidates:
-        matches: dict[str, _ResolvedMatch] = {}
-        for chunk in chunks:
-            found = _find_text_location(getattr(chunk, "text", ""), text)
+    for allow_token_overlap in (False, True):
+        for text in candidates:
+            found = _find_text_location(chunk_text, text, allow_token_overlap=allow_token_overlap)
             if found is None:
                 continue
-            matches[str(chunk.chunk_id)] = _ResolvedMatch(
-                chunk_id=str(chunk.chunk_id),
+            return _ResolvedMatch(
+                chunk_id=str(getattr(chunk, "chunk_id", "") or ""),
                 section_name=str(getattr(chunk, "section_name", "") or ""),
-                page_hint=getattr(chunk, "page_hint", None),
+                page_hint=_chunk_page_hint(chunk),
                 char_start=found[0],
                 char_end=found[1],
                 resolution=found[2],
             )
-        if len(matches) == 1:
-            return next(iter(matches.values()))
-        if len(matches) > 1:
-            return "AMBIGUOUS"
     return None
+
+
+def _find_unique_match(chunks: list, candidates: list[str]) -> _ResolvedMatch | str | None:
+    for allow_token_overlap in (False, True):
+        for text in candidates:
+            matches: dict[str, _ResolvedMatch] = {}
+            for chunk in chunks:
+                found = _find_text_location(getattr(chunk, "text", ""), text, allow_token_overlap=allow_token_overlap)
+                if found is None:
+                    continue
+                matches[str(chunk.chunk_id)] = _ResolvedMatch(
+                    chunk_id=str(chunk.chunk_id),
+                    section_name=str(getattr(chunk, "section_name", "") or ""),
+                    page_hint=_chunk_page_hint(chunk),
+                    char_start=found[0],
+                    char_end=found[1],
+                    resolution=found[2],
+                )
+            if len(matches) == 1:
+                return next(iter(matches.values()))
+            if len(matches) > 1:
+                return "AMBIGUOUS"
+    return None
+
+
+def _chunk_page_hint(chunk: object) -> int | None:
+    page_hint = getattr(chunk, "page_hint", None)
+    if isinstance(page_hint, int) and page_hint > 0:
+        return page_hint
+    section_name = str(getattr(chunk, "section_name", "") or "").strip()
+    match = re.fullmatch(r"page_(\d+)", section_name, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    parsed = int(match.group(1))
+    return parsed if parsed > 0 else None
 
 
 def _apply_match(span: EvidenceSpan, match: _ResolvedMatch) -> None:
@@ -270,46 +292,48 @@ def _find_unique_document_block_match(
     pages_by_index: dict[int, object],
     candidates: list[str],
 ) -> _ResolvedDocumentBlockMatch | None:
-    for text in candidates:
-        matches: dict[str, _ResolvedDocumentBlockMatch] = {}
-        for page_index, page in pages_by_index.items():
-            blocks = list(getattr(page, "blocks", []) or [])
-            for idx, block in enumerate(blocks, start=1):
-                block_text = _block_text(block)
-                if not block_text:
-                    continue
-                found = _find_text_location(block_text, text)
-                if found is None:
-                    continue
-                block_id = str(getattr(block, "block_id", "") or f"page-{page_index}-block-{idx}")
-                matches[block_id] = _ResolvedDocumentBlockMatch(
-                    page_index=page_index,
-                    section_name=f"page_{page_index + 1}",
-                    bbox_pdf=_coerce_bbox_pdf(getattr(block, "bbox_pdf", None)),
-                    resolution=found[2],
-                )
-        if len(matches) == 1:
-            return next(iter(matches.values()))
+    for allow_token_overlap in (False, True):
+        for text in candidates:
+            matches: dict[str, _ResolvedDocumentBlockMatch] = {}
+            for page_index, page in pages_by_index.items():
+                blocks = list(getattr(page, "blocks", []) or [])
+                for idx, block in enumerate(blocks, start=1):
+                    block_text = _block_text(block)
+                    if not block_text:
+                        continue
+                    found = _find_text_location(block_text, text, allow_token_overlap=allow_token_overlap)
+                    if found is None:
+                        continue
+                    block_id = str(getattr(block, "block_id", "") or f"page-{page_index}-block-{idx}")
+                    matches[block_id] = _ResolvedDocumentBlockMatch(
+                        page_index=page_index,
+                        section_name=f"page_{page_index + 1}",
+                        bbox_pdf=_coerce_bbox_pdf(getattr(block, "bbox_pdf", None)),
+                        resolution=found[2],
+                    )
+            if len(matches) == 1:
+                return next(iter(matches.values()))
     return None
 
 
 def _find_unique_block_bbox(page: object, candidates: list[str]) -> list[float] | None:
     blocks = list(getattr(page, "blocks", []) or [])
-    for text in candidates:
-        matches: dict[str, list[float]] = {}
-        for idx, block in enumerate(blocks, start=1):
-            bbox_pdf = _coerce_bbox_pdf(getattr(block, "bbox_pdf", None))
-            if bbox_pdf is None:
-                continue
-            block_text = _block_text(block)
-            if not block_text:
-                continue
-            if _find_text_location(block_text, text) is None:
-                continue
-            block_id = str(getattr(block, "block_id", "") or f"block-{idx}")
-            matches[block_id] = bbox_pdf
-        if len(matches) == 1:
-            return next(iter(matches.values()))
+    for allow_token_overlap in (False, True):
+        for text in candidates:
+            matches: dict[str, list[float]] = {}
+            for idx, block in enumerate(blocks, start=1):
+                bbox_pdf = _coerce_bbox_pdf(getattr(block, "bbox_pdf", None))
+                if bbox_pdf is None:
+                    continue
+                block_text = _block_text(block)
+                if not block_text:
+                    continue
+                if _find_text_location(block_text, text, allow_token_overlap=allow_token_overlap) is None:
+                    continue
+                block_id = str(getattr(block, "block_id", "") or f"block-{idx}")
+                matches[block_id] = bbox_pdf
+            if len(matches) == 1:
+                return next(iter(matches.values()))
     return None
 
 
@@ -360,7 +384,7 @@ def _to_bbox_pct(bbox_pdf: list[float], *, page_width: float | None, page_height
     }
 
 
-def _find_text_location(haystack: str, needle: str) -> tuple[int, int, str] | None:
+def _find_text_location(haystack: str, needle: str, *, allow_token_overlap: bool = True) -> tuple[int, int, str] | None:
     if not haystack or not needle:
         return None
 
@@ -373,14 +397,65 @@ def _find_text_location(haystack: str, needle: str) -> tuple[int, int, str] | No
     if not normalized_haystack or not normalized_needle:
         return None
     idx = normalized_haystack.find(normalized_needle)
-    if idx < 0:
+    if idx >= 0:
+        end_idx = idx + len(normalized_needle) - 1
+        if idx >= len(mapping) or end_idx >= len(mapping):
+            return None
+        start = mapping[idx]
+        end = mapping[end_idx] + 1
+        return (start, end, "NORMALIZED_MATCH")
+
+    if allow_token_overlap:
+        token_match = _find_token_overlap_location(normalized_haystack, normalized_needle, mapping)
+        if token_match is not None:
+            return token_match
+    return None
+
+
+def _find_token_overlap_location(
+    normalized_haystack: str,
+    normalized_needle: str,
+    mapping: list[int],
+) -> tuple[int, int, str] | None:
+    if len(normalized_needle) < 120:
         return None
-    end_idx = idx + len(normalized_needle) - 1
-    if idx >= len(mapping) or end_idx >= len(mapping):
+    needle_tokens = [match.group(0) for match in re.finditer(r"[a-z0-9]+", normalized_needle)]
+    if len(needle_tokens) < 14:
         return None
-    start = mapping[idx]
-    end = mapping[end_idx] + 1
-    return (start, end, "NORMALIZED_MATCH")
+    haystack_tokens = [
+        _TokenPosition(match.group(0), match.start(), match.end())
+        for match in re.finditer(r"[a-z0-9]+", normalized_haystack)
+    ]
+    if len(haystack_tokens) < 14:
+        return None
+
+    matcher = difflib.SequenceMatcher(
+        None,
+        needle_tokens,
+        [position.token for position in haystack_tokens],
+        autojunk=False,
+    )
+    matching_blocks = [block for block in matcher.get_matching_blocks() if block.size > 0]
+    matched = sum(block.size for block in matching_blocks)
+    if not matching_blocks:
+        return None
+    coverage = matched / len(needle_tokens)
+    if coverage < 0.85 or matched < 14:
+        return None
+    first_idx = min(block.b for block in matching_blocks)
+    last_idx = max(block.b + block.size - 1 for block in matching_blocks)
+    start_norm = haystack_tokens[first_idx].start
+    end_norm = haystack_tokens[last_idx].end - 1
+    if start_norm >= len(mapping) or end_norm >= len(mapping):
+        return None
+    span_norm_width = haystack_tokens[last_idx].end - haystack_tokens[first_idx].start
+    default_width_limit = max(len(normalized_needle) * 1.75, len(normalized_needle) + 160)
+    interleaved_column_width_limit = max(len(normalized_needle) * 2.25, len(normalized_needle) + 260)
+    if span_norm_width > default_width_limit and (
+        coverage < 0.95 or matched < 20 or span_norm_width > interleaved_column_width_limit
+    ):
+        return None
+    return (mapping[start_norm], mapping[end_norm] + 1, "TOKEN_OVERLAP_MATCH")
 
 
 def _normalize_with_mapping(text: str) -> tuple[str, list[int]]:

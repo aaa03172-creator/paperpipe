@@ -42,6 +42,13 @@ const e2eSpecDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(e2eSpecDir, "..", "..");
 const e2eVaultPath = path.resolve(e2eSpecDir, "..", ".e2e-backend-runtime", "obsidian");
 const samplePdfPath = path.resolve(e2eSpecDir, "..", "public", "sample.pdf");
+const realCloudUploadPdfPath = path.resolve(
+  e2eSpecDir,
+  "..",
+  ".e2e-backend-runtime",
+  "fixtures",
+  "real-cloud-upload.pdf",
+);
 const e2eMethodComparisonsRoot = path.resolve(
   e2eSpecDir,
   "..",
@@ -125,6 +132,46 @@ async function imageEvidenceFixtureDerivedArtifacts(): Promise<Record<string, st
   return {
     "derivatives/thumb_local.png": thumbLocal.toString("base64"),
   };
+}
+
+function buildMinimalPdfBuffer(lines: string[]): Buffer {
+  const escapedLines = lines.map((line) => line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"));
+  const textCommands = escapedLines.map((line, index) => `1 0 0 1 54 ${720 - index * 24} Tm (${line}) Tj`).join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(`BT\n/F1 14 Tf\n${textCommands}\nET`, "ascii")} >>\nstream\nBT\n/F1 14 Tf\n${textCommands}\nET\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, "ascii");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "ascii");
+}
+
+async function ensureRealCloudUploadPdfFixture(): Promise<string> {
+  await fs.mkdir(path.dirname(realCloudUploadPdfPath), { recursive: true });
+  await fs.writeFile(
+    realCloudUploadPdfPath,
+    buildMinimalPdfBuffer([
+      "Real Cloud Upload Title",
+      "Abstract",
+      "This abstract proves the cloud page processor used actual PDF text extraction.",
+      "Introduction",
+      "The body snippet should mention hippocampal signal, methods context, and real extracted content.",
+    ]),
+  );
+  return realCloudUploadPdfPath;
 }
 
 function statePathFor(slug: string): string {
@@ -988,7 +1035,7 @@ test("backend home resume card keeps saved-note reading handoff clear", async ({
   );
   await expect(resumeCard.getByTestId("home-resume-cta")).toContainText("Resume reading");
   await expect(resumeCard).toContainText("Local PDF");
-  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/papers/paper-reading-001/pdf");
+  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/api/papers/paper-reading-001/pdf");
 });
 
 test("backend home resume card keeps saved-note review handoff clear", async ({ page }) => {
@@ -1051,7 +1098,7 @@ test("backend home resume card keeps saved-note review handoff clear", async ({ 
   await expect(resumeCard.getByTestId("home-resume-hint")).toContainText("2 mapping ambiguities");
   await expect(resumeCard.getByTestId("home-resume-cta")).toContainText("Resume review");
   await expect(resumeCard).toContainText("Local PDF");
-  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/papers/paper-review-001/pdf");
+  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/api/papers/paper-review-001/pdf");
 });
 
 test("backend home resume card keeps saved-note blocker handoff clear", async ({ page }) => {
@@ -1124,7 +1171,7 @@ test("backend home resume card keeps saved-note blocker handoff clear", async ({
   await expect(resumeCard).toContainText("Continue from the latest saved note or review thread.");
   await expect(resumeCard.getByTestId("home-resume-cta")).toContainText("Fix blocker");
   await expect(resumeCard).toContainText("Local PDF");
-  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/papers/paper-blocked-001/pdf");
+  await expect(resumeCard.getByRole("link", { name: "Open saved PDF" })).toHaveAttribute("href", "/api/papers/paper-blocked-001/pdf");
 });
 
 test("backend home resume card keeps institution access links in user language", async ({ page }) => {
@@ -2041,11 +2088,28 @@ test("backend paper notes index can import a local PDF from the browser", async 
   await expect(queuedStatus).toContainText(/Job [0-9a-f-]{36}/);
   await expect(importGuidance.getByTestId("paper-note-import-guidance-open-pdf")).toHaveAttribute(
     "href",
-    /\/papers\/userpdf-[a-f0-9]+\/pdf$/,
+    /\/api\/papers\/userpdf-[a-f0-9]+\/pdf$/,
   );
   await expect(page.getByText("Imported from a local PDF on this machine.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open PDF" })).toHaveAttribute("href", /\/papers\/userpdf-[a-f0-9]+\/pdf$/);
+  await expect(page.getByRole("link", { name: "Open PDF" })).toHaveAttribute("href", /\/api\/papers\/userpdf-[a-f0-9]+\/pdf$/);
   await expect(page.getByText("Mock mode")).toHaveCount(0);
+});
+
+test("backend cloud PDF upload opens a cloud paper page with extracted title abstract and body text", async ({ page }) => {
+  const pdfPath = await ensureRealCloudUploadPdfFixture();
+  await page.goto("/papers");
+
+  await expect(page.getByRole("heading", { name: "Paper Notes", exact: true })).toBeVisible();
+  await expect(page.getByTestId("cloud-paper-upload-button")).toBeVisible();
+  await page.getByTestId("cloud-paper-upload-input").setInputFiles(pdfPath);
+
+  await expect(page).toHaveURL(/\/papers\/paper_mock_[^/?]+\?source=cloud$/, { timeout: 15_000 });
+  await expect(page.getByTestId("cloud-paper-detail-viewer")).toBeVisible({ timeout: 15_000 });
+  const cloudPage = page.getByTestId("cloud-paper-page-blocks");
+  await expect(cloudPage).toContainText("Real Cloud Upload Title", { timeout: 15_000 });
+  await expect(cloudPage).toContainText("This abstract proves the cloud page processor used actual PDF text extraction.");
+  await expect(cloudPage).toContainText("hippocampal signal");
+  await expect(cloudPage).not.toContainText("Mock processed page text");
 });
 
 test("backend protocol knowledge inspector loads a saved protocol card and keeps note handoff on the real route", async ({
@@ -4227,6 +4291,21 @@ test("paper notes import anchor focuses the manual import fallback on the live r
   await expect(page.getByTestId("paper-notes-import-button")).toBeFocused();
 });
 
+test("backend settings API key field supports clipboard paste on the live route", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/settings");
+
+  await expect(page.getByRole("heading", { name: "LLM provider" })).toBeVisible();
+  await expect(page.getByText("Mock mode")).toHaveCount(0);
+  await page.getByLabel("Provider").selectOption("gemini");
+  await expect(page.getByRole("textbox", { name: "Model", exact: true })).toHaveValue("gemini-2.5-flash");
+  await page.evaluate(() => navigator.clipboard.writeText("sk-lattice-backend-paste-key"));
+  await page.getByRole("button", { name: "Paste key" }).click();
+
+  await expect(page.getByLabel("API key")).toHaveValue("sk-lattice-backend-paste-key");
+  await expect(page.getByText("API key pasted. Save settings when ready.")).toBeVisible();
+});
+
 test("backend sync to obsidian uses the same inline feedback pattern as other workbench actions", async ({ page }) => {
   await gotoUntilLive(page, "/workbench/paper-e2e-001", async () => {
     await expect(page.getByText(REVIEW_WORKBENCH_SUBTITLE)).toBeVisible({ timeout: 15_000 });
@@ -5206,7 +5285,7 @@ test("mobile workbench renders collapsed controls without mock fallback", async 
     await expect(stickyActions).toBeVisible();
     await expect(stickyActions.getByTestId("paper-note-mobile-sticky-open-pdf")).toHaveAttribute(
       "href",
-      /\/papers\/userpdf-[a-f0-9]+\/pdf$/,
+      /\/api\/papers\/userpdf-[a-f0-9]+\/pdf$/,
     );
     await expect(stickyActions.getByTestId("paper-note-mobile-sticky-open-review")).toHaveAttribute(
       "href",

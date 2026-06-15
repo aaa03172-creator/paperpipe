@@ -1,7 +1,7 @@
 
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 from src.exporter import export_paper_to_markdown
@@ -44,11 +44,11 @@ def test_overwrite_db_newer(tmp_path):
     
     # 1. Create file with OLD content & OLD timestamp (2 hours ago)
     target_file.write_text("Old Content", encoding="utf-8")
-    old_time = (datetime.now() - timedelta(hours=2)).timestamp()
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).timestamp()
     os.utime(target_file, (old_time, old_time))
     
     # 2. Prepare paper with CURRENT timestamp (Newer)
-    paper = _sample_paper(updated_at=datetime.now().isoformat())
+    paper = _sample_paper(updated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat())
     
     # 3. Run export (overwrite=False)
     updated = export_paper_to_markdown(paper, vault_path, overwrite=False)
@@ -58,6 +58,38 @@ def test_overwrite_db_newer(tmp_path):
     content = target_file.read_text(encoding="utf-8")
     assert "Overwrite Test Paper" in content
     assert "Old Content" not in content
+
+
+def test_overwrite_naive_db_timestamp_is_treated_as_utc(tmp_path):
+    """Naive DB timestamps are stored by SQLite in UTC-like form and should not use local TZ."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset is required to verify local timezone independence")
+
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Seoul"
+    time.tzset()
+    try:
+        vault_path = tmp_path
+        inbox = vault_path / "Inbox" / "PaperPipe"
+        inbox.mkdir(parents=True, exist_ok=True)
+        target_file = inbox / "Overwrite Test Paper.md"
+        target_file.write_text("Old Content", encoding="utf-8")
+
+        file_time = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc).timestamp()
+        os.utime(target_file, (file_time, file_time))
+
+        paper = _sample_paper(updated_at="2026-01-01 00:30:00")
+
+        updated = export_paper_to_markdown(paper, vault_path, overwrite=False)
+
+        assert updated is True
+        assert "Old Content" not in target_file.read_text(encoding="utf-8")
+    finally:
+        if old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old_tz
+        time.tzset()
 
 def test_no_overwrite_db_older(tmp_path):
     """Test NO overwrite when DB is older than file (User edits preserved)."""
@@ -72,7 +104,7 @@ def test_no_overwrite_db_older(tmp_path):
     # We can rely on write() setting it to NOW.
     
     # 2. Prepare paper with OLD timestamp (1 hour ago)
-    old_db_time = (datetime.now() - timedelta(hours=1)).isoformat()
+    old_db_time = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
     paper = _sample_paper(updated_at=old_db_time)
     
     # 3. Run export (overwrite=False)

@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .cloud_paper import CloudPaperPayloadClass
 from .chat import ChatEvidenceRef
 
 
@@ -19,6 +20,7 @@ MethodComparisonValueKind = Literal["text", "numeric", "duration", "categorical"
 MethodComparisonCellStatus = Literal["explicit", "inferred", "missing", "conflict"]
 MethodComparisonReadiness = Literal["evidence_backed", "background_only", "mixed"]
 MethodComparisonFreshness = Literal["current", "stale", "unknown"]
+MethodComparisonCloudDerivedKind = Literal["ocr_text", "table"]
 
 
 class MethodComparisonFieldSpec(BaseModel):
@@ -94,6 +96,64 @@ class MethodComparisonRequest(BaseModel):
     def normalize_lists(self):
         self.paper_ids = _dedupe_non_empty_strings(self.paper_ids, field_name="paper_ids")
         self.field_ids = _dedupe_field_ids(self.field_ids)
+        return self
+
+
+class MethodComparisonCloudDerivedContextItem(BaseModel):
+    context_id: str = Field(..., min_length=1)
+    candidate_id: str = Field(..., min_length=1)
+    kind: MethodComparisonCloudDerivedKind
+    paper_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    text: str | None = None
+    source_page: int = Field(..., ge=1)
+    source_block_id: str | None = None
+    source_pdf_sha256: str = Field(..., min_length=64, max_length=64)
+    payload_class: CloudPaperPayloadClass = "local_only"
+    readiness: Literal["background_only"] = "background_only"
+    canonical_status: Literal["derived_noncanonical"] = "derived_noncanonical"
+    comparison_cell_status: Literal["missing"] = "missing"
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    evidence_refs: list[ChatEvidenceRef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_context_item(self):
+        self.context_id = self.context_id.strip()
+        self.candidate_id = self.candidate_id.strip()
+        self.paper_id = self.paper_id.strip()
+        self.run_id = self.run_id.strip()
+        self.title = self.title.strip()
+        self.text = self.text.strip() or None if self.text is not None else None
+        self.source_block_id = self.source_block_id.strip() or None if self.source_block_id is not None else None
+        self.source_pdf_sha256 = self.source_pdf_sha256.strip().lower()
+        if self.evidence_refs:
+            raise ValueError("cloud-derived Method Comparison context must not carry evidence refs")
+        return self
+
+
+class MethodComparisonCloudDerivedContext(BaseModel):
+    schema_version: Literal["method_comparison_cloud_derived_context.v1"] = "method_comparison_cloud_derived_context.v1"
+    paper_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    source_pdf_sha256: str = Field(..., min_length=64, max_length=64)
+    readiness: Literal["background_only"] = "background_only"
+    payload_class: CloudPaperPayloadClass = "local_only"
+    items: list[MethodComparisonCloudDerivedContextItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_context(self):
+        self.paper_id = self.paper_id.strip()
+        self.run_id = self.run_id.strip()
+        self.source_pdf_sha256 = self.source_pdf_sha256.strip().lower()
+        for item in self.items:
+            if item.paper_id != self.paper_id:
+                raise ValueError("item.paper_id must match context paper_id")
+            if item.run_id != self.run_id:
+                raise ValueError("item.run_id must match context run_id")
+            if item.source_pdf_sha256 != self.source_pdf_sha256:
+                raise ValueError("item source checksum must match context source_pdf_sha256")
         return self
 
 

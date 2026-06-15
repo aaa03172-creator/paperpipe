@@ -128,10 +128,10 @@ def test_bibliometric_scorer_ranks_by_deterministic_metadata():
         "No DOI Paper",
     ]
     assert p_high.citation_count == 5000
-    assert p_high.manual_rank_score == 0.6
+    assert p_high.manual_rank_score == 0.5
     assert p_new.citation_count == 5
-    assert p_new.manual_rank_score == 0.409
+    assert p_new.manual_rank_score == 0.309
     assert p_low.citation_count == 10
-    assert p_low.manual_rank_score == 0.187
+    assert p_low.manual_rank_score == 0.087
     assert p_without_doi.citation_count is None
     assert p_without_doi.manual_rank_score is None

@@ -1,4 +1,5 @@
 import json
+from src.config import SystemConfig
 from src.institutional_access import (
     generate_institutional_proxy_url,
     upsert_institutional_proxy_link,
@@ -20,6 +21,24 @@ def test_generate_institutional_proxy_url_from_publisher():
 def test_generate_institutional_proxy_url_fallback():
     url = generate_institutional_proxy_url(doi=None, publisher_url=None)
     assert url is None
+
+def test_generate_institutional_proxy_url_requires_configured_proxy_prefix():
+    url = generate_institutional_proxy_url(
+        doi="10.1038/s41586-020-2165-8",
+        proxy_prefix="",
+    )
+    assert url is None
+
+def test_generate_institutional_proxy_url_accepts_explicit_config_prefix():
+    url = generate_institutional_proxy_url(
+        doi="10.1038/s41586-020-2165-8",
+        proxy_prefix="https://proxy.local/_Lib_Proxy_Url/",
+    )
+    assert url == "https://proxy.local/_Lib_Proxy_Url/https://doi.org/10.1038/s41586-020-2165-8"
+
+def test_system_config_exposes_institutional_proxy_url():
+    config = SystemConfig(institutional_proxy_url="https://proxy.local/_Lib_Proxy_Url/")
+    assert config.institutional_proxy_url == "https://proxy.local/_Lib_Proxy_Url/"
 
 def test_generate_institutional_proxy_url_does_not_use_paper_id_as_doi():
     url = generate_institutional_proxy_url(

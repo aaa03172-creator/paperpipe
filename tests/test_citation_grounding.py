@@ -89,6 +89,48 @@ def test_resolve_claimset_grounding_supports_normalized_match_without_chunk_id()
     assert span.page == 0
 
 
+def test_resolve_claimset_grounding_derives_page_from_page_section_when_page_hint_missing():
+    claimset = ClaimSet(
+        doc_id="paper-1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="mechanism",
+                statement="Single-cell profiling identified a disease-associated state.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote="single-cell profiling identified a disease-associated state",
+                        raw_text="single-cell profiling identified a disease-associated state",
+                        rationale="quoted directly",
+                    )
+                ],
+            )
+        ],
+    )
+    index_artifact = IndexArtifact(
+        doc_id="paper-1",
+        vector_store_id="test",
+        chunk_count=1,
+        chunks=[
+            DocumentChunk(
+                chunk_id="chunk-page-2",
+                text="In this cohort, single-cell profiling identified a disease-associated state.",
+                section_name="page_2",
+                page_hint=None,
+            )
+        ],
+    )
+
+    resolved = resolve_claimset_grounding(claimset, index_artifact)
+    span = resolved.claims[0].evidence_spans[0]
+    assert span.grounded is True
+    assert span.resolution == "OK"
+    assert span.chunk_id == "chunk-page-2"
+    assert span.page == 1
+    assert span.section == "page_2"
+
+
 def test_resolve_claimset_grounding_supports_ligature_normalization() -> None:
     claimset = ClaimSet(
         doc_id="paper-1",
@@ -657,6 +699,153 @@ def test_resolve_claimset_grounding_matches_quote_with_inline_reference_markers_
     assert span.page == 1
     assert span.highlight_source == "bbox"
     assert span.bbox_pdf == [20.0, 30.0, 180.0, 70.0]
+
+
+def test_resolve_claimset_grounding_supports_long_token_overlap_match_for_ocr_chunks():
+    quote = (
+        "Participants with plasma and CSF biomarkers, creatinine, body mass index (BMI), "
+        "and medical history data were included (BioFINDER-1: n = 748, BioFINDER-2: n = 421)."
+    )
+    claimset = ClaimSet(
+        doc_id="paper-1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="methods",
+                statement="The cohorts included plasma and CSF biomarker data.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote=quote,
+                        raw_text=quote,
+                        rationale="quoted directly",
+                    )
+                ],
+            )
+        ],
+    )
+    index_artifact = IndexArtifact(
+        doc_id="paper-1",
+        vector_store_id="test",
+        chunk_count=1,
+        chunks=[
+            DocumentChunk(
+                chunk_id="p02_c01",
+                text=(
+                    "University affiliation text interrupting the abstract. "
+                    "Methods: Participants with plasma and CSF biomarkers, creatinine, body mass index "
+                    "and medical history data were included in BioFINDER-1 n = 748 and BioFINDER-2 n = 421."
+                ),
+                section_name="page_2",
+                page_hint=2,
+            )
+        ],
+    )
+
+    resolved = resolve_claimset_grounding(claimset, index_artifact)
+
+    span = resolved.claims[0].evidence_spans[0]
+    assert span.grounded is True
+    assert span.resolution == "TOKEN_OVERLAP_MATCH"
+    assert span.chunk_id == "p02_c01"
+    assert span.page == 1
+
+
+def test_resolve_claimset_grounding_supports_high_overlap_interleaved_column_text():
+    quote = (
+        "However, when adding these two factors in models assessing biomarker performance "
+        "for different clinical outcomes (relation to cerebrospinal fluid [CSF] markers "
+        "and conversion to dementia), their impact was modest."
+    )
+    claimset = ClaimSet(
+        doc_id="paper-1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="results",
+                statement="Creatinine and BMI had modest impact on biomarker performance.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote=quote,
+                        raw_text=quote,
+                        rationale="quoted directly",
+                    )
+                ],
+            )
+        ],
+    )
+    index_artifact = IndexArtifact(
+        doc_id="paper-1",
+        vector_store_id="test",
+        chunk_count=1,
+        chunks=[
+            DocumentChunk(
+                chunk_id="p02_c02",
+                text=(
+                    "However, when adding these two factors in models assessing "
+                    "being devoted to making them more widely available, with potential "
+                    "biomarker performance for different clinical outcomes use to screen "
+                    "participants for clinical trials and inform practice (relation to "
+                    "cerebrospinal fluid [CSF] markers and determining if confounding factors "
+                    "conversion to dementia), their impact was modest."
+                ),
+                section_name="page_2",
+                page_hint=2,
+            )
+        ],
+    )
+
+    resolved = resolve_claimset_grounding(claimset, index_artifact)
+
+    span = resolved.claims[0].evidence_spans[0]
+    assert span.grounded is True
+    assert span.resolution == "TOKEN_OVERLAP_MATCH"
+    assert span.chunk_id == "p02_c02"
+
+
+def test_resolve_claimset_grounding_does_not_token_overlap_match_short_or_low_overlap_text():
+    quote = (
+        "Participants with plasma and CSF biomarkers, creatinine, body mass index (BMI), "
+        "and medical history data were included."
+    )
+    claimset = ClaimSet(
+        doc_id="paper-1",
+        claims=[
+            ScientificClaim(
+                claim_id="c1",
+                type="methods",
+                statement="The cohorts included plasma and CSF biomarker data.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        quote=quote,
+                        raw_text=quote,
+                        rationale="quoted directly",
+                    )
+                ],
+            )
+        ],
+    )
+    index_artifact = IndexArtifact(
+        doc_id="paper-1",
+        vector_store_id="test",
+        chunk_count=1,
+        chunks=[
+            DocumentChunk(
+                chunk_id="p02_c01",
+                text="Participants had unrelated demographic variables, medication records, and outcomes.",
+                section_name="page_2",
+                page_hint=2,
+            )
+        ],
+    )
+
+    resolved = resolve_claimset_grounding(claimset, index_artifact)
+
+    span = resolved.claims[0].evidence_spans[0]
+    assert span.grounded is False
+    assert span.resolution == "FAILED_MATCH"
 
 
 def test_resolve_claimset_grounding_uses_claim_statement_for_bbox_only_fallback():

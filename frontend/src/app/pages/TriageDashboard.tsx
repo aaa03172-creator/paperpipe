@@ -606,6 +606,12 @@ export function TriageDashboard() {
                 <option value="system">System</option>
               </select>
             </label>
+            <Link
+              to="/settings"
+              className="inline-flex items-center rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-raised)] px-2.5 py-1.5 text-xs text-[var(--pp-text-secondary)]"
+            >
+              Settings
+            </Link>
           </div>
         </div>
         {mockMode && mockReasons.length > 0 ? (
@@ -657,12 +663,14 @@ export function TriageDashboard() {
                           : "success"
                     }
                     className="px-2"
+                    testId="home-resume-state-badge"
                   />
                   {homeResumeCard.accessSummary ? (
                     <StatusBadge
                       label={homeResumeCard.accessSummary.label}
                       tone={homeResumeCard.accessSummary.tone}
                       className="px-2"
+                      testId="home-resume-access-badge"
                     />
                   ) : null}
                 </div>

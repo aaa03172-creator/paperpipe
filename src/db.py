@@ -282,74 +282,15 @@ def mark_as_retracted(identifier: str):
 
 def save_paper_state(identifier: str, title: str, source: str, processed_date: str):
     """처리완료된 논문을 DB에 기록"""
-    conn = _connect()
-    c = conn.cursor()
+    _warn_deprecated_once()
+    import src.db_utils as db_utils_module
+
+    original_utils_path = db_utils_module.DB_PATH
     try:
-        columns = _paper_columns(c)
-        if not columns:
-            return
-
-        insert_cols: list[str] = []
-        insert_vals: list[object] = []
-        update_set: list[str] = []
-
-        if "paper_id" in columns:
-            insert_cols.append("paper_id")
-            insert_vals.append(identifier)
-            update_set.append("paper_id=excluded.paper_id")
-        if "doi" in columns:
-            insert_cols.append("doi")
-            insert_vals.append(identifier)
-            update_set.append("doi=excluded.doi")
-        if "title" in columns:
-            insert_cols.append("title")
-            insert_vals.append(title)
-            update_set.append("title=excluded.title")
-        if "source" in columns:
-            insert_cols.append("source")
-            insert_vals.append(source)
-            update_set.append("source=excluded.source")
-        if "processed_date" in columns:
-            insert_cols.append("processed_date")
-            insert_vals.append(processed_date)
-            update_set.append("processed_date=excluded.processed_date")
-        if "processed_at" in columns:
-            insert_cols.append("processed_at")
-            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            update_set.append("processed_at=excluded.processed_at")
-        if "updated_at" in columns:
-            insert_cols.append("updated_at")
-            insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            update_set.append("updated_at=excluded.updated_at")
-        if "is_retracted" in columns:
-            insert_cols.append("is_retracted")
-            insert_vals.append(0)
-            update_set.append("is_retracted=COALESCE(papers.is_retracted, 0)")
-
-        if not insert_cols:
-            return
-
-        placeholders = ",".join("?" for _ in insert_cols)
-        conflict_target = None
-        if "paper_id" in columns:
-            conflict_target = "paper_id"
-        elif "doi" in columns:
-            conflict_target = "doi"
-
-        if conflict_target:
-            sql = (
-                f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders}) "
-                f"ON CONFLICT({conflict_target}) DO UPDATE SET {', '.join(update_set)}"
-            )
-            c.execute(sql, tuple(insert_vals))
-        else:
-            sql = f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})"
-            c.execute(sql, tuple(insert_vals))
-        conn.commit()
-    except Exception as e:
-        print(f"DB Error: {e}")
+        db_utils_module.DB_PATH = _resolved_db_path()
+        db_utils_module.save_paper_state(identifier, title, source, processed_date)
     finally:
-        conn.close()
+        db_utils_module.DB_PATH = original_utils_path
 
 def init_run_stats_table():
     """Initialize the run_stats table for performance auditing."""

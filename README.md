@@ -239,14 +239,18 @@ npm run e2e:backend:real-smoke
 
 Current workflow entry points:
 - `.github/workflows/agents-smoke.yml`
+- `.github/workflows/backend-api-smoke.yml`
 - `.github/workflows/first-paper-smoke.yml`
 - `.github/workflows/frontend-e2e.yml`
 - `.github/workflows/frontend-real-smoke.yml`
+- `.github/workflows/meeting-pack-verify.yml`
+- `.github/workflows/pr-scope-guard.yml`
 - `.github/workflows/soft-gate-master.yml`
 
 Branch note:
 - repository default branch is `main`
-- current PR checks still target `master`
+- current PR checks accept both `main` and `master`
+- the soft-gate push recovery workflow still targets `master`
 - keep that split explicit until the integration branch strategy is unified
 
 If repository plan limits prevent branch protection/rulesets on a private repo, required checks can still be enabled later:

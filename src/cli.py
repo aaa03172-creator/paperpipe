@@ -23,8 +23,14 @@ from src.db_utils import (
 from src.logger import setup_logging
 from src.services.event_log import ensure_execution_run, update_execution_run
 from src.services.identity import new_run_id
-from src.services.runtime_paths import logs_root, meeting_packs_root as default_meeting_packs_root
-from src.services.runtime_paths import config_file_path, paperpipe_home
+from src.services.runtime_paths import (
+    app_source_root,
+    config_file_path,
+    install_layout_enabled,
+    logs_root,
+    meeting_packs_root as default_meeting_packs_root,
+    paperpipe_home,
+)
 from src.services.runtime_readiness import (
     LATEST_INTAKE_OVERRIDE_AUDIT_MIN_AUDITED_DOCS,
     LATEST_INTAKE_OVERRIDE_AUDIT_WARN_RATE,
@@ -793,9 +799,12 @@ def _argv_with_frozen_app_default_command(argv: list[str]) -> list[str]:
         return list(argv)
     if Path(argv[0]).stem != "Lattice":
         return list(argv)
-    if len(argv) == 1 or argv[1].startswith("-"):
-        return [argv[0], "start", *argv[1:]]
-    return list(argv)
+    normalized_argv = [argv[0], *(arg for arg in argv[1:] if not arg.startswith("-psn_"))]
+    if len(normalized_argv) == 1:
+        return [normalized_argv[0], "start", "--port", "8046"]
+    if normalized_argv[1].startswith("-"):
+        return [normalized_argv[0], "start", *normalized_argv[1:]]
+    return normalized_argv
 
 
 def _ensure_selected_artifact_history_target_exists(*, artifact_type: str, artifact_id: str) -> None:
@@ -915,7 +924,7 @@ def _print_first_paper_doctor_guidance(readiness_checks: dict[str, object]) -> N
 
 
 def _starter_config_payload() -> dict:
-    example_path = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    example_path = app_source_root() / "config.example.yaml"
     with example_path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
     paths = payload.setdefault("paths", {})
@@ -933,6 +942,15 @@ def _starter_config_payload() -> dict:
     )
     payload.setdefault("system", {})["log_level"] = "INFO"
     return payload
+
+
+def _ensure_install_app_starter_config() -> list[str]:
+    if not install_layout_enabled():
+        return []
+    target = config_file_path("config.yaml")
+    if target.exists():
+        return []
+    return _ensure_starter_config()
 
 
 def _ensure_starter_config() -> list[str]:
@@ -2589,6 +2607,72 @@ def self_test(json_output: bool = typer.Option(False, "--json", help="Emit machi
         raise typer.Exit(code=1)
 
 
+@app.command("audit-retractions")
+def audit_retractions(
+    apply: bool = typer.Option(False, "--apply", help="Persist detected retractions to the runtime DB."),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Maximum number of papers to audit."),
+    sleep_seconds: float = typer.Option(
+        0.5,
+        "--sleep-seconds",
+        min=0,
+        help="Delay between external retraction checks.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+):
+    from src.services import retraction_audit as retraction_audit_service
+
+    summary = retraction_audit_service.run_retraction_audit(
+        apply=apply,
+        limit=limit,
+        sleep_seconds=sleep_seconds,
+    )
+    payload = summary.as_dict()
+    if json_output:
+        _emit_json(payload)
+        return
+
+    mode = "apply" if apply else "dry-run"
+    console.print(f"[bold blue]Retraction audit[/bold blue] ({mode})")
+    console.print(f"Total papers: {summary.total_papers}")
+    console.print(f"Checked: {summary.checked_count}")
+    console.print(f"Retracted found: {summary.retracted_count}")
+    console.print(f"Marked retracted: {summary.marked_count}")
+    console.print(f"Skipped known retracted: {summary.skipped_known_retracted}")
+    console.print(f"Skipped missing identifier: {summary.skipped_missing_identifier}")
+    console.print(f"Errors: {summary.error_count}")
+    if summary.error_count:
+        raise typer.Exit(code=1)
+
+
+@app.command("talk-pack-list")
+def talk_pack_list(json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output.")):
+    from src.talk_packs import service as talk_pack_service
+
+    response = talk_pack_service.talk_pack_list_response()
+    payload = response.model_dump(mode="json")
+    if json_output:
+        _emit_json(payload)
+        return
+    for item in payload["items"]:
+        console.print(f"{item['talk_pack_id']}  {item['title']}")
+
+
+@app.command("talk-pack-show")
+def talk_pack_show(talk_pack_id: str):
+    from src.talk_packs import service as talk_pack_service
+
+    pack = talk_pack_service.get_talk_pack(talk_pack_id)
+    _emit_json(talk_pack_service.talk_pack_response_payload(pack).model_dump(mode="json"))
+
+
+@app.command("talk-pack-render-deck")
+def talk_pack_render_deck(talk_pack_id: str):
+    from src.talk_packs import service as talk_pack_service
+
+    response = talk_pack_service.render_talk_pack_deck_pptx(talk_pack_id)
+    _emit_json(response.model_dump(mode="json"))
+
+
 @app.command("quarantine-fixture-states")
 def quarantine_fixture_states(
     apply: bool = typer.Option(
@@ -2835,6 +2919,8 @@ def start(
     console.print("[bold green]🚀 Starting Lattice runtime...[/bold green]")
 
     try:
+        for message in _ensure_install_app_starter_config():
+            console.print(f"   - {message}")
         load_config()
         db_path = bootstrap_database()
         console.print("   - Preflight config: ✅")
@@ -2843,7 +2929,19 @@ def start(
         console.print(f"[bold red]❌ Preflight failed: {exc}[/bold red]")
         raise typer.Exit(code=1)
 
+    base_url = f"http://{host}:{port}"
+    entry_url = ui_url.strip() or f"{base_url}/ui"
+
     if not _is_port_available(host, port):
+        if _wait_for_health(base_url, 2):
+            console.print(f"   - Backend: ✅ already running at {base_url}")
+            console.print(f"   - Entry: {entry_url}")
+            if not no_open:
+                try:
+                    webbrowser.open(entry_url, new=2)
+                except Exception as exc:
+                    console.print(f"[yellow]⚠️ Failed to open browser automatically: {exc}[/yellow]")
+            raise typer.Exit(code=0)
         console.print(f"[bold red]❌ Port already in use: {host}:{port}[/bold red]")
         console.print("   Try another port: --port 8001")
         raise typer.Exit(code=1)
@@ -2864,7 +2962,6 @@ def start(
         console.print(f"[bold red]❌ Failed to start backend: {exc}[/bold red]")
         raise typer.Exit(code=1)
 
-    base_url = f"http://{host}:{port}"
     if not _wait_for_health(base_url, health_timeout):
         _terminate_process(proc)
         console.print(
@@ -2872,7 +2969,6 @@ def start(
         )
         raise typer.Exit(code=1)
 
-    entry_url = ui_url.strip() or f"{base_url}/ui"
     console.print(f"   - Backend: ✅ {base_url}")
     console.print(f"   - Entry: {entry_url}")
 

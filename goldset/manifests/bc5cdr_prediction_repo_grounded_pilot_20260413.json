@@ -1,5 +1,7 @@
 {
   "schema_version": "extraction_regression_manifest.v1",
+  "eval_id": "bc5cdr_prediction_repo_grounded_pilot_20260413",
+  "subset": "pilot",
   "created_at": "2026-04-13T00:00:00+09:00",
   "notes": [
     "Repo-resident bounded BC5CDR prediction replay manifest for the evidence_extraction_bundle lane.",
@@ -8,6 +10,7 @@
   "documents": [
     {
       "paper_id": "repo-bc5cdr-aspirin-gastritis",
+      "case_id": "repo-bc5cdr-aspirin-gastritis",
       "gold_path": "../bc5cdr_prediction/repo_grounded_pilot_20260413/gold/repo_aspirin_gastritis.json",
       "gold_source_paths": [
         "../bc5cdr_prediction/repo_grounded_pilot_20260413/source/repo_aspirin_gastritis_document_artifact.json"
@@ -15,6 +18,7 @@
     },
     {
       "paper_id": "repo-bc5cdr-ibuprofen-rash",
+      "case_id": "repo-bc5cdr-ibuprofen-rash",
       "gold_path": "../bc5cdr_prediction/repo_grounded_pilot_20260413/gold/repo_ibuprofen_rash.json",
       "gold_source_paths": [
         "../bc5cdr_prediction/repo_grounded_pilot_20260413/source/repo_ibuprofen_rash_document_artifact.json"

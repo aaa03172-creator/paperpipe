@@ -53,9 +53,9 @@ class BibliometricScorer:
             impact_raw = math.log10(velocity + 1)
             impact_score = min(1.0, impact_raw / 2.0) # Normalize to ~0-1 range (assuming 100 cites/yr is huge)
             
-            # 4. Venue Score (Placeholder)
-            # Todo: Map ISSN to SJR list if available
-            venue_score = 0.5 
+            # 4. Venue Score (not implemented yet).
+            # Keep this at 0.0 until ISSN/SJR or another explicit venue-quality source is wired in.
+            venue_score = 0.0
             
             # 5. Weighted Sum
             # w_n * N + w_i * I + w_v * V

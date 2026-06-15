@@ -5,6 +5,23 @@ import {
   ChartPackListResponse,
   ChartPackRequestSnapshot,
   ChartPackResponse,
+  CloudPaperBundlePublic,
+  CloudPaperAuthPreflightResponse,
+  CloudPaperDerivedArtifactsResponse,
+  CloudPaperDownstreamArtifactRegistryResponse,
+  CloudPaperDownstreamArtifactRegistrationResponse,
+  CloudPaperDownstreamHandoffSummary,
+  CloudPaperDownstreamLane,
+  CloudPaperDownstreamPromotionPlanResponse,
+  CloudPaperDownstreamPromotionReadinessResponse,
+  CloudPaperDownstreamReviewStatus,
+  CloudPaperHydrationState,
+  CloudPaperListResponse,
+  CloudPaperObsidianExportResponse,
+  CloudPaperPageArtifactPublic,
+  CloudPaperSearchResponse,
+  CloudPaperSourceUploadResponse,
+  CloudPaperUploadIntentResponse,
   ImageEvidenceListResponse,
   ImageEvidenceResponse,
   JobEnqueueResponse,
@@ -39,7 +56,10 @@ import {
   ProtocolCardRequestSnapshot,
   ProtocolCardResponse,
   ReasoningPersonaId,
+  RuntimeLLMConnectionTestResponse,
   RuntimeReadinessResponse,
+  RuntimeLLMSettingsResponse,
+  RuntimeLLMSettingsUpdateRequest,
   SkillRunResponse,
   TimelineResponse,
   StatsRepairResponse,
@@ -50,6 +70,18 @@ import {
   createMockProtocolCard,
   getMockChartPack,
   getMockChartPackIndex,
+  getMockCloudPaper,
+  getMockCloudPaperDerivedArtifacts,
+  getMockCloudPaperDownstreamArtifactRegistry,
+  getMockCloudPaperDownstreamPromotionPlan,
+  getMockCloudPaperDownstreamPromotionReadiness,
+  getMockCloudPaperDownstreamHandoff,
+  getMockCloudPaperPage,
+  getMockCloudPapers,
+  prepareMockCloudPaperObsidianExport,
+  registerMockCloudPaperDownstreamArtifacts,
+  reviewMockCloudPaperDownstreamArtifact,
+  searchMockCloudPapers,
   getMockImageEvidence,
   getMockImageEvidenceIndex,
   getMockArtifactsLatest,
@@ -76,6 +108,7 @@ import {
   getMockProtocolCard,
   getMockProtocolCardIndex,
   getMockTimeline,
+  hydrateMockCloudPaper,
   MockPaperNoteQuery,
   updateMockPaperNoteOperatorState,
   SAMPLE_PDF,
@@ -85,6 +118,20 @@ import { expandPaperIdCandidates } from "./paperNoteOps";
 const FORCE_MOCK_REASON = "mock mode forced by VITE_FORCE_MOCK";
 const LIVE_PAPERS_CACHE_TTL_MS = 15_000;
 const PAPER_NOTE_STRUCTURED_LOOKUP_CACHE_TTL_MS = 5_000;
+
+function normalizeLocalPaperPdfUrl(value?: string | null): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  if (text.startsWith("/api/papers/")) {
+    return text;
+  }
+  if (text.startsWith("/papers/")) {
+    return `/api${text}`;
+  }
+  return text;
+}
 
 interface DeepReadRequest {
   paper_id: string;
@@ -402,6 +449,26 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs?: number
   }
 }
 
+async function fetchText(path: string, init?: RequestInit, timeoutMs?: number): Promise<string> {
+  const timeout = withTimeout(init?.signal, timeoutMs);
+  try {
+    const response = await fetch(apiPath(path), {
+      ...init,
+      signal: timeout.signal,
+      headers: requestHeaders(init),
+    });
+
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => "");
+      throw new ApiHttpError(path, response.status, response.statusText, responseBody, readResponseHeaders(response));
+    }
+
+    return await response.text();
+  } finally {
+    timeout.cancel();
+  }
+}
+
 async function postForm<T>(path: string, formData: FormData, init?: RequestInit): Promise<T> {
   const timeout = withTimeout(init?.signal);
   try {
@@ -460,6 +527,13 @@ async function looksLikePdfBlob(blob: Blob): Promise<boolean> {
   }
   const header = String.fromCharCode(...headerBytes);
   return header.startsWith("%PDF-");
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function firstSuccess<T>(paths: string[], init?: RequestInit): Promise<T> {
@@ -535,7 +609,9 @@ function synthesizePaperDetailFromStructuredLookup(
     requestedPaperId;
   const pdfUrl = String(lookup.pdf_url ?? "").trim();
   const doiUrl = String(lookup.doi_url ?? "").trim();
-  const localPdfUrl = pdfUrl.startsWith("/papers/") ? pdfUrl : null;
+  const localPdfUrl = pdfUrl.startsWith("/papers/") || pdfUrl.startsWith("/api/papers/")
+    ? normalizeLocalPaperPdfUrl(pdfUrl)
+    : null;
   const openPdfUrl = /^https?:\/\//i.test(pdfUrl) ? pdfUrl : null;
   const completed = note.structured_state_present || String(note.status ?? "").trim().toUpperCase() === "INDEXED";
 
@@ -592,12 +668,12 @@ function getFrontmatterString(frontmatter: Record<string, unknown>, key: string)
 
 function getNoteDetailLocalPdfUrl(noteDetail: PaperNoteDetailResponse): string | null {
   const frontmatterPdfUrl = getFrontmatterString(noteDetail.frontmatter, "pdf_url");
-  if (frontmatterPdfUrl?.startsWith("/papers/")) {
-    return frontmatterPdfUrl;
+  if (frontmatterPdfUrl?.startsWith("/papers/") || frontmatterPdfUrl?.startsWith("/api/papers/")) {
+    return normalizeLocalPaperPdfUrl(frontmatterPdfUrl);
   }
   const pdfReference = noteDetail.references.find((reference) => reference.source === "pdf");
-  if (pdfReference?.url?.startsWith("/papers/")) {
-    return pdfReference.url;
+  if (pdfReference?.url?.startsWith("/papers/") || pdfReference?.url?.startsWith("/api/papers/")) {
+    return normalizeLocalPaperPdfUrl(pdfReference.url);
   }
   return null;
 }
@@ -625,6 +701,20 @@ function getNoteDetailDoiUrl(noteDetail: PaperNoteDetailResponse): string | null
   }
   const normalized = doi.replace(/^doi:/i, "").trim();
   return normalized ? `https://doi.org/${normalized}` : null;
+}
+
+function normalizePaperNoteDetailResponse(detail: PaperNoteDetailResponse): PaperNoteDetailResponse {
+  return {
+    ...detail,
+    references: detail.references.map((reference) =>
+      reference.source === "pdf"
+        ? {
+            ...reference,
+            url: normalizeLocalPaperPdfUrl(reference.url) ?? reference.url,
+          }
+        : reference,
+    ),
+  };
 }
 
 async function withMockFallback<T>(
@@ -681,7 +771,7 @@ function normalizePaper(raw: Record<string, unknown>): PaperSummary {
       : null;
   const localPdfUrl =
     rawAccessSummary && rawAccessSummary.local_pdf_url
-      ? String(rawAccessSummary.local_pdf_url)
+      ? normalizeLocalPaperPdfUrl(String(rawAccessSummary.local_pdf_url))
       : null;
 
   return {
@@ -796,6 +886,34 @@ export async function getRuntimeReadiness(): Promise<ApiResult<RuntimeReadinessR
       reason: "runtime readiness endpoint unavailable",
     };
   }
+}
+
+export async function getRuntimeLLMSettings(): Promise<ApiResult<RuntimeLLMSettingsResponse>> {
+  return {
+    data: await fetchJson<RuntimeLLMSettingsResponse>("/runtime-settings/llm"),
+    isMock: false,
+  };
+}
+
+export async function updateRuntimeLLMSettings(
+  payload: RuntimeLLMSettingsUpdateRequest,
+): Promise<ApiResult<RuntimeLLMSettingsResponse>> {
+  return {
+    data: await fetchJson<RuntimeLLMSettingsResponse>("/runtime-settings/llm", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+    isMock: false,
+  };
+}
+
+export async function testRuntimeLLMConnection(): Promise<ApiResult<RuntimeLLMConnectionTestResponse>> {
+  return {
+    data: await fetchJson<RuntimeLLMConnectionTestResponse>("/runtime-settings/llm/test", {
+      method: "POST",
+    }),
+    isMock: false,
+  };
 }
 
 export async function getPapers(options?: { preferCache?: boolean }): Promise<ApiResult<PaperSummary[]>> {
@@ -982,6 +1100,329 @@ export async function getPaperNotesHomeContext(): Promise<ApiResult<PaperNotesHo
   );
 }
 
+export async function getCloudPapers(): Promise<ApiResult<CloudPaperListResponse>> {
+  return withMockFallback(
+    () => firstSuccess<CloudPaperListResponse>(["/cloud/papers"]),
+    () => getMockCloudPapers(),
+    "cloud papers unavailable, mock cloud index loaded",
+  );
+}
+
+export async function getCloudPaperAuthPreflight(): Promise<ApiResult<CloudPaperAuthPreflightResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: {
+        schema_version: "cloud_paper_auth_preflight.v1",
+        status: "mock_mode",
+        adapter: "mock",
+        project_id: null,
+        firestore_collection: null,
+        credential_source: "not_required",
+        checks: [
+          {
+            check_id: "cloud_adapter",
+            label: "Cloud adapter",
+            status: "warning",
+            message: "Cloud papers are running in mock storage mode.",
+            remediation: "Use a live runtime to check teammate GCP authentication.",
+          },
+        ],
+        next_action_label: "Use a live runtime to check Google Cloud authentication.",
+        setup_commands: [],
+      },
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return {
+    data: await fetchJson<CloudPaperAuthPreflightResponse>("/cloud/papers/auth-preflight"),
+    isMock: false,
+  };
+}
+
+export async function getCloudPaper(paperId: string): Promise<ApiResult<CloudPaperBundlePublic>> {
+  return withMockFallback(
+    () => firstSuccess<CloudPaperBundlePublic>([`/cloud/papers/${encodeURIComponent(paperId)}`]),
+    () => getMockCloudPaper(paperId),
+    "cloud paper unavailable, mock cloud paper loaded",
+  );
+}
+
+export async function searchCloudPapers(query: string): Promise<ApiResult<CloudPaperSearchResponse>> {
+  const trimmedQuery = query.trim();
+  const params = trimmedQuery ? `?q=${encodeURIComponent(trimmedQuery)}` : "";
+  return withMockFallback(
+    () => firstSuccess<CloudPaperSearchResponse>([`/cloud/papers/search${params}`]),
+    () => searchMockCloudPapers(trimmedQuery),
+    "cloud paper search unavailable, mock cloud search loaded",
+  );
+}
+
+export async function hydrateCloudPaper(paperId: string): Promise<ApiResult<CloudPaperHydrationState>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: hydrateMockCloudPaper(paperId),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return {
+    data: await fetchJson<CloudPaperHydrationState>(`/cloud/papers/${encodeURIComponent(paperId)}/hydrate-local`, {
+      method: "POST",
+    }),
+    isMock: false,
+  };
+}
+
+export async function getCloudPaperPage(paperId: string): Promise<ApiResult<CloudPaperPageArtifactPublic>> {
+  return withMockFallback(
+    () => firstSuccess<CloudPaperPageArtifactPublic>([`/cloud/papers/${encodeURIComponent(paperId)}/page`]),
+    () => getMockCloudPaperPage(paperId),
+    "cloud paper page unavailable, mock page loaded",
+  );
+}
+
+export async function getCloudPaperDerivedArtifacts(paperId: string): Promise<ApiResult<CloudPaperDerivedArtifactsResponse>> {
+  return withMockFallback(
+    () => firstSuccess<CloudPaperDerivedArtifactsResponse>([`/cloud/papers/${encodeURIComponent(paperId)}/derived-artifacts`]),
+    () => getMockCloudPaperDerivedArtifacts(paperId),
+    "cloud paper derived artifacts unavailable, mock derived artifacts loaded",
+  );
+}
+
+export async function getCloudPaperDownstreamHandoff(paperId: string): Promise<ApiResult<CloudPaperDownstreamHandoffSummary>> {
+  const encodedPaperId = encodeURIComponent(paperId);
+  return withMockFallback(
+    async () => {
+      const downstreamAdapter = await firstSuccess<CloudPaperDownstreamHandoffSummary["downstream_adapter"]>([
+        `/cloud/papers/${encodedPaperId}/downstream-adapter`,
+      ]);
+      const selectedTableCandidate =
+        downstreamAdapter.candidates.find((candidate) => candidate.kind === "table" && candidate.allowed_lanes.includes("chart_pack")) ??
+        null;
+      const selectedFigureCandidate =
+        downstreamAdapter.candidates.find((candidate) => candidate.kind === "figure" && candidate.allowed_lanes.includes("image_evidence")) ??
+        downstreamAdapter.candidates.find(
+          (candidate) => candidate.kind === "figure_analysis" && candidate.allowed_lanes.includes("image_evidence"),
+        ) ??
+        null;
+      const [
+        meetingPackContext,
+        chartTableSnapshot,
+        imageEvidenceRequest,
+        methodComparisonContext,
+        obsidianSectionMarkdown,
+      ] = await Promise.all([
+        firstSuccess<CloudPaperDownstreamHandoffSummary["meeting_pack_context"]>([
+          `/cloud/papers/${encodedPaperId}/meeting-pack-context`,
+        ]),
+        selectedTableCandidate
+          ? firstSuccess<CloudPaperDownstreamHandoffSummary["chart_table_snapshot"]>([
+              `/cloud/papers/${encodedPaperId}/chart-pack/tables/${encodeURIComponent(selectedTableCandidate.candidate_id)}/snapshot`,
+            ])
+          : Promise.resolve(null),
+        selectedFigureCandidate
+          ? firstSuccess<CloudPaperDownstreamHandoffSummary["image_evidence_request"]>([
+              `/cloud/papers/${encodedPaperId}/image-evidence/figures/${encodeURIComponent(
+                selectedFigureCandidate.kind === "figure_analysis"
+                  ? selectedFigureCandidate.title.replace(/^Analysis for\s+/i, "")
+                  : selectedFigureCandidate.candidate_id,
+              )}/request`,
+            ])
+          : Promise.resolve(null),
+        firstSuccess<CloudPaperDownstreamHandoffSummary["method_comparison_context"]>([
+          `/cloud/papers/${encodedPaperId}/method-comparison-context`,
+        ]),
+        fetchText(`/cloud/papers/${encodedPaperId}/obsidian-section`),
+      ]);
+      return {
+        downstream_adapter: downstreamAdapter,
+        selected_table_candidate: selectedTableCandidate,
+        selected_figure_candidate: selectedFigureCandidate,
+        meeting_pack_context: meetingPackContext,
+        chart_table_snapshot: chartTableSnapshot,
+        image_evidence_request: imageEvidenceRequest,
+        method_comparison_context: methodComparisonContext,
+        obsidian_section_markdown: obsidianSectionMarkdown,
+      };
+    },
+    () => getMockCloudPaperDownstreamHandoff(paperId),
+    "cloud paper downstream handoff unavailable, mock handoff loaded",
+  );
+}
+
+export async function prepareCloudPaperObsidianExport(
+  paperId: string,
+  existingMarkdown = "",
+): Promise<ApiResult<CloudPaperObsidianExportResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: prepareMockCloudPaperObsidianExport(paperId, existingMarkdown),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperObsidianExportResponse>(`/cloud/papers/${encodeURIComponent(paperId)}/obsidian-section/export`, {
+        method: "POST",
+        body: JSON.stringify({ existing_markdown: existingMarkdown }),
+      }),
+    () => prepareMockCloudPaperObsidianExport(paperId, existingMarkdown),
+    "cloud paper Obsidian export unavailable, mock export prepared",
+  );
+}
+
+export async function registerCloudPaperDownstreamArtifacts(
+  paperId: string,
+  lanes: CloudPaperDownstreamLane[] = ["meeting_pack", "chart_pack", "image_evidence", "method_comparison", "obsidian_export"],
+): Promise<ApiResult<CloudPaperDownstreamArtifactRegistrationResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: registerMockCloudPaperDownstreamArtifacts(paperId, lanes),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperDownstreamArtifactRegistrationResponse>(
+        `/cloud/papers/${encodeURIComponent(paperId)}/downstream-artifacts/register`,
+        {
+          method: "POST",
+          body: JSON.stringify({ lanes }),
+        },
+      ),
+    () => registerMockCloudPaperDownstreamArtifacts(paperId, lanes),
+    "cloud paper downstream artifact registration unavailable, mock registration prepared",
+  );
+}
+
+export async function getCloudPaperDownstreamArtifactRegistry(
+  paperId: string,
+  fallbackRegistration?: CloudPaperDownstreamArtifactRegistrationResponse | null,
+): Promise<ApiResult<CloudPaperDownstreamArtifactRegistryResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockCloudPaperDownstreamArtifactRegistry(paperId, fallbackRegistration),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperDownstreamArtifactRegistryResponse>(
+        `/cloud/papers/${encodeURIComponent(paperId)}/downstream-artifacts/registry`,
+      ),
+    () => getMockCloudPaperDownstreamArtifactRegistry(paperId, fallbackRegistration),
+    "cloud paper downstream registry unavailable, mock registry loaded",
+  );
+}
+
+export async function getCloudPaperDownstreamPromotionReadiness(
+  paperId: string,
+  fallbackRegistry?: CloudPaperDownstreamArtifactRegistryResponse | null,
+): Promise<ApiResult<CloudPaperDownstreamPromotionReadinessResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockCloudPaperDownstreamPromotionReadiness(paperId, fallbackRegistry),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperDownstreamPromotionReadinessResponse>(
+        `/cloud/papers/${encodeURIComponent(paperId)}/downstream-artifacts/promotion-readiness`,
+      ),
+    () => getMockCloudPaperDownstreamPromotionReadiness(paperId, fallbackRegistry),
+    "cloud paper downstream promotion readiness unavailable, mock readiness loaded",
+  );
+}
+
+export async function getCloudPaperDownstreamPromotionPlan(
+  paperId: string,
+  fallbackRegistry?: CloudPaperDownstreamArtifactRegistryResponse | null,
+): Promise<ApiResult<CloudPaperDownstreamPromotionPlanResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: getMockCloudPaperDownstreamPromotionPlan(paperId, fallbackRegistry),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperDownstreamPromotionPlanResponse>(
+        `/cloud/papers/${encodeURIComponent(paperId)}/downstream-artifacts/promotion-plan`,
+      ),
+    () => getMockCloudPaperDownstreamPromotionPlan(paperId, fallbackRegistry),
+    "cloud paper downstream promotion plan unavailable, mock promotion plan loaded",
+  );
+}
+
+export async function reviewCloudPaperDownstreamArtifact(
+  paperId: string,
+  artifactId: string,
+  reviewStatus: Exclude<CloudPaperDownstreamReviewStatus, "review_pending">,
+  reviewerNote?: string,
+): Promise<ApiResult<CloudPaperDownstreamArtifactRegistryResponse>> {
+  if (APP_CONFIG.forceMock) {
+    return {
+      data: reviewMockCloudPaperDownstreamArtifact(paperId, artifactId, reviewStatus),
+      isMock: true,
+      reason: FORCE_MOCK_REASON,
+    };
+  }
+  return withMockFallback(
+    () =>
+      fetchJson<CloudPaperDownstreamArtifactRegistryResponse>(
+        `/cloud/papers/${encodeURIComponent(paperId)}/downstream-artifacts/${encodeURIComponent(artifactId)}/review`,
+        {
+          method: "POST",
+          body: JSON.stringify({ review_status: reviewStatus, reviewer_note: reviewerNote ?? null }),
+        },
+      ),
+    () => reviewMockCloudPaperDownstreamArtifact(paperId, artifactId, reviewStatus),
+    "cloud paper downstream artifact review unavailable, mock registry loaded",
+  );
+}
+
+export async function uploadCloudPaperPdf(file: File): Promise<ApiResult<CloudPaperBundlePublic>> {
+  if (APP_CONFIG.forceMock) {
+    throw new Error("Cloud PDF upload needs a live backend. Turn off forced mock mode and try again.");
+  }
+
+  const sourcePdfSha256 = await sha256Hex(file);
+  const uploadIntent = await fetchJson<CloudPaperUploadIntentResponse>("/cloud/papers/upload-intents", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name || "paper.pdf",
+      content_type: "application/pdf",
+      source_pdf_sha256: sourcePdfSha256,
+      lab_id: "lab_001",
+    }),
+  });
+
+  const formData = new FormData();
+  formData.append("source_pdf", file, file.name || "paper.pdf");
+  const sourceUpload = await postForm<CloudPaperSourceUploadResponse>(
+    `/cloud/papers/${encodeURIComponent(uploadIntent.paper_id)}/source-pdf`,
+    formData,
+  );
+  if (sourceUpload.source_pdf_sha256 !== sourcePdfSha256) {
+    throw new Error("Uploaded PDF checksum did not match the browser-computed checksum.");
+  }
+
+  return {
+    data: await fetchJson<CloudPaperBundlePublic>(`/cloud/papers/${encodeURIComponent(uploadIntent.paper_id)}/complete-upload`, {
+      method: "POST",
+      body: JSON.stringify({ source_pdf_sha256: sourcePdfSha256 }),
+    }),
+    isMock: false,
+  };
+}
+
 export async function importPaperPdf(file: File): Promise<ApiResult<PaperNoteImportResponse>> {
   if (APP_CONFIG.forceMock) {
     throw new Error("PDF import needs a live backend. Turn off forced mock mode and try again.");
@@ -1008,7 +1449,7 @@ export async function getPaperNoteDetail(
   const detailPath = `/paper-notes/${encodeURIComponent(slug)}${detailQuery ? `?${detailQuery}` : ""}`;
   return withMockFallback(
     async () => {
-      const detail = await firstSuccess<PaperNoteDetailResponse>([detailPath]);
+      const detail = normalizePaperNoteDetailResponse(await firstSuccess<PaperNoteDetailResponse>([detailPath]));
       primeStructuredLookupCacheFromNoteDetail(detail, { paperIds: [slug] });
       return detail;
     },

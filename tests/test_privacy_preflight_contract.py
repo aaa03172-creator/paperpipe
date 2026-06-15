@@ -11,6 +11,7 @@ from src.schemas.privacy_preflight import (
 )
 from src.services.privacy_preflight import (
     build_privacy_preflight_response,
+    privacy_preflight_should_block,
     public_external_link_or_none,
     resolve_privacy_preflight_mode,
 )
@@ -130,6 +131,37 @@ def test_runtime_privacy_preflight_block_mode_marks_review_as_blocked() -> None:
 
     assert response.status == "blocked"
     assert response.summary.manual_review_records == 1
+
+
+def test_privacy_preflight_report_only_flags_local_path_without_mutation() -> None:
+    response = build_privacy_preflight_response(
+        mode="report_only",
+        payload_class="external_allowed",
+        scope="clinical_extraction_external_payload",
+        payload_texts=[("methods_snippet", "See /Users/example/private-note.md for details")],
+        input_refs=["paper:paper-001"],
+    )
+
+    assert response.status == "review_required"
+    assert response.payload_class == "external_allowed"
+    assert response.mutation_applied is False
+    assert response.manual_review[0].reason == "local_path"
+    assert privacy_preflight_should_block(response) is False
+
+
+def test_privacy_preflight_block_on_review_blocks_local_path_without_mutation() -> None:
+    response = build_privacy_preflight_response(
+        mode="block_on_review",
+        payload_class="external_allowed",
+        scope="clinical_extraction_external_payload",
+        payload_texts=[("methods_snippet", "See /Users/example/private-note.md for details")],
+        input_refs=["paper:paper-001"],
+    )
+
+    assert response.status == "blocked"
+    assert response.mutation_applied is False
+    assert response.manual_review[0].reason == "local_path"
+    assert privacy_preflight_should_block(response) is True
 
 
 def test_public_external_link_or_none_drops_local_paths() -> None:

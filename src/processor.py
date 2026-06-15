@@ -12,13 +12,14 @@ from src.config import load_config, AppConfig, resolve_clinical_extraction_featu
 from src.llm_provider import get_llm_provider, LLMProvider
 from src.fetch import get_fetchers
 from src.gates import GateEngine
-from src.schemas.gates import GateDecision
+from src.schemas.gates import GateDecision, ReasonCode
 from src.db_utils import (
     sync_zotero_to_db, 
     get_papers_by_status, 
     update_paper_status,
     is_paper_processed,
     save_paper_state,
+    mark_as_retracted,
 )
 from src.schemas import BiomedicalClinicalExtraction, Paper, PaperStatus, PaperTagging
 from src.obsidian import save_paper_to_obsidian
@@ -27,6 +28,7 @@ from src.downloader import download_paper
 from src.services.intake_override_log import build_intake_override_log, merge_feedback_json_with_intake_override
 from src.services.runtime_paths import zotero_export_path
 from src.zotero import export_to_ris
+from src.retraction import check_retraction
 
 logger = logging.getLogger(__name__)
 
@@ -74,17 +76,53 @@ def last_consecutive_failures(current_streak, success_count, failure_count):
     return current_streak + failure_count
 
 
+def _warn_failure_threshold_once(step_name: str, consecutive_failures: int, threshold: int) -> None:
+    if consecutive_failures == threshold:
+        logger.warning(
+            "Consecutive failure threshold reached after %s (%s/%s); "
+            "failed rows were isolated as FAILED and processor is continuing remaining eligible stages.",
+            step_name,
+            consecutive_failures,
+            threshold,
+        )
+
+
 def _merge_feedback_json_payload(feedback_json: str | None, extra_payload: Dict[str, Any]) -> str:
     if feedback_json:
         try:
             parsed = json.loads(feedback_json)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse feedback_json payload during merge; preserving raw payload: %s",
+                exc,
+                exc_info=True,
+            )
             payload: Dict[str, Any] = {"raw_feedback_json": str(feedback_json)}
         else:
             payload = parsed if isinstance(parsed, dict) else {"raw_feedback_json": feedback_json}
     else:
         payload = {}
     payload.update(extra_payload)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _feedback_json_from_tagging(tag_payload: Dict[str, Any] | None, *, confidence: float, soft_tags: list[str]) -> str:
+    payload: Dict[str, Any] = dict(tag_payload) if isinstance(tag_payload, dict) else {}
+
+    raw_soft_tags = payload.get("soft_tags", soft_tags)
+    if isinstance(raw_soft_tags, list):
+        payload["soft_tags"] = [str(tag) for tag in raw_soft_tags if str(tag).strip()]
+    else:
+        payload["soft_tags"] = []
+
+    if not isinstance(payload.get("hard_tags"), dict):
+        payload["hard_tags"] = {}
+
+    try:
+        payload["confidence"] = float(payload.get("confidence", confidence) or 0.0)
+    except (TypeError, ValueError):
+        payload["confidence"] = float(confidence or 0.0)
+
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -167,8 +205,19 @@ def build_gate_persistence_outcome(
             if isinstance(parsed, dict):
                 analysis = parsed
             else:
+                logger.warning(
+                    "feedback_json for %s parsed as %s, expected object",
+                    row.get("paper_id"),
+                    type(parsed).__name__,
+                )
                 parse_ok = False
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse feedback_json for %s during gate evaluation: %s",
+                row.get("paper_id"),
+                exc,
+                exc_info=True,
+            )
             parse_ok = False
 
     analysis.setdefault("confidence", confidence)
@@ -178,7 +227,13 @@ def build_gate_persistence_outcome(
     if parse_ok:
         try:
             PaperTagging.model_validate(analysis)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "feedback_json schema validation failed for %s during gate evaluation: %s",
+                row.get("paper_id"),
+                exc,
+                exc_info=True,
+            )
             schema_ok = False
 
     gate_result = gate_engine.evaluate(analysis, parse_ok=parse_ok, schema_ok=schema_ok)
@@ -228,7 +283,7 @@ def build_gate_persistence_outcome(
                         status = STATE_APPROVED
                         decision = GateDecision.APPROVED.value
             except Exception as exc:
-                logger.warning("Escalation evaluation failed for %s: %s", row.get("paper_id"), exc)
+                logger.warning("Escalation evaluation failed for %s: %s", row.get("paper_id"), exc, exc_info=True)
 
     analysis_available = parse_ok and schema_ok
     stored_tags = analysis.get("soft_tags", []) if isinstance(analysis.get("soft_tags"), list) else []
@@ -273,7 +328,8 @@ def _normalized_fetcher_source(fetcher: Any) -> str:
     if callable(raw_name):
         try:
             raw_name = raw_name()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Fetcher source_name() failed; using fallback source: %s", exc, exc_info=True)
             raw_name = None
     if raw_name is None:
         raw_name = getattr(fetcher, "source", None)
@@ -450,8 +506,8 @@ def _selection_metadata_components(paper: Any) -> Dict[str, float]:
 def _set_candidate_manual_score(paper: Any, score: float) -> None:
     try:
         setattr(paper, "manual_rank_score", round(float(score), 3))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to set candidate manual score on %r: %s", paper, exc, exc_info=True)
 
 
 def _apply_optional_bibliometric_scores(candidates: List[Any], config: AppConfig) -> List[Any]:
@@ -469,7 +525,7 @@ def _apply_optional_bibliometric_scores(candidates: List[Any], config: AppConfig
         scorer = BibliometricScorer(config)
         return scorer.calculate_scores(list(candidates))
     except Exception as exc:
-        logger.warning("Bibliometric scoring failed for daily slot candidates: %s", exc)
+        logger.warning("Bibliometric scoring failed for daily slot candidates: %s", exc, exc_info=True)
         return candidates
 
 
@@ -620,7 +676,7 @@ class PaperProcessor:
                 if processed > 0:
                     progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    break
+                    _warn_failure_threshold_once("finalize", consecutive_failures, MAX_CONSECUTIVE_FAILURES)
                 
             # Step 3: Gate (GATED -> APPROVED/...)
             if remaining_budget > 0:
@@ -631,7 +687,7 @@ class PaperProcessor:
                 if processed > 0:
                     progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    break
+                    _warn_failure_threshold_once("gate", consecutive_failures, MAX_CONSECUTIVE_FAILURES)
 
             # Step 2: Analyze (FETCHED -> GATED)
             if remaining_budget > 0:
@@ -642,7 +698,7 @@ class PaperProcessor:
                 if processed > 0:
                     progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    break
+                    _warn_failure_threshold_once("analyze", consecutive_failures, MAX_CONSECUTIVE_FAILURES)
                 
             # Step 1: Fetch (NEW -> FETCHED)
             if remaining_budget > 0:
@@ -653,13 +709,13 @@ class PaperProcessor:
                 if processed > 0:
                     progress_made = True
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    break
+                    _warn_failure_threshold_once("fetch", consecutive_failures, MAX_CONSECUTIVE_FAILURES)
             
             if not progress_made:
                 break
                 
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                logger.error("🛑 STOPPING due to consecutive failures limits.")
+                logger.warning("Ending processor run after completing eligible stages with consecutive failures.")
                 break
             
         logger.info(f"🏁 Run Complete. Actions consumed: {batch_size - remaining_budget}/{batch_size}")
@@ -791,7 +847,7 @@ class PaperProcessor:
                 # Construct result_dict for Obsidian (Mock)
                 logger.info("      -> Prepared for Obsidian (Mock)")
             except Exception as e:
-                logger.warning(f"      -> Failed to parse feedback_json for Obsidian: {e}")
+                logger.warning("      -> Failed to parse feedback_json for Obsidian: %s", e, exc_info=True)
 
         update_paper_status(pid, STATE_INDEXED)
         logger.info("      -> Status: INDEXED")
@@ -819,8 +875,8 @@ def process_local_pdf(file_path: Path, config: Optional[AppConfig] = None):
         meta_title = (reader.metadata or {}).get("/Title")
         if meta_title:
             title = str(meta_title)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to read PDF metadata from %s: %s", file_path, exc, exc_info=True)
 
     paper = Paper(
         id=f"local--{int(time.time())}",
@@ -877,12 +933,20 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     {"title": paper.title, "summary": paper.summary},
                     slot_name,
                 ) or slot_name
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Slot classification failed for %s; keeping slot %s: %s",
+                    paper.id,
+                    slot_name,
+                    exc,
+                    exc_info=True,
+                )
                 resolved_slot = slot_name
 
         tags: list[str] = []
         confidence = 0.0
         tagging_metrics: dict[str, Any] = {}
+        tag_payload: dict[str, Any] = {}
         if analysis_available:
             tag_payload = llm.tag_paper({"title": paper.title, "summary": paper.summary}) or {}
             tags = tag_payload.get("soft_tags", []) or []
@@ -892,6 +956,35 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                 metrics_candidate = get_tagging_metrics()
                 if isinstance(metrics_candidate, dict):
                     tagging_metrics = metrics_candidate
+
+        feedback_json = _feedback_json_from_tagging(
+            tag_payload,
+            confidence=confidence,
+            soft_tags=tags,
+        )
+        try:
+            gate_analysis = json.loads(feedback_json)
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse feedback_json for daily slot gate evaluation on %s: %s",
+                paper.id,
+                exc,
+                exc_info=True,
+            )
+            gate_analysis = {}
+        gate_engine = GateEngine(
+            high_threshold=config.confidence_thresholds.high,
+            low_threshold=config.confidence_thresholds.low,
+            require_evidence=True,
+        )
+        gate_result = gate_engine.evaluate(
+            gate_analysis,
+            parse_ok=analysis_available,
+            schema_ok=analysis_available,
+        )
+        status = PaperStatus(gate_result.decision.value)
+        gate_decision = gate_result.decision.value
+        gate_reason_codes = [code.value for code in gate_result.reason_codes]
 
         clinical_extraction_feature = resolve_clinical_extraction_feature(
             getattr(config.llm, "features", None)
@@ -916,14 +1009,36 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     if isinstance(extraction_candidate, BiomedicalClinicalExtraction):
                         clinical_extraction = extraction_candidate
                 except Exception as exc:
-                    logger.warning("Clinical extraction failed for %s: %s", paper.id, exc)
+                    logger.warning("Clinical extraction failed for %s: %s", paper.id, exc, exc_info=True)
 
-        if confidence >= config.confidence_thresholds.high:
-            status = PaperStatus.APPROVED
-        elif confidence < config.confidence_thresholds.low:
-            status = PaperStatus.QUARANTINED
-        else:
-            status = PaperStatus.PENDING_REVIEW
+        if (
+            clinical_extraction is None
+            and status == PaperStatus.PENDING_REVIEW
+            and ReasonCode.EVIDENCE_MISSING.value in gate_reason_codes
+            and confidence >= config.confidence_thresholds.high
+            and not tag_payload.get("evidence_snippets")
+            and str(paper.summary or "").strip()
+        ):
+            tag_payload["evidence_snippets"] = [
+                {
+                    "snippet": str(paper.summary).strip(),
+                    "location": "abstract",
+                    "supports": "slot_decision",
+                }
+            ]
+            feedback_json = _feedback_json_from_tagging(
+                tag_payload,
+                confidence=confidence,
+                soft_tags=tags,
+            )
+            gate_result = gate_engine.evaluate(
+                json.loads(feedback_json),
+                parse_ok=analysis_available,
+                schema_ok=analysis_available,
+            )
+            status = PaperStatus(gate_result.decision.value)
+            gate_decision = gate_result.decision.value
+            gate_reason_codes = [code.value for code in gate_result.reason_codes]
 
         escalation_sidecar: Optional[Dict[str, Any]] = None
         escalation_reason: Optional[str] = None
@@ -953,15 +1068,32 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                     }
                 ) or {}
                 escalation_sidecar = _build_escalation_sidecar(escalation_result)
+                gate_reason_codes = _merge_reason_code_lists(
+                    gate_reason_codes,
+                    escalation_sidecar["reason_codes"],
+                )
                 escalation_reason = escalation_sidecar["reason"] or None
                 escalation_final_route = escalation_sidecar["final_route"] or None
                 escalation_in_biomedical_scope = escalation_sidecar["in_biomedical_scope"]
                 escalation_reason_codes = escalation_sidecar["reason_codes"]
                 if escalation_sidecar["approved"]:
                     status = PaperStatus.APPROVED
+                    gate_decision = GateDecision.APPROVED.value
                     is_escalated = True
             except Exception as exc:
-                logger.warning("Escalation evaluation failed for %s: %s", paper.id, exc)
+                logger.warning("Escalation evaluation failed for %s: %s", paper.id, exc, exc_info=True)
+
+        retraction_check: Optional[Dict[str, Any]] = None
+        system_config = getattr(config, "system", None)
+        if bool(getattr(system_config, "check_retraction_on_ingest", False)) and canonical_doi:
+            retraction_check = check_retraction(
+                canonical_doi,
+                email=getattr(system_config, "unpaywall_email", None),
+            )
+            if retraction_check.get("is_retracted"):
+                status = PaperStatus.QUARANTINED
+                gate_decision = GateDecision.QUARANTINED.value
+                gate_reason_codes = _merge_reason_code_lists(gate_reason_codes, ["RETRACTED"])
 
         issues_state = derive_saved_issues_state(
             status,
@@ -1024,14 +1156,34 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
             "local_pdf_path": str(paper.local_pdf_path) if paper.local_pdf_path else None,
             "download_attempts": serialized_attempts,
             "manual_rank_score": _coerce_optional_float(getattr(paper, "manual_rank_score", None)),
+            "gate_decision": gate_decision,
+            "gate_reason": ",".join(gate_reason_codes) or "NONE",
         }
+        row["feedback_json"] = feedback_json
+        row["feedback_json"] = _merge_feedback_json_payload(
+            row["feedback_json"],
+            {
+                "gate_decision": row["gate_decision"],
+                "gate_reason": row["gate_reason"],
+            },
+        )
+        if retraction_check is not None:
+            row["retraction_check"] = retraction_check
+            row["feedback_json"] = _merge_feedback_json_payload(
+                row["feedback_json"],
+                {"retraction_check": retraction_check},
+            )
         row["pdf_status"] = "downloaded" if row["pdf_path"] else "missing"
 
         if not row["pdf_path"]:
             from src.institutional_access import generate_institutional_proxy_url, upsert_institutional_proxy_link
-            proxy_url = generate_institutional_proxy_url(doi=row["doi"] or None, publisher_url=row["link"])
+            proxy_url = generate_institutional_proxy_url(
+                doi=row["doi"] or None,
+                publisher_url=row["link"],
+                proxy_prefix=getattr(getattr(config, "system", None), "institutional_proxy_url", None),
+            )
             if proxy_url:
-                row["feedback_json"] = upsert_institutional_proxy_link("{}", proxy_url)
+                row["feedback_json"] = upsert_institutional_proxy_link(row.get("feedback_json"), proxy_url)
                 row["pdf_status"] = "manual_required"
         row["feedback_json"] = merge_feedback_json_with_intake_override(
             row.get("feedback_json"),
@@ -1057,12 +1209,13 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
 
         try:
             save_paper_to_obsidian(row, config, extraction=clinical_extraction)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to save Obsidian note for %s: %s", row["paper_id"], exc, exc_info=True)
+        ris_path = None
         try:
-            export_to_ris(row, Path(config.paths.export_dir))
-        except Exception:
-            pass
+            ris_path = export_to_ris(row, Path(config.paths.export_dir))
+        except Exception as exc:
+            logger.warning("Failed to export RIS for %s: %s", row["paper_id"], exc, exc_info=True)
         try:
             save_paper_state(
                 row["paper_id"],
@@ -1072,13 +1225,19 @@ def process_daily_slots(ignore_db: bool = False) -> List[Dict[str, Any]]:
                 doi=row.get("doi") or None,
                 pdf_status=row.get("pdf_status"),
                 local_pdf_path=row.get("pdf_path"),
+                ris_path=ris_path,
                 feedback_json=row.get("feedback_json"),
                 download_attempts=row.get("download_attempts"),
                 status=row["processing_status"].value if hasattr(row["processing_status"], "value") else str(row["processing_status"]),
                 issues_state=issues_state,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to save paper state for %s: %s", row["paper_id"], exc, exc_info=True)
+        if retraction_check and retraction_check.get("is_retracted"):
+            try:
+                mark_as_retracted(row["paper_id"])
+            except Exception as exc:
+                logger.warning("Failed to mark retracted paper %s: %s", row["paper_id"], exc, exc_info=True)
 
     return results
 

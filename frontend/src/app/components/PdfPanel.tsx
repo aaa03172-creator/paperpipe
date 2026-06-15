@@ -1,16 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Viewer, Worker } from "@react-pdf-viewer/core";
-import { HighlightArea, highlightPlugin, RenderHighlightsProps, Trigger } from "@react-pdf-viewer/highlight";
-import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
-import { Match, RenderHighlightsProps as SearchRenderHighlightsProps, searchPlugin } from "@react-pdf-viewer/search";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
 import { FileWarning, Link2 } from "lucide-react";
 import { circledNumber } from "../lib/ui";
 import { EvidenceHighlight, NotebookClaim } from "../lib/types";
 import { pickBestHighlightForClaim } from "../lib/claimGuard";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
-import "@react-pdf-viewer/core/lib/styles/index.css";
-import "@react-pdf-viewer/highlight/lib/styles/index.css";
-import "@react-pdf-viewer/search/lib/styles/index.css";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+
+const pdfDocumentOptions = {
+  isEvalSupported: false,
+};
+
+function getInitialPdfPageWidth(): number {
+  if (typeof window === "undefined") {
+    return 760;
+  }
+  return Math.max(280, Math.min(760, window.innerWidth - 60));
+}
 
 interface PdfPanelProps {
   title: string;
@@ -29,6 +37,30 @@ interface TextMatchSnippet {
   globalIndex: number;
   pageIndex: number;
   preview: string;
+}
+
+interface HighlightArea {
+  pageIndex: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface TextMatch {
+  pageIndex: number;
+  startIndex: number;
+  endIndex: number;
+  pageText: string;
+}
+
+interface LoadedPdfPage {
+  getTextContent(): Promise<{ items: Array<{ str?: string }> }>;
+}
+
+interface LoadedPdfDocument {
+  numPages: number;
+  getPage(pageNumber: number): Promise<LoadedPdfPage>;
 }
 
 function clampPct(value: number): number {
@@ -117,8 +149,8 @@ function toHighlightArea(activeHighlight: EvidenceHighlight | null): HighlightAr
   };
 }
 
-function buildTextMatchPreview(match: Match): string {
-  const pageText = match.pageText ?? "";
+function buildTextMatchPreview(match: TextMatch): string {
+  const pageText = match.pageText;
   if (!pageText) {
     return "";
   }
@@ -131,6 +163,31 @@ function buildTextMatchPreview(match: Match): string {
   const prefix = start > 0 ? "..." : "";
   const suffix = end < pageText.length ? "..." : "";
   return `${prefix}${raw}${suffix}`;
+}
+
+function findTextMatches(pageText: string, pageIndex: number, keywords: string[]): TextMatch[] {
+  const lowerPageText = pageText.toLowerCase();
+  const matches: TextMatch[] = [];
+  const seen = new Set<string>();
+
+  keywords.forEach((keyword) => {
+    const normalizedKeyword = keyword.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!normalizedKeyword) {
+      return;
+    }
+    let startIndex = lowerPageText.indexOf(normalizedKeyword);
+    while (startIndex >= 0) {
+      const endIndex = startIndex + normalizedKeyword.length;
+      const key = `${startIndex}:${endIndex}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        matches.push({ pageIndex, startIndex, endIndex, pageText });
+      }
+      startIndex = lowerPageText.indexOf(normalizedKeyword, startIndex + normalizedKeyword.length);
+    }
+  });
+
+  return matches;
 }
 
 function normalizeRankingText(text: string): string {
@@ -184,7 +241,7 @@ function scoreSnippet({
 }
 
 function buildTextMatchSnippets(
-  matches: Match[],
+  matches: TextMatch[],
   rankingText: string,
   preferredPageIndex: number,
 ): TextMatchSnippet[] {
@@ -260,9 +317,14 @@ export function PdfPanel({
   highlightMode,
 }: PdfPanelProps) {
   const [loadedPdfMeta, setLoadedPdfMeta] = useState<{ url: string; pageCount: number } | null>(null);
+  const [loadedPdfDoc, setLoadedPdfDoc] = useState<LoadedPdfDocument | null>(null);
   const [searchMeta, setSearchMeta] = useState<{ claimKey: string; count: number } | null>(null);
   const [textMatchSnippets, setTextMatchSnippets] = useState<TextMatchSnippet[]>([]);
   const [activeTextMatchIndex, setActiveTextMatchIndex] = useState<number | null>(null);
+  const [visiblePageIndex, setVisiblePageIndex] = useState(0);
+  const [pageRenderWidth, setPageRenderWidth] = useState(getInitialPdfPageWidth);
+  const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const pageRefs = useRef(new Map<number, HTMLDivElement>());
   const activeClaim = useMemo(
     () => claims.find((claim) => claim.claim_id === activeClaimId) ?? null,
     [claims, activeClaimId],
@@ -310,8 +372,6 @@ export function PdfPanel({
     };
   }, [activeArea, resolvedActivePageIndex]);
 
-  const pageNavigationPluginInstance = pageNavigationPlugin();
-  const pageNavigationPluginRef = useRef(pageNavigationPluginInstance);
   const softMode = highlightMode === "soft";
   const selectedBorderWidth = softMode ? 2 : 3;
   const selectedBg = softMode ? "rgba(34, 211, 238, 0.18)" : "rgba(34, 211, 238, 0.30)";
@@ -329,74 +389,57 @@ export function PdfPanel({
     ? "0 0 0 1px rgba(245, 158, 11, 0.42), 0 4px 10px rgba(0, 0, 0, 0.24)"
     : "0 0 0 2px rgba(245, 158, 11, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35)";
 
-  const highlightPluginInstance = highlightPlugin({
-    trigger: Trigger.None,
-    renderHighlights: (props: RenderHighlightsProps) => {
-      const selectedArea = resolvedActiveArea;
-      const showSelected = Boolean(selectedArea && props.pageIndex === selectedArea.pageIndex);
-      const showApprox = !selectedArea && searchMatchCount === 0 && props.pageIndex === resolvedActivePageIndex;
-      if (!showSelected && !showApprox) {
-        return <></>;
-      }
-      const area: HighlightArea = (showSelected && selectedArea) ? selectedArea : {
-        pageIndex: resolvedActivePageIndex,
-        left: 6,
-        top: 8,
-        width: 88,
-        height: 10,
-      };
-      return (
-        <div
-          data-testid={showApprox ? "claim-approx-highlight" : "claim-highlight"}
-          className="pointer-events-none absolute rounded-md"
-          style={{
-            ...props.getCssProperties(area, props.rotation),
-            borderStyle: showApprox ? "dashed" : "solid",
-            borderWidth: showApprox ? fallbackBorderWidth : selectedBorderWidth,
-            borderColor: showApprox ? "#f59e0b" : "#22d3ee",
-            background: showApprox ? fallbackBg : selectedBg,
-            boxShadow: showApprox ? fallbackShadow : selectedShadow,
-            zIndex: 30,
-          }}
-        >
-          {activeClaimLabel ? (
-            <span className="absolute -top-6 left-0 rounded-full border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--pp-accent-text)] shadow-sm">
-              {activeClaimLabel}
-            </span>
-          ) : null}
-        </div>
-      );
-    },
-  });
-  const searchPluginInstance = searchPlugin({
-    renderHighlights: (props: SearchRenderHighlightsProps) => {
-      const primaryArea = props.highlightAreas[0];
-      if (!primaryArea) {
-        return <></>;
-      }
-      return (
-        <div
-          data-testid="claim-search-highlight"
-          className="pointer-events-none absolute rounded-sm"
-          style={{
-            ...props.getCssProperties(primaryArea),
-            border: searchBorder,
-            background: searchBg,
-            boxShadow: searchShadow,
-            zIndex: 28,
-          }}
-        />
-      );
-    },
-  });
-  const highlightPluginRef = useRef(highlightPluginInstance);
-  const searchPluginRef = useRef(searchPluginInstance);
   const syncSequenceRef = useRef(0);
-  useEffect(() => {
-    pageNavigationPluginRef.current = pageNavigationPluginInstance;
-    highlightPluginRef.current = highlightPluginInstance;
-    searchPluginRef.current = searchPluginInstance;
-  }, [highlightPluginInstance, pageNavigationPluginInstance, searchPluginInstance]);
+
+  const pages = useMemo(
+    () => Array.from({ length: pageCount ?? 0 }, (_, pageIndex) => pageIndex),
+    [pageCount],
+  );
+
+  const setPageRef = useCallback((pageIndex: number, node: HTMLDivElement | null) => {
+    if (node) {
+      pageRefs.current.set(pageIndex, node);
+    } else {
+      pageRefs.current.delete(pageIndex);
+    }
+  }, []);
+
+  const scrollToPage = useCallback((pageIndex: number) => {
+    window.requestAnimationFrame(() => {
+      pageRefs.current.get(pageIndex)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  }, []);
+
+  const activateSnippet = useCallback(
+    (snippet: TextMatchSnippet) => {
+      setActiveTextMatchIndex(snippet.globalIndex);
+      setVisiblePageIndex(snippet.pageIndex);
+      scrollToPage(snippet.pageIndex);
+    },
+    [scrollToPage],
+  );
+
+  useLayoutEffect(() => {
+    const container = viewerContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const updateWidth = () => {
+      const containerMaxWidth = container.clientWidth - 28;
+      const viewportMaxWidth = window.innerWidth - 60;
+      const nextWidth = Math.max(280, Math.min(920, containerMaxWidth, viewportMaxWidth));
+      setPageRenderWidth(nextWidth);
+    };
+    updateWidth();
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(container);
+    window.addEventListener("resize", updateWidth);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateWidth);
+    };
+  }, [pdfAvailable, pdfUrl]);
+
   const activeTextMatchPos = useMemo(() => {
     if (textMatchSnippets.length === 0) {
       return -1;
@@ -410,24 +453,19 @@ export function PdfPanel({
   const activeTextMatchSnippet = activeTextMatchPos >= 0 ? textMatchSnippets[activeTextMatchPos] : null;
 
   useEffect(() => {
-    if (!pdfUrl || loadedPdfMeta?.url !== pdfUrl) {
+    if (!pdfUrl || loadedPdfMeta?.url !== pdfUrl || !loadedPdfDoc) {
       return;
     }
 
-    const pageNavigation = pageNavigationPluginRef.current;
-    const highlightPlugin = highlightPluginRef.current;
-    const searchPlugin = searchPluginRef.current;
     const localClaimKey = claimKey;
     const localSequence = syncSequenceRef.current + 1;
     syncSequenceRef.current = localSequence;
 
     const syncSelection = async () => {
-      pageNavigation.jumpToPage(resolvedActivePageIndex);
-      searchPlugin.clearHighlights();
-      searchPlugin.setTargetPages(() => true);
+      setVisiblePageIndex(resolvedActivePageIndex);
+      scrollToPage(resolvedActivePageIndex);
 
       if (resolvedActiveArea) {
-        highlightPlugin.jumpToHighlightArea(resolvedActiveArea);
         setSearchMeta({ claimKey: localClaimKey, count: 0 });
         setTextMatchSnippets([]);
         setActiveTextMatchIndex(null);
@@ -445,15 +483,35 @@ export function PdfPanel({
       setTextMatchSnippets([]);
       setActiveTextMatchIndex(null);
 
-      searchPlugin.setTargetPages((targetPage) => targetPage.pageIndex === resolvedActivePageIndex);
-      let matches = await searchPlugin.highlight(searchKeywords);
+      const readPageText = async (pageIndex: number) => {
+        const page = await loadedPdfDoc.getPage(pageIndex + 1);
+        const textContent = await page.getTextContent();
+        return textContent.items
+          .map((item) => item.str ?? "")
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+      };
+
+      const preferredPageText = await readPageText(resolvedActivePageIndex);
+      let matches = findTextMatches(preferredPageText, resolvedActivePageIndex, searchKeywords);
       if (syncSequenceRef.current !== localSequence) {
         return;
       }
       if (matches.length === 0) {
-        searchPlugin.clearHighlights();
-        searchPlugin.setTargetPages(() => true);
-        matches = await searchPlugin.highlight(searchKeywords);
+        const allMatches: TextMatch[] = [];
+        for (let pageIndex = 0; pageIndex < loadedPdfDoc.numPages; pageIndex += 1) {
+          if (pageIndex === resolvedActivePageIndex) {
+            continue;
+          }
+          const pageText = await readPageText(pageIndex);
+          allMatches.push(...findTextMatches(pageText, pageIndex, searchKeywords));
+          if (syncSequenceRef.current !== localSequence) {
+            return;
+          }
+        }
+        matches = allMatches;
         if (syncSequenceRef.current !== localSequence) {
           return;
         }
@@ -463,9 +521,7 @@ export function PdfPanel({
       setTextMatchSnippets(snippets);
       const preferredSnippet = pickPreferredSnippet(snippets, rankingText, resolvedActivePageIndex);
       if (preferredSnippet) {
-        setActiveTextMatchIndex(preferredSnippet.globalIndex);
-        pageNavigation.jumpToPage(preferredSnippet.pageIndex);
-        searchPlugin.jumpToMatch(preferredSnippet.globalIndex);
+        activateSnippet(preferredSnippet);
       } else {
         setActiveTextMatchIndex(null);
       }
@@ -477,15 +533,60 @@ export function PdfPanel({
     };
   }, [
     claimKey,
+    loadedPdfDoc,
     loadedPdfMeta?.url,
     pdfUrl,
     rankingText,
+    activateSnippet,
     resolvedActiveArea,
     resolvedActivePageIndex,
     searchKeywords,
+    scrollToPage,
   ]);
 
   const viewerKey = pdfUrl;
+
+  const renderHighlightLayer = (pageIndex: number) => {
+    const selectedArea = resolvedActiveArea;
+    const showSelected = Boolean(selectedArea && pageIndex === selectedArea.pageIndex);
+    const showApprox = !selectedArea && searchMatchCount === 0 && pageIndex === resolvedActivePageIndex;
+    const showSearch = textMatchMode && activeTextMatchSnippet?.pageIndex === pageIndex;
+    if (!showSelected && !showApprox && !showSearch) {
+      return null;
+    }
+    const area: HighlightArea = (showSelected && selectedArea) ? selectedArea : {
+      pageIndex,
+      left: 6,
+      top: 8,
+      width: 88,
+      height: 10,
+    };
+    return (
+      <div
+        data-testid={showSelected ? "claim-highlight" : showSearch ? "claim-search-highlight" : "claim-approx-highlight"}
+        className="pointer-events-none absolute rounded-md"
+        style={{
+          left: `${area.left}%`,
+          top: `${area.top}%`,
+          width: `${area.width}%`,
+          height: `${area.height}%`,
+          borderStyle: showApprox ? "dashed" : "solid",
+          borderWidth: showSearch ? undefined : showApprox ? fallbackBorderWidth : selectedBorderWidth,
+          border: showSearch ? searchBorder : undefined,
+          borderColor: showSearch ? undefined : showApprox ? "#f59e0b" : "#22d3ee",
+          background: showSearch ? searchBg : showApprox ? fallbackBg : selectedBg,
+          boxShadow: showSearch ? searchShadow : showApprox ? fallbackShadow : selectedShadow,
+          zIndex: showSearch ? 28 : 30,
+        }}
+      >
+        {showSelected && activeClaimLabel ? (
+          <span className="absolute -top-6 left-0 rounded-full border border-[var(--pp-accent-border)] bg-[var(--pp-accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--pp-accent-text)] shadow-sm">
+            {activeClaimLabel}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <section className="surface-card flex min-h-0 flex-col p-3">
@@ -527,10 +628,7 @@ export function PdfPanel({
                   }
                   const currentPos = activeTextMatchPos >= 0 ? activeTextMatchPos : 0;
                   const nextPos = Math.max(currentPos - 1, 0);
-                  const snippet = textMatchSnippets[nextPos];
-                  setActiveTextMatchIndex(snippet.globalIndex);
-                  pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
-                  searchPluginInstance.jumpToMatch(snippet.globalIndex);
+                  activateSnippet(textMatchSnippets[nextPos]);
                 }}
                 disabled={activeTextMatchPos <= 0}
                 className={[
@@ -550,10 +648,7 @@ export function PdfPanel({
                   }
                   const currentPos = activeTextMatchPos >= 0 ? activeTextMatchPos : 0;
                   const nextPos = Math.min(currentPos + 1, textMatchSnippets.length - 1);
-                  const snippet = textMatchSnippets[nextPos];
-                  setActiveTextMatchIndex(snippet.globalIndex);
-                  pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
-                  searchPluginInstance.jumpToMatch(snippet.globalIndex);
+                  activateSnippet(textMatchSnippets[nextPos]);
                 }}
                 disabled={activeTextMatchPos >= textMatchSnippets.length - 1}
                 className={[
@@ -574,9 +669,7 @@ export function PdfPanel({
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTextMatchIndex(snippet.globalIndex);
-                      pageNavigationPluginInstance.jumpToPage(snippet.pageIndex);
-                      searchPluginInstance.jumpToMatch(snippet.globalIndex);
+                      activateSnippet(snippet);
                     }}
                     className={[
                       "w-full rounded-md border px-2 py-1.5 text-left text-[11px]",
@@ -610,32 +703,64 @@ export function PdfPanel({
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--pp-border)] bg-[var(--pp-surface-muted)]">
         {pdfAvailable && pdfUrl ? (
-          <div data-testid="pdf-viewer" className="h-[70vh] min-h-[420px] w-full overflow-hidden xl:h-[calc(100vh-10rem)]">
-            <Worker workerUrl={pdfWorkerUrl}>
-              <Viewer
-                key={viewerKey}
-                fileUrl={pdfUrl}
-                initialPage={resolvedActivePageIndex}
-                plugins={[highlightPluginInstance, pageNavigationPluginInstance, searchPluginInstance]}
-                onDocumentLoad={(event) => {
-                  setLoadedPdfMeta({ url: pdfUrl, pageCount: event.doc.numPages });
-                }}
-                onPageChange={(event) => {
-                  const nextPageIndex = event.currentPage;
-                  if (!textMatchMode || textMatchSnippets.length === 0) {
-                    return;
-                  }
-                  const snippetOnPage = textMatchSnippets.find((snippet) => snippet.pageIndex === nextPageIndex);
-                  if (!snippetOnPage) {
-                    return;
-                  }
-                  if (activeTextMatchSnippet?.key === snippetOnPage.key) {
-                    return;
-                  }
-                  setActiveTextMatchIndex(snippetOnPage.globalIndex);
-                }}
-              />
-            </Worker>
+          <div
+            ref={viewerContainerRef}
+            data-testid="pdf-viewer"
+            className="h-[70vh] min-h-[420px] w-full overflow-auto px-3 py-4 xl:h-[calc(100vh-10rem)]"
+          >
+            <Document
+              key={viewerKey}
+              file={pdfUrl}
+              options={pdfDocumentOptions}
+              loading={
+                <div className="flex min-h-[360px] items-center justify-center text-xs text-[var(--pp-text-dim)]">
+                  PDF를 불러오는 중입니다.
+                </div>
+              }
+              error={
+                <div className="flex min-h-[360px] items-center justify-center text-xs text-[var(--pp-warning-text)]">
+                  PDF 렌더링에 실패했습니다.
+                </div>
+              }
+              onLoadSuccess={(pdf) => {
+                const loadedDoc = pdf as LoadedPdfDocument;
+                setLoadedPdfMeta({ url: pdfUrl, pageCount: loadedDoc.numPages });
+                setLoadedPdfDoc(loadedDoc);
+                setVisiblePageIndex(resolvedActivePageIndex);
+              }}
+            >
+              {pages.map((pageIndex) => (
+                <div
+                  key={pageIndex}
+                  ref={(node) => setPageRef(pageIndex, node)}
+                  role="region"
+                  aria-label={`Page ${pageIndex + 1}`}
+                  data-page-index={pageIndex}
+                  data-active-page={visiblePageIndex === pageIndex ? "true" : "false"}
+                  className="relative mx-auto mb-4 w-fit overflow-hidden rounded-sm bg-white shadow-sm"
+                >
+                  <Page
+                    pageNumber={pageIndex + 1}
+                    width={pageRenderWidth}
+                    renderAnnotationLayer
+                    renderTextLayer
+                    onLoadSuccess={() => {
+                      if (pageIndex === resolvedActivePageIndex) {
+                        scrollToPage(pageIndex);
+                      }
+                    }}
+                    onRenderSuccess={() => {
+                      if (pageIndex === resolvedActivePageIndex) {
+                        scrollToPage(pageIndex);
+                      }
+                    }}
+                  />
+                  <div className="pointer-events-none absolute inset-0">
+                    {renderHighlightLayer(pageIndex)}
+                  </div>
+                </div>
+              ))}
+            </Document>
           </div>
         ) : (
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 px-4 text-center">

@@ -22,6 +22,7 @@ VisualEvidenceFailureReason = Literal[
     "ambiguous_panel",
     "caption_only",
     "table_parse_failed",
+    "figure_table_conflict",
     "bbox_unavailable",
     "not_reviewed",
     "other",

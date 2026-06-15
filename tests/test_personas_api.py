@@ -101,3 +101,30 @@ defaults: {}
     assert disabled["enabled"] is False
     assert disabled["schedule"] == "manual"
     assert disabled["query_focus"] == "(beta)"
+
+
+def test_personas_masks_local_paths_in_profile_notes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    profiles_path = tmp_path / "config" / "profiles.yaml"
+    monkeypatch.setenv("PAPERPIPE_PROFILES_PATH", str(profiles_path))
+    _write_profiles(
+        profiles_path,
+        """
+profiles:
+  - id: path_profile
+    title: Path Profile
+    enabled: true
+    schedule: manual
+    notes: "source_of_truth: /Users/example/paperpipe/private/profile.yaml"
+defaults: {}
+""".strip()
+        + "\n",
+    )
+
+    client = TestClient(api_main.app)
+    resp = client.get("/personas")
+    assert resp.status_code == 200
+
+    profile = next(item for item in resp.json()["personas"] if item["id"] == "path_profile")
+    assert "/Users/example" not in profile["notes"]
+    assert profile["notes"] == "source_of_truth: .../profile.yaml"

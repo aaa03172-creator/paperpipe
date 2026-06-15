@@ -70,6 +70,31 @@ What it does:
 - runs packaged `self-test --json` for both `dist/lattice` and the app-bundle executable
 - launches the packaged app on a local port and probes `/health` and `/ui`
 
+GCS + Firestore demo proof wrapper:
+
+```bash
+bash ./scripts/run_macos_personal_runtime_cloud_demo_proof.sh
+```
+
+Use this after the Google Agent Challenge cloud paper rehearsal has written the controlled Firestore/GCS demo record. It launches `dist/Lattice.app/Contents/MacOS/Lattice` with the demo cloud environment and verifies `/health`, `/ui`, `/api/cloud/papers`, and cloud page search from the packaged app. It does not notarize, upload, or create Cloud Run/Cloud Tasks resources.
+
+Installed settings smoke wrapper:
+
+```bash
+bash ./scripts/run_macos_installed_settings_smoke.sh
+```
+
+Use this after copying `dist/Lattice.app` to `/Applications/Lattice.app` and, when needed, regenerating `/Applications/Lattice Launcher.app`. It launches the installed app with provider API key environment variables unset, verifies `/health`, `/ui/settings`, and `/api/runtime-settings/llm`, and checks the installed UI bundle contains the Google Gemini provider option plus the explicit `Test live call` action. It does not invoke the live LLM provider test.
+
+Native-like direct app launch check:
+
+```bash
+open /Applications/Lattice.app
+curl -fsS http://127.0.0.1:8046/health
+```
+
+The installed bundle's `Contents/MacOS/Lattice` is a small AppKit/WKWebView launcher around `Contents/MacOS/LatticeRuntime`. No-argument app launches start `LatticeRuntime start --no-open` and render `/ui` inside the app window; explicit CLI arguments continue to pass through to the runtime so existing smoke scripts and compatibility launchers keep working.
+
 Gatekeeper prereq wrapper:
 
 ```bash
@@ -98,7 +123,7 @@ Use the manual commands below when you want to inspect or customize one step at 
 If you need a fresh bundle first:
 
 ```bash
-.venv/bin/python scripts/build_personal_runtime_bundle.py --skip-frontend-build --clean
+uv run --extra cloud --extra packaging python scripts/build_personal_runtime_bundle.py --skip-frontend-build --clean
 ```
 
 Expected macOS bundle artifacts:
@@ -106,6 +131,17 @@ Expected macOS bundle artifacts:
 - `dist/lattice`
 - `dist/Lattice.app`
 - `dist/Lattice-support`
+
+For a slimmer cloud-backed stage-demo app, use the cloud UI bundle profile:
+
+```bash
+uv run --extra cloud --extra packaging python scripts/build_personal_runtime_bundle.py \
+  --skip-frontend-build \
+  --clean \
+  --bundle-profile cloud-ui
+```
+
+This profile is intended for the lightweight GCP paper/page demo path. It excludes local heavy ML stacks such as Torch, Transformers, OpenCV, scikit-learn, and SciPy. Use the default `full` profile when local parsing, OCR, indexing, or ML-adjacent features need to stay bundled.
 
 ## 2. Store notarization credentials once
 
@@ -140,7 +176,8 @@ Example:
   --clean \
   --skip-frontend-build \
   --identity "Developer ID Application: Your Name (TEAMID1234)" \
-  --notary-profile LATTICE_NOTARY
+  --notary-profile LATTICE_NOTARY \
+  --require-gatekeeper
 ```
 
 Environment-variable equivalent:
@@ -150,6 +187,18 @@ export PAPERPIPE_MACOS_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMI
 export PAPERPIPE_MACOS_NOTARY_PROFILE="LATTICE_NOTARY"
 .venv/bin/python scripts/release_macos_personal_runtime.py --build --clean --skip-frontend-build
 ```
+
+When the release script is also building the app, it can forward the same bundle profile:
+
+```bash
+uv run --extra cloud --extra packaging python scripts/release_macos_personal_runtime.py \
+  --build \
+  --clean \
+  --skip-frontend-build \
+  --bundle-profile cloud-ui
+```
+
+For public distribution attempts, add `--require-gatekeeper`. That guard fails early unless both `--identity` and `--notary-profile` are present, which prevents accidentally treating an assisted alpha zip as a public Gatekeeper-ready release.
 
 What the script does:
 
@@ -193,7 +242,7 @@ Current repo-local honest state on this machine was:
 If you want to exercise the script shape without signing or notarization credentials:
 
 ```bash
-.venv/bin/python scripts/release_macos_personal_runtime.py
+uv run --extra cloud --extra packaging python scripts/release_macos_personal_runtime.py
 ```
 
 This mode still:
@@ -233,3 +282,31 @@ For a real macOS handoff, expect all of the following:
 - launching the app bundle executable serves `/ui`
 
 Until `spctl` passes, the artifact is still alpha-quality, not a true Gatekeeper-ready distribution.
+
+## 7. Google Agent Challenge Cloud Demo Note
+
+For the 2026-06-05 stage demo, the currently accepted installable path is:
+
+```bash
+cd frontend && npm run build
+cd ..
+uv run --extra cloud --extra packaging python scripts/build_personal_runtime_bundle.py --skip-frontend-build --clean
+scripts/run_macos_personal_runtime_cloud_demo_proof.sh
+```
+
+Current local verification on 2026-06-01:
+
+- `dist/Lattice.app` rebuilt successfully from current code.
+- PyInstaller hidden imports include `google.cloud.firestore` and `google.cloud.storage` for the current GCS + Firestore path.
+- Packaged self-test is `degraded` only because `config.example.yaml` has placeholder Obsidian/Zotero/watch roots; `ui_bundle`, `backend_entrypoint`, and `cli_entrypoint` are `ok`.
+- Packaged cloud proof passes with `health_status=200`, `ui_status=200`, `cloud_list_status=200`, and `cloud_search_status=200`.
+- This remains an unsigned/local alpha artifact unless the Developer ID + notary flow above is completed.
+
+Installed app verification on 2026-06-04:
+
+- `/Applications/Lattice.app` direct launch passed through `open /Applications/Lattice.app`.
+- `/health` returned `200` on port `8046`, `/ui` returned `200`, and the app log showed WebView asset requests from the native Lattice process.
+- The primary app path starts the runtime with `--no-open`, so it does not open the default web browser for the app surface.
+- Installed settings smoke passed with `health_status=200`, `ui_status=200`, and `settings_status=200`.
+- Release zip SHA256: `522e5693a20bd7f9c96383d044d9416669d5c80e4c25b77d2377194308e21b9e`.
+- Assisted launcher zip SHA256: `1a6472ed64ea99b241a602a56fe20fd877554cce518a42dcca3605c47be3f196`.

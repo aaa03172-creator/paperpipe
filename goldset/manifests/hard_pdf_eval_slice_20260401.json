@@ -1,11 +1,14 @@
 {
   "schema_version": "1.0",
+  "eval_id": "hard_pdf_eval_slice_20260401",
+  "subset": "eval",
   "generated_at": "2026-04-01",
   "manifest_batch_id": "hard_pdf_eval_slice_20260401",
   "notes": "Bounded hard-PDF evaluation slice for current PaperPipe ingest work. This v0 slice is intentionally limited to repo-grounded layout-heavy and table-heavy biomedical PDFs with saved fallback or section-quality signals. It does not yet include a frozen real scanned/image-based subset.",
   "documents": [
     {
       "document_id": "hard-pdf-001",
+      "case_id": "hard-pdf-001",
       "paper_id": "doi:10.1038/s43587-023-00403-3",
       "local_path": "/Users/jangseongjin/paperpipe/Library/hanssonBloodBiomarkersAlzheimers2023.pdf",
       "source_pdf_sha256": "d63b5f55e643a11f325d5517c96eb5f3654e4b8ddc85b36630ad65a56daf2e79",
@@ -21,6 +24,7 @@
     },
     {
       "document_id": "hard-pdf-002",
+      "case_id": "hard-pdf-002",
       "paper_id": "doi:10.1016/j.msard.2020.102547",
       "local_path": "/Users/jangseongjin/paperpipe/Library/benedictCognitiveImpairmentMultiple2020.pdf",
       "source_pdf_sha256": "b206c86119a80e37d4352b14684164d8110ba7900afec0e195b559bb28129d57",
@@ -37,6 +41,7 @@
     },
     {
       "document_id": "hard-pdf-003",
+      "case_id": "hard-pdf-003",
       "paper_id": "doi:10.1016/S1474-4422(21)00244-8",
       "local_path": "/Users/jangseongjin/paperpipe/Library/duboisClinicalDiagnosisAlzheimers2021.pdf",
       "source_pdf_sha256": "6bcfa9cc86b87a1ff4b7e96ddd74ce4bbdcd55208dbb6a07ed396f58c1aa6d72",
@@ -53,6 +58,7 @@
     },
     {
       "document_id": "hard-pdf-004",
+      "case_id": "hard-pdf-004",
       "paper_id": "doi:10.1038/s43587-022-00204-0",
       "local_path": "/Users/jangseongjin/paperpipe/Library/therriaultBiomarkerModelingAlzheimers2022.pdf",
       "source_pdf_sha256": "5ce299d5e353b96b0ddeebdab335865ae291d5cb652b7fd36a664a6e3d72c825",
@@ -69,6 +75,7 @@
     },
     {
       "document_id": "hard-pdf-005",
+      "case_id": "hard-pdf-005",
       "paper_id": "doi:10.1212/WNL.0000000000010174",
       "local_path": "/Users/jangseongjin/paperpipe/Library/craftSafetyEfficacyFeasibility2020.pdf",
       "source_pdf_sha256": "e8f950eecde8fb254e53ebb2c887f3868d63e1d148acedf38be74ab567d1f0cd",
@@ -85,6 +92,7 @@
     },
     {
       "document_id": "hard-pdf-006",
+      "case_id": "hard-pdf-006",
       "paper_id": "doi:10.1016/S1474-4422(16)00070-3",
       "local_path": "/Users/jangseongjin/paperpipe/Library/olssonCSFBloodBiomarkers2016.pdf",
       "source_pdf_sha256": "e4724196a299f5541f4229ef24e31bd231bbc9cdeb2a15642cb6f41947ce3e9e",

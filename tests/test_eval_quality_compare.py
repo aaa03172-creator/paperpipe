@@ -79,6 +79,17 @@ def test_quality_eval_metrics_and_compare_promotion(tmp_path: Path) -> None:
     )
 
     metrics = json.loads((run_root / "metrics.json").read_text(encoding="utf-8"))
+    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+    metadata = metrics["metadata"]
+
+    assert summary["metadata"] == metadata
+    assert metadata["schema_version"] == "eval_run_metadata.v1"
+    assert metadata["harness"] == "scripts/eval/run_eval.py"
+    assert metadata["run_id"] == "run_new"
+    assert metadata["mode"] == "quality"
+    assert metadata["payload_class"] == "local_only"
+    assert metadata["provider"] == "deterministic"
+    assert metadata["model"] is None
     assert metrics["total"] == 3
     assert metrics["schema_valid_rate"] == 2 / 3
     assert metrics["evidence_location_rate"] == 1 / 3

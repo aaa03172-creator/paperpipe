@@ -14,7 +14,7 @@ Reviewed on: 2026-05-14
 | P4-3 | `/feedback` and `/artifact-feedback` | Active API/logging surfaces | `backend/routers/feedback.py:51`, `backend/routers/artifact_feedback.py:22`, `backend/main.py:6089` | Do not remove |
 | P4-4 | `src/providers/*` wrappers | Compatibility import wrappers | `src/providers/*.py`, `src/downloader/providers/*` | Do not remove without deprecation |
 | P4-5 | Retraction audit path | Mostly manual/offline path; low internal reachability | `src/audit_retractions.py:12`, `src/retraction.py:7` | Needs operator confirmation |
-| P4-6 | Legacy `trial_extraction` alias | Active compatibility alias until 2026-06-30 | `src/config.py:163`, readiness script output | Do not remove before removal window |
+| P4-6 | Legacy `trial-extraction` alias | Active compatibility alias until 2026-06-30 | `src/config.py:163`, readiness script output | Do not remove before removal window |
 | P4-7 | Talk Pack API/export surface | Mounted bounded API with tests/docs; no first-party frontend route found | `backend/routers/talk_packs.py:19`, `tests/test_talk_packs_api.py`, `docs/TALK_PACK.md` | Do not remove yet |
 
 ## P4-1 `/api/chat`
@@ -146,28 +146,28 @@ Required manual verification before deletion:
 Suggested action:
 Keep as `Needs operator confirmation`; do not delete from repo-only evidence. If no operator workflow is found, next cleanup should archive/document `src/audit_retractions.py` separately from `src/retraction.py` and the schema/rendering support.
 
-## P4-6 Legacy `trial_extraction` Alias
+## P4-6 Legacy `trial-extraction` Alias
 
 Status: Do not remove before removal window
 
 Evidence:
-- `src/config.py:163` includes `clinical_extraction`, `specialty_trial_extraction`, and legacy `trial_extraction`.
-- `src/config.py:166` explicitly marks `trial_extraction` as backward-compatible.
-- `src/config.py:212` warns that `llm.features.trial_extraction` is deprecated and points to the scheduled removal date.
+- `src/config.py:163` includes `clinical_extraction`, `specialty_trial-extraction`, and legacy `trial-extraction`.
+- `src/config.py:166` explicitly marks `trial-extraction` as backward-compatible.
+- `src/config.py:212` warns that `llm.features.trial-extraction` is deprecated and points to the scheduled removal date.
 - `docs/Lattice_v3_Master_Spec.md` records 2026-06-30 as the target first-party alias removal date.
-- `tests/test_no_new_trial_extraction_alias.py` prevents spread outside the allowlist.
+- `tests/test_no_new_trial-extraction_alias.py` prevents spread outside the allowlist.
 
 Command results:
 
 ```sh
-python3 scripts/check_legacy_trial_extraction_alias.py --root .
+python3 scripts/check_legacy_trial-extraction_alias.py --root .
 ```
 
 Result:
 `offender_count=0`, `removal_date=2026-06-30`.
 
 ```sh
-python3 scripts/check_legacy_trial_extraction_removal_readiness.py --current-root .
+python3 scripts/check_legacy_trial-extraction_removal_readiness.py --current-root .
 ```
 
 Result:
@@ -240,16 +240,16 @@ rg -n "paper[-_ ]synthesis.*bundle|synthesis.*bundle|compatibility|compat" backe
 rg -n "feedback|review-log|review_log|review log" backend src frontend docs scripts tests -g '!node_modules'
 rg -n "src\\.providers|from src.providers|import src.providers|providers\\." backend src frontend docs scripts tests -g '!node_modules'
 rg -n "retraction|audit_retractions|Retraction" backend src frontend docs scripts tests -g '!node_modules'
-rg -n "trial_extraction|specialty_trial_extraction|legacy.*trial|clinical_extraction|specialty.*trial" backend src frontend docs scripts tests config* -g '!node_modules'
+rg -n "trial-extraction|specialty_trial-extraction|legacy.*trial|clinical_extraction|specialty.*trial" backend src frontend docs scripts tests config* -g '!node_modules'
 find . -maxdepth 3 \( -name '*cron*' -o -name '*launchd*' -o -name '*systemd*' -o -name '*automation*' -o -name '*.plist' -o -name '*.service' \) -print
 python3 scripts/check_paper_synthesis_bundle_route_usage.py --root .
 python3 scripts/check_paper_synthesis_bundle_route_removal_readiness.py
-python3 scripts/check_legacy_trial_extraction_alias.py --root .
-python3 scripts/check_legacy_trial_extraction_removal_readiness.py --current-root .
+python3 scripts/check_legacy_trial-extraction_alias.py --root .
+python3 scripts/check_legacy_trial-extraction_removal_readiness.py --current-root .
 ```
 
 Initial command correction:
-`python3 scripts/check_legacy_trial_extraction_removal_readiness.py --root .` failed because the script accepts `--current-root`, not `--root`. It was rerun successfully with `--current-root .`.
+`python3 scripts/check_legacy_trial-extraction_removal_readiness.py --root .` failed because the script accepts `--current-root`, not `--root`. It was rerun successfully with `--current-root .`.
 
 ## Cleanup Order Recommendation
 
@@ -258,5 +258,5 @@ Initial command correction:
 3. Keep the Paper Synthesis compatibility route until deployment/runtime logs, not only local repo scans, confirm no external callers.
 4. Keep `src/providers/*` until a deprecation window or external import check closes.
 5. Keep retraction audit as `Needs operator confirmation` until operator/manual usage is checked.
-6. Keep `trial_extraction` alias until at least 2026-06-30 and a fresh readiness check passes.
+6. Keep `trial-extraction` alias until at least 2026-06-30 and a fresh readiness check passes.
 7. Keep Talk Pack as `Do not remove yet`; it is a bounded API/export surface without a first-party frontend route, not a deletion candidate.

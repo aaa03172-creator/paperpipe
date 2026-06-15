@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from src.output_modes import OutputModeFamily, resolve_meeting_pack_output_mode_family
+from .cloud_paper import CloudPaperPayloadClass
 from .artifact_brief import ArtifactBrief, ArtifactPlanReview
 from .chat import ChatLocator
 
@@ -41,6 +42,7 @@ MeetingPackConsensusType = Literal[
     "cross_focus_majority_pattern",
 ]
 MeetingPackRetrievalOutcome = Literal["selected", "deduped", "resolved", "loaded"]
+MeetingPackCloudDerivedKind = Literal["ocr_text", "table", "figure", "figure_analysis"]
 
 
 class MeetingPackSourceSelector(BaseModel):
@@ -91,6 +93,67 @@ class MeetingPackReviewArtifact(BaseModel):
     partially_observed_count: int = Field(default=0, ge=0)
     replay_required: bool = True
     note: str | None = None
+
+
+class MeetingPackCloudDerivedContextItem(BaseModel):
+    context_id: str = Field(..., min_length=1)
+    candidate_id: str = Field(..., min_length=1)
+    kind: MeetingPackCloudDerivedKind
+    paper_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    text: str | None = None
+    source_page: int = Field(..., ge=1)
+    source_block_id: str | None = None
+    source_pdf_sha256: str = Field(..., min_length=64, max_length=64)
+    payload_class: CloudPaperPayloadClass = "local_only"
+    support_type: Literal["background"] = "background"
+    canonical_status: Literal["derived_noncanonical"] = "derived_noncanonical"
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    image_route: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_context_item(self):
+        self.context_id = self.context_id.strip()
+        self.candidate_id = self.candidate_id.strip()
+        self.paper_id = self.paper_id.strip()
+        self.run_id = self.run_id.strip()
+        self.title = self.title.strip()
+        self.text = self.text.strip() or None if self.text is not None else None
+        self.source_block_id = self.source_block_id.strip() or None if self.source_block_id is not None else None
+        self.source_pdf_sha256 = self.source_pdf_sha256.strip().lower()
+        self.image_route = self.image_route.strip() or None if self.image_route is not None else None
+        if self.image_route is not None and not self.image_route.startswith("/api/cloud/papers/"):
+            raise ValueError("image_route must be a same-origin cloud paper API route")
+        if self.evidence_refs:
+            raise ValueError("cloud-derived Meeting Pack context must not carry evidence refs")
+        return self
+
+
+class MeetingPackCloudDerivedContext(BaseModel):
+    schema_version: Literal["meeting_pack_cloud_derived_context.v1"] = "meeting_pack_cloud_derived_context.v1"
+    paper_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    source_pdf_sha256: str = Field(..., min_length=64, max_length=64)
+    readiness: Literal["background_only"] = "background_only"
+    payload_class: CloudPaperPayloadClass = "local_only"
+    items: list[MeetingPackCloudDerivedContextItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_context(self):
+        self.paper_id = self.paper_id.strip()
+        self.run_id = self.run_id.strip()
+        self.source_pdf_sha256 = self.source_pdf_sha256.strip().lower()
+        for item in self.items:
+            if item.paper_id != self.paper_id:
+                raise ValueError("item.paper_id must match context paper_id")
+            if item.run_id != self.run_id:
+                raise ValueError("item.run_id must match context run_id")
+            if item.source_pdf_sha256 != self.source_pdf_sha256:
+                raise ValueError("item source checksum must match context source_pdf_sha256")
+        return self
 
 
 class MeetingPackKeyPoint(BaseModel):

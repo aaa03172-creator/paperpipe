@@ -4,6 +4,15 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _is_truthy_assertion_value(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return False
+
+
 def check_retraction(doi: str, email: str = None) -> Dict[str, Any]:
     """
     Check if a paper is retracted using Crossref API.
@@ -63,7 +72,7 @@ def check_retraction(doi: str, email: str = None) -> Dict[str, Any]:
         # Check Assertions (Retraction Watch integration)
         assertions = item.get("assertions", [])
         for assertion in assertions:
-            if assertion.get("name") == "is-retracted" and assertion.get("value") is True:
+            if assertion.get("name") == "is-retracted" and _is_truthy_assertion_value(assertion.get("value")):
                 is_retracted = True
                 details.append("Retraction Watch: IS_RETRACTED")
                 break

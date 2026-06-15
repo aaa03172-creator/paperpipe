@@ -61,5 +61,33 @@ class TestProfileChat(unittest.TestCase):
         
         self.assertEqual(patch.target_profile_id, "test_profile") # Should be corrected
 
+    @patch("src.agents.profile_chat_agent.load_config")
+    @patch("src.agents.profile_chat_agent.OllamaModelAdapter")
+    def test_agent_strips_json_code_fence(self, MockAdapter, mock_load_config):
+        mock_load_config.return_value = unittest.mock.MagicMock(agents=None)
+        mock_instance = MockAdapter.return_value
+        mock_instance.generate.return_value.text = """
+        ```json
+        {
+            "target_profile_id": "test_profile",
+            "ops": [
+                {
+                    "op": "add",
+                    "path": "query.must",
+                    "value": "astrocyte",
+                    "rationale": "User asked for astrocyte"
+                }
+            ],
+            "meta": {}
+        }
+        ```
+        """
+
+        agent = ProfileChatAgent()
+        patch = agent.generate_patch(self.profile, "Add astrocyte")
+
+        self.assertEqual(patch.target_profile_id, "test_profile")
+        self.assertEqual(patch.ops[0].value, "astrocyte")
+
 if __name__ == '__main__':
     unittest.main()

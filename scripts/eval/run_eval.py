@@ -17,10 +17,39 @@ from src.quality.gates import (
     NO_EVIDENCE_SPAN,
     SCHEMA_INVALID,
 )
+from src.schemas.eval_harness import build_eval_run_metadata
 
 
 def _now_tag() -> str:
     return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+
+def _eval_run_metadata(
+    *,
+    run_id: str,
+    mode: str,
+    payload_class: str = "local_only",
+    eval_id: str | None = None,
+    case_ids: list[str] | None = None,
+    subset: str | None = None,
+) -> dict[str, Any]:
+    return build_eval_run_metadata(
+        harness="scripts/eval/run_eval.py",
+        run_id=run_id,
+        mode=mode,
+        payload_class=payload_class,
+        eval_id=eval_id,
+        case_ids=case_ids,
+        subset=subset,
+    ).model_dump(mode="json")
+
+
+def _manifest_case_id(row: dict[str, Any]) -> str:
+    for key in ("case_id", "run_key", "document_id", "paper_id"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _load_manifest(path: Path) -> dict:
@@ -205,10 +234,12 @@ def run_quality_eval(
     def _rate(value: int) -> float:
         return float(value) / float(total) if total else 0.0
 
+    metadata = _eval_run_metadata(run_id=resolved_run_id, mode="quality")
     metrics = {
         "schema_version": "quality_eval.v1",
         "run_id": resolved_run_id,
         "mode": "quality",
+        "metadata": metadata,
         "total": total,
         "missing_prediction_count": missing_prediction,
         "schema_valid_count": schema_pass,
@@ -232,6 +263,7 @@ def run_quality_eval(
             "run_id": resolved_run_id,
             "status": "ok",
             "mode": "quality",
+            "metadata": metadata,
             "counts": {
                 "eval_rows": total,
                 "missing_prediction": missing_prediction,
@@ -283,6 +315,9 @@ def run_eval(
     manifest = _load_manifest(manifest_path)
     queries = _load_queries(queries_path)
     documents = manifest.get("documents", [])
+    eval_id = str(manifest.get("eval_id") or "").strip() or None
+    subset = str(manifest.get("subset") or "").strip() or None
+    case_ids = [case_id for doc in documents if (case_id := _manifest_case_id(doc))]
 
     if not allow_empty_docs and not documents:
         raise RuntimeError("manifest.documents is empty; fill local PDF entries or pass --allow-empty-docs")
@@ -308,12 +343,20 @@ def run_eval(
             missing_local_paths.append({"document_id": doc.get("document_id"), "local_path": local_path})
 
     if missing_local_paths:
+        metadata = _eval_run_metadata(
+            run_id=resolved_run_id,
+            mode="snapshot",
+            eval_id=eval_id,
+            case_ids=case_ids,
+            subset=subset,
+        )
         _write_json(
             run_root / "summary.json",
             {
                 "run_id": resolved_run_id,
                 "status": "failed",
                 "reason": "missing_local_paths",
+                "metadata": metadata,
                 "missing_local_paths": missing_local_paths,
                 "queries_count": len(queries),
             },
@@ -359,12 +402,20 @@ def run_eval(
             },
         )
 
+    metadata = _eval_run_metadata(
+        run_id=resolved_run_id,
+        mode="snapshot",
+        eval_id=eval_id,
+        case_ids=case_ids,
+        subset=subset,
+    )
     _write_json(
         run_root / "summary.json",
         {
             "run_id": resolved_run_id,
             "status": "ok",
             "skeleton": False,
+            "metadata": metadata,
             "counts": {
                 "queries": len(queries),
                 "documents": len(documents),

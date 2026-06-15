@@ -7,12 +7,14 @@ patches only.
 
 import logging
 import json
+import re
 from src.agents.adapter import OllamaModelAdapter
 from src.profiles.profile_schema import Profile
 from src.profiles.patch_schema import PatchRequest
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
+_JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.IGNORECASE | re.DOTALL)
 
 PROFILE_PATCH_ASSISTANT_PROMPT = """You are a profile patch assistant for a biomedical research database.
 This helper is separate from the Deep Read reasoning persona system and should only produce search-profile edits.
@@ -70,6 +72,14 @@ class ProfileChatAgent:
         self.model_name = model_name or (self.config.agents.main_model if self.config.agents else "llama3:latest")
         self.adapter = OllamaModelAdapter(model_name=self.model_name)
 
+    @staticmethod
+    def _parse_patch_response(raw_text: str) -> dict:
+        text = str(raw_text or "").strip()
+        match = _JSON_FENCE_RE.match(text)
+        if match:
+            text = match.group(1).strip()
+        return json.loads(text)
+
     def generate_patch(self, profile: Profile, user_request: str) -> PatchRequest:
         """
         Generates a PatchRequest based on the user's chat input.
@@ -87,7 +97,7 @@ class ProfileChatAgent:
             response = self.adapter.generate(prompt, format="json", temperature=0.2)
             
             # Parse & Validate
-            data = json.loads(response.text)
+            data = self._parse_patch_response(response.text)
             patch = PatchRequest(**data)
             
             # Double check target ID
@@ -121,7 +131,7 @@ class ProfileChatAgent:
         try:
             # Re-use adapter
             response = self.adapter.generate(prompt, format="json", temperature=0.2)
-            data = json.loads(response.text)
+            data = self._parse_patch_response(response.text)
             patch = PatchRequest(**data)
             
             # Ensure ID match

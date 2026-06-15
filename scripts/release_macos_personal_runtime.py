@@ -25,10 +25,12 @@ DEFAULT_SUPPORT_DIR = DIST_DIR / "Lattice-support"
 @dataclass(frozen=True)
 class ReleasePaths:
     app_bundle: Path
+    launcher_bundle: Path
     cli_binary: Path
     support_dir: Path
     release_dir: Path
     zip_path: Path
+    launcher_zip_path: Path
     alpha_handoff_path: Path
     config_example_copy_path: Path
     manifest_path: Path
@@ -66,15 +68,29 @@ def resolve_release_mode(identity: str, notary_profile: str) -> tuple[bool, bool
     return sign_enabled, notarize_enabled
 
 
+def validate_gatekeeper_requirement(
+    *, require_gatekeeper: bool, sign_enabled: bool, notarize_enabled: bool
+) -> None:
+    if not require_gatekeeper:
+        return
+    if not sign_enabled or not notarize_enabled:
+        raise ValueError(
+            "Gatekeeper-ready release requires both --identity and --notary-profile. "
+            "Leave --require-gatekeeper unset for assisted alpha packages."
+        )
+
+
 def build_release_paths(root: Path, artifact_basename: str, release_dir: Path | None = None) -> ReleasePaths:
     dist_dir = root / "dist"
     resolved_release_dir = (release_dir or dist_dir / "release").resolve()
     return ReleasePaths(
         app_bundle=(dist_dir / "Lattice.app").resolve(),
+        launcher_bundle=(resolved_release_dir / "Lattice Launcher.app").resolve(),
         cli_binary=(dist_dir / "lattice").resolve(),
         support_dir=(dist_dir / "Lattice-support").resolve(),
         release_dir=resolved_release_dir,
         zip_path=(resolved_release_dir / f"{artifact_basename}.zip").resolve(),
+        launcher_zip_path=(resolved_release_dir / f"{artifact_basename}.launcher.zip").resolve(),
         alpha_handoff_path=(resolved_release_dir / f"{artifact_basename}.alpha-handoff.md").resolve(),
         config_example_copy_path=(resolved_release_dir / f"{artifact_basename}.config.example.yaml").resolve(),
         manifest_path=(resolved_release_dir / f"{artifact_basename}.manifest.json").resolve(),
@@ -146,12 +162,14 @@ def _is_valid_cli_binary(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-def _build_bundle(*, clean: bool, skip_frontend_build: bool) -> None:
+def _build_bundle(*, clean: bool, skip_frontend_build: bool, bundle_profile: str) -> None:
     cmd = [sys.executable, str(ROOT / "scripts" / "build_personal_runtime_bundle.py")]
     if skip_frontend_build:
         cmd.append("--skip-frontend-build")
     if clean:
         cmd.append("--clean")
+    if bundle_profile:
+        cmd.extend(["--bundle-profile", bundle_profile])
     _run(cmd, cwd=ROOT)
 
 
@@ -181,6 +199,8 @@ def _codesign(path: Path, identity: str, *, deep: bool) -> None:
 def _verify_codesign(paths: ReleasePaths) -> None:
     _run(["codesign", "--verify", "--strict", str(paths.cli_binary)])
     _run(["codesign", "--verify", "--deep", "--strict", str(paths.app_bundle)])
+    if paths.launcher_bundle.exists():
+        _run(["codesign", "--verify", "--deep", "--strict", str(paths.launcher_bundle)])
 
 
 def _package_zip(app_bundle: Path, zip_path: Path) -> None:
@@ -201,6 +221,25 @@ def _package_zip(app_bundle: Path, zip_path: Path) -> None:
     )
 
 
+def _build_launcher_bundle(paths: ReleasePaths, *, identity: str) -> None:
+    if paths.launcher_bundle.exists():
+        shutil.rmtree(paths.launcher_bundle)
+    _run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "install_macos_lattice_launcher.py"),
+            "--app-bundle",
+            "/Applications/Lattice.app",
+            "--launcher-bundle",
+            str(paths.launcher_bundle),
+            "--skip-app-validation",
+        ],
+        cwd=ROOT,
+    )
+    _codesign(paths.launcher_bundle, identity or "-", deep=True)
+    _package_zip(paths.launcher_bundle, paths.launcher_zip_path)
+
+
 def _copy_handoff_files(paths: ReleasePaths, artifact_basename: str) -> None:
     shutil.copy2(ROOT / "config.example.yaml", paths.config_example_copy_path)
 
@@ -212,6 +251,7 @@ Artifact: `{artifact_basename}`
 ## What is included
 
 - app bundle: `{paths.app_bundle.name}`
+- optional icon launcher: `{paths.launcher_bundle.name}` and `{paths.launcher_zip_path.name}` when included in an assisted alpha release
 - signed/notarized release zip: `{paths.zip_path.name}` if the maintainer completed the Gatekeeper-ready path
 - local alpha config template: `{paths.config_example_copy_path.name}`
 
@@ -238,6 +278,11 @@ Artifact: `{artifact_basename}`
    `~/Library/Application Support/Lattice/config/config.yaml`
 4. Edit that `config.yaml` with your real Obsidian and Zotero paths.
 5. Launch the app.
+
+For the native-like assisted alpha flow, also unzip `{paths.launcher_zip_path.name}` and move
+`Lattice Launcher.app` into `/Applications`. Launch the app from that icon; it starts
+`/Applications/Lattice.app`, reuses an already-running server when available, writes launcher
+logs to `~/Library/Logs/Lattice/launcher.log`, and opens `/ui`.
 
 ## If macOS warns on first open
 
@@ -473,12 +518,20 @@ def _write_manifest(
     notary_profile: str,
     gatekeeper_output: str | None,
     notary_payload: dict[str, object] | None,
+    include_launcher: bool,
 ) -> None:
+    def manifest_path_value(path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return str(resolved.relative_to(ROOT.resolve()))
+        except ValueError:
+            return resolved.name
+
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "artifact_basename": artifact_basename,
         "paths": {
-            key: str(value)
+            key: manifest_path_value(value)
             for key, value in asdict(paths).items()
         },
         "signing": {
@@ -491,9 +544,16 @@ def _write_manifest(
             "submit_result": notary_payload,
         },
         "gatekeeper_assessment": gatekeeper_output,
+        "launcher": {
+            "included": include_launcher,
+            "bundle": manifest_path_value(paths.launcher_bundle) if include_launcher else None,
+            "zip": manifest_path_value(paths.launcher_zip_path) if include_launcher else None,
+            "assisted_alpha_only": include_launcher,
+        },
         "hashes": {
             "cli_binary_sha256": _sha256(paths.cli_binary),
             "release_zip_sha256": _sha256(paths.zip_path),
+            "launcher_zip_sha256": _sha256(paths.launcher_zip_path) if include_launcher else None,
         },
     }
     paths.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -522,6 +582,15 @@ def main() -> int:
         help="When used with --build, reuse the existing frontend/dist output.",
     )
     parser.add_argument(
+        "--bundle-profile",
+        default=os.getenv("PAPERPIPE_BUNDLE_PROFILE", "full"),
+        choices=["cloud-ui", "full"],
+        help=(
+            "When used with --build, pass the PyInstaller dependency profile to the bundle builder. "
+            "Use `cloud-ui` for a slimmer cloud-backed demo app."
+        ),
+    )
+    parser.add_argument(
         "--identity",
         default=os.getenv("PAPERPIPE_MACOS_SIGN_IDENTITY", ""),
         help=(
@@ -548,6 +617,23 @@ def main() -> int:
         help="Base filename for the release zip and manifest.",
     )
     parser.add_argument(
+        "--require-gatekeeper",
+        action="store_true",
+        help=(
+            "Fail unless this release is going through the Developer ID signing, notarization, stapling, "
+            "and Gatekeeper assessment path. Use this for public distribution attempts, not assisted alpha."
+        ),
+    )
+    parser.add_argument(
+        "--include-launcher",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include an assisted-alpha Lattice Launcher.app artifact next to the main release zip. "
+            "Defaults to true for assisted alpha releases and false for --require-gatekeeper releases."
+        ),
+    )
+    parser.add_argument(
         "--check-prereqs",
         action="store_true",
         help="Only inspect release prerequisites and print a JSON readiness report.",
@@ -557,7 +643,23 @@ def main() -> int:
     if sys.platform != "darwin":
         raise SystemExit("This release script is macOS-only.")
 
-    sign_enabled, notarize_enabled = resolve_release_mode(args.identity, args.notary_profile)
+    try:
+        sign_enabled, notarize_enabled = resolve_release_mode(args.identity, args.notary_profile)
+        validate_gatekeeper_requirement(
+            require_gatekeeper=args.require_gatekeeper,
+            sign_enabled=sign_enabled,
+            notarize_enabled=notarize_enabled,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    include_launcher = args.include_launcher
+    if include_launcher is None:
+        include_launcher = not args.require_gatekeeper
+    if include_launcher and args.require_gatekeeper:
+        raise SystemExit(
+            "The assisted-alpha launcher is not part of the Gatekeeper-ready release path. "
+            "Use --no-include-launcher with --require-gatekeeper."
+        )
     paths = build_release_paths(ROOT, args.artifact_basename, Path(args.release_dir))
 
     if args.check_prereqs:
@@ -577,18 +679,25 @@ def main() -> int:
         _require_tool("spctl")
 
     if args.build:
-        _build_bundle(clean=args.clean, skip_frontend_build=args.skip_frontend_build)
+        _build_bundle(
+            clean=args.clean,
+            skip_frontend_build=args.skip_frontend_build,
+            bundle_profile=args.bundle_profile,
+        )
 
     _ensure_artifacts_exist(paths)
     paths.release_dir.mkdir(parents=True, exist_ok=True)
-    _copy_handoff_files(paths, args.artifact_basename)
 
     if sign_enabled:
         _codesign(paths.cli_binary, args.identity, deep=False)
         _codesign(paths.app_bundle, args.identity, deep=True)
 
+    if include_launcher:
+        _build_launcher_bundle(paths, identity=args.identity)
+
     _verify_codesign(paths)
     _package_zip(paths.app_bundle, paths.zip_path)
+    _copy_handoff_files(paths, args.artifact_basename)
 
     gatekeeper_output: str | None = None
     notary_payload: dict[str, object] | None = None
@@ -620,15 +729,18 @@ def main() -> int:
         notary_profile=args.notary_profile,
         gatekeeper_output=gatekeeper_output,
         notary_payload=notary_payload,
+        include_launcher=include_launcher,
     )
 
     summary = {
-        "app_bundle": str(paths.app_bundle),
-        "cli_binary": str(paths.cli_binary),
-        "release_zip": str(paths.zip_path),
-        "alpha_handoff_note": str(paths.alpha_handoff_path),
-        "config_example_copy": str(paths.config_example_copy_path),
-        "manifest": str(paths.manifest_path),
+        "app_bundle": str(paths.app_bundle.relative_to(ROOT)),
+        "cli_binary": str(paths.cli_binary.relative_to(ROOT)),
+        "release_zip": str(paths.zip_path.relative_to(ROOT)),
+        "launcher_bundle": str(paths.launcher_bundle.relative_to(ROOT)) if include_launcher else None,
+        "launcher_zip": str(paths.launcher_zip_path.relative_to(ROOT)) if include_launcher else None,
+        "alpha_handoff_note": str(paths.alpha_handoff_path.relative_to(ROOT)),
+        "config_example_copy": str(paths.config_example_copy_path.relative_to(ROOT)),
+        "manifest": str(paths.manifest_path.relative_to(ROOT)),
         "signed": sign_enabled,
         "notarized": notarize_enabled,
         "gatekeeper_assessment": gatekeeper_output,

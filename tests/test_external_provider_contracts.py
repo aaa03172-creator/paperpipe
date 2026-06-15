@@ -8,10 +8,11 @@ from src.downloader.providers.unpaywall import fetch_unpaywall_candidate
 from src.fetch.arxiv import ArXivFetcher
 from src.fetch.openalex import OpenAlexFetcher
 from src.fetch.pubmed import PubMedFetcher
+import src.fetchers as legacy_fetchers
 
 
 def _pubmed_fetcher() -> PubMedFetcher:
-    return PubMedFetcher(SimpleNamespace())
+    return PubMedFetcher(SimpleNamespace(system=SimpleNamespace(unpaywall_email=None)))
 
 
 def _arxiv_fetcher(*, backfill_limit_days: int = 7) -> ArXivFetcher:
@@ -145,6 +146,104 @@ def test_pubmed_fetcher_returns_empty_list_for_malformed_efetch_xml(monkeypatch,
     assert "Critical Error in PubMedFetcher" in caplog.text
 
 
+def test_pubmed_fetcher_esearch_keeps_special_characters_in_term_param(monkeypatch):
+    fetcher = PubMedFetcher(SimpleNamespace(system=SimpleNamespace(unpaywall_email="ops@example.org")))
+    captured: dict[str, object] = {}
+
+    def fake_get(url: str, *, params: dict[str, object], timeout: int):
+        captured["url"] = url
+        captured["params"] = params
+        captured["timeout"] = timeout
+        return _Response(payload={"esearchresult": {"idlist": ["123"]}})
+
+    monkeypatch.setattr("src.fetch.pubmed.requests.get", fake_get)
+
+    ids = fetcher._esearch("TGF-beta & Smad #signal", max_results=7)
+
+    assert ids == ["123"]
+    assert captured["url"] == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    assert captured["params"] == {
+        "db": "pubmed",
+        "tool": "paperpipe",
+        "email": "ops@example.org",
+        "term": "TGF-beta & Smad #signal",
+        "retmode": "json",
+        "retmax": 7,
+        "sort": "date",
+    }
+    assert captured["timeout"] == 10
+
+
+def test_legacy_pubmed_esearch_keeps_special_characters_in_term_param(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_get(url: str, *, params: dict[str, object], timeout: int):
+        captured["url"] = url
+        captured["params"] = params
+        captured["timeout"] = timeout
+        return _Response(payload={"esearchresult": {"idlist": ["456"]}})
+
+    monkeypatch.setattr("src.fetch.pubmed.requests.get", fake_get)
+
+    with pytest.warns(DeprecationWarning, match="src.fetchers is deprecated"):
+        ids = legacy_fetchers._esearch_pubmed("R&D TGF-beta & Smad", max_results=3)
+
+    assert ids == ["456"]
+    assert captured["url"] == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    assert captured["params"] == {
+        "db": "pubmed",
+        "tool": "paperpipe",
+        "term": "R&D TGF-beta & Smad",
+        "retmode": "json",
+        "retmax": 3,
+        "sort": "date",
+    }
+    assert captured["timeout"] == 10
+
+
+def test_pubmed_fetcher_efetch_uses_params_and_contact_metadata(monkeypatch):
+    fetcher = PubMedFetcher(SimpleNamespace(system=SimpleNamespace(unpaywall_email="ops@example.org")))
+    captured: dict[str, object] = {}
+
+    def fake_get(url: str, *, params: dict[str, object], timeout: int):
+        captured["url"] = url
+        captured["params"] = params
+        captured["timeout"] = timeout
+        response = _Response()
+        response.content = b"<PubmedArticleSet />"
+        return response
+
+    monkeypatch.setattr("src.fetch.pubmed.requests.get", fake_get)
+
+    assert fetcher._efetch(["123", "456"]) == b"<PubmedArticleSet />"
+    assert captured["url"] == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    assert captured["params"] == {
+        "db": "pubmed",
+        "tool": "paperpipe",
+        "email": "ops@example.org",
+        "id": "123,456",
+        "retmode": "xml",
+    }
+    assert captured["timeout"] == 15
+
+
+def test_pubmed_fetcher_chunks_efetch_requests(monkeypatch):
+    fetcher = _pubmed_fetcher()
+    ids = [str(idx) for idx in range(205)]
+    chunks: list[list[str]] = []
+
+    monkeypatch.setattr(fetcher, "_esearch", lambda _query, _max_results: ids)
+
+    def fake_efetch(id_chunk: list[str]):
+        chunks.append(id_chunk)
+        return b"<PubmedArticleSet />"
+
+    monkeypatch.setattr(fetcher, "_efetch", fake_efetch)
+
+    assert fetcher.fetch("large", max_results=205) == []
+    assert [len(chunk) for chunk in chunks] == [100, 100, 5]
+
+
 def test_unpaywall_candidate_preserves_best_location_contract(monkeypatch):
     captured_urls: list[str] = []
 
@@ -234,7 +333,7 @@ def test_arxiv_fetcher_parses_recent_atom_entry_contract(monkeypatch):
     assert len(papers) == 1
     paper = papers[0]
     assert paper.id == "2401.01234v2"
-    assert paper.doi == "2401.01234v2"
+    assert paper.doi is None
     assert paper.title == "Contract study for arXiv retrieval"
     assert paper.authors == ["Ada Lovelace", "Grace Hopper"]
     assert paper.link == "https://arxiv.org/abs/2401.01234v2"

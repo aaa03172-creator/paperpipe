@@ -180,6 +180,96 @@ def test_macos_personal_runtime_local_proof_wrapper_uses_resolved_python_and_pac
     assert '"${ROOT_DIR}/.venv/bin/python"' not in content
 
 
+def test_macos_launcher_defaults_to_gcs_cloud_demo_entry() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    launcher_script = (repo_root / "scripts" / "install_macos_lattice_launcher.py").read_text(encoding="utf-8")
+    native_launcher = (repo_root / "packaging" / "macos" / "LatticeNativeLauncher.swift").read_text(encoding="utf-8")
+
+    assert 'PAPERPIPE_CLOUD_ADAPTER="gcs"' in launcher_script
+    assert 'PAPERPIPE_CLOUD_METADATA_STORE="firestore"' in launcher_script
+    assert 'PAPERPIPE_DEMO_EXPECTED_PAPER_ID="cloudpdf_lab_001_fe476330a3bd"' in launcher_script
+    assert 'PAPERPIPE_DEMO_SEARCH_QUERY="amyloid"' in launcher_script
+    assert 'LATTICE_START_PATH="/ui/papers/cloudpdf_lab_001_fe476330a3bd?source=cloud"' in launcher_script
+    assert 'URL="http://127.0.0.1:${{PORT}}${{START_PATH}}"' in launcher_script
+
+    assert 'environment["PAPERPIPE_CLOUD_ADAPTER"] = "gcs"' in native_launcher
+    assert 'environment["PAPERPIPE_CLOUD_METADATA_STORE"] = "firestore"' in native_launcher
+    assert 'environment["PAPERPIPE_DEMO_EXPECTED_PAPER_ID"] = "cloudpdf_lab_001_fe476330a3bd"' in native_launcher
+    assert 'environment["PAPERPIPE_DEMO_SEARCH_QUERY"] = "amyloid"' in native_launcher
+    assert '"/ui/papers/\\(demoPaperID)?source=cloud"' in native_launcher
+    assert 'bundledEnvURL: Bundle.main.resourceURL?.appendingPathComponent("submission-demo.env")' in native_launcher
+    assert "parseEnvFile(paths.bundledEnvURL)" in native_launcher
+
+
+def test_macos_cloud_demo_proof_checks_real_gcs_page_text() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "scripts" / "run_macos_personal_runtime_cloud_demo_proof.sh").read_text(encoding="utf-8")
+
+    assert 'SEARCH_QUERY="${PAPERPIPE_DEMO_SEARCH_QUERY:-amyloid}"' in content
+    assert 'EXPECTED_PAGE_TEXT="${PAPERPIPE_DEMO_EXPECTED_PAGE_TEXT:-More than 50 million people worldwide}"' in content
+    assert 'LATTICE_START_PATH="/ui/papers/${EXPECTED_PAPER_ID}?source=cloud"' in content
+    assert 'CLOUD_PAGE_STATUS="$(curl -sS -o /tmp/lattice-cloud-demo-proof-page.json' in content
+    assert 'Expected cloud page response to include real extracted text' in content
+    assert 'cloud_page_status=${CLOUD_PAGE_STATUS}' in content
+
+
+def test_macos_submission_demo_copy_embeds_offline_env_and_snapshot() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "build_macos_submission_demo_copy.py").read_text(encoding="utf-8")
+    spec = (repo_root / "packaging" / "pyinstaller" / "lattice.spec").read_text(encoding="utf-8")
+
+    assert "PAPERPIPE_SUBMISSION_DEMO_BUNDLE=1" in script
+    assert "PAPERPIPE_CLOUD_ADAPTER=mock" in script
+    assert "PAPERPIPE_CLOUD_METADATA_STORE=memory" in script
+    assert "PAPERPIPE_CLOUD_DOWNSTREAM_REGISTRY_STORE=memory" in script
+    assert "submission-demo.env" in script
+    assert "submission_demo" in script
+    assert 'codesign", "--force", "--deep", "--sign", "-"' in script
+    assert '_collect_tree(submission_demo_root, "submission_demo")' in spec
+
+
+def test_windows_submission_demo_package_embeds_offline_env_and_launcher() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "build_windows_submission_demo_package.py").read_text(encoding="utf-8")
+    powershell = (repo_root / "packaging" / "windows_submission_handoff" / "Start-Lattice-Demo.ps1").read_text(
+        encoding="utf-8"
+    )
+    cmd = (repo_root / "packaging" / "windows_submission_handoff" / "Start Lattice Demo.cmd").read_text(
+        encoding="utf-8"
+    )
+    readme = (repo_root / "packaging" / "windows_submission_handoff" / "README_FIRST.txt").read_text(
+        encoding="utf-8"
+    )
+    workflow = (repo_root / ".github" / "workflows" / "windows-submission-demo.yml").read_text(encoding="utf-8")
+    launcher_program = (repo_root / "packaging" / "windows" / "LatticeNativeLauncher" / "Program.cs").read_text(
+        encoding="utf-8"
+    )
+    launcher_project = (
+        repo_root / "packaging" / "windows" / "LatticeNativeLauncher" / "LatticeNativeLauncher.csproj"
+    ).read_text(encoding="utf-8")
+
+    assert "LatticeRuntime.exe" in script
+    assert "Lattice.exe" in script
+    assert "Lattice-Windows-Contest-Submission.zip" in script
+    assert "PAPERPIPE_SUBMISSION_DEMO_BUNDLE=1" in script
+    assert "PAPERPIPE_CLOUD_ADAPTER=mock" in script
+    assert "submission_demo" in script
+    assert "--build-exe must run on a Windows host." in script
+    assert '$env:PAPERPIPE_SUBMISSION_DEMO_BUNDLE = "1"' in powershell
+    assert '$env:PAPERPIPE_CLOUD_ADAPTER = "mock"' in powershell
+    assert '$env:PAPERPIPE_SUBMISSION_DEMO_BUNDLE_DIR = Join-Path $Root "submission_demo"' in powershell
+    assert "& $NativeExe" in powershell
+    assert "& $FallbackExe start --host 127.0.0.1 --port 8046" in powershell
+    assert "ExecutionPolicy Bypass" in cmd
+    assert "does not require Google Cloud sign-in" in readme
+    assert "A Lattice desktop window opens." in readme
+    assert "dotnet publish packaging/windows/LatticeNativeLauncher/LatticeNativeLauncher.csproj" in workflow
+    assert "Smoke submission package" in workflow
+    assert "Microsoft.Web.WebView2" in launcher_project
+    assert 'Path.Combine(_rootDir, "LatticeRuntime.exe")' in launcher_program
+    assert "WebView2" in launcher_program
+
+
 def test_macos_personal_runtime_gatekeeper_prereq_wrapper_uses_resolved_python_and_release_check() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "scripts" / "run_macos_personal_runtime_gatekeeper_prereqs.sh"

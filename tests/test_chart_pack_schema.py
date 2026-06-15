@@ -53,7 +53,7 @@ def test_chart_template_registry_matches_expected_allowlist() -> None:
         "table_numeric_bar",
         "table_numeric_line",
     ]
-    assert CHART_TEMPLATE_MAP["table_numeric_line"].supported_source_kinds == ["document_table"]
+    assert CHART_TEMPLATE_MAP["table_numeric_line"].supported_source_kinds == ["document_table", "cloud_derived_table"]
 
 
 def test_chart_pack_request_accepts_explicit_chart_source_refs() -> None:
@@ -82,6 +82,11 @@ def test_chart_pack_request_accepts_explicit_chart_source_refs() -> None:
 def test_document_table_source_ref_requires_table_id() -> None:
     with pytest.raises(ValidationError):
         ChartSourceRef(source_kind="document_table", paper_id="paper-001", run_id="run-001")
+
+
+def test_cloud_derived_table_source_ref_requires_table_id() -> None:
+    with pytest.raises(ValidationError):
+        ChartSourceRef(source_kind="cloud_derived_table", paper_id="paper-001", run_id="run-001")
 
 
 def test_stats_report_source_ref_rejects_table_id() -> None:

@@ -1,6 +1,7 @@
 import feedparser
 import urllib.parse
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import List
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -11,6 +12,7 @@ from src.schemas import Paper
 from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
+_PUBMED_FIELD_TAG_RE = re.compile(r"\[[^\]]+\]")
 
 # Retry Configuration
 RETRY_CONFIG = {
@@ -23,6 +25,30 @@ class ArXivFetcher(BaseFetcher):
     @property
     def source_name(self) -> str:
         return "ArXiv"
+
+    @staticmethod
+    def _entry_value(entry, key: str):
+        if isinstance(entry, dict):
+            return entry.get(key)
+        if hasattr(entry, "get"):
+            try:
+                return entry.get(key)
+            except Exception:
+                pass
+        return getattr(entry, key, None)
+
+    @classmethod
+    def _entry_doi(cls, entry) -> str | None:
+        for key in ("arxiv_doi", "doi"):
+            value = cls._entry_value(entry, key)
+            if value:
+                return str(value).strip() or None
+        return None
+
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        normalized = _PUBMED_FIELD_TAG_RE.sub("", str(query or ""))
+        return " ".join(normalized.split())
 
     @retry(**RETRY_CONFIG)
     def fetch(self, query: str, max_results: int) -> List[Paper]:
@@ -42,7 +68,7 @@ class ArXivFetcher(BaseFetcher):
         # But for MVP, let's assume we pass it as `search_query=all:{query}` or just `search_query={query}` if it has fields.
         
         # Let's try to just urlencode the raw query.
-        encoded_query = urllib.parse.quote(query)
+        encoded_query = urllib.parse.quote(self._normalize_query(query))
         
         url = f"http://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
         
@@ -57,7 +83,11 @@ class ArXivFetcher(BaseFetcher):
                 # 날짜 필터링 (최근 7일 이내만 & Backfill day limit check?)
                 # We should use config.system.backfill_limit_days
                 limit_days = self.config.system.backfill_limit_days
-                published = datetime(*entry.published_parsed[:6])
+                published_parsed = self._entry_value(entry, "published_parsed")
+                if not published_parsed:
+                    logger.warning("Skipping ArXiv entry with missing published_parsed")
+                    continue
+                published = datetime(*published_parsed[:6])
                 
                 if datetime.now() - published > timedelta(days=limit_days):
                     continue
@@ -67,7 +97,7 @@ class ArXivFetcher(BaseFetcher):
 
                 papers.append(Paper(
                     id=arxiv_id,
-                    doi=arxiv_id, # ArXiv doesn't always have DOI, use ID
+                    doi=self._entry_doi(entry),
                     title=entry.title.replace("\n", " "),
                     authors=[a.name for a in entry.authors],
                     link=entry.link,

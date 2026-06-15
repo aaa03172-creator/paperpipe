@@ -91,7 +91,7 @@ _REVIEW_TOPIC_SIGNALS: tuple[_TopicSignalDef, ...] = (
     _TopicSignalDef(
         key="ethics_governance",
         label="Ethics, governance, and operational adoption",
-        keywords=("ethic", "consent", "privacy", "federated", "workforce", "training"),
+        keywords=("ethic", "consent", "privacy", "federated", "workforce", "workforce training"),
     ),
 )
 
@@ -104,10 +104,16 @@ def build_claimset_coverage_sidecar(
     index_artifact: IndexArtifact,
     resolved_claimset: ClaimSet,
     figure_captions: FigureCaptionSidecar | None = None,
+    doc_id: str | None = None,
 ) -> ClaimsetCoverageSidecar:
     sections = list(iter_text_sections(document_artifact))
     page_count = _document_page_count(document_artifact, sections)
-    chunk_page_by_id = {chunk.chunk_id: chunk.page_hint for chunk in index_artifact.chunks if chunk.page_hint}
+    chunk_page_by_id = {
+        chunk.chunk_id: page_hint
+        for chunk in index_artifact.chunks
+        for page_hint in [_chunk_page_hint(chunk)]
+        if page_hint
+    }
     covered_pages = sorted(
         {
             page
@@ -188,7 +194,7 @@ def build_claimset_coverage_sidecar(
     status, reason_codes = _coverage_status(metrics)
     return ClaimsetCoverageSidecar(
         paper_id=paper_id,
-        doc_id=get_artifact_header(document_artifact).doc_id,
+        doc_id=(doc_id or get_artifact_header(document_artifact).doc_id),
         run_id=run_id,
         source_artifacts=_source_artifacts(figure_captions),
         generated_at=datetime.now(timezone.utc),
@@ -225,6 +231,18 @@ def _span_page_1_indexed(span: Any, chunk_page_by_id: dict[str, int]) -> int | N
     chunk_id = str(span.chunk_id or "")
     page_hint = chunk_page_by_id.get(chunk_id)
     return page_hint if isinstance(page_hint, int) and page_hint > 0 else None
+
+
+def _chunk_page_hint(chunk: Any) -> int | None:
+    page_hint = getattr(chunk, "page_hint", None)
+    if isinstance(page_hint, int) and page_hint > 0:
+        return page_hint
+    section_name = str(getattr(chunk, "section_name", "") or "").strip()
+    match = re.fullmatch(r"page_(\d+)", section_name, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    parsed = int(match.group(1))
+    return parsed if parsed > 0 else None
 
 
 def _normalize_section_name(value: object) -> str:

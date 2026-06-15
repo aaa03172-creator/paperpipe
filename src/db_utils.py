@@ -2,8 +2,9 @@ import sqlite3
 import json
 import logging
 import os
+import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Callable, List, Dict, Any, Optional, TypeVar
 from datetime import datetime, timedelta
 from src.services.runtime_paths import state_db_path
 from src.services.identity import normalize_doi
@@ -11,9 +12,15 @@ from src.services.identity import normalize_doi
 logger = logging.getLogger(__name__)
 
 DB_PATH = state_db_path()
+SQLITE_TIMEOUT_SECONDS = 30.0
+SQLITE_BUSY_TIMEOUT_MS = int(SQLITE_TIMEOUT_SECONDS * 1000)
+SQLITE_LOCK_RETRY_ATTEMPTS = 3
+SQLITE_LOCK_RETRY_BASE_SECONDS = 0.05
+ZOTERO_SYNC_COMMIT_BATCH_SIZE = 50
 _IMPORTED_DB_PATH = Path(DB_PATH)
 _ENV_DERIVED_DB_PATH: Path | None = None
 _DOI_UNSET = object()
+_T = TypeVar("_T")
 
 
 def _normalized_doi_or_none(value: Any) -> str | None:
@@ -21,6 +28,62 @@ def _normalized_doi_or_none(value: Any) -> str | None:
     if normalized.startswith("10.") and "/" in normalized:
         return normalized
     return None
+
+
+def _configure_connection(conn: sqlite3.Connection) -> None:
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _is_sqlite_lock_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    if "database is locked" in message or "database is busy" in message:
+        return True
+    return getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_BUSY
+
+
+def _with_sqlite_lock_retry(operation: Callable[[], _T], *, operation_name: str) -> _T:
+    for attempt in range(1, SQLITE_LOCK_RETRY_ATTEMPTS + 1):
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_error(exc):
+                raise
+            if attempt >= SQLITE_LOCK_RETRY_ATTEMPTS:
+                logger.error(
+                    "SQLite lock persisted during %s after %d attempts: %s",
+                    operation_name,
+                    attempt,
+                    exc,
+                )
+                raise
+            delay = SQLITE_LOCK_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "SQLite lock during %s; retrying in %.2fs (%d/%d): %s",
+                operation_name,
+                delay,
+                attempt,
+                SQLITE_LOCK_RETRY_ATTEMPTS,
+                exc,
+            )
+            time.sleep(delay)
+    raise RuntimeError(f"SQLite lock retry exhausted unexpectedly during {operation_name}")
+
+
+def _execute_with_lock_retry(
+    cursor: sqlite3.Cursor,
+    sql: str,
+    params: tuple[Any, ...] | list[Any] | None = None,
+    *,
+    operation_name: str,
+) -> sqlite3.Cursor:
+    if params is None:
+        return _with_sqlite_lock_retry(lambda: cursor.execute(sql), operation_name=operation_name)
+    return _with_sqlite_lock_retry(lambda: cursor.execute(sql, params), operation_name=operation_name)
+
+
+def _commit_with_lock_retry(conn: sqlite3.Connection, *, operation_name: str) -> None:
+    _with_sqlite_lock_retry(conn.commit, operation_name=operation_name)
 
 
 def get_db_path() -> Path:
@@ -104,12 +167,12 @@ def init_db():
     """Initialize runtime tables and apply lightweight compatibility migrations."""
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=SQLITE_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
+    _configure_connection(conn)
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.execute("PRAGMA foreign_keys=ON")
 
     # Jobs Table (Phase 3)
     cursor.execute("""
@@ -272,15 +335,15 @@ def init_db():
         # review_queue may not exist in minimal test/local schemas.
         pass
     
-    conn.commit()
+    _commit_with_lock_retry(conn, operation_name="init_db")
     conn.close()
 
 def get_db_connection():
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=SQLITE_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
+    _configure_connection(conn)
     return conn
 
 
@@ -340,6 +403,7 @@ def save_paper_state(
     doi: Any = _DOI_UNSET,
     pdf_status: Optional[str] = None,
     local_pdf_path: Optional[str | Path] = None,
+    ris_path: Optional[str | Path] = None,
     feedback_json: Optional[str] = None,
     download_attempts: Optional[List[Dict[str, Any]]] = None,
     status: Optional[str] = None,
@@ -379,13 +443,21 @@ def save_paper_state(
 
         if "paper_id" in columns and "doi" in columns and doi_value:
             cursor.execute(
-                "SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL AND paper_id <> ?",
-                (identifier,),
+                "SELECT paper_id FROM papers WHERE doi = ? AND paper_id <> ? LIMIT 1",
+                (doi_value, identifier),
             )
-            for existing in cursor.fetchall():
-                if normalize_doi(str(existing["doi"] or "")) == doi_value and existing["paper_id"]:
-                    identifier = str(existing["paper_id"])
-                    break
+            exact = cursor.fetchone()
+            if exact and exact["paper_id"]:
+                identifier = str(exact["paper_id"])
+            else:
+                cursor.execute(
+                    "SELECT paper_id, doi FROM papers WHERE doi IS NOT NULL AND paper_id <> ?",
+                    (identifier,),
+                )
+                for existing in cursor.fetchall():
+                    if normalize_doi(str(existing["doi"] or "")) == doi_value and existing["paper_id"]:
+                        identifier = str(existing["paper_id"])
+                        break
 
         if "paper_id" in columns:
             insert_cols.append("paper_id")
@@ -434,6 +506,10 @@ def save_paper_state(
             insert_cols.append("pdf_status")
             insert_vals.append(str(pdf_status))
             update_set.append("pdf_status=excluded.pdf_status")
+        if "ris_path" in columns and ris_path is not None:
+            insert_cols.append("ris_path")
+            insert_vals.append(str(ris_path))
+            update_set.append("ris_path=excluded.ris_path")
         if "feedback_json" in columns and feedback_json is not None:
             insert_cols.append("feedback_json")
             insert_vals.append(feedback_json)
@@ -458,15 +534,26 @@ def save_paper_state(
                 f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders}) "
                 f"ON CONFLICT({conflict_target}) DO UPDATE SET {', '.join(update_set)}"
             )
-            cursor.execute(sql, tuple(insert_vals))
+            _execute_with_lock_retry(
+                cursor,
+                sql,
+                tuple(insert_vals),
+                operation_name="save_paper_state upsert",
+            )
         else:
             sql = f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})"
-            cursor.execute(sql, tuple(insert_vals))
+            _execute_with_lock_retry(
+                cursor,
+                sql,
+                tuple(insert_vals),
+                operation_name="save_paper_state insert",
+            )
 
-        conn.commit()
+        _commit_with_lock_retry(conn, operation_name="save_paper_state commit")
     except sqlite3.OperationalError as exc:
         conn.rollback()
-        logger.warning("Failed to save paper state for %s: %s", identifier, exc)
+        log_method = logger.error if _is_sqlite_lock_error(exc) else logger.warning
+        log_method("Failed to save paper state for %s: %s", identifier, exc)
     finally:
         conn.close()
 
@@ -546,11 +633,13 @@ def update_reading_status(identifier: str, reading_status: str) -> bool:
         if "reading_status" not in columns or not conditions:
             return False
         params = [reading_status] + [identifier] * len(conditions)
-        cursor.execute(
+        _execute_with_lock_retry(
+            cursor,
             f"UPDATE papers SET reading_status = ? WHERE {' OR '.join(conditions)}",
             params,
+            operation_name="update_reading_status",
         )
-        conn.commit()
+        _commit_with_lock_retry(conn, operation_name="update_reading_status commit")
         return cursor.rowcount > 0
     except sqlite3.OperationalError:
         return False
@@ -596,11 +685,13 @@ def mark_as_retracted(identifier: str) -> bool:
         if "is_retracted" not in columns or not conditions:
             return False
         params = [identifier] * len(conditions)
-        cursor.execute(
+        _execute_with_lock_retry(
+            cursor,
             f"UPDATE papers SET is_retracted = 1 WHERE {' OR '.join(conditions)}",
             params,
+            operation_name="mark_as_retracted",
         )
-        conn.commit()
+        _commit_with_lock_retry(conn, operation_name="mark_as_retracted commit")
         return cursor.rowcount > 0
     except sqlite3.OperationalError:
         return False
@@ -628,6 +719,7 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
         return 0
 
     new_count = 0
+    write_ops_since_commit = 0
     conn = get_db_connection()
     cursor = conn.cursor()
     paper_columns = _get_paper_columns(cursor)
@@ -689,7 +781,16 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
 
             if updates:
                 params.append(paper_id)
-                cursor.execute(f"UPDATE papers SET {', '.join(updates)} WHERE paper_id = ?", params)
+                _execute_with_lock_retry(
+                    cursor,
+                    f"UPDATE papers SET {', '.join(updates)} WHERE paper_id = ?",
+                    params,
+                    operation_name="sync_zotero_to_db update",
+                )
+                write_ops_since_commit += 1
+                if write_ops_since_commit >= ZOTERO_SYNC_COMMIT_BATCH_SIZE:
+                    _commit_with_lock_retry(conn, operation_name="sync_zotero_to_db batch commit")
+                    write_ops_since_commit = 0
         else:
             # Insert new
             try:
@@ -715,15 +816,22 @@ def sync_zotero_to_db(zotero_json_path: Path) -> int:
                     insert_vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
                 placeholders = ",".join("?" for _ in insert_cols)
-                cursor.execute(
+                _execute_with_lock_retry(
+                    cursor,
                     f"INSERT INTO papers ({', '.join(insert_cols)}) VALUES ({placeholders})",
                     tuple(insert_vals),
+                    operation_name="sync_zotero_to_db insert",
                 )
                 new_count += 1
+                write_ops_since_commit += 1
+                if write_ops_since_commit >= ZOTERO_SYNC_COMMIT_BATCH_SIZE:
+                    _commit_with_lock_retry(conn, operation_name="sync_zotero_to_db batch commit")
+                    write_ops_since_commit = 0
             except sqlite3.IntegrityError:
                 pass # Should not happen given check above, but safe to ignore
     
-    conn.commit()
+    if write_ops_since_commit:
+        _commit_with_lock_retry(conn, operation_name="sync_zotero_to_db final commit")
     conn.close()
     
     if new_count > 0:
@@ -781,8 +889,13 @@ def update_paper_status(paper_id: str, new_status: str, updates: Optional[Dict[s
 
         query = f"UPDATE papers SET {', '.join(fields)} WHERE paper_id = ?"
 
-        cursor.execute(query, params)
-        conn.commit()
+        _execute_with_lock_retry(
+            cursor,
+            query,
+            params,
+            operation_name="update_paper_status",
+        )
+        _commit_with_lock_retry(conn, operation_name="update_paper_status commit")
     finally:
         conn.close()
 
@@ -801,7 +914,7 @@ def init_run_stats_table() -> None:
         )
         """
     )
-    conn.commit()
+    _commit_with_lock_retry(conn, operation_name="init_run_stats_table commit")
     conn.close()
 
 
@@ -832,7 +945,8 @@ def record_run_status(
         _ensure_legacy_runs_table(cursor)
         normalized_status = str(status or "").strip().upper()
         resolved_last_run_at = last_run_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
+        _execute_with_lock_retry(
+            cursor,
             """
             INSERT INTO runs (date, status, processed_count, last_run_at)
             VALUES (?, ?, ?, ?)
@@ -847,8 +961,9 @@ def record_run_status(
                 processed_count,
                 resolved_last_run_at,
             ),
+            operation_name="record_run_status",
         )
-        conn.commit()
+        _commit_with_lock_retry(conn, operation_name="record_run_status commit")
     finally:
         conn.close()
 
@@ -856,14 +971,16 @@ def record_run_status(
 def log_run_stat(profile_id: str, items_fetched: int, limit_hit: bool) -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
+    _execute_with_lock_retry(
+        cursor,
         """
         INSERT INTO run_stats (profile_id, items_fetched, limit_hit)
         VALUES (?, ?, ?)
         """,
         (profile_id, items_fetched, int(limit_hit)),
+        operation_name="log_run_stat",
     )
-    conn.commit()
+    _commit_with_lock_retry(conn, operation_name="log_run_stat commit")
     conn.close()
 
 
@@ -938,16 +1055,19 @@ def reconcile_approved_decisions(dry_run: bool = True) -> Dict[str, Any]:
     if not dry_run:
         for c in candidates:
             if c["source"] == "gate_decision":
-                cursor.execute(
+                _execute_with_lock_retry(
+                    cursor,
                     """
                     UPDATE papers
                     SET status = 'APPROVED', updated_at = CURRENT_TIMESTAMP
                     WHERE paper_id = ?
                     """,
                     (c["paper_id"],),
+                    operation_name="reconcile_approved_decisions gate update",
                 )
             else:
-                cursor.execute(
+                _execute_with_lock_retry(
+                    cursor,
                     """
                     UPDATE papers
                     SET status = 'APPROVED',
@@ -957,9 +1077,10 @@ def reconcile_approved_decisions(dry_run: bool = True) -> Dict[str, Any]:
                     WHERE paper_id = ?
                     """,
                     (c["paper_id"],),
+                    operation_name="reconcile_approved_decisions feedback update",
                 )
             updated += 1
-        conn.commit()
+        _commit_with_lock_retry(conn, operation_name="reconcile_approved_decisions commit")
 
     conn.close()
     return {

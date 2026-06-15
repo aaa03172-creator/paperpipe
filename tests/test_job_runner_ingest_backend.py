@@ -5,6 +5,7 @@ from backend.services.job_runner import (
     _build_anchor_verify_log_entries,
     _build_anchor_verify_summary,
     _build_cloud_table_preflight_callback,
+    _record_inference_lane,
     _resolve_ingest_parser_backend,
     _resolve_ingest_runtime_options,
 )
@@ -152,6 +153,27 @@ def test_build_anchor_verify_log_entries_contains_contract_fields() -> None:
     assert entries[1]["result"] == "NO_API"
     assert "VERDICT_UNVERIFIABLE" in entries[1]["reason_codes"]
     assert "NO_API" in entries[1]["reason_codes"]
+
+
+def test_record_inference_lane_records_provider_api_mode() -> None:
+    run_meta = {"inference_lanes": {}}
+
+    _record_inference_lane(
+        run_meta,
+        lane="clinical_extraction",
+        selected_backend="openai",
+        payload_class="external_allowed",
+        redaction_applied=True,
+        provider_name="OpenAIProvider",
+        provider_model="gpt-4o",
+        provider_api_mode="responses",
+    )
+
+    lane = run_meta["inference_lanes"]["clinical_extraction"]
+    assert lane["provider_api_mode"] == "responses"
+    assert run_meta["selected_backend"] == "openai"
+    assert run_meta["payload_class"] == "external_allowed"
+    assert run_meta["redaction_applied"] is True
 
 
 def test_cloud_table_preflight_callback_records_and_blocks(tmp_path, monkeypatch) -> None:

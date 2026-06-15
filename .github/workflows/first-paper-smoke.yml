@@ -3,6 +3,7 @@ name: first-paper-smoke
 on:
   pull_request:
     branches:
+      - main
       - master
     paths:
       - README.md
@@ -44,6 +45,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
           pip install -r requirements.txt
+          pip install pytest
 
       - name: Run first-paper smoke
         run: ./scripts/run_first_paper_smoke.sh
