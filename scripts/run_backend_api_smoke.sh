@@ -99,24 +99,24 @@ PARSER_EVAL_INVENTORY_RUN_ID="backend_api_smoke_parser_eval_artifact_inventory"
 SAME_PAGE_TABLE_RESCUE_RUN_ID="backend_api_smoke_same_page_table_rescue_readiness"
 SLOT_TUNING_VISIBILITY_RUN_ID="backend_api_smoke_slot_tuning_visibility"
 
-"${RESOLVER_RUNNER}" scripts/eval/check_internal_data_readiness.py \
+"${PYTHON_BIN}" scripts/eval/check_internal_data_readiness.py \
   --run-id "${INTERNAL_DATA_RUN_ID}" \
   --out-dir "${SMOKE_TMP_DIR}/internal_data_readiness"
 
-"${RESOLVER_RUNNER}" scripts/eval/check_slot_classification_tuning_visibility.py \
+"${PYTHON_BIN}" scripts/eval/check_slot_classification_tuning_visibility.py \
   --internal-data-summary "${SMOKE_TMP_DIR}/internal_data_readiness/${INTERNAL_DATA_RUN_ID}" \
   --out-dir "${SMOKE_TMP_DIR}/slot_classification_tuning_visibility" \
   --run-id "${SLOT_TUNING_VISIBILITY_RUN_ID}"
 
-"${RESOLVER_RUNNER}" scripts/eval/check_parser_baseline_readiness.py \
+"${PYTHON_BIN}" scripts/eval/check_parser_baseline_readiness.py \
   --out-dir "${SMOKE_TMP_DIR}/parser_baseline_readiness" \
   --run-id "${PARSER_BASELINE_RUN_ID}" \
   --allow-advisory-hold
 
-"${RESOLVER_RUNNER}" scripts/eval/inventory_parser_eval_artifacts.py \
+"${PYTHON_BIN}" scripts/eval/inventory_parser_eval_artifacts.py \
   --out-dir "${SMOKE_TMP_DIR}/parser_eval_artifact_inventory" \
   --run-id "${PARSER_EVAL_INVENTORY_RUN_ID}"
 
-"${RESOLVER_RUNNER}" scripts/eval/check_same_page_table_rescue_readiness.py \
+"${PYTHON_BIN}" scripts/eval/check_same_page_table_rescue_readiness.py \
   --out-dir "${SMOKE_TMP_DIR}/same_page_table_rescue_readiness" \
   --run-id "${SAME_PAGE_TABLE_RESCUE_RUN_ID}"

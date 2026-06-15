@@ -20,9 +20,31 @@ RETRY_CONFIG = {
 }
 
 class PubMedFetcher(BaseFetcher):
+    EFETCH_CHUNK_SIZE = 100
+
     @property
     def source_name(self) -> str:
         return "PubMed"
+
+    def _ncbi_email(self) -> str | None:
+        system = getattr(self.config, "system", None)
+        email = getattr(system, "unpaywall_email", None)
+        if not email:
+            unpaywall = getattr(self.config, "unpaywall", None)
+            email = getattr(unpaywall, "email", None)
+        text = str(email or "").strip()
+        return text or None
+
+    def _eutils_params(self, **params) -> dict:
+        out = {"tool": "paperpipe", **params}
+        email = self._ncbi_email()
+        if email:
+            out["email"] = email
+        return out
+
+    @staticmethod
+    def _chunk_ids(ids: List[str], chunk_size: int) -> List[List[str]]:
+        return [ids[idx : idx + chunk_size] for idx in range(0, len(ids), chunk_size)]
 
     def fetch(self, query: str, max_results: int) -> List[Paper]:
         """PubMed에서 키워드로 논문 검색"""
@@ -39,19 +61,21 @@ class PubMedFetcher(BaseFetcher):
 
             # 2. EFetch (Get Details)
             logger.info(f"Fetching details for {len(id_list)} ids...")
-            xml_content = self._efetch(id_list)
-            
-            # 3. Parsing
-            root = ET.fromstring(xml_content)
-            
-            for article in root.findall(".//PubmedArticle"):
-                try:
-                    p = self._parse_article(article)
-                    if p:
-                        papers.append(p)
-                except Exception as e:
-                    logger.error(f"Error parsing single PubMed article: {e}")
-                    continue
+
+            for id_chunk in self._chunk_ids(id_list, self.EFETCH_CHUNK_SIZE):
+                xml_content = self._efetch(id_chunk)
+
+                # 3. Parsing
+                root = ET.fromstring(xml_content)
+
+                for article in root.findall(".//PubmedArticle"):
+                    try:
+                        p = self._parse_article(article)
+                        if p:
+                            papers.append(p)
+                    except Exception as e:
+                        logger.error(f"Error parsing single PubMed article: {e}")
+                        continue
                 
         except Exception as e:
             logger.error(f"Critical Error in PubMedFetcher: {e}", exc_info=True)
@@ -62,9 +86,16 @@ class PubMedFetcher(BaseFetcher):
     def _esearch(self, term: str, max_results: int) -> List[str]:
         """PubMed ID 검색"""
         base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        search_url = f"{base_url}/esearch.fcgi?db=pubmed&term={term}&retmode=json&retmax={max_results}&sort=date"
+        search_url = f"{base_url}/esearch.fcgi"
+        params = self._eutils_params(
+            db="pubmed",
+            term=term,
+            retmode="json",
+            retmax=max_results,
+            sort="date",
+        )
         
-        resp = requests.get(search_url, timeout=10)
+        resp = requests.get(search_url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         
@@ -75,9 +106,10 @@ class PubMedFetcher(BaseFetcher):
         """PubMed 상세 정보 가져오기"""
         base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         id_str = ",".join(ids)
-        fetch_url = f"{base_url}/efetch.fcgi?db=pubmed&id={id_str}&retmode=xml"
+        fetch_url = f"{base_url}/efetch.fcgi"
+        params = self._eutils_params(db="pubmed", id=id_str, retmode="xml")
         
-        resp = requests.get(fetch_url, timeout=15)
+        resp = requests.get(fetch_url, params=params, timeout=15)
         resp.raise_for_status()
         return resp.content
 

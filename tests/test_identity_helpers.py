@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timezone
+import hashlib
 
 from src.services.identity import (
     artifact_paper_segment,
@@ -26,6 +27,28 @@ def test_make_runtime_paper_id_prefers_zotero_then_doi_then_pmid():
     assert make_runtime_paper_id(zotero_key="ABCD1234", doi="10.1000/test", pmid="123") == "zotero:ABCD1234"
     assert make_runtime_paper_id(doi="https://doi.org/10.1000/Test") == "doi:10.1000/test"
     assert make_runtime_paper_id(pmid="12345") == "pmid:12345"
+
+
+def test_make_runtime_paper_id_uses_content_hash_for_existing_file(tmp_path):
+    first = tmp_path / "first.pdf"
+    second = tmp_path / "renamed.pdf"
+    payload = b"%PDF-1.4\nsame bytes\n"
+    first.write_bytes(payload)
+    second.write_bytes(payload)
+
+    expected = f"userpdf-{hashlib.sha1(payload).hexdigest()[:16]}"
+
+    assert make_runtime_paper_id(file_path=first) == expected
+    assert make_runtime_paper_id(file_path=second) == expected
+
+
+def test_make_runtime_paper_id_falls_back_to_path_hash_for_missing_file(tmp_path):
+    missing = tmp_path / "missing.pdf"
+
+    paper_id = make_runtime_paper_id(file_path=missing)
+
+    assert paper_id.startswith("file:")
+    assert "/" not in paper_id
 
 
 def test_bridge_doc_id_to_paper_id_preserves_prefixed_ids():

@@ -17,9 +17,19 @@ class _FakeOpenAICompletions:
         )
 
 
+class _FakeOpenAIResponses:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(output_text='{"approved": true, "reason": "ok"}')
+
+
 class _FakeOpenAIClient:
     def __init__(self) -> None:
         self.chat = SimpleNamespace(completions=_FakeOpenAICompletions())
+        self.responses = _FakeOpenAIResponses()
 
 
 class _FakeOllamaClient:
@@ -127,6 +137,72 @@ def test_openai_provider_keeps_default_temperature_for_non_gate_tasks() -> None:
     assert provider.client.chat.completions.calls[-1]["temperature"] == 0.3
 
 
+def test_openai_provider_defaults_to_chat_completions_api() -> None:
+    provider = _TestOpenAIProvider(_openai_config())
+
+    provider._make_request("one_liner", "prompt")
+
+    assert len(provider.client.chat.completions.calls) == 1
+    assert provider.client.responses.calls == []
+    assert provider.client.chat.completions.calls[-1]["messages"] == [{"role": "user", "content": "prompt"}]
+
+
+def test_openai_provider_can_opt_into_responses_api_without_stored_state() -> None:
+    config = _openai_config()
+    config.cloud.openai_api = "responses"
+    provider = _TestOpenAIProvider(config)
+
+    result = provider._make_request("slot_adjudication", "prompt", is_json=True, system_prompt="system")
+
+    assert result == '{"approved": true, "reason": "ok"}'
+    assert provider.client.chat.completions.calls == []
+    assert len(provider.client.responses.calls) == 1
+    call = provider.client.responses.calls[-1]
+    assert call["model"] == "gpt-4o"
+    assert call["input"] == [{"role": "system", "content": "system"}, {"role": "user", "content": "prompt"}]
+    assert call["temperature"] == 0.0
+    assert call["timeout"] == 15
+    assert call["store"] is False
+    assert call["text"] == {"format": {"type": "json_object"}}
+
+
+def test_openai_provider_reports_configured_api_mode() -> None:
+    chat_provider = _TestOpenAIProvider(_openai_config())
+    responses_config = _openai_config()
+    responses_config.cloud.openai_api = "responses"
+    responses_provider = _TestOpenAIProvider(responses_config)
+
+    assert chat_provider.provider_api_mode() == "chat_completions"
+    assert responses_provider.provider_api_mode() == "responses"
+
+
+def test_openai_responses_schema_mode_uses_text_format_json_schema() -> None:
+    config = _openai_config()
+    config.cloud.openai_api = "responses"
+    config.cloud.openai_json_mode = "json_schema"
+    provider = _TestOpenAIProvider(config)
+    schema = {
+        "name": "slot_adjudication",
+        "schema": {
+            "type": "object",
+            "properties": {"approved": {"type": "boolean"}, "reason": {"type": "string"}},
+            "required": ["approved", "reason"],
+            "additionalProperties": False,
+        },
+    }
+
+    provider._make_request("slot_adjudication", "prompt", schema=schema)
+
+    assert provider.client.responses.calls[-1]["text"] == {
+        "format": {
+            "type": "json_schema",
+            "name": "slot_adjudication",
+            "strict": True,
+            "schema": schema["schema"],
+        }
+    }
+
+
 def test_ollama_provider_uses_zero_temperature_for_escalation() -> None:
     provider = _TestOllamaProvider(_ollama_config())
 
@@ -199,6 +275,41 @@ def test_openai_provider_uses_extractor_feature_model_for_clinical_extraction_ta
     provider = _TestOpenAIProvider(config)
 
     assert provider._get_model("clinical_extraction") == "gpt-4.1-mini"
+
+
+def test_openai_provider_feature_model_overrides_cloud_default_model() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="sk-test", model="gpt-5.4-mini"),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=SimpleNamespace(model="gpt-5.5"),
+            specialty_trial_extraction=None,
+            trial_extraction=None,
+            one_liner=SimpleNamespace(model="gpt-5.4-nano"),
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestOpenAIProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "gpt-5.5"
+    assert provider._get_model("one_liner") == "gpt-5.4-nano"
+    assert provider._get_model("teacher_review") == "gpt-5.4-mini"
+
+
+def test_llm_config_default_openai_model_tracks_current_low_cost_frontier_default() -> None:
+    config = LLMConfig(
+        features={
+            "specialty_trial_extraction": {"enabled": False},
+            "slot_classification": {"enabled": False},
+            "one_liner": {"enabled": False},
+        }
+    )
+
+    assert config.cloud.model == "gpt-5.4-mini"
+    assert config.cloud.openai_api == "chat_completions"
+    assert config.cloud.openai_json_mode == "json_object"
 
 
 def test_openai_provider_falls_back_to_trial_extraction_model_for_clinical_extraction_task() -> None:
@@ -318,6 +429,26 @@ def test_get_llm_provider_supports_anthropic_cloud_mode(monkeypatch) -> None:
     provider = get_llm_provider(config)
 
     assert isinstance(provider, AnthropicProvider)
+
+
+def test_anthropic_provider_feature_model_overrides_cloud_default_model() -> None:
+    config = SimpleNamespace(
+        cloud=SimpleNamespace(api_key="anthropic-test", model="claude-sonnet-4-20250514", provider="anthropic"),
+        timeout_seconds=15,
+        max_retries=0,
+        features=SimpleNamespace(
+            clinical_extraction=SimpleNamespace(model="claude-opus-4-1-20250805"),
+            specialty_trial_extraction=None,
+            trial_extraction=None,
+            one_liner=None,
+            slot_classification=None,
+        ),
+        default_model="fallback-model",
+    )
+    provider = _TestAnthropicProvider(config)
+
+    assert provider._get_model("clinical_extraction") == "claude-opus-4-1-20250805"
+    assert provider._get_model("teacher_review") == "claude-sonnet-4-20250514"
 
 
 def test_hybrid_provider_uses_anthropic_for_cloud_path(monkeypatch) -> None:

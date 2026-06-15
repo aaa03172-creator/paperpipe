@@ -9,6 +9,7 @@ import src.jobs.queue as queue_mod
 import src.jobs.worker as worker_mod
 from backend.services.job_runner import _resolve_ingest_parser_backend
 from src.jobs.queue import JobQueue
+from src.profiles.profile_schema import Profile, ProfileConfig
 from src.services.path_masking import mask_local_path
 from backend import main as api_main
 
@@ -20,6 +21,11 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
     db_utils.DB_PATH = tmp_path / "state.db"
     try:
         db_utils.init_db()
+        monkeypatch.setattr(
+            api_main,
+            "load_profiles",
+            lambda: ProfileConfig(profiles=[Profile(id="smoke_profile", title="Smoke Profile")]),
+        )
         client = TestClient(api_main.app)
 
         # 1) Enqueue from API with extended fields.
@@ -30,7 +36,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
                 "clean_reindex": False,
                 "run_verify": True,
                 "reasoning_persona": "researcher",
-                "profile_id": "smoke-profile",
+                "profile_id": "smoke_profile",
                 "parser_backend": "docling",
             },
         )
@@ -59,9 +65,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         action_payload = json.loads(action_row["payload_json"])
         assert action_payload["job_id"] == job_id
         assert action_payload["run_id"] == run_id
-        assert action_payload["persona_id"] == "smoke-profile"
+        assert action_payload["persona_id"] == "smoke_profile"
         assert action_payload["reasoning_persona"] == "researcher"
-        assert action_payload["profile_id"] == "smoke-profile"
+        assert action_payload["profile_id"] == "smoke_profile"
         assert action_payload["parser_backend"] == "docling"
 
         queued = client.get(f"/jobs/{job_id}")
@@ -69,9 +75,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         queued_data = queued.json()
         assert queued_data["status"] == "queued"
         assert queued_data["run_id"] == run_id
-        assert queued_data["persona_id"] == "smoke-profile"
+        assert queued_data["persona_id"] == "smoke_profile"
         assert queued_data["reasoning_persona"] == "researcher"
-        assert queued_data["profile_id"] == "smoke-profile"
+        assert queued_data["profile_id"] == "smoke_profile"
         assert queued_data["requested_parser_backend"] == "docling"
         assert queued_data["parser_backend"] is None
         assert queued_data["run_verify"] == 1
@@ -98,7 +104,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert run_queued_data["job_id"] == job_id
         assert run_queued_data["run_id"] == run_id
         assert run_queued_data["reasoning_persona"] == "researcher"
-        assert run_queued_data["profile_id"] == "smoke-profile"
+        assert run_queued_data["profile_id"] == "smoke_profile"
         assert run_queued_data["requested_parser_backend"] == "docling"
         assert run_queued_data["parser_backend"] is None
         assert run_queued_data["clean_reindex"] == 0
@@ -123,9 +129,9 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
             progress_callback=None,
             cancel_check=None,
         ):
-            assert persona_id == "smoke-profile"
+            assert persona_id == "smoke_profile"
             assert reasoning_persona == "researcher"
-            assert profile_id == "smoke-profile"
+            assert profile_id == "smoke_profile"
             assert parser_backend == "docling"
             assert clean_reindex is False
             if progress_callback:
@@ -170,7 +176,7 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         assert done_data["progress"] == 100
         assert done_data["stage"] == "completed"
         assert done_data["reasoning_persona"] == "researcher"
-        assert done_data["profile_id"] == "smoke-profile"
+        assert done_data["profile_id"] == "smoke_profile"
         assert done_data["requested_parser_backend"] == "docling"
         assert done_data["parser_backend"] is None
         assert done_data["artifact_dir"] is not None
@@ -199,6 +205,35 @@ def test_jobs_deepread_enqueue_worker_smoke(tmp_path, monkeypatch):
         # bootstrap meta file is not generated in this fake runner path.
         meta_resp = client.get(f"/jobs/{job_id}/bootstrap-meta")
         assert meta_resp.status_code == 404
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_jobs_deepread_rejects_unknown_profile_id(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    try:
+        db_utils.init_db()
+        monkeypatch.setattr(
+            api_main,
+            "load_profiles",
+            lambda: ProfileConfig(profiles=[Profile(id="known_profile", title="Known Profile")]),
+        )
+        client = TestClient(api_main.app)
+
+        response = client.post(
+            "/jobs/deepread",
+            json={"paper_id": "paper_unknown_profile_001", "profile_id": "missing_profile"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == {
+            "error_code": "UNKNOWN_PROFILE_ID",
+            "message": "Unknown profile_id: missing_profile",
+            "profile_id": "missing_profile",
+        }
     finally:
         db_utils.DB_PATH = original_db_path
 

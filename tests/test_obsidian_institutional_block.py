@@ -1,10 +1,11 @@
-from src.obsidian import get_template_trial
+from src.obsidian import get_template_study, get_template_trial
 from src.schemas.core import BiomedicalClinicalExtraction, SpecialtyTrialExtraction
 
 
 def _base_paper() -> dict:
     return {
         "title": "Clinical Trial X",
+        "paper_id": "paper-clinical-x",
         "link": "https://example.org/paper",
         "slot": "clinical",
         "doi": "10.1000/x",
@@ -16,6 +17,30 @@ def _base_paper() -> dict:
         "feedback_json": '{"links":{"institutional_proxy_url":"https://proxy.example.ac.kr/_Lib_Proxy_Url/https://doi.org/10.1000/x"}}',
         "local_pdf_path": None,
     }
+
+
+def test_template_study_includes_frontmatter_id_when_paper_id_is_available():
+    paper = {
+        "title": "Mechanism Paper X",
+        "paper_id": "paper-mechanism-x",
+        "source": "PubMed",
+        "link": "https://example.org/mechanism",
+        "slot": "mechanism",
+        "tags": ["#mechanism"],
+        "reading_status": "Inbox",
+    }
+
+    md = get_template_study(paper)
+
+    assert 'id: "paper-mechanism-x"' in md
+
+
+def test_template_trial_includes_frontmatter_id_when_paper_id_is_available():
+    paper = _base_paper()
+
+    md = get_template_trial(paper, extraction=None)
+
+    assert 'id: "paper-clinical-x"' in md
 
 
 def test_template_trial_includes_institutional_block_when_pdf_missing():

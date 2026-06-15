@@ -11,7 +11,7 @@ from src.schemas.artifact_brief import ArtifactBrief, ArtifactPlanReview
 from src.schemas.chart_pack_handoff import ChartPackQualityGate
 
 
-ChartSourceKind = Literal["stats_report", "document_table"]
+ChartSourceKind = Literal["stats_report", "document_table", "cloud_derived_table"]
 ChartTemplateId = Literal[
     "stats_check_status_counts",
     "reported_vs_computed_p_scatter",
@@ -54,13 +54,13 @@ CHART_TEMPLATE_SPECS: tuple[ChartTemplateSpec, ...] = (
         template_id="table_numeric_bar",
         label="Numeric Table Bar Chart",
         description="Render a bar chart from an explicitly selected numeric document table column.",
-        supported_source_kinds=["document_table"],
+        supported_source_kinds=["document_table", "cloud_derived_table"],
     ),
     ChartTemplateSpec(
         template_id="table_numeric_line",
         label="Numeric Table Line Chart",
         description="Render a line chart from an explicitly selected numeric document table column.",
-        supported_source_kinds=["document_table"],
+        supported_source_kinds=["document_table", "cloud_derived_table"],
     ),
 )
 CHART_TEMPLATE_MAP: dict[ChartTemplateId, ChartTemplateSpec] = {
@@ -92,9 +92,9 @@ class ChartSourceRef(BaseModel):
             if self.table_id is not None:
                 raise ValueError("stats_report source refs must not include table_id")
             return self
-        if self.source_kind == "document_table":
+        if self.source_kind in {"document_table", "cloud_derived_table"}:
             if not self.table_id:
-                raise ValueError("document_table source refs require table_id")
+                raise ValueError(f"{self.source_kind} source refs require table_id")
             return self
         return self
 

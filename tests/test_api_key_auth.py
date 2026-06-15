@@ -332,6 +332,12 @@ def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
         )
         assert chart_pack_generate.status_code == 401
 
+        evidence_grounding_scorecard_build = client.post(
+            "/evidence-grounding/scorecards/build",
+            json={"run_dir": str(tmp_path / "missing_scorecard_run")},
+        )
+        assert evidence_grounding_scorecard_build.status_code == 401
+
         image_evidence_register = client.post(
             "/image-evidence/register",
             json={
@@ -911,6 +917,14 @@ def test_write_endpoints_accept_valid_api_key(tmp_path, monkeypatch):
         chart_pack_listing = client.get("/chart-packs", headers=headers)
         assert chart_pack_listing.status_code == 200
 
+        evidence_grounding_scorecard_build = client.post(
+            "/evidence-grounding/scorecards/build",
+            json={"run_dir": str(tmp_path / "missing_scorecard_run")},
+            headers=headers,
+        )
+        assert evidence_grounding_scorecard_build.status_code == 400
+        assert evidence_grounding_scorecard_build.json()["detail"]
+
         image_evidence_register = client.post(
             "/image-evidence/register",
             json={
@@ -1072,6 +1086,33 @@ def test_health_endpoint_does_not_require_api_key(tmp_path, monkeypatch):
 
     finally:
         db_utils.DB_PATH = original_db_path
+
+
+def test_ready_payload_does_not_expose_provider_api_keys(tmp_path, monkeypatch):
+    monkeypatch.delenv("LATTICE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret")
+    original_db_path = _init_temp_db(tmp_path, monkeypatch)
+    try:
+        client = TestClient(api_main.app)
+
+        response = client.get("/health/ready")
+
+        assert response.status_code == 200
+        body = response.text
+        assert "sk-test-secret" not in body
+        assert "OPENAI_API_KEY" not in body
+        assert "ANTHROPIC_API_KEY" not in body
+        assert "GEMINI_API_KEY" not in body
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_frontend_api_bridge_does_not_reference_provider_secret_names() -> None:
+    api_ts = Path("frontend/src/app/lib/api.ts").read_text(encoding="utf-8")
+
+    assert "OPENAI_API_KEY" not in api_ts
+    assert "ANTHROPIC_API_KEY" not in api_ts
+    assert "GEMINI_API_KEY" not in api_ts
 
 
 def test_sensitive_read_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):

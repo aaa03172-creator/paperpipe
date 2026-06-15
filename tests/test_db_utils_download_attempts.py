@@ -88,6 +88,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
                 processed_at TIMESTAMP,
                 updated_at TIMESTAMP,
                 pdf_path TEXT,
+                ris_path TEXT,
                 feedback_json TEXT
             )
             """
@@ -110,6 +111,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
             "2026-02-24",
             pdf_status="downloaded",
             local_pdf_path="/tmp/example.pdf",
+            ris_path="/tmp/example.ris",
             feedback_json='{"decision":"APPROVED"}',
             download_attempts=attempts,
             status="APPROVED",
@@ -128,6 +130,7 @@ def test_save_paper_state_persists_download_attempts_payload(tmp_path: Path):
         assert row["pdf_status"] == "downloaded"
         assert row["issues_state"] == "clear"
         assert row["pdf_path"] == "/tmp/example.pdf"
+        assert row["ris_path"] == "/tmp/example.ris"
         assert row["feedback_json"] == '{"decision":"APPROVED"}'
         parsed = json.loads(row["download_attempts"])
         assert isinstance(parsed, list)
@@ -354,5 +357,74 @@ def test_find_duplicate_doi_paper_rows_returns_empty_for_minimal_schema(tmp_path
         conn.close()
 
         assert db_utils.find_duplicate_doi_paper_rows() == []
+    finally:
+        db_utils.DB_PATH = original_db_path
+
+
+def test_sync_zotero_to_db_commits_in_batches(tmp_path: Path, monkeypatch):
+    original_db_path = db_utils.DB_PATH
+    db_utils.DB_PATH = tmp_path / "state.db"
+    zotero_path = tmp_path / "zotero.json"
+    try:
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                doi TEXT,
+                title TEXT,
+                summary TEXT,
+                source TEXT,
+                status TEXT,
+                issues_state TEXT,
+                pdf_path TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+        zotero_path.write_text(
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "citationKey": f"smith2026_{idx}",
+                            "title": f"Paper {idx}",
+                            "abstractNote": "Summary",
+                            "DOI": f"10.5000/zotero-{idx}",
+                            "attachments": [{"path": f"/tmp/paper-{idx}.pdf"}],
+                        }
+                        for idx in range(5)
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        commit_calls = []
+        original_commit = db_utils._commit_with_lock_retry
+
+        def recording_commit(conn, *, operation_name: str):
+            commit_calls.append(operation_name)
+            original_commit(conn, operation_name=operation_name)
+
+        monkeypatch.setattr(db_utils, "ZOTERO_SYNC_COMMIT_BATCH_SIZE", 2)
+        monkeypatch.setattr(db_utils, "_commit_with_lock_retry", recording_commit)
+
+        new_count = db_utils.sync_zotero_to_db(zotero_path)
+
+        conn = sqlite3.connect(db_utils.DB_PATH)
+        rows = conn.execute("SELECT paper_id FROM papers ORDER BY paper_id").fetchall()
+        conn.close()
+
+        assert new_count == 5
+        assert len(rows) == 5
+        assert commit_calls == [
+            "sync_zotero_to_db batch commit",
+            "sync_zotero_to_db batch commit",
+            "sync_zotero_to_db final commit",
+        ]
     finally:
         db_utils.DB_PATH = original_db_path

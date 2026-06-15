@@ -45,12 +45,30 @@ def test_start_fails_when_port_is_in_use(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(cli, "bootstrap_database", lambda: tmp_path / "state.db")
     monkeypatch.setattr(cli, "_is_port_available", lambda _host, _port: False)
+    monkeypatch.setattr(cli, "_wait_for_health", lambda _base_url, _timeout: False)
     monkeypatch.setattr(cli, "collect_runtime_readiness", _ready_runtime)
 
     result = runner.invoke(cli.app, ["start", "--no-open"])
 
     assert result.exit_code == 1
     assert "Port already in use" in result.output
+
+
+def test_start_reuses_existing_healthy_backend(monkeypatch, tmp_path: Path):
+    runner = CliRunner()
+    opened: list[str] = []
+
+    monkeypatch.setattr(cli, "load_config", lambda: SimpleNamespace())
+    monkeypatch.setattr(cli, "bootstrap_database", lambda: tmp_path / "state.db")
+    monkeypatch.setattr(cli, "_is_port_available", lambda _host, _port: False)
+    monkeypatch.setattr(cli, "_wait_for_health", lambda _base_url, _timeout: True)
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url, new=0: opened.append(url))
+
+    result = runner.invoke(cli.app, ["start", "--port", "8046"])
+
+    assert result.exit_code == 0
+    assert "already running" in result.output
+    assert opened == ["http://127.0.0.1:8046/ui"]
 
 
 def test_start_fails_when_healthcheck_times_out(monkeypatch, tmp_path: Path):
@@ -168,7 +186,12 @@ def test_frozen_app_bundle_defaults_to_start_without_args(monkeypatch):
         ["/Applications/Lattice.app/Contents/MacOS/Lattice"]
     )
 
-    assert argv == ["/Applications/Lattice.app/Contents/MacOS/Lattice", "start"]
+    assert argv == [
+        "/Applications/Lattice.app/Contents/MacOS/Lattice",
+        "start",
+        "--port",
+        "8046",
+    ]
 
 
 def test_frozen_app_bundle_prefixes_start_for_option_args(monkeypatch):
@@ -185,6 +208,22 @@ def test_frozen_app_bundle_prefixes_start_for_option_args(monkeypatch):
         "--no-open",
         "--port",
         "8027",
+    ]
+
+
+def test_frozen_app_bundle_drops_macos_process_serial_number(monkeypatch):
+    monkeypatch.setattr(cli.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(cli.sys, "platform", "darwin")
+
+    argv = cli._argv_with_frozen_app_default_command(
+        ["/Applications/Lattice.app/Contents/MacOS/Lattice", "-psn_0_123456"]
+    )
+
+    assert argv == [
+        "/Applications/Lattice.app/Contents/MacOS/Lattice",
+        "start",
+        "--port",
+        "8046",
     ]
 
 

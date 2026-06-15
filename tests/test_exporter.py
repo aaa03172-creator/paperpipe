@@ -136,3 +136,22 @@ def test_exporter_includes_missing_pdf_block_when_pdf_unavailable(tmp_path):
     assert "## PDF Status" in content
     assert "PDF is currently unavailable." in content
     assert "No institutional access link is stored for this paper yet." in content
+
+
+def test_exporter_can_build_institutional_link_from_config_prefix(tmp_path):
+    paper = _sample_paper()
+    paper["pdf_status"] = "manual_required"
+    paper["doi"] = "10.1000/config-prefix"
+    paper["feedback_json"] = "{}"
+
+    ok = export_paper_to_markdown(
+        paper,
+        tmp_path,
+        overwrite=True,
+        proxy_prefix="https://configured.proxy/_Lib_Proxy_Url/",
+    )
+    assert ok is True
+
+    target = _exported_target(tmp_path, paper)
+    content = target.read_text(encoding="utf-8")
+    assert "https://configured.proxy/_Lib_Proxy_Url/https://doi.org/10.1000/config-prefix" in content

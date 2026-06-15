@@ -6,6 +6,29 @@ import src.watcher as watcher
 from src.schemas import Paper
 
 
+def test_paper_file_handler_skips_unstable_pdf(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "still-growing.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    handler = watcher.PaperFileHandler(lambda _path: (_ for _ in ()).throw(AssertionError("unstable PDF should not be processed")))
+
+    monkeypatch.setattr(watcher, "_wait_for_stable_file", lambda _path: False)
+
+    handler.on_created(SimpleNamespace(is_directory=False, src_path=str(pdf_path)))
+
+
+def test_paper_file_handler_processes_stable_pdf(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "ready.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    processed: list[Path] = []
+    handler = watcher.PaperFileHandler(lambda path: processed.append(path))
+
+    monkeypatch.setattr(watcher, "_wait_for_stable_file", lambda path: path == pdf_path)
+
+    handler.on_created(SimpleNamespace(is_directory=False, src_path=str(pdf_path)))
+
+    assert processed == [pdf_path]
+
+
 def _make_config(base_dir: Path):
     return SimpleNamespace(
         llm=SimpleNamespace(),
@@ -15,6 +38,25 @@ def _make_config(base_dir: Path):
             upload_dir=base_dir / "uploads",
         ),
     )
+
+
+def test_watcher_pubmed_lookup_uses_canonical_fetcher(monkeypatch, tmp_path):
+    config = _make_config(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakePubMedFetcher:
+        def __init__(self, cfg):
+            captured["config"] = cfg
+
+        def fetch(self, query, max_results):
+            captured["query"] = query
+            captured["max_results"] = max_results
+            return ["paper"]
+
+    monkeypatch.setattr(watcher, "PubMedFetcher", FakePubMedFetcher)
+
+    assert watcher._fetch_pubmed_for_doi("10.1000/watcher", config, max_results=2) == ["paper"]
+    assert captured == {"config": config, "query": "10.1000/watcher", "max_results": 2}
 
 
 def test_watcher_process_local_pdf_persists_clear_issues_state(monkeypatch, tmp_path):
@@ -48,7 +90,7 @@ def test_watcher_process_local_pdf_persists_clear_issues_state(monkeypatch, tmp_
 
     saved_calls = []
     monkeypatch.setattr(watcher, "extract_doi_from_pdf", lambda _path: "10.1000/watcher-clear")
-    monkeypatch.setattr(watcher, "fetch_pubmed", lambda *_a, **_k: [paper])
+    monkeypatch.setattr(watcher, "_fetch_pubmed_for_doi", lambda *_a, **_k: [paper])
     monkeypatch.setattr(watcher, "get_llm_provider", lambda *_a, **_k: FakeLLM())
     monkeypatch.setattr(watcher, "save_paper_to_obsidian", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "export_to_ris", lambda *_a, **_k: None)
@@ -91,7 +133,7 @@ def test_watcher_process_local_pdf_persists_unavailable_issues_state_without_llm
 
     saved_calls = []
     monkeypatch.setattr(watcher, "extract_doi_from_pdf", lambda _path: "10.1000/watcher-unavailable")
-    monkeypatch.setattr(watcher, "fetch_pubmed", lambda *_a, **_k: [paper])
+    monkeypatch.setattr(watcher, "_fetch_pubmed_for_doi", lambda *_a, **_k: [paper])
     monkeypatch.setattr(watcher, "get_llm_provider", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "save_paper_to_obsidian", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "export_to_ris", lambda *_a, **_k: None)
@@ -130,7 +172,7 @@ def test_watcher_process_local_pdf_falls_back_to_local_metadata_when_lookup_miss
 
     saved_calls = []
     monkeypatch.setattr(watcher, "extract_doi_from_pdf", lambda _path: None)
-    monkeypatch.setattr(watcher, "fetch_pubmed", lambda *_a, **_k: [])
+    monkeypatch.setattr(watcher, "_fetch_pubmed_for_doi", lambda *_a, **_k: [])
     monkeypatch.setattr(watcher, "processor_process_local_pdf", lambda _path, config=None: fallback_paper)
     monkeypatch.setattr(watcher, "get_llm_provider", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "save_paper_to_obsidian", lambda *_a, **_k: None)
@@ -167,7 +209,7 @@ def test_watcher_process_local_pdf_skips_same_file_upload_copy(monkeypatch, tmp_
     )
 
     monkeypatch.setattr(watcher, "extract_doi_from_pdf", lambda _path: "10.1000/watcher-same-file")
-    monkeypatch.setattr(watcher, "fetch_pubmed", lambda *_a, **_k: [paper])
+    monkeypatch.setattr(watcher, "_fetch_pubmed_for_doi", lambda *_a, **_k: [paper])
     monkeypatch.setattr(watcher, "get_llm_provider", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "save_paper_to_obsidian", lambda *_a, **_k: None)
     monkeypatch.setattr(watcher, "export_to_ris", lambda *_a, **_k: None)

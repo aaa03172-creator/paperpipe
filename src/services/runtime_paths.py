@@ -220,6 +220,13 @@ def artifact_review_feedback_log_path() -> Path:
     return (storage_root() / "artifact_review_feedback.jsonl").resolve()
 
 
+def claim_evidence_correction_log_path() -> Path:
+    value = os.getenv("PAPERPIPE_CLAIM_EVIDENCE_CORRECTION_LOG_PATH")
+    if value:
+        return Path(value).expanduser().resolve()
+    return (storage_root() / "claim_evidence_corrections.jsonl").resolve()
+
+
 def artifact_generation_outcome_log_path() -> Path:
     value = os.getenv("PAPERPIPE_ARTIFACT_GENERATION_OUTCOME_LOG_PATH")
     if value:

@@ -133,3 +133,82 @@ def test_grounded_claimset_across_pages_and_topics_receives_pass():
     assert sidecar.metrics.page_coverage_ratio == 1.0
     assert sidecar.metrics.missing_topic_signal_count == 0
     assert sidecar.recommended_next_action == "none"
+
+
+def test_coverage_derives_page_from_chunk_page_section_when_page_hint_and_span_page_missing():
+    page_texts = [
+        "Animal translation and human physiology are central review concerns.",
+        "Human cellular systems include iPSC and stem cell assays.",
+        "Organoid organ-on-chip and microphysiological systems expand model diversity.",
+        "AI and machine learning help prioritize candidates.",
+    ]
+    index_artifact = IndexArtifact(
+        doc_id="doc-1",
+        vector_store_id="v1",
+        chunk_count=1,
+        chunks=[
+            DocumentChunk(
+                chunk_id="chunk-page-2",
+                text=page_texts[1],
+                section_name="page_2",
+                page_hint=None,
+            )
+        ],
+    )
+    claims = ClaimSet(
+        doc_id="doc-1",
+        claims=[
+            ScientificClaim(
+                claim_id="CLM-001",
+                type="mechanism",
+                statement="iPSC stem cell assays represent human cellular systems.",
+                confidence=0.9,
+                evidence_spans=[
+                    EvidenceSpan(
+                        chunk_id="chunk-page-2",
+                        raw_text=page_texts[1],
+                        quote=page_texts[1],
+                        rationale="direct support",
+                        section="page_2",
+                        grounded=True,
+                        resolution="OK",
+                    )
+                ],
+            )
+        ],
+    )
+
+    sidecar = build_claimset_coverage_sidecar(
+        paper_id="science-aeb0045",
+        run_id="run-section-page",
+        document_artifact=_doc(page_texts),
+        index_artifact=index_artifact,
+        resolved_claimset=claims,
+    )
+
+    assert sidecar.page_summary.covered_pages == [2]
+    assert sidecar.evidence_summary.pages_with_grounded_evidence == [2]
+    assert sidecar.metrics.covered_page_count == 1
+    assert sidecar.metrics.page_coverage_ratio == 0.25
+
+
+def test_mouse_behavior_training_does_not_trigger_ethics_governance_signal():
+    page_texts = [
+        "Mice were trained on the rotarod apparatus for two days before motor testing.",
+        "The assay measured coordination after lesion induction.",
+    ]
+    claims = ClaimSet(
+        doc_id="doc-1",
+        claims=[_claim("CLM-001", "The study measured motor coordination.", 2, page_texts[1])],
+    )
+
+    sidecar = build_claimset_coverage_sidecar(
+        paper_id="motor-study",
+        run_id="run-training",
+        document_artifact=_doc(page_texts),
+        index_artifact=_index(page_texts),
+        resolved_claimset=claims,
+    )
+
+    ethics_signal = next(signal for signal in sidecar.topic_signals if signal.key == "ethics_governance")
+    assert ethics_signal.present_in_document is False

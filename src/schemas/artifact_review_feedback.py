@@ -12,6 +12,7 @@ ArtifactReviewArtifactType = Literal[
     "image_evidence",
     "method_comparison",
     "protocol_card",
+    "evidence_grounding_scorecard",
 ]
 ArtifactReviewDecision = Literal["accept", "reject", "correct", "escalate"]
 

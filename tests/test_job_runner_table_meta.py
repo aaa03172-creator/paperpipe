@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import backend.services.job_runner as job_runner
 from src.contracts.document_artifact_v2 import ArtifactMetaV2, BlockV2, DocumentArtifactV2, LineV2, PageV2, SpanV2
+from src.profiles.profile_schema import Profile, ProfileConfig
 from src.schemas.agent_artifacts import ClaimSet, ScientificClaim, StatCheckEntry, StatsReport, VerificationStatus
 
 
@@ -27,6 +28,48 @@ def _make_basic_doc(paper_id: str, pdf_path: str) -> DocumentArtifactV2:
         ],
         tables=[],
     )
+
+
+def test_persona_application_events_require_actual_profile_hint():
+    selection = SimpleNamespace(
+        persona_id="disabled-profile",
+        reasoning_persona=None,
+        profile_id="disabled-profile",
+    )
+
+    assert job_runner._persona_application_event_messages(
+        selection,
+        reasoning_hint=None,
+        profile_hint=None,
+    ) == []
+
+    assert job_runner._persona_application_event_messages(
+        selection,
+        reasoning_hint=None,
+        profile_hint="profile_id=disabled-profile",
+    ) == [(52, "Profile context applied: disabled-profile")]
+
+
+def test_resolve_persona_hint_masks_local_paths_in_profile_notes(monkeypatch):
+    monkeypatch.setattr(
+        job_runner,
+        "load_profiles",
+        lambda: ProfileConfig(
+            profiles=[
+                Profile(
+                    id="path_profile",
+                    title="Path Profile",
+                    notes="source_of_truth: /Users/example/paperpipe/private/profile.yaml",
+                )
+            ]
+        ),
+    )
+
+    hint = job_runner._resolve_persona_hint("path_profile")
+
+    assert hint is not None
+    assert "/Users/example" not in hint
+    assert "source_of_truth: .../profile.yaml" in hint
 
 
 def test_run_deepread_job_records_table_extraction_meta(tmp_path, monkeypatch):

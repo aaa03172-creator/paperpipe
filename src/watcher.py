@@ -7,7 +7,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from src.config import AppConfig
-from src.fetchers import fetch_pubmed
+from src.fetch.pubmed import PubMedFetcher
 from src.llm_provider import get_llm_provider
 from src.processor import (
     derive_saved_issues_state,
@@ -18,6 +18,7 @@ from src.obsidian import save_paper_to_obsidian
 from src.zotero import export_to_ris
 from src.schemas import Paper, PaperStatus
 from src.db_utils import save_paper_state
+from src.downloads_watcher import _wait_for_stable_file
 
 # Setup logger for this module
 logger = logging.getLogger("src.watcher")
@@ -38,8 +39,9 @@ class PaperFileHandler(FileSystemEventHandler):
         
         # Only process PDFs
         if path.suffix.lower() == ".pdf":
-            # Wait briefly to ensure file handle is released
-            time.sleep(1)
+            if not _wait_for_stable_file(path):
+                logger.warning("Watcher skipped unstable PDF: %s", path.name)
+                return
             logger.info(f"👀 Detected new PDF: {path.name}")
             try:
                 self.process_local_pdf(path)
@@ -87,13 +89,17 @@ def extract_doi_from_pdf(_path: Path) -> str | None:
     return None
 
 
+def _fetch_pubmed_for_doi(doi: str, config: AppConfig, *, max_results: int = 1) -> list[Paper]:
+    return PubMedFetcher(config).fetch(doi, max_results=max_results)
+
+
 def process_local_pdf(file_path: Path, config: AppConfig | None = None):
     """Compatibility entrypoint used by legacy tests/scripts."""
     if config is None:
         return processor_process_local_pdf(file_path, config=None)
 
     doi = extract_doi_from_pdf(file_path)
-    fetched = fetch_pubmed([doi], max_results=1) if doi else []
+    fetched = _fetch_pubmed_for_doi(doi, config, max_results=1) if doi else []
     paper = fetched[0] if fetched else None
     if paper is None:
         fallback_paper = processor_process_local_pdf(file_path, config=config)
@@ -171,7 +177,7 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
     row["feedback_json"] = merge_feedback_json_with_intake_override(None, intake_override_log)
 
     save_paper_to_obsidian(row, config)
-    export_to_ris(row, Path(config.paths.export_dir))
+    ris_path = export_to_ris(row, Path(config.paths.export_dir))
     save_paper_state(
         row["paper_id"],
         row["title"],
@@ -180,6 +186,7 @@ def process_local_pdf(file_path: Path, config: AppConfig | None = None):
         doi=row.get("doi") or None,
         pdf_status=row.get("pdf_status"),
         local_pdf_path=row["pdf_path"],
+        ris_path=ris_path,
         feedback_json=row["feedback_json"],
         status=processing_status.value,
         issues_state=issues_state,

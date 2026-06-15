@@ -48,6 +48,41 @@ def test_save_paper_state_and_status_work_with_canonical_schema(tmp_path: Path):
         legacy_db.DB_PATH = original_db_path
 
 
+def test_legacy_save_paper_state_uses_canonical_doi_handling(tmp_path: Path):
+    original_db_path = legacy_db.DB_PATH
+    legacy_db.DB_PATH = tmp_path / "state.db"
+    try:
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        conn.execute(
+            """
+            CREATE TABLE papers (
+                paper_id TEXT PRIMARY KEY,
+                doi TEXT,
+                title TEXT,
+                source TEXT,
+                processed_date TEXT,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        legacy_db.save_paper_state("zotero:smith2026", "Zotero Paper", "zotero", "2026-05-24")
+        legacy_db.save_paper_state("https://doi.org/10.1000/ABC", "DOI Paper", "pubmed", "2026-05-24")
+
+        conn = sqlite3.connect(legacy_db.DB_PATH)
+        rows = conn.execute("SELECT paper_id, doi FROM papers ORDER BY paper_id").fetchall()
+        conn.close()
+
+        assert rows == [
+            ("https://doi.org/10.1000/ABC", "10.1000/abc"),
+            ("zotero:smith2026", None),
+        ]
+    finally:
+        legacy_db.DB_PATH = original_db_path
+
+
 def test_mark_as_retracted_works_without_existing_column(tmp_path: Path):
     original_db_path = legacy_db.DB_PATH
     legacy_db.DB_PATH = tmp_path / "state.db"

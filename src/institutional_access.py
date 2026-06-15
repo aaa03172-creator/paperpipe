@@ -4,7 +4,11 @@ import json
 import os
 from typing import Any, Optional
 
-PROXY_PREFIX = os.getenv("PAPERPIPE_INSTITUTIONAL_PROXY", "")
+def _resolve_proxy_prefix(proxy_prefix: Optional[str] = None) -> Optional[str]:
+    if proxy_prefix is None:
+        proxy_prefix = os.getenv("PAPERPIPE_INSTITUTIONAL_PROXY", "")
+    prefix = str(proxy_prefix or "").strip()
+    return prefix or None
 
 
 def _clean_doi(value: str) -> str:
@@ -33,8 +37,13 @@ def generate_institutional_proxy_url(
     doi: Optional[str] = None,
     publisher_url: Optional[str] = None,
     paper: Optional[dict[str, Any]] = None,
+    proxy_prefix: Optional[str] = None,
 ) -> Optional[str]:
-    """Build KNU libproxy URL from DOI first, then publisher URL."""
+    """Build configured institutional proxy URL from DOI first, then publisher URL."""
+    prefix = _resolve_proxy_prefix(proxy_prefix)
+    if not prefix:
+        return None
+
     if paper:
         feedback = _parse_feedback(paper.get("feedback_json"))
         links = feedback.get("links") if isinstance(feedback.get("links"), dict) else {}
@@ -49,11 +58,11 @@ def generate_institutional_proxy_url(
 
     clean_doi = _clean_doi(doi or "")
     if clean_doi:
-        return f"{PROXY_PREFIX}https://doi.org/{clean_doi}"
+        return f"{prefix}https://doi.org/{clean_doi}"
 
     target = (publisher_url or "").strip()
     if target.startswith("http://") or target.startswith("https://"):
-        return f"{PROXY_PREFIX}{target}"
+        return f"{prefix}{target}"
 
     return None
 

@@ -1,22 +1,47 @@
 import logging
+import hashlib
 from pathlib import Path
-from datetime import datetime
+import re
+import tempfile
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-def export_to_ris(paper_data: Dict[str, Any], export_dir: Path) -> Path:
+_RIS_FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _ris_export_path(paper_data: Dict[str, Any], export_dir: Path) -> Path:
+    identity = str(
+        paper_data.get("paper_id")
+        or paper_data.get("id")
+        or paper_data.get("doi")
+        or paper_data.get("title")
+        or "paper"
+    ).strip()
+    digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:12]
+    stem = _RIS_FILENAME_SAFE_RE.sub("_", identity).strip("._-") or "paper"
+    stem = stem[:80].strip("._-") or "paper"
+    return export_dir / "ris" / f"{stem}-{digest}.ris"
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        handle.write(content)
+        temp_path = Path(handle.name)
+    temp_path.replace(path)
+
+
+def export_to_ris(paper_data: Dict[str, Any], export_dir: Path) -> Path | None:
     """
     Export paper data to a RIS file for Zotero import.
-    Appends to a daily RIS file (e.g., export/2024-01-27_import.ris).
+    Writes one atomic RIS file per paper under export/ris/.
     """
     if not export_dir:
         logger.warning("Export directory not configured. Skipping Zotero export.")
         return None
 
-    export_dir.mkdir(parents=True, exist_ok=True)
-    today = datetime.now().strftime("%Y-%m-%d")
-    ris_file = export_dir / f"{today}_import.ris"
+    ris_file = _ris_export_path(paper_data, Path(export_dir))
     
     # process_paper returns result_dict which IS the paper dict + extras.
     # So `paper_data` argument here should be the result_dict from processor.
@@ -83,9 +108,7 @@ def export_to_ris(paper_data: Dict[str, Any], export_dir: Path) -> Path:
 
         ris_lines.append("ER  - \n")
         
-        # Append to file
-        with open(ris_file, "a", encoding="utf-8") as f:
-            f.write("\n".join(ris_lines))
+        _atomic_write_text(ris_file, "\n".join(ris_lines))
             
         logger.info(f"   📤 Exported to Zotero RIS: {ris_file}")
         return ris_file

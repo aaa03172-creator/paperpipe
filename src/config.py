@@ -4,7 +4,7 @@ import re
 import warnings
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal
 
 from src.services.runtime_paths import (
     config_file_path,
@@ -30,6 +30,7 @@ class SystemConfig(BaseModel):
     log_level: str = "INFO"
     unpaywall_email: Optional[str] = None
     check_retraction_on_ingest: bool = False # [NEW] Default to False
+    institutional_proxy_url: Optional[str] = None
 
 class PathsConfig(BaseModel):
     zotero_base_dir: Path
@@ -245,9 +246,11 @@ class LocalLLMConfig(BaseModel):
     concurrency: int = 4
 
 class CloudLLMConfig(BaseModel):
-    provider: Literal["openai", "anthropic"] = "openai"
+    provider: Literal["openai", "anthropic", "gemini"] = "openai"
+    openai_api: Literal["chat_completions", "responses"] = "chat_completions"
+    openai_json_mode: Literal["json_object", "json_schema"] = "json_object"
     api_key: Optional[str] = None
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4-mini"
     embedding_model: Optional[str] = None
 
 class LLMConfig(BaseModel):
@@ -267,8 +270,10 @@ class LLMConfig(BaseModel):
     def resolve_api_key(self):
         # 1. ENV overrides everything for Cloud, keyed by provider
         provider = str(self.cloud.provider or "openai").strip().lower()
-        env_var_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
-        env_key = os.getenv(env_var_name)
+        env_names = ("ANTHROPIC_API_KEY",) if provider == "anthropic" else (
+            ("GEMINI_API_KEY", "GOOGLE_API_KEY") if provider == "gemini" else ("OPENAI_API_KEY",)
+        )
+        env_key = next((os.getenv(env_name) for env_name in env_names if os.getenv(env_name)), None)
         if env_key:
             self.cloud.api_key = env_key
         

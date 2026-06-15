@@ -78,7 +78,7 @@ def test_full_integration():
     
     with patch("src.watcher.get_llm_provider", return_value=mock_llm):
         with patch("src.watcher.extract_doi_from_pdf", return_value="10.1234/integration.test"):
-            with patch("src.watcher.fetch_pubmed") as mock_fetch:
+            with patch("src.watcher._fetch_pubmed_for_doi") as mock_fetch:
                 with patch("src.watcher.save_paper_state") as mock_save_state:
                     mock_fetch.return_value = [Paper(
                         id="10.1234/integration.test",

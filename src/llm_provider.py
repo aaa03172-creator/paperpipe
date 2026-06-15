@@ -31,6 +31,8 @@ def _cloud_provider_label(config: LLMConfig) -> str:
     provider = _cloud_provider_name(config)
     if provider == "anthropic":
         return "Anthropic"
+    if provider == "gemini":
+        return "Google Gemini"
     return "OpenAI"
 
 
@@ -74,6 +76,7 @@ SPECIALTY_TRIAL_EXTRACTION_TASK = "specialty_trial_extraction"
 LEGACY_SPECIALTY_TRIAL_EXTRACTION_TASK = "trial_extraction"
 SLOT_ADJUDICATION_TASK = "slot_adjudication"
 TAGGING_ADJUDICATION_TASK = "tagging_adjudication"
+GEMINI_OPENAI_COMPATIBLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _HARD_TAG_SAMPLE_PATTERNS = (
     re.compile(r"\bn\s*[=:]\s*(\d{1,5})\b", re.IGNORECASE),
     re.compile(r"\b(\d{1,5})\s+(patients?|participants?|subjects?|volunteers?|cases?|mice|rats|animals?)\b", re.IGNORECASE),
@@ -946,25 +949,39 @@ class LLMProvider:
     def _get_model(self, task: str) -> str:
         """작업에 적합한 모델을 반환 (override 우선)"""
         task = self._normalize_task_name(task)
-        # Default behavior: rely on feature config overrides if enabled, else provider default
-        # This will be overridden by subclasses to map to specific model dicts (e.g. Ollama)
-        if self.config.features: # Check if features config exists
-            clinical_feature = resolve_clinical_extraction_feature(self.config.features)
-            if task == "clinical_extraction" and clinical_feature:
-                return clinical_feature.model
-            trial_feature = resolve_specialty_trial_extraction_feature(self.config.features)
-            if task == SPECIALTY_TRIAL_EXTRACTION_TASK and trial_feature:
-                return trial_feature.model
-            elif task == "one_liner" and self.config.features.one_liner:
-                return self.config.features.one_liner.model
-            elif task == "slot_classification" and self.config.features.slot_classification:
-                return self.config.features.slot_classification.model
+        feature_model = self._get_feature_model(task)
+        if feature_model:
+            return feature_model
         
         # Fallback to default_model if features not configured or task not found
         if self.config.default_model:
             return self.config.default_model
         
-        return "gpt-4o-mini" # Ultimate fallback
+        return "gpt-5.4-mini" # Ultimate cloud-compatible fallback
+
+    def _get_feature_model(self, task: str) -> Optional[str]:
+        task = self._normalize_task_name(task)
+        features = getattr(self.config, "features", None)
+        if not features:
+            return None
+
+        clinical_feature = resolve_clinical_extraction_feature(features)
+        if task == "clinical_extraction" and clinical_feature:
+            return str(clinical_feature.model)
+
+        trial_feature = resolve_specialty_trial_extraction_feature(features)
+        if task == SPECIALTY_TRIAL_EXTRACTION_TASK and trial_feature:
+            return str(trial_feature.model)
+
+        one_liner_feature = getattr(features, "one_liner", None)
+        if task == "one_liner" and one_liner_feature:
+            return str(one_liner_feature.model)
+
+        slot_feature = getattr(features, "slot_classification", None)
+        if task == "slot_classification" and slot_feature:
+            return str(slot_feature.model)
+
+        return None
 
     def _make_request(
         self,
@@ -2303,11 +2320,43 @@ class OpenAIProvider(LLMProvider):
             self.client = OpenAI(api_key=api_key)
 
     def _get_model(self, task: str) -> str:
-        # If cloud config has specific model per task, use it
+        feature_model = self._get_feature_model(task)
+        if feature_model:
+            return feature_model
         if self.config.cloud and self.config.cloud.model:
             return self.config.cloud.model
-        # Otherwise, fall back to the generic LLMProvider logic
         return super()._get_model(task)
+
+    def _uses_responses_api(self) -> bool:
+        cloud_config = getattr(self.config, "cloud", None)
+        if _cloud_provider_name(self.config) != "openai":
+            return False
+        return getattr(cloud_config, "openai_api", "chat_completions") == "responses"
+
+    def provider_api_mode(self) -> str:
+        return "responses" if self._uses_responses_api() else "chat_completions"
+
+    def _make_chat_completions_request(self, request_params: Dict[str, object]) -> str:
+        response = self.client.chat.completions.create(**request_params)
+        return response.choices[0].message.content
+
+    def _make_responses_request(self, request_params: Dict[str, object]) -> str:
+        response = self.client.responses.create(**request_params)
+        return response.output_text
+
+    def _openai_json_format(self, schema: Optional[Dict]) -> Dict[str, object]:
+        cloud_config = getattr(self.config, "cloud", None)
+        json_mode = getattr(cloud_config, "openai_json_mode", "json_object")
+        if json_mode != "json_schema" or not schema:
+            return {"type": "json_object"}
+        schema_name = str(schema.get("name") or "paperpipe_response")
+        schema_body = schema.get("schema") or schema
+        return {
+            "type": "json_schema",
+            "name": schema_name,
+            "strict": True,
+            "schema": schema_body,
+        }
 
     def _make_request(
         self,
@@ -2328,19 +2377,31 @@ class OpenAIProvider(LLMProvider):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        request_params = {
-            "model": model,
-            "messages": messages,
-            "temperature": self._temperature_for_task(task),
-            "timeout": self.config.timeout_seconds,
-        }
-        if is_json or schema: # OpenAI uses response_format for JSON, schema is not directly passed
-            request_params["response_format"] = {"type": "json_object"}
+        if self._uses_responses_api():
+            request_params = {
+                "model": model,
+                "input": messages,
+                "temperature": self._temperature_for_task(task),
+                "timeout": self.config.timeout_seconds,
+                "store": False,
+            }
+            if is_json or schema:
+                request_params["text"] = {"format": self._openai_json_format(schema)}
+            make_request = self._make_responses_request
+        else:
+            request_params = {
+                "model": model,
+                "messages": messages,
+                "temperature": self._temperature_for_task(task),
+                "timeout": self.config.timeout_seconds,
+            }
+            if is_json or schema: # OpenAI uses response_format for JSON, schema is not directly passed
+                request_params["response_format"] = {"type": "json_object"}
+            make_request = self._make_chat_completions_request
 
         for attempt in range(self.config.max_retries + 1):
             try:
-                response = self.client.chat.completions.create(**request_params)
-                return response.choices[0].message.content
+                return make_request(request_params)
             except RateLimitError:
                 wait_time = 2 ** (attempt + 1) # 2초, 4초, 8초 대기
                 logger.warning(f"LLM RateLimit hit on attempt {attempt + 1}. Retrying in {wait_time}s...")
@@ -2394,6 +2455,9 @@ class AnthropicProvider(LLMProvider):
             self.client = None
 
     def _get_model(self, task: str) -> str:
+        feature_model = self._get_feature_model(task)
+        if feature_model:
+            return feature_model
         if self.config.cloud and self.config.cloud.model:
             return self.config.cloud.model
         return super()._get_model(task)
@@ -2457,10 +2521,32 @@ class AnthropicProvider(LLMProvider):
         return None
 
 
+class GeminiProvider(OpenAIProvider):
+    """Google Gemini API via the OpenAI-compatible endpoint."""
+
+    def _initialize(self):
+        api_key = None
+        if self.config.cloud and self.config.cloud.api_key:
+            api_key = self.config.cloud.api_key
+
+        if not api_key:
+            logger.warning("Gemini API key is not configured. Gemini features will be disabled.")
+            self.client = None
+            return
+
+        self.client = OpenAI(api_key=api_key, base_url=GEMINI_OPENAI_COMPATIBLE_BASE_URL)
+
+    def get_embedding(self, text: str) -> Optional[List[float]]:
+        logger.warning("Gemini provider does not currently support embeddings in PaperPipe.")
+        return None
+
+
 def _build_cloud_provider(config: LLMConfig, entity_aliases: Dict[str, str] = None) -> LLMProvider:
     provider = _cloud_provider_name(config)
     if provider == "anthropic":
         return AnthropicProvider(config, entity_aliases)
+    if provider == "gemini":
+        return GeminiProvider(config, entity_aliases)
     return OpenAIProvider(config, entity_aliases)
 
 class OllamaProvider(LLMProvider):
@@ -2766,7 +2852,7 @@ def get_llm_provider(config: LLMConfig, entity_aliases: Dict[str, str] = None) -
             logger.error(f"Local mode specified, but no valid local provider configured: {config.local.provider if config.local else 'None'}")
             return None
     elif config.mode == "cloud":
-        if config.cloud and _cloud_provider_name(config) in {"openai", "anthropic"}:
+        if config.cloud and _cloud_provider_name(config) in {"openai", "anthropic", "gemini"}:
             logger.info(f"Initializing Cloud {_cloud_provider_label(config)} LLM Provider.")
             return _build_cloud_provider(config, entity_aliases)
         else:

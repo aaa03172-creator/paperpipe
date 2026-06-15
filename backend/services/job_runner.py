@@ -75,6 +75,7 @@ from src.timeout_policy import (
 from src.agents.feedback_retriever import FeedbackRetriever
 from src.quality.claimset_policy import enforce_claimset_evidence_policy
 from src.services.runtime_paths import artifact_run_dir, config_file_path, feedback_log_path, profiles_config_path
+from src.services.path_masking import mask_local_paths_in_text
 from src.services.performance_profile import StageTimer, summarize_stage_timings
 from src.services.privacy_preflight import (
     build_privacy_preflight_response,
@@ -361,12 +362,28 @@ def _resolve_persona_hint(persona_id: str) -> Optional[str]:
         if profile.id == pid and profile.enabled:
             hint_parts = [f"profile_id={profile.id}", f"title={profile.title}"]
             if profile.notes:
-                hint_parts.append(f"notes={profile.notes}")
+                hint_parts.append(f"notes={mask_local_paths_in_text(profile.notes)}")
             q = profile.query.to_boolean_string()
             if q:
                 hint_parts.append(f"query_focus={q}")
             return "\n".join(hint_parts)
     return None
+
+
+def _persona_application_event_messages(
+    selection: Any,
+    *,
+    reasoning_hint: str | None,
+    profile_hint: str | None,
+) -> list[tuple[int, str]]:
+    messages: list[tuple[int, str]] = []
+    if reasoning_hint and getattr(selection, "reasoning_persona", None):
+        messages.append((51, f"Reasoning persona applied: {selection.reasoning_persona}"))
+    if profile_hint and getattr(selection, "profile_id", None):
+        messages.append((52, f"Profile context applied: {selection.profile_id}"))
+    if not messages and (reasoning_hint or profile_hint) and not getattr(selection, "reasoning_persona", None) and not getattr(selection, "profile_id", None):
+        messages.append((52, f"Persona applied: {selection.persona_id}"))
+    return messages
 
 
 def _build_claimset_section_summary_payload(resolved_claimset: Any) -> list[Dict[str, Any]]:
@@ -694,6 +711,7 @@ def _record_inference_lane(
     redaction_applied: bool,
     provider_name: str | None = None,
     provider_model: str | None = None,
+    provider_api_mode: str | None = None,
 ) -> None:
     lanes = run_meta.setdefault("inference_lanes", {})
     if not isinstance(lanes, dict):
@@ -705,6 +723,7 @@ def _record_inference_lane(
         "redaction_applied": bool(redaction_applied),
         "provider_name": str(provider_name or "").strip() or None,
         "provider_model": str(provider_model or "").strip() or None,
+        "provider_api_mode": str(provider_api_mode or "").strip() or None,
     }
     _refresh_inference_summary(run_meta)
 
@@ -1434,6 +1453,7 @@ async def run_deepread_job(
         if is_clinical_note and clinical_extraction_enabled and llm_conf is not None:
             llm_provider = get_llm_provider(llm_conf, getattr(config, "entity_aliases", None))
             if llm_provider and llm_provider.is_available():
+                provider_api_mode = getattr(llm_provider, "provider_api_mode", None)
                 _record_inference_lane(
                     run_meta,
                     lane="clinical_extraction",
@@ -1446,6 +1466,7 @@ async def run_deepread_job(
                     redaction_applied=True,
                     provider_name=_class_name(llm_provider),
                     provider_model=_resolve_task_model_name(llm_provider, "clinical_extraction"),
+                    provider_api_mode=provider_api_mode() if callable(provider_api_mode) else None,
                 )
                 _write_run_meta(artifact_dir, run_meta)
                 extract_clinical = getattr(llm_provider, "extract_biomedical_clinical_data", None)
@@ -1608,6 +1629,11 @@ async def run_deepread_job(
         profile_hint = _resolve_persona_hint(selection.profile_id) if selection.profile_id else None
         if profile_hint:
             hint_sections.append(profile_hint)
+        persona_application_events = _persona_application_event_messages(
+            selection,
+            reasoning_hint=reasoning_hint,
+            profile_hint=profile_hint,
+        )
         persona_hint = "\n\n".join(section for section in hint_sections if section) or None
 
         # Dynamic few-shot injection based on reasoning/profile context.
@@ -1623,14 +1649,10 @@ async def run_deepread_job(
             bootstrap_meta["similar_feedback_count"] = len(similar_feedback)
             bootstrap_meta["similar_feedback_paper_ids"] = [item["paper_id"] for item in similar_feedback]
             await emit("read", 53, f"Similar feedback injected: {len(similar_feedback)}")
-        if persona_hint:
+        if persona_application_events:
             bootstrap_meta["persona_applied"] = True
-            if selection.reasoning_persona:
-                await emit("read", 51, f"Reasoning persona applied: {selection.reasoning_persona}")
-            if selection.profile_id:
-                await emit("read", 52, f"Profile context applied: {selection.profile_id}")
-            if not selection.reasoning_persona and not selection.profile_id:
-                await emit("read", 52, f"Persona applied: {selection.persona_id}")
+            for progress, message in persona_application_events:
+                await emit("read", progress, message)
         _write_bootstrap_meta(artifact_dir, bootstrap_meta)
         main_model = _resolve_main_model(config)
         bootstrap_meta["reader_model"] = main_model

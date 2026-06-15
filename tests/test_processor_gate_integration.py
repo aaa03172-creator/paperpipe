@@ -129,11 +129,86 @@ def test_processor_run_uses_runtime_storage_for_zotero_export(
     mock_sync_zotero_to_db.assert_called_once_with(expected_export)
 
 
+@patch("src.processor.sync_zotero_to_db")
+@patch("src.processor.get_papers_by_status")
+@patch("src.processor.get_llm_provider")
+@patch("src.processor.load_config")
+@patch("src.processor.update_paper_status")
+def test_processor_run_continues_later_steps_after_failure_threshold(
+    mock_update_status,
+    mock_load_config,
+    mock_get_llm,
+    mock_get_papers_by_status,
+    mock_sync_zotero_to_db,
+    caplog,
+):
+    mock_config = MagicMock()
+    mock_config.confidence_thresholds.high = 0.9
+    mock_config.confidence_thresholds.low = 0.7
+    mock_config.paths.upload_dir = None
+    mock_load_config.return_value = mock_config
+
+    class FakeProvider:
+        def is_available(self):
+            return True
+
+        def tag_paper(self, _payload):
+            return {
+                "confidence": 0.95,
+                "soft_tags": ["#resilient"],
+                "hard_tags": {"n": 3},
+                "evidence_span": "stable evidence",
+            }
+
+    mock_get_llm.return_value = FakeProvider()
+
+    gated_failures = [
+        {"paper_id": f"broken_gate_{idx}", "confidence": 0.95, "feedback_json": "{}"}
+        for idx in range(3)
+    ]
+    fetched_candidate = {
+        "paper_id": "healthy_fetch_001",
+        "title": "Healthy fetched paper",
+        "summary": "This candidate should still be analyzed.",
+        "pdf_path": None,
+    }
+
+    status_calls: dict[str, int] = {}
+
+    def _papers_for_status(statuses, limit=5):
+        status = statuses[0]
+        status_calls[status] = status_calls.get(status, 0) + 1
+        if status == "GATED" and status_calls[status] == 1:
+            return gated_failures[:limit]
+        if status == "FETCHED" and status_calls[status] == 1:
+            return [fetched_candidate][:limit]
+        return []
+
+    mock_get_papers_by_status.side_effect = _papers_for_status
+
+    processor = PaperProcessor()
+    def _failing_gate(_row):
+        raise RuntimeError("gate handler boom")
+
+    processor._step_gate = _failing_gate
+    with caplog.at_level("WARNING", logger="src.processor"):
+        processor.run(batch_size=4)
+
+    status_updates = [
+        (call.args[0], call.args[1])
+        for call in mock_update_status.call_args_list
+    ]
+    assert ("healthy_fetch_001", "GATED") in status_updates
+    failed_ids = {paper_id for paper_id, status in status_updates if status == STATE_FAILED}
+    assert failed_ids == {"broken_gate_0", "broken_gate_1", "broken_gate_2"}
+    assert "continuing remaining eligible stages" in caplog.text
+
+
 @patch("src.processor.get_llm_provider")
 @patch("src.processor.load_config")
 @patch("src.processor.update_paper_status")
 def test_step_gate_marks_failed_when_feedback_json_broken(
-    mock_update_status, mock_load_config, mock_get_llm
+    mock_update_status, mock_load_config, mock_get_llm, caplog
 ):
     mock_config = MagicMock()
     mock_config.confidence_thresholds.high = 0.9
@@ -144,20 +219,22 @@ def test_step_gate_marks_failed_when_feedback_json_broken(
     mock_get_llm.return_value = _FakeProviderWithoutEscalation()
 
     processor = PaperProcessor()
-    processor._step_gate({"paper_id": "broken", "confidence": 0.95, "feedback_json": "{bad json"})
+    with caplog.at_level("WARNING", logger="src.processor"):
+        processor._step_gate({"paper_id": "broken", "confidence": 0.95, "feedback_json": "{bad json"})
     assert mock_update_status.call_args[0][1] == STATE_FAILED
     updates = mock_update_status.call_args[0][2]
     payload = json.loads(updates["feedback_json"])
     assert payload["intake_override_log"]["producer"] == "processor_gate"
     assert payload["intake_override_log"]["analysis_available"] is False
     assert payload["intake_override_log"]["processing_status"] == "FAILED"
+    assert "Failed to parse feedback_json for broken during gate evaluation" in caplog.text
 
 
 @patch("src.processor.get_llm_provider")
 @patch("src.processor.load_config")
 @patch("src.processor.update_paper_status")
 def test_step_gate_marks_failed_when_schema_invalid(
-    mock_update_status, mock_load_config, mock_get_llm
+    mock_update_status, mock_load_config, mock_get_llm, caplog
 ):
     mock_config = MagicMock()
     mock_config.confidence_thresholds.high = 0.9
@@ -168,14 +245,16 @@ def test_step_gate_marks_failed_when_schema_invalid(
     mock_get_llm.return_value = _FakeProviderWithoutEscalation()
 
     processor = PaperProcessor()
-    processor._step_gate(
-        {
-            "paper_id": "schema_bad",
-            "confidence": 0.95,
-            "feedback_json": '{"confidence": 0.95, "soft_tags": ["#a"], "hard_tags": "invalid_type"}',
-        }
-    )
+    with caplog.at_level("WARNING", logger="src.processor"):
+        processor._step_gate(
+            {
+                "paper_id": "schema_bad",
+                "confidence": 0.95,
+                "feedback_json": '{"confidence": 0.95, "soft_tags": ["#a"], "hard_tags": "invalid_type"}',
+            }
+        )
     assert mock_update_status.call_args[0][1] == STATE_FAILED
+    assert "feedback_json schema validation failed for schema_bad during gate evaluation" in caplog.text
 
 
 @patch("src.processor.get_llm_provider")

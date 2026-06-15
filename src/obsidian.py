@@ -11,6 +11,14 @@ from src.skills.storage import atomic_write_text, resolve_vault_relative_path
 logger = logging.getLogger(__name__)
 
 
+def _frontmatter_id_line(paper: Dict[str, Any]) -> str:
+    paper_id = str(paper.get("paper_id") or paper.get("id") or "").strip()
+    if not paper_id:
+        return ""
+    escaped = paper_id.replace("\\", "\\\\").replace('"', '\\"')
+    return f'id: "{escaped}"\n'
+
+
 def _atomic_write_csv_rows(path: Path, headers: list[str], rows: list[dict[str, Any]]) -> None:
     buffer = StringIO(newline="")
     writer = csv.DictWriter(buffer, fieldnames=headers, extrasaction="ignore")
@@ -105,6 +113,7 @@ def get_template_study(paper: Dict[str, Any]) -> str:
     
     return f"""---
 type: paper
+{_frontmatter_id_line(paper)}\
 aliases: ["{paper['title']}"]
 tags: {tags_list}
 cssclasses: ["paper-note"]
@@ -255,6 +264,7 @@ def get_template_trial(
 
     return f"""---
 type: clinical_paper
+{_frontmatter_id_line(paper)}\
 aliases: ["{paper['title']}"]
 tags: {tags_list}
 cssclasses: ["clinical-note"]

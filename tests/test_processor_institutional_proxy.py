@@ -1,24 +1,25 @@
 import json
+import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import src.processor as processor
-from src.schemas.core import BiomedicalClinicalExtraction
+from src.schemas.core import BiomedicalClinicalExtraction, PaperTagging
 
 
-def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkeypatch):
+def test_process_daily_slots_logs_output_failures(monkeypatch, caplog):
     fake_paper = SimpleNamespace(
-        id="p_inst_001",
-        doi="10.1000/inst001",
-        title="Institutional Paper",
+        id="p_output_failure_001",
+        doi="10.1000/output-failure",
+        title="Output Failure Paper",
         authors=["A"],
         published="2026-02-21",
         source="test",
         summary="s",
-        link="https://publisher.example/paper",
-        local_pdf_path=None,
+        link="https://publisher.example/output-failure",
+        local_pdf_path="/tmp/output-failure.pdf",
         download_attempts=[],
     )
-
     fake_slot = SimpleNamespace(query="memory")
     fake_config = SimpleNamespace(
         search=SimpleNamespace(slots={"mechanism": fake_slot}),
@@ -37,7 +38,66 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
     monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
     monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
     monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
-    monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_: None)
+    monkeypatch.setattr(
+        processor,
+        "save_paper_to_obsidian",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("obsidian boom")),
+    )
+    monkeypatch.setattr(
+        processor,
+        "export_to_ris",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ris boom")),
+    )
+    monkeypatch.setattr(
+        processor,
+        "save_paper_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("db boom")),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="src.processor"):
+        rows = processor.process_daily_slots(ignore_db=True)
+
+    assert len(rows) == 1
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Failed to save Obsidian note for p_output_failure_001" in messages
+    assert "Failed to export RIS for p_output_failure_001" in messages
+    assert "Failed to save paper state for p_output_failure_001" in messages
+
+
+def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkeypatch):
+    fake_paper = SimpleNamespace(
+        id="p_inst_001",
+        doi="10.1000/inst001",
+        title="Institutional Paper",
+        authors=["A"],
+        published="2026-02-21",
+        source="test",
+        summary="s",
+        link="https://publisher.example/paper",
+        local_pdf_path=None,
+        download_attempts=[],
+    )
+
+    fake_slot = SimpleNamespace(query="memory")
+    fake_config = SimpleNamespace(
+        system=SimpleNamespace(institutional_proxy_url="https://configured.proxy/_Lib_Proxy_Url/"),
+        search=SimpleNamespace(slots={"mechanism": fake_slot}),
+        llm=SimpleNamespace(features=SimpleNamespace(slot_classification=SimpleNamespace(enabled=False))),
+        entity_aliases={},
+        confidence_thresholds=SimpleNamespace(high=0.9, low=0.7),
+        paths=SimpleNamespace(export_dir="export"),
+    )
+
+    class FakeFetcher:
+        def fetch(self, query, max_results=5):
+            return [fake_paper]
+
+    monkeypatch.setattr(processor, "load_config", lambda: fake_config)
+    monkeypatch.setattr(processor, "get_llm_provider", lambda *a, **k: None)
+    monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
+    monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
+    monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
+    monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(processor, "export_to_ris", lambda *_: None)
     saved_calls = []
     monkeypatch.setattr(processor, "save_paper_state", lambda *args, **kwargs: saved_calls.append((args, kwargs)))
@@ -49,8 +109,12 @@ def test_process_daily_slots_injects_institutional_proxy_when_pdf_missing(monkey
     assert row["pdf_status"] == "manual_required"
     assert "feedback_json" in row
     assert "institutional_proxy_url" in row["feedback_json"]
-    assert "proxy.example.ac.kr" in row["feedback_json"]
+    assert "configured.proxy" in row["feedback_json"]
     payload = json.loads(row["feedback_json"])
+    assert PaperTagging.model_validate(payload)
+    assert payload["confidence"] == 0.0
+    assert payload["soft_tags"] == []
+    assert payload["hard_tags"] == {}
     assert payload["intake_override_log"]["producer"] == "processor_daily_slots"
     assert payload["intake_override_log"]["analysis_available"] is False
     assert payload["intake_override_log"]["issues_state"] == "unavailable"
@@ -120,6 +184,10 @@ def test_process_daily_slots_records_slot_override_logging(monkeypatch):
 
     assert len(rows) == 1
     payload = json.loads(rows[0]["feedback_json"])
+    assert PaperTagging.model_validate(payload)
+    assert payload["confidence"] == 0.74
+    assert payload["soft_tags"] == ["#flagged"]
+    assert payload["hard_tags"] == {}
     assert payload["intake_override_log"]["input_slot"] == "mechanism"
     assert payload["intake_override_log"]["stored_slot"] == "clinical"
     assert payload["intake_override_log"]["slot_changed"] is True
@@ -135,6 +203,115 @@ def test_process_daily_slots_records_slot_override_logging(monkeypatch):
     assert payload["intake_override_log"]["llm_slot_adjudication_reason"] == "signal_conflict"
     assert len(saved_calls) == 1
     assert json.loads(saved_calls[0][1]["feedback_json"])["intake_override_log"]["slot_changed"] is True
+
+
+def test_process_daily_slots_logs_slot_classification_failure(monkeypatch, caplog):
+    fake_paper = SimpleNamespace(
+        id="p_slot_failure_001",
+        doi="10.1000/slot-failure",
+        title="Slot Failure Paper",
+        authors=["A"],
+        published="2026-02-21",
+        source="test",
+        summary="s",
+        link="https://publisher.example/paper",
+        local_pdf_path="/tmp/p_slot_failure_001.pdf",
+        download_attempts=[],
+    )
+
+    fake_slot = SimpleNamespace(query="memory")
+    fake_config = SimpleNamespace(
+        search=SimpleNamespace(slots={"mechanism": fake_slot}),
+        llm=SimpleNamespace(features=SimpleNamespace(slot_classification=SimpleNamespace(enabled=True))),
+        entity_aliases={},
+        confidence_thresholds=SimpleNamespace(high=0.9, low=0.7),
+        paths=SimpleNamespace(export_dir="export"),
+    )
+
+    class FakeFetcher:
+        def fetch(self, query, max_results=5):
+            return [fake_paper]
+
+    class FakeLLM:
+        def is_available(self):
+            return True
+
+        def tag_paper(self, _payload):
+            return {"soft_tags": ["#flagged"], "confidence": 0.74}
+
+        def classify_slot(self, _payload, _slot):
+            raise RuntimeError("classifier boom")
+
+    monkeypatch.setattr(processor, "load_config", lambda: fake_config)
+    monkeypatch.setattr(processor, "get_llm_provider", lambda *a, **k: FakeLLM())
+    monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
+    monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
+    monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
+    monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(processor, "export_to_ris", lambda *_: None)
+    monkeypatch.setattr(processor, "save_paper_state", lambda *_args, **_kwargs: None)
+
+    with caplog.at_level(logging.WARNING, logger="src.processor"):
+        rows = processor.process_daily_slots(ignore_db=True)
+
+    assert rows[0]["slot"] == "mechanism"
+    assert "Slot classification failed for p_slot_failure_001" in caplog.text
+
+
+def test_process_daily_slots_logs_gate_feedback_parse_failure(monkeypatch, caplog):
+    fake_paper = SimpleNamespace(
+        id="p_gate_json_failure_001",
+        doi="10.1000/gate-json-failure",
+        title="Gate JSON Failure Paper",
+        authors=["A"],
+        published="2026-02-21",
+        source="test",
+        summary="s",
+        link="https://publisher.example/paper",
+        local_pdf_path="/tmp/p_gate_json_failure_001.pdf",
+        download_attempts=[],
+    )
+
+    fake_slot = SimpleNamespace(query="memory")
+    fake_config = SimpleNamespace(
+        search=SimpleNamespace(slots={"mechanism": fake_slot}),
+        llm=SimpleNamespace(features=SimpleNamespace(slot_classification=SimpleNamespace(enabled=False))),
+        entity_aliases={},
+        confidence_thresholds=SimpleNamespace(high=0.9, low=0.7),
+        paths=SimpleNamespace(export_dir="export"),
+    )
+
+    class FakeFetcher:
+        def fetch(self, query, max_results=5):
+            return [fake_paper]
+
+    class FakeLLM:
+        def is_available(self):
+            return True
+
+        def tag_paper(self, _payload):
+            return {"soft_tags": ["#flagged"], "confidence": 0.74}
+
+    monkeypatch.setattr(processor, "load_config", lambda: fake_config)
+    monkeypatch.setattr(processor, "get_llm_provider", lambda *a, **k: FakeLLM())
+    monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
+    monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
+    monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
+    monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(processor, "export_to_ris", lambda *_: None)
+    monkeypatch.setattr(processor, "save_paper_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        processor,
+        "_feedback_json_from_tagging",
+        lambda *_args, **_kwargs: "{not valid json",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="src.processor"):
+        rows = processor.process_daily_slots(ignore_db=True)
+
+    assert len(rows) == 1
+    assert "Failed to parse feedback_json for daily slot gate evaluation on p_gate_json_failure_001" in caplog.text
+    assert "Failed to parse feedback_json payload during merge" in caplog.text
 
 
 def test_process_daily_slots_keeps_non_doi_identifier_out_of_doi_field(monkeypatch):
@@ -166,13 +343,14 @@ def test_process_daily_slots_keeps_non_doi_identifier_out_of_doi_field(monkeypat
 
     exported_rows = []
     saved_calls = []
+    ris_path = Path("export/2026-02-24_import.ris")
     monkeypatch.setattr(processor, "load_config", lambda: fake_config)
     monkeypatch.setattr(processor, "get_llm_provider", lambda *a, **k: None)
     monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
     monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
     monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
     monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_: None)
-    monkeypatch.setattr(processor, "export_to_ris", lambda row, *_args, **_kwargs: exported_rows.append(row))
+    monkeypatch.setattr(processor, "export_to_ris", lambda row, *_args, **_kwargs: exported_rows.append(row) or ris_path)
     monkeypatch.setattr(processor, "save_paper_state", lambda *args, **kwargs: saved_calls.append((args, kwargs)))
 
     rows = processor.process_daily_slots(ignore_db=True)
@@ -186,6 +364,7 @@ def test_process_daily_slots_keeps_non_doi_identifier_out_of_doi_field(monkeypat
     assert saved_calls[0][0][0] == "PMID:12345"
     assert saved_calls[0][1]["doi"] is None
     assert saved_calls[0][1]["pdf_status"] == "downloaded"
+    assert saved_calls[0][1]["ris_path"] == ris_path
 
 
 def test_process_daily_slots_persists_flagged_issues_state_when_analysis_requires_review(monkeypatch):
@@ -237,6 +416,67 @@ def test_process_daily_slots_persists_flagged_issues_state_when_analysis_require
     assert rows[0]["processing_status"].value == "PENDING_REVIEW"
     assert len(saved_calls) == 1
     assert saved_calls[0][1]["issues_state"] == "flagged"
+
+
+def test_process_daily_slots_checks_retraction_when_enabled(monkeypatch):
+    fake_paper = SimpleNamespace(
+        id="p_retracted_001",
+        doi="10.1000/retracted",
+        title="Retracted Paper",
+        authors=["A"],
+        published="2026-02-21",
+        source="test",
+        summary="s",
+        link="https://publisher.example/retracted",
+        local_pdf_path="/tmp/p_retracted_001.pdf",
+        download_attempts=[],
+    )
+
+    fake_slot = SimpleNamespace(query="memory")
+    fake_config = SimpleNamespace(
+        system=SimpleNamespace(check_retraction_on_ingest=True, unpaywall_email="ops@example.test"),
+        search=SimpleNamespace(slots={"mechanism": fake_slot}),
+        llm=SimpleNamespace(features=SimpleNamespace(slot_classification=SimpleNamespace(enabled=False))),
+        entity_aliases={},
+        confidence_thresholds=SimpleNamespace(high=0.9, low=0.7),
+        paths=SimpleNamespace(export_dir="export"),
+    )
+
+    class FakeFetcher:
+        def fetch(self, query, max_results=5):
+            return [fake_paper]
+
+    retraction_calls = []
+    marked_retracted = []
+
+    monkeypatch.setattr(processor, "load_config", lambda: fake_config)
+    monkeypatch.setattr(processor, "get_llm_provider", lambda *a, **k: None)
+    monkeypatch.setattr(processor, "get_fetchers", lambda *_: [FakeFetcher()])
+    monkeypatch.setattr(processor, "is_paper_processed", lambda *_: False)
+    monkeypatch.setattr(processor, "download_paper", lambda paper, _cfg: paper)
+    monkeypatch.setattr(processor, "save_paper_to_obsidian", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(processor, "export_to_ris", lambda *_: None)
+    monkeypatch.setattr(processor, "save_paper_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(processor, "mark_as_retracted", lambda identifier: marked_retracted.append(identifier) or True)
+    monkeypatch.setattr(
+        processor,
+        "check_retraction",
+        lambda doi, email=None: retraction_calls.append((doi, email))
+        or {"is_retracted": True, "retraction_details": "Retraction Watch: IS_RETRACTED"},
+    )
+
+    rows = processor.process_daily_slots(ignore_db=True)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert retraction_calls == [("10.1000/retracted", "ops@example.test")]
+    assert marked_retracted == ["p_retracted_001"]
+    assert row["processing_status"].value == "QUARANTINED"
+    assert row["gate_decision"] == "QUARANTINED"
+    assert "RETRACTED" in row["gate_reason"]
+    assert row["retraction_check"]["is_retracted"] is True
+    payload = json.loads(row["feedback_json"])
+    assert payload["retraction_check"]["retraction_details"] == "Retraction Watch: IS_RETRACTED"
 
 
 def test_process_daily_slots_persists_generic_clinical_extraction_when_enabled(monkeypatch):
@@ -321,8 +561,11 @@ def test_process_daily_slots_persists_generic_clinical_extraction_when_enabled(m
     rows = processor.process_daily_slots(ignore_db=True)
 
     assert len(rows) == 1
+    assert rows[0]["processing_status"].value == "PENDING_REVIEW"
     assert rows[0]["clinical_data"]["population"]["condition"] == "Metastatic non-small cell lung cancer"
     payload = json.loads(rows[0]["feedback_json"])
+    assert payload["gate_decision"] == "PENDING_REVIEW"
+    assert "EVIDENCE_MISSING" in payload["gate_reason"]
     assert payload["clinical_data"]["population"]["condition"] == "Metastatic non-small cell lung cancer"
     assert len(obsidian_calls) == 1
     assert isinstance(obsidian_calls[0][1]["extraction"], BiomedicalClinicalExtraction)

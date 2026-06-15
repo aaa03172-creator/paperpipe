@@ -3,7 +3,7 @@ import json
 import sqlite3
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import yaml
 
@@ -26,6 +26,18 @@ TEST_FIXTURE_OWNER = "TEST_FIXTURE"
 _NOTE_STEM_ALLOWED_RE = re.compile(r"[^A-Za-z0-9 _-]+")
 _WHITESPACE_RE = re.compile(r"\s+")
 _PREFIXED_PAPER_ID_RE = re.compile(r"^(zotero|pmid):(.+)$", re.IGNORECASE)
+
+
+def _parse_updated_at_utc(raw_value: Any) -> datetime:
+    text = str(raw_value or "").strip()
+    if not text:
+        raise ValueError("updated_at is empty")
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 def _build_zotero_links(paper: Dict[str, Any]) -> List[str]:
     links: List[str] = []
@@ -60,14 +72,18 @@ def _build_pdf_links(paper: Dict[str, Any], vault_path: Path) -> List[str]:
     return links
 
 
-def _build_institutional_download_block(paper: Dict[str, Any], feedback: Dict[str, Any]) -> str:
+def _build_institutional_download_block(
+    paper: Dict[str, Any],
+    feedback: Dict[str, Any],
+    proxy_prefix: Optional[str] = None,
+) -> str:
     status = str(paper.get("pdf_status") or "").strip().lower()
     if status != "manual_required":
         return ""
 
     url = extract_institutional_proxy_link(feedback)
     if not url:
-        url = generate_institutional_proxy_url(paper=paper)
+        url = generate_institutional_proxy_url(paper=paper, proxy_prefix=proxy_prefix)
     if not url:
         return ""
 
@@ -608,6 +624,7 @@ def export_paper_to_markdown(
     vault_path: Path,
     overwrite: bool = False,
     related_candidates: Optional[List[Dict[str, Any]]] = None,
+    proxy_prefix: Optional[str] = None,
 ) -> bool:
     """
     Exports a single paper to an Obsidian Markdown file.
@@ -677,7 +694,7 @@ def export_paper_to_markdown(
     links.extend(_build_zotero_links(paper))
     links.extend(_build_pdf_links(paper, vault_path))
     references_block = "\n".join([f"* {link}" for link in links]) if links else "*No external links available.*"
-    institutional_block = _build_institutional_download_block(paper, feedback)
+    institutional_block = _build_institutional_download_block(paper, feedback, proxy_prefix=proxy_prefix)
     missing_pdf_block = _build_missing_pdf_block(paper)
     claimset_claims = resolve_claimset_claims(paper, feedback)
     claimset_block = _format_claimset_section(paper, claimset_claims)
@@ -740,20 +757,13 @@ status: {paper['status']}
         # File exists, check timestamps
             # File exists, check timestamps
         try:
-            file_mtime = target_file.stat().st_mtime
             db_updated_str = paper.get('updated_at')
             
             if db_updated_str:
-                # DB format: YYYY-MM-DD HH:MM:SS.ssssss
-                # Simplified parsing: string comparison works for ISO-like if timezone matches (local).
-                # But let's be safe: convert to timestamp if possible or just use strict overwrite policy.
-                
-                # Option A: If DB string > File timestamp string? No, encoding differs.
-                # Option B: Parse DB string.
-                dt_db = datetime.fromisoformat(db_updated_str)
-                ts_db = dt_db.timestamp()
-                
-                if ts_db > file_mtime:
+                dt_db = _parse_updated_at_utc(db_updated_str)
+                file_updated_at = datetime.fromtimestamp(target_file.stat().st_mtime, tz=timezone.utc)
+
+                if dt_db > file_updated_at:
                     should_write = True
                     # logger.info(f"  -> Updating {pid} (DB newer)")
         except Exception:
@@ -777,6 +787,7 @@ def run_export(overwrite: bool = True):
     Exports all APPROVED/INDEXED papers to Obsidian.
     """
     config = load_config()
+    institutional_proxy_url = getattr(config.system, "institutional_proxy_url", None)
     vault_path_str = config.paths.obsidian_vault
     if not vault_path_str:
         logger.error("obsidian_vault path not set in config.")
@@ -801,7 +812,10 @@ def run_export(overwrite: bool = True):
     for p in papers:
         try:
             if not p.get("pdf_path"):
-                proxy_url = generate_institutional_proxy_url(paper=p)
+                proxy_url = generate_institutional_proxy_url(
+                    paper=p,
+                    proxy_prefix=institutional_proxy_url,
+                )
                 if proxy_url:
                     updated_feedback = upsert_institutional_proxy_link(p.get("feedback_json"), proxy_url)
                     p["feedback_json"] = updated_feedback
@@ -818,7 +832,13 @@ def run_export(overwrite: bool = True):
             # Backward compatibility for legacy test schemas without pdf_status.
             pass
 
-        if export_paper_to_markdown(p, vault_path, overwrite, related_candidates=papers):
+        if export_paper_to_markdown(
+            p,
+            vault_path,
+            overwrite,
+            related_candidates=papers,
+            proxy_prefix=institutional_proxy_url,
+        ):
             count += 1
             try:
                 cursor.execute(
