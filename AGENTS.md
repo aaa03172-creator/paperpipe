@@ -43,7 +43,7 @@
 - Before staging, committing, branching, or creating a worktree, inspect the current git status and preserve unrelated dirty changes.
 - Do not create branches, worktrees, commits, pushes, or PRs unless the user asks or the task clearly requires it.
 - For mixed dirty trees or non-trivial lane splits, prefer creating a clean branch/worktree from the latest merged base instead of staging directly from the dirty main worktree.
-- Keep branch strategy explicit: repository default branch is currently `main`, while some PR/CI checks may still target `master` until the integration strategy is unified.
+- Keep branch strategy explicit: repository default branch is currently `main`; PR checks should accept `main` and `master`, while master-only push/soft-gate checks may remain until the integration strategy is unified.
 - Stage only the files or hunks that belong to the active lane. Use patch staging for mixed files.
 - Keep local backup branch cleanup opt-in: follow `docs/Local_Backup_Branch_Retention_2026-02-24.md`, review dry-run output first, and require explicit `--apply` for deletion.
 

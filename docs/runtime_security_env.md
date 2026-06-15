@@ -36,6 +36,94 @@ Recommended pattern:
 - set the matching provider env var instead
 - keep `OPENAI_API_KEY` if you need OpenAI embeddings, because Anthropic is currently text/chat-only in the generic runtime path
 
+## Optional Cloud Paper Storage And Metadata Adapters
+
+Cloud paper/page development defaults to a no-credential mock storage adapter:
+
+```bash
+export PAPERPIPE_CLOUD_ADAPTER="mock"
+```
+
+Allowed values:
+
+- `mock`: default local/test mode; does not import GCP SDKs or require GCP credentials.
+- `gcs`: GCS-ready mode for the cloud paper upload path; validates config and fails closed until the runtime dependency and real upload implementation are present.
+
+When `PAPERPIPE_CLOUD_ADAPTER="gcs"`, set:
+
+```bash
+export PAPERPIPE_GCP_PROJECT_ID="your-gcp-project"
+export PAPERPIPE_GCS_RAW_PDF_BUCKET="your-raw-pdf-bucket"
+export PAPERPIPE_GCS_PAGE_ARTIFACT_BUCKET="your-page-artifact-bucket"
+```
+
+Cloud paper metadata defaults to an in-memory store for local/test runs:
+
+```bash
+export PAPERPIPE_CLOUD_METADATA_STORE="memory"
+```
+
+Accepted values:
+
+- `memory`: default demo-safe local mode; process-local and not production durable.
+- `firestore`: durable metadata direction for the GCP production path.
+
+When `PAPERPIPE_CLOUD_METADATA_STORE="firestore"`, set:
+
+```bash
+export PAPERPIPE_GCP_PROJECT_ID="your-gcp-project"
+export PAPERPIPE_FIRESTORE_CLOUD_PAPER_COLLECTION="cloud_papers"
+```
+
+Install the optional cloud dependency in runtimes that actually use GCS:
+
+```bash
+python -m pip install ".[cloud]"
+```
+
+Compatibility aliases are accepted for early local experiments:
+
+- `LATTICE_CLOUD_ADAPTER`
+- `LATTICE_CLOUD_METADATA_STORE`
+- `LATTICE_GCP_PROJECT_ID`
+- `LATTICE_GCS_RAW_PDF_BUCKET`
+- `LATTICE_GCS_PAGE_ARTIFACT_BUCKET`
+- `LATTICE_FIRESTORE_CLOUD_PAPER_COLLECTION`
+
+Do not expose these values through `VITE_*`, frontend config, public DTOs, logs intended for users, or persisted public cloud paper bundles. If GCS mode is selected before the dependency/credentials/implementation are ready, `/cloud/papers/upload-intents`, `/cloud/papers/{paper_id}/source-pdf`, or `/cloud/papers/{paper_id}/complete-upload` returns `503 CLOUD_PAPER_STORAGE_UNAVAILABLE` rather than leaking storage details or silently falling back to mock.
+
+If Firestore metadata mode is selected before the dependency/credentials/configuration are ready, the backend must fail closed during the metadata-store initialization path rather than silently falling back to process-local metadata. For the challenge demo, Firestore Native `(default)` exists in `asia-northeast3` and the real Firestore + GCS smoke passed with collection `cloud_papers_demo`; keep `PAPERPIPE_CLOUD_METADATA_STORE="memory"` as the rollback path.
+
+Current real-GCS slice:
+
+- `CloudPaperMetadataStore` has an in-memory implementation and a Firestore implementation wired behind `PAPERPIPE_CLOUD_METADATA_STORE=firestore`. The Firestore store is the accepted production direction, but the June 5, 2026 challenge demo may keep process-local metadata if that is the safer stage path.
+- `POST /cloud/papers/upload-intents` returns a redacted backend-mediated upload intent when GCS is configured.
+- `POST /cloud/papers/{paper_id}/source-pdf` accepts a multipart `source_pdf` file and writes it to the configured raw PDF bucket through the backend.
+- The backend writes server-computed metadata to each raw PDF object: `paper_id`, `lab_id`, and `source_pdf_sha256`.
+- `POST /cloud/papers/{paper_id}/complete-upload` verifies the raw object exists and that its metadata checksum matches the upload intent before marking the paper ready.
+- Missing objects and checksum mismatches return a blocked public bundle; they do not expose GCS refs, bucket names, signed URLs, credentials, or local paths.
+- `complete-upload` writes the current schema-backed mock page-worker artifact to the configured page artifact bucket before marking an upload-intent-backed paper ready.
+- Page processing currently runs through an in-process worker boundary. It records `running`, `ready`, or `failed` metadata states and writes page artifacts through the storage adapter; it is not yet a deployed Cloud Run/Pub/Sub worker.
+- `GET /cloud/papers/{paper_id}/page` reads stored page artifacts for upload-intent-backed papers and returns only the normalized public page DTO.
+- `POST /cloud/papers/{paper_id}/hydrate-local` reads the source PDF and page artifact through the storage adapter, writes `source/source.pdf`, `page/page.json`, and `cloud_hydration_manifest.json` under the local artifacts root, and returns only redacted hydration state.
+- Hydration is idempotent for existing matching manifests; conflicting existing manifests are treated as stale and are not overwritten.
+- Public responses include checksum, size, status, and ids only; they do not expose GCS object refs, bucket names, signed URLs, credentials, or local paths.
+
+Beta cloud access headers:
+
+- `X-PaperPipe-Actor-Id`
+- `X-PaperPipe-Lab-Id`
+- `X-PaperPipe-Role`: `lab_admin`, `maintainer`, `reviewer`, or `reader`
+- `X-PaperPipe-Device-Registered`: boolean
+- `X-PaperPipe-Session-Approved`: boolean
+- `X-PaperPipe-Download-Allowed`: boolean
+
+When the beta headers are absent, cloud read routes default to local reader compatibility: authenticated, same-lab, registered device, page-read only, no PDF download or hydrate permission. Cross-lab, unauthenticated, or untrusted-device contexts receive no paper actions. `hydrate-local` requires `X-PaperPipe-Download-Allowed: true` on a role that can download.
+
+Cloud status reads, page reads, and hydrate/download actions write best-effort `user_actions` audit rows with source `cloud_papers`. These rows intentionally record actor/lab/role/device policy and paper/run ids only; they must not include GCS refs, bucket names, signed URLs, credentials, service accounts, local paths, or PDF/page contents.
+
+This beta header policy is not production user authentication. Keep it behind the existing API-key/same-origin or beta gate until real user/session/lab identity is adopted.
+
 ## Reserved Privacy Preflight Pilot Flag
 
 The reserved rollback flag for a future export/external-inference privacy preflight pilot is:
@@ -78,6 +166,7 @@ When `LATTICE_API_KEY` is set, these write endpoints require `X-API-Key`:
 - `POST /meeting-packs/*`
 - `POST /image-evidence/*`
 - `POST /chart-packs/*`
+- `POST /cloud/*`
 - `POST /method-comparisons/*`
 - `POST /protocol-cards*`
 
@@ -93,6 +182,7 @@ These sensitive read endpoints also require `X-API-Key`:
 - `GET /meeting-packs*`
 - `GET /method-comparisons*`
 - `GET /chart-packs*`
+- `GET /cloud*`
 - `GET /protocol-cards*`
 - `GET /image-evidence*`
 - `GET /paper-syntheses*`
